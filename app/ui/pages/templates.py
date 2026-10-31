@@ -455,7 +455,13 @@ def update_templates_table(store_data: Any, search_val: str | None, status_val: 
     prevent_initial_call=True,
 )
 def toggle_import_modal(open_clicks: Any, close_clicks: Any, is_opened: bool) -> bool:
-    return not is_opened
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False
+    trigger = ctx_dash.triggered[0]
+    trigger_id = trigger["prop_id"].split(".")[0]
+    trigger_val = trigger.get("value")
+    return trigger_id == "tmpl-import-btn" and bool(trigger_val)
 
 
 # Callback thực hiện Import JSON

@@ -827,8 +827,11 @@ def handle_drawer_open(*args: Any) -> Any:
     if not ctx_dash.triggered:
         return False, None, "", "DEV", "", 1521, "", "", "", 600
 
-    trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
-    if "ds-drawer-cancel-btn" in trigger_id:
+    trigger = ctx_dash.triggered[0]
+    trigger_val = trigger.get("value")
+    trigger_id = trigger["prop_id"].split(".")[0]
+
+    if "ds-drawer-cancel-btn" in trigger_id or not trigger_val:
         return False, None, "", "DEV", "", 1521, "", "", "", 600
 
     if trigger_id == "ds-add-btn":
@@ -940,7 +943,13 @@ def handle_purge_preview(
     prevent_initial_call=True,
 )
 def toggle_purge_confirm_modal(open_clicks: Any, cancel_clicks: Any, is_opened: bool) -> bool:
-    return not is_opened
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False
+    trigger = ctx_dash.triggered[0]
+    trigger_id = trigger["prop_id"].split(".")[0]
+    trigger_val = trigger.get("value")
+    return trigger_id == "ds-purge-open-modal-btn" and bool(trigger_val)
 
 
 # Callback thực hiện Purge khi gõ đúng XOA
@@ -1225,7 +1234,13 @@ def handle_migration_start(n_clicks: Any, target_ds_id: Any, mode: str | None) -
     prevent_initial_call=True,
 )
 def toggle_clean_modal(open_clicks: Any, cancel_clicks: Any, is_opened: bool) -> bool:
-    return not is_opened
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False
+    trigger = ctx_dash.triggered[0]
+    trigger_id = trigger["prop_id"].split(".")[0]
+    trigger_val = trigger.get("value")
+    return trigger_id == "ds-mig-clean-open-btn" and bool(trigger_val)
 
 
 @callback(
@@ -1274,7 +1289,13 @@ def handle_clean_schema(n_clicks: Any, input_val: str | None, target_ds_id: Any)
     prevent_initial_call=True,
 )
 def toggle_delete_sqlite_modal(open_clicks: Any, cancel_clicks: Any, is_opened: bool) -> bool:
-    return not is_opened
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False
+    trigger = ctx_dash.triggered[0]
+    trigger_id = trigger["prop_id"].split(".")[0]
+    trigger_val = trigger.get("value")
+    return trigger_id == "ds-mig-delete-sqlite-open-btn" and bool(trigger_val)
 
 
 @callback(
