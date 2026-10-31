@@ -51,3 +51,6 @@ def get_db_engine(db_url: str | None = None) -> Engine:
         return get_oracle_engine(db_url)
     else:
         return create_engine(db_url, pool_pre_ping=True)
+
+
+get_recon_engine = get_db_engine
