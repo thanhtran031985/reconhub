@@ -71,7 +71,7 @@ class JsonText(TypeDecorator[Any]):
         if value is None:
             return None
         if isinstance(value, (dict, list)):
-            return json.dumps(value, ensure_ascii=False)
+            return json.dumps(value, ensure_ascii=False, default=str)
         return str(value)
 
     def process_result_value(self, value: Any, dialect: Dialect) -> Any:

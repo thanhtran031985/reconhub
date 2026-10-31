@@ -645,3 +645,87 @@ def export_run(
         "export_path": str(file_dest),
         "file_name": file_dest.name,
     }
+
+
+
+@service
+def dry_run(
+    ctx: Ctx,
+    template_id: int,
+    version: int,
+    file_id: int,
+    p_from: datetime,
+    p_to: datetime,
+    profile_code: str | None = None,
+    mock_fetcher: Any = None,
+) -> dict[str, Any]:
+    """Chạy thử nghiệm (Dry-run) một phiên bản template trên file mẫu không lưu kết quả vào DB."""
+    require_role(ctx, Role.OPERATOR, Role.TEMPLATE_OWNER, Role.ADMIN)
+
+    # 1. Tạo run với tham số đã chỉ định
+    create_res = create_run(
+        ctx,
+        CreateRunParams(
+            template_id=template_id,
+            template_version=version,
+            file_id=file_id,
+            profile_code=profile_code,
+            p_from=p_from,
+            p_to=p_to,
+        ),
+    )
+    if not create_res.ok:
+        err_msg = create_res.message or "Lỗi khi tạo run thử nghiệm."
+        raise ServiceError(create_res.code or ErrorCode.VALIDATION_ERROR, err_msg, create_res.details)
+
+    if not create_res.data:
+        raise ServiceError(ErrorCode.INTERNAL_ERROR, "Không thể lấy thông tin run đã tạo.")
+    run_id = int(create_res.data["run_id"])
+
+    # 2. Thực thi run với cờ persist=False
+    from app.services.run_executor import execute_run
+    exec_res = execute_run(run_id=run_id, mock_fetcher=mock_fetcher, persist=False)
+    if exec_res.get("status") != "DONE":
+        raise ServiceError(
+            exec_res.get("error_code") or ErrorCode.INTERNAL_ERROR,
+            exec_res.get("error_msg") or "Lỗi xảy ra trong quá trình Dry-run.",
+        )
+
+    summary_dict = exec_res.get("summary") or {}
+
+    engine = get_recon_engine()
+    # 3. Cập nhật SAMPLE_FILE_ID vào template version và dọn dẹp run tạm
+    with engine.begin() as conn:
+        conn.execute(
+            recon_template_version.update()
+            .where(
+                recon_template_version.c.TEMPLATE_ID == template_id,
+                recon_template_version.c.VERSION == version,
+            )
+            .values(SAMPLE_FILE_ID=file_id)
+        )
+        # Dọn dẹp run tạm khỏi hàng đợi và bảng run vì dry-run không lưu kết quả
+        conn.execute(recon_run_queue.delete().where(recon_run_queue.c.RUN_ID == run_id))
+        conn.execute(recon_run.delete().where(recon_run.c.ID == run_id))
+
+    # 4. Kiểm tra và phân tích Grain cảnh báo
+    grain_warnings: list[str] = []
+    cnt_dup = summary_dict.get("CNT_DUPLICATE", 0)
+    if cnt_dup > 0:
+        grain_warnings.append(
+            f"Phát hiện {cnt_dup} nhóm bị trùng khóa (DUPLICATE). Cần rà soát lại các trường Group by của Profile."
+        )
+
+    excel_groups = summary_dict.get("EXCEL_GROUPS", 0)
+    excel_rows = summary_dict.get("EXCEL_ROWS_READ", 0)
+    if excel_groups == 1 and excel_rows > 10:
+        grain_warnings.append(
+            f"Độ chi tiết (Grain) quá thô: Toàn bộ {excel_rows} dòng dữ liệu gộp thành đúng 1 nhóm duy nhất."
+        )
+
+    return {
+        "run_id": run_id,
+        "dry_run_ok": True,
+        "summary": summary_dict,
+        "grain_warnings": grain_warnings,
+    }

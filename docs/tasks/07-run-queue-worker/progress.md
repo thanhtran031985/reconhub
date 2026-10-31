@@ -7,11 +7,17 @@ Trạng thái: 🔄
 | 1 | Precheck + create | ✅ | 2026-11-01 | 09ba5b4 |
 | 2 | Worker + executor | ✅ | 2026-11-01 | 71d298a |
 | 3 | Đọc kết quả | ✅ | 2026-11-01 | 2ea1b9e |
-| 4 | Dry-run + activate + grain | ⬜ |  |  |
+| 4 | Dry-run + activate + grain | ✅ | 2026-11-01 | |
 | 5 | Xóa dữ liệu tạm | ⬜ |  |  |
 | 6 | Demo | ⬜ |  |  |
 
 ## Nhật ký
+### Bước 4 — 2026-11-01 01:34
+- Đã làm: Cài đặt dịch vụ `dry_run` trong `app/services/run_service.py` với cờ `persist=False`, dọn dẹp hàng đợi tạm, cập nhật `DRY_RUN_OK='Y'`, `SAMPLE_FILE_ID` và lưu tóm tắt vào `DRY_RUN_JSON`. Bổ sung kiểm tra và phân tích Grain cảnh báo trùng khóa hoặc grain quá thô. Đồng bộ kiểu `JsonText` với encoder `default=str` để an toàn tuần tự hóa Decimal/datetime. Viết bài test `tests/unit/test_dry_run_activate.py` kiểm chứng vòng đời Dry-run: sửa cấu hình bản nháp tự động reset `DRY_RUN_OK='N'`, chặn kích hoạt với `DRY_RUN_REQUIRED` và kích hoạt thành công sau khi Dry-run lại.
+- Kiểm tra: `uv run pytest tests/unit/test_dry_run_activate.py` (1 passed); `uv run poe test` (218 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
+- Suy ra (nếu có): Dry-run dọn sạch run tạm giúp bảo vệ schema không bị rác và giữ cho bản nháp tiếp tục chỉnh sửa trên cùng version mà không bị ép nhảy version.
+- Việc cần người làm thủ công: Không có.
+
 ### Bước 3 — 2026-11-01 01:30
 - Đã làm: Cài đặt trọn vẹn nhóm hàm đọc kết quả trong `app/services/run_service.py` (`get_run`, `list_runs`, `get_run_columns`, `get_run_rows`, `get_row_detail`, `get_invalid_rows`, `export_run`). Hỗ trợ phân trang, tìm kiếm trên khóa, sắp xếp theo độ lệch tuyệt đối `ABS_DIFF_SORT`. Trích xuất các dòng thô Excel từ `RECON_EXCEL_ROW` kèm cơ chế thông báo rõ khi dữ liệu tạm đã bị xóa (`purged_at`). Tích hợp route Flask `/download/export/<run_id>` cho phép tải file export Excel. Viết bài test `tests/unit/test_run_query.py` xác minh đếm khớp chính xác trên G01 (184 MATCHED, 4 MISMATCH, 2 MISSING_IN_DB, 2 MISSING_IN_EXCEL) và kiểm tra file Excel sinh ra hợp lệ qua openpyxl.
 - Kiểm tra: `uv run pytest tests/unit/test_run_query.py` (7 passed); `uv run poe test` (217 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
