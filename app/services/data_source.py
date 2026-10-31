@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select, update
+import oracledb
+from sqlalchemy import create_engine, select, text, update
 
 from app.core.audit import write_audit_log
 from app.core.context import Ctx, Role, require_role
-from app.core.crypto import encrypt_secret
+from app.core.crypto import decrypt_secret, encrypt_secret
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_data_source
 from app.schemas.data_source import (
@@ -286,3 +289,133 @@ def deactivate_data_source(
 
         updated_row = conn.execute(select(recon_data_source).where(recon_data_source.c.ID == ds_id)).mappings().one()
         return _build_ds_response(updated_row)
+
+
+@service
+def test_data_source(ctx: Ctx, ds_id: int) -> dict[str, Any]:
+    """Kiểm tra kết nối Data Source theo mục đích (SOURCE hoặc METADATA)."""
+    require_role(ctx, Role.ADMIN)
+    engine = get_recon_engine()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    with engine.connect() as conn:
+        row = conn.execute(select(recon_data_source).where(recon_data_source.c.ID == ds_id)).mappings().first()
+
+    if row is None:
+        raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy Data Source")
+
+    db_type = str(row["DB_TYPE"]).upper()
+    purpose = str(row["PURPOSE"]).upper()
+    start = time.perf_counter()
+
+    is_ok = False
+    msg = ""
+    extra_details: dict[str, Any] = {}
+
+    try:
+        if db_type == "SQLITE":
+            file_path = row["FILE_PATH"]
+            if not file_path:
+                raise ValueError("Đường dẫn file SQLite không được để trống")
+
+            p = Path(file_path)
+            size_mb = (p.stat().st_size / (1024 * 1024)) if p.exists() else 0.0
+
+            # Thử execute query
+            sq_engine = create_engine(f"sqlite:///{p.as_posix()}")
+            with sq_engine.connect() as sq_conn:
+                sq_conn.execute(text("SELECT 1"))
+
+            is_ok = True
+            msg = f"Kết nối SQLite thành công. Kích thước file: {size_mb:.2f} MB"
+            extra_details["size_mb"] = size_mb
+
+        elif db_type == "ORACLE":
+            host = row["HOST"]
+            port = int(row["PORT"] or 1521)
+            service_name = row["SERVICE_NAME"]
+            username = row["USERNAME"]
+            plain_password = decrypt_secret(row["PASSWORD_ENC"]) if row["PASSWORD_ENC"] else ""
+
+            dsn = f"{host}:{port}/{service_name}"
+            call_timeout = int(row["CALL_TIMEOUT_S"] or 600)
+
+            ora_conn = oracledb.connect(
+                user=username,
+                password=plain_password,
+                dsn=dsn,
+            )
+            ora_conn.call_timeout = call_timeout * 1000
+            version = str(getattr(ora_conn, "version", "19c"))
+            cursor = ora_conn.cursor()
+
+            if purpose == "SOURCE":
+                # Kiểm tra quyền ghi: SOURCE chỉ nên là Read-Only
+                try:
+                    cursor.execute(
+                        "SELECT PRIVILEGE FROM USER_SYS_PRIVS "
+                        "WHERE PRIVILEGE IN ('CREATE TABLE', 'DROP ANY TABLE', 'ALTER ANY TABLE', 'INSERT ANY TABLE', 'UPDATE ANY TABLE', 'DELETE ANY TABLE')"
+                    )
+                    write_privs = [r[0] for r in cursor.fetchall()]
+                except Exception:
+                    write_privs = []
+
+                is_read_only = len(write_privs) == 0
+                extra_details["read_only"] = is_read_only
+                extra_details["write_privileges"] = write_privs
+
+                elapsed_ms = int((time.perf_counter() - start) * 1000)
+                if is_read_only:
+                    msg = f"Kết nối Oracle {version} thành công ({elapsed_ms}ms). Tài khoản chỉ đọc hợp lệ"
+                else:
+                    msg = (
+                        f"Kết nối Oracle {version} thành công ({elapsed_ms}ms). "
+                        f"Cảnh báo: Tài khoản có quyền ghi ({', '.join(write_privs)})"
+                    )
+                is_ok = True
+
+            elif purpose == "METADATA":
+                # Kiểm tra quyền và số lượng bảng RECON_*
+                cursor.execute("SELECT count(*) FROM USER_TABLES WHERE TABLE_NAME LIKE 'RECON_%'")
+                recon_count = int(cursor.fetchone()[0])
+                extra_details["recon_tables_count"] = recon_count
+
+                elapsed_ms = int((time.perf_counter() - start) * 1000)
+                if recon_count == 0:
+                    msg = f"Kết nối Oracle {version} thành công ({elapsed_ms}ms). Schema trống, sẵn sàng tiếp nhận metadata"
+                else:
+                    msg = (
+                        f"Kết nối Oracle {version} thành công ({elapsed_ms}ms). Schema đã có {recon_count} bảng RECON_*"
+                    )
+                is_ok = True
+
+            ora_conn.close()
+
+        else:
+            raise ValueError(f"Loại cơ sở dữ liệu '{db_type}' chưa được hỗ trợ")
+
+    except Exception as exc:
+        is_ok = False
+        msg = f"Kết nối thất bại: {exc}"
+
+    ms = int((time.perf_counter() - start) * 1000)
+
+    # Cập nhật kết quả test vào DB
+    with engine.begin() as conn:
+        conn.execute(
+            update(recon_data_source)
+            .where(recon_data_source.c.ID == ds_id)
+            .values(
+                LAST_TEST_AT=now,
+                LAST_TEST_OK="Y" if is_ok else "N",
+                LAST_TEST_MSG=msg[:400],
+                LAST_TEST_MS=ms,
+            )
+        )
+
+    return {
+        "ok": is_ok,
+        "message": msg,
+        "ms": ms,
+        **extra_details,
+    }
