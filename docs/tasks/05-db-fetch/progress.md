@@ -5,11 +5,29 @@ Trạng thái: 🔄
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | Builder kind=table | ✅ | 2026-11-01 | acacce8 |
-| 2 | SQL gộp theo profile | ✅ | 2026-11-01 |  |
-| 3 | SQL guard | 🔄 |  |  |
-| 4 | Fetch + describe | ⬜ |  |  |
+| 2 | SQL gộp theo profile | ✅ | 2026-11-01 | dc57a11 |
+| 3 | SQL guard | ✅ | 2026-11-01 |  |
+| 4 | Fetch + describe | 🔄 |  |  |
 
 ## Nhật ký
+### Bước 3 — 2026-11-01 00:40
+- Đã làm:
+  - Cài đặt `app/engine/sql_guard.py`:
+    - `strip_comments_and_literals(sql)`: loại bỏ triệt để các khối chú thích dòng (`--`), chú thích khối (`/* ... */`) và chuỗi ký tự nháy đơn literal (`'...'`), bảo toàn chính xác cú pháp các từ khóa bên ngoài.
+    - `check_sql(sql, allowed_params)`:
+      - Kiểm tra bắt buộc không để trống và không chứa dấu chấm phẩy (`;`).
+      - Bắt buộc từ khóa đầu tiên phải là `SELECT` hoặc `WITH` (hỗ trợ Subquery và CTE).
+      - Chặn toàn bộ các từ khóa DML/DDL/DCL/PL-SQL nguy hiểm: `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `DROP`, `CREATE`, `ALTER`, `TRUNCATE`, `GRANT`, `REVOKE`, `BEGIN`, `DECLARE`, `EXECUTE`, `EXEC`, `CALL`, `COMMIT`, `ROLLBACK`, `LOCK`.
+      - Chặn mệnh đề khóa dòng `FOR UPDATE`.
+      - Chặn liên kết cơ sở dữ liệu qua Database Link (`@`).
+      - Chặn việc gọi các package hệ thống nguy hiểm của Oracle (`DBMS_*`, `UTL_*`).
+      - Kiểm tra biến bind: phát hiện và chặn các biến bind không nằm trong danh sách cho phép; bắt buộc phải có `:p_from` và `:p_to`.
+  - Viết test `tests/unit/test_sql_guard.py` với 31 test cases kiểm tra độ an toàn tuyệt đối của bộ lọc.
+- Kiểm tra:
+  - `uv run pytest tests/unit/test_sql_guard.py -v`: 31/31 passed.
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 55 source files.
+- Suy ra (nếu có): Bóc tách chuỗi literal `'...'` trước khi kiểm tra từ khóa là tối quan trọng để cho phép các giá trị dữ liệu hợp lệ (như `WHERE status = 'DROP'`) mà không bị chặn nhầm bởi SQL guard.
 ### Bước 2 — 2026-11-01 00:38
 - Đã làm:
   - Mở rộng `app/engine/sql_builder.py` hỗ trợ kỹ thuật pushdown aggregate:

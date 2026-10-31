@@ -29,8 +29,8 @@ def test_build_sql_profile_by_invoice(dtp_template: TemplateConfig) -> None:
 
     # Kiểm tra cấu trúc câu lệnh bọc ngoài
     assert "GROUP BY" in sql
-    assert 'FROM (' in sql
-    assert ') src' in sql
+    assert "FROM (" in sql
+    assert ") src" in sql
 
     # Kiểm tra các measures gộp
     assert 'SUM("src"."AMOUNT") AS "TOTAL_AMOUNT"' in sql
@@ -41,7 +41,7 @@ def test_build_sql_profile_by_invoice(dtp_template: TemplateConfig) -> None:
     assert 'COUNT(DISTINCT TRUNC("src"."INVOICE_DATE")) AS "INV_DATE__CNT_DIST"' in sql
 
     # Kiểm tra group by
-    assert 'GROUP BY' in sql
+    assert "GROUP BY" in sql
     assert 'UPPER(TRIM("src"."INVOICE_NO"))' in sql
 
 

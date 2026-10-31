@@ -39,7 +39,9 @@ def _render_field_db_expr(f_name: str, config: TemplateConfig) -> str:
     if f_name in derived_map:
         d = derived_map[f_name]
         rendered_args = [
-            _render_field_db_expr(arg, config) if isinstance(arg, str) and (arg in field_map or arg in derived_map) else str(arg)
+            _render_field_db_expr(arg, config)
+            if isinstance(arg, str) and (arg in field_map or arg in derived_map)
+            else str(arg)
             for arg in d.expr.args
         ]
         if d.expr.fn == "trunc_day":
@@ -169,7 +171,9 @@ def build_source_sql(
                     outer_selects.append(f'COUNT(*) AS "{m.name}"')
             elif m.agg == "count_distinct":
                 if not m.field:
-                    raise ServiceError(ErrorCode.VALIDATION_ERROR, f"Measure COUNT_DISTINCT '{m.name}' thiếu trường dữ liệu.")
+                    raise ServiceError(
+                        ErrorCode.VALIDATION_ERROR, f"Measure COUNT_DISTINCT '{m.name}' thiếu trường dữ liệu."
+                    )
                 f_expr = _render_field_db_expr(m.field, config)
                 outer_selects.append(f'COUNT(DISTINCT {f_expr}) AS "{m.name}"')
             elif m.agg == "min":
@@ -184,7 +188,9 @@ def build_source_sql(
                 outer_selects.append(f'MAX({f_expr}) AS "{m.name}"')
             elif m.agg == "first_distinct":
                 if not m.field:
-                    raise ServiceError(ErrorCode.VALIDATION_ERROR, f"Measure FIRST_DISTINCT '{m.name}' thiếu trường dữ liệu.")
+                    raise ServiceError(
+                        ErrorCode.VALIDATION_ERROR, f"Measure FIRST_DISTINCT '{m.name}' thiếu trường dữ liệu."
+                    )
                 f_expr = _render_field_db_expr(m.field, config)
                 outer_selects.append(f'MIN({f_expr}) AS "{m.name}"')
                 outer_selects.append(f'COUNT(DISTINCT {f_expr}) AS "{m.name}__CNT_DIST"')
@@ -194,11 +200,7 @@ def build_source_sql(
         outer_select_str = ",\n    ".join(outer_selects)
         group_by_str = ",\n    ".join(group_by_exprs)
 
-        final_sql = (
-            f"SELECT\n    {outer_select_str}\n"
-            f"FROM (\n{indented_base}\n) src\n"
-            f"GROUP BY\n    {group_by_str}"
-        )
+        final_sql = f"SELECT\n    {outer_select_str}\nFROM (\n{indented_base}\n) src\nGROUP BY\n    {group_by_str}"
         return final_sql, binds
 
     return base_sql, binds
