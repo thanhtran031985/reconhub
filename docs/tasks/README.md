@@ -6,7 +6,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 |---|---|---|---|---|
 | 00 | [00-repo-setup](00-repo-setup/task.md) — Khung repo Python trên Windows, SQLite + Alembic, poe, CI | ✅ | — | feat/00-repo-setup |
 | 01 | [01-auth-users](01-auth-users/task.md) — Người dùng trên RECON_APP, đăng nhập, phân quyền 4 vai trò | ✅ | 00 | feat/01-auth-users |
-| 02 | [02-data-sources](02-data-sources/task.md) — Data Source: nguồn Oracle và đích lưu RECON_APP | ⬜ | 01 | feat/02-data-sources |
+| 02 | [02-data-sources](02-data-sources/task.md) — Data Source: nguồn Oracle và đích lưu RECON_APP | 🔄 | 01 | feat/02-data-sources |
 | 03 | [03-template-config](03-template-config/task.md) — TemplateConfig, version và service template | ⬜ | 02 | feat/03-template-config |
 | 04 | [04-excel-reader](04-excel-reader/task.md) — Đọc Excel, chuẩn hóa, control total, nạp dữ liệu tạm | ⬜ | 00 | feat/04-excel-reader |
 | 05 | [05-db-fetch](05-db-fetch/task.md) — SQL sinh từ bảng/cột, SQL guard, fetch Oracle qua VPN | ⬜ | 02, 03 | feat/05-db-fetch |
