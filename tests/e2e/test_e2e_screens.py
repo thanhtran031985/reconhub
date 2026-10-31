@@ -106,3 +106,9 @@ def test_e2e_dashboard_page_accessible(e2e_client) -> None:
     resp = e2e_client.get("/")
     assert resp.status_code == 200
     assert b"ReconHub" in resp.data
+
+
+def test_e2e_issues_page_accessible(e2e_client) -> None:
+    resp = e2e_client.get("/issues")
+    assert resp.status_code == 200
+    assert b"ReconHub" in resp.data

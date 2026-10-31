@@ -15,6 +15,7 @@ def test_nav_items_by_role() -> None:
     assert "/" in urls
     assert "/runs/new" in urls
     assert "/history" in urls
+    assert "/issues" in urls
     assert "/templates" in urls
     assert "/templates/new" in urls
     assert "/data-sources" in urls
@@ -41,6 +42,7 @@ def test_nav_items_by_role() -> None:
     urls_vi = [item["href"] for group in vi_nav for item in group["items"]]
     assert "/" in urls_vi
     assert "/history" in urls_vi
+    assert "/issues" in urls_vi
     assert "/runs/new" not in urls_vi
     assert "/templates" not in urls_vi
     assert "/data-sources" not in urls_vi
@@ -99,4 +101,9 @@ def test_build_breadcrumbs() -> None:
     bc_users = build_breadcrumbs("/users")
     labels_users = [b["label"] for b in bc_users]
     assert "Trang chủ" in labels_users
+
+    bc_issues = build_breadcrumbs("/issues")
+    labels_issues = [b["label"] for b in bc_issues]
+    assert "Trang chủ" in labels_issues
+    assert "Xử lý chênh lệch" in labels_issues
     assert "Người dùng" in labels_users

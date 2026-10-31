@@ -71,6 +71,7 @@ class RunRowsFilter(BaseModel):
     """Bộ lọc phân trang danh sách dòng kết quả."""
 
     status: str | None = None
+    issue_status: str | None = None
     search: str | None = None
     sort_by: str = "row_no"
     sort_dir: str = "asc"

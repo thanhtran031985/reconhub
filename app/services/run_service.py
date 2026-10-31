@@ -16,6 +16,8 @@ from app.db.metadata import (
     recon_excel_row,
     recon_file,
     recon_invalid_row,
+    recon_issue,
+    recon_issue_reason,
     recon_result_diff,
     recon_result_row,
     recon_run,
@@ -23,6 +25,7 @@ from app.db.metadata import (
     recon_run_summary,
     recon_template,
     recon_template_version,
+    recon_user,
 )
 from app.engine.summary import build_columns_metadata
 from app.schemas.errors import ErrorCode, ServiceError
@@ -447,13 +450,41 @@ def get_run_columns(ctx: Ctx, run_id: int) -> list[dict[str, Any]]:
 
 @service
 def get_run_rows(ctx: Ctx, run_id: int, filter: RunRowsFilter) -> dict[str, Any]:
-    """Lấy danh sách các dòng kết quả phân trang theo trạng thái, tìm kiếm và sắp xếp."""
+    """Lấy danh sách các dòng kết quả phân trang theo trạng thái, tìm kiếm và sắp xếp, kèm thông tin issue."""
     engine = get_recon_engine()
     with engine.connect() as conn:
-        base_query = select(recon_result_row).where(recon_result_row.c.RUN_ID == run_id)
+        run_row = conn.execute(
+            select(recon_run.c.TEMPLATE_ID, recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id)
+        ).mappings().first()
+
+        tmpl_id = int(run_row["TEMPLATE_ID"]) if run_row else None
+        prof_code = str(run_row["PROFILE_CODE"]) if run_row else None
+
+        base_query = (
+            select(
+                recon_result_row,
+                recon_issue.c.ID.label("ISSUE_ID"),
+                recon_issue.c.STATUS.label("ISSUE_STATUS"),
+                recon_issue.c.REASON_CODE.label("ISSUE_REASON_CODE"),
+                recon_issue_reason.c.LABEL.label("ISSUE_REASON_LABEL"),
+                recon_user.c.FULL_NAME.label("ISSUE_ASSIGNEE_NAME"),
+                recon_user.c.USERNAME.label("ISSUE_ASSIGNEE_USERNAME"),
+            )
+            .outerjoin(
+                recon_issue,
+                (recon_issue.c.TEMPLATE_ID == tmpl_id)
+                & (recon_issue.c.PROFILE_CODE == prof_code)
+                & (recon_issue.c.KEY_HASH == recon_result_row.c.KEY_HASH),
+            )
+            .outerjoin(recon_issue_reason, recon_issue.c.REASON_CODE == recon_issue_reason.c.CODE)
+            .outerjoin(recon_user, recon_issue.c.ASSIGNEE_ID == recon_user.c.ID)
+            .where(recon_result_row.c.RUN_ID == run_id)
+        )
 
         if filter.status:
             base_query = base_query.where(recon_result_row.c.STATUS == filter.status)
+        if filter.issue_status:
+            base_query = base_query.where(recon_issue.c.STATUS == filter.issue_status)
         if filter.search:
             base_query = base_query.where(recon_result_row.c.KEY_TEXT.like(f"%{filter.search}%"))
 
@@ -476,6 +507,7 @@ def get_run_rows(ctx: Ctx, run_id: int, filter: RunRowsFilter) -> dict[str, Any]
 
         items = []
         for r in rows:
+            iss_st = str(r["ISSUE_STATUS"]) if r["ISSUE_STATUS"] else None
             items.append(
                 {
                     "row_no": int(r["ROW_NO"]),
@@ -488,6 +520,12 @@ def get_run_rows(ctx: Ctx, run_id: int, filter: RunRowsFilter) -> dict[str, Any]
                     "row_nos": r["EXCEL_ROW_NOS"],
                     "abs_diff_main": str(r["ABS_DIFF_MAIN"]) if r["ABS_DIFF_MAIN"] is not None else None,
                     "abs_diff_sort": r["ABS_DIFF_SORT"],
+                    "issue_id": r["ISSUE_ID"],
+                    "issue_status": iss_st,
+                    "is_accepted": iss_st == "ACCEPTED",
+                    "reason_code": r["ISSUE_REASON_CODE"],
+                    "reason_label": r["ISSUE_REASON_LABEL"],
+                    "assignee_name": r["ISSUE_ASSIGNEE_NAME"] or r["ISSUE_ASSIGNEE_USERNAME"],
                 }
             )
 
@@ -515,10 +553,12 @@ def get_row_detail(ctx: Ctx, run_id: int, row_no: int) -> dict[str, Any]:
         if not row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy dòng {row_no} của run {run_id}.")
 
-        # Đọc thông tin run để xem dữ liệu tạm đã xóa chưa
+        # Đọc thông tin run để xem dữ liệu tạm đã xóa chưa và thông tin template/profile
         run_row = (
             conn.execute(
                 select(
+                    recon_run.c.TEMPLATE_ID,
+                    recon_run.c.PROFILE_CODE,
                     recon_run.c.TEMP_PURGED_AT,
                     recon_run.c.EXCEL_LOAD_ID,
                 ).where(recon_run.c.ID == run_id)
@@ -538,6 +578,28 @@ def get_row_detail(ctx: Ctx, run_id: int, row_no: int) -> dict[str, Any]:
             .mappings()
             .fetchall()
         )
+
+        # Đọc thông tin issue (nếu có)
+        issue_info = None
+        if run_row and row:
+            iss_stmt = (
+                select(
+                    recon_issue,
+                    recon_issue_reason.c.LABEL.label("REASON_LABEL"),
+                    recon_user.c.FULL_NAME.label("ASSIGNEE_NAME"),
+                    recon_user.c.USERNAME.label("ASSIGNEE_USERNAME"),
+                )
+                .outerjoin(recon_issue_reason, recon_issue.c.REASON_CODE == recon_issue_reason.c.CODE)
+                .outerjoin(recon_user, recon_issue.c.ASSIGNEE_ID == recon_user.c.ID)
+                .where(
+                    recon_issue.c.TEMPLATE_ID == run_row["TEMPLATE_ID"],
+                    recon_issue.c.PROFILE_CODE == run_row["PROFILE_CODE"],
+                    recon_issue.c.KEY_HASH == row["KEY_HASH"],
+                )
+            )
+            iss_row = conn.execute(iss_stmt).mappings().first()
+            if iss_row:
+                issue_info = dict(iss_row)
 
         # Đọc dòng thô từ Excel nếu chưa bị xóa
         raw_rows = None
@@ -570,6 +632,7 @@ def get_row_detail(ctx: Ctx, run_id: int, row_no: int) -> dict[str, Any]:
         "diff": row["DIFF_JSON"],
         "diff_items": [dict(d) for d in diffs],
         "excel_raw_rows": raw_rows,
+        "issue": issue_info,
         "purged_at": run_row["TEMP_PURGED_AT"].isoformat() if (run_row and run_row["TEMP_PURGED_AT"]) else None,
     }
 

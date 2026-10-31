@@ -67,6 +67,13 @@ def build_breadcrumbs(pathname: str | None) -> list[dict[str, str]]:
                 {"label": "Lịch sử run"},
             ]
         )
+    elif pathname == "/issues":
+        items.extend(
+            [
+                {"label": "Đối soát"},
+                {"label": "Xử lý chênh lệch"},
+            ]
+        )
     elif pathname == "/data-sources":
         items.extend(
             [
@@ -116,6 +123,7 @@ def get_nav_items_for_roles(roles: set[Role] | set[str]) -> list[dict[str, Any]]
     if is_admin or is_to or is_op:
         recon_items.append({"label": "Chạy đối soát", "href": "/runs/new", "icon": "lucide:play-circle"})
     recon_items.append({"label": "Lịch sử", "href": "/history", "icon": "lucide:history"})
+    recon_items.append({"label": "Xử lý chênh lệch", "href": "/issues", "icon": "lucide:alert-circle"})
 
     groups.append({"title": "ĐỐI SOÁT", "items": recon_items})
 

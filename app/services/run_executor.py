@@ -8,7 +8,7 @@ from typing import Any
 
 import polars as pl
 import structlog
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.core.context import Ctx, Role
 from app.db.engine import get_recon_engine
@@ -16,6 +16,7 @@ from app.db.metadata import (
     recon_data_source,
     recon_file,
     recon_invalid_row,
+    recon_issue,
     recon_result_diff,
     recon_result_row,
     recon_run,
@@ -217,11 +218,13 @@ def execute_run(
                 # 1. Ghi RECON_RESULT_ROW theo batch 5000
                 rows_to_insert: list[dict[str, Any]] = []
                 diffs_to_insert: list[dict[str, Any]] = []
+                all_key_hashes: list[str] = []
 
                 for idx, row in enumerate(result_df.iter_rows(named=True)):
                     row_no = idx + 1
                     key_text = str(row.get("KEY_TEXT") or row.get("__KEY_TEXT") or "")
                     key_hash = hashlib.sha256(key_text.encode("utf-8")).hexdigest()
+                    all_key_hashes.append(key_hash)
                     status = str(row.get("STATUS") or row.get("__STATUS") or "")
 
                     key_dict = {f: _serialize_val(row.get(f)) for f in target_profile.group_by}
@@ -284,6 +287,18 @@ def execute_run(
 
                 if diffs_to_insert:
                     conn.execute(recon_result_diff.insert(), diffs_to_insert)
+
+                # Cập nhật LAST_RUN_ID cho các issue hiện có
+                if all_key_hashes:
+                    conn.execute(
+                        update(recon_issue)
+                        .where(
+                            recon_issue.c.TEMPLATE_ID == template_id,
+                            recon_issue.c.PROFILE_CODE == profile_code,
+                            recon_issue.c.KEY_HASH.in_(all_key_hashes),
+                        )
+                        .values(LAST_RUN_ID=run_id)
+                    )
 
                 # 2. Ghi RECON_INVALID_ROW
                 invalid_to_insert: list[dict[str, Any]] = []

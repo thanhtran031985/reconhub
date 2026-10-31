@@ -28,6 +28,11 @@ STATUS_MAP: dict[str, tuple[str, str, str]] = {
     "LOCKED": ("warn", "Tạm khóa", "lucide:clock"),
     "DISABLED": ("off", "Đã tắt", "lucide:slash"),
     "MUST_CHANGE_PW": ("info", "Chờ đổi mật khẩu", "lucide:key"),
+    # Trạng thái Xử lý chênh lệch (Issues)
+    "OPEN": ("warn", "Chờ xử lý", "lucide:flag"),
+    "IN_PROGRESS": ("info", "Đang xử lý", "lucide:clock"),
+    "RESOLVED": ("ok", "Đã xử lý", "lucide:check-circle"),
+    "ACCEPTED": ("purple", "Đã chấp nhận lệch", "lucide:shield-check"),
     # Trạng thái template
     "DRAFT": ("off", "Bản nháp", "lucide:file-edit"),
     "ARCHIVED": ("off", "Đã lưu trữ", "lucide:archive"),
