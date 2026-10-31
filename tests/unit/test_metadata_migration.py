@@ -1,0 +1,410 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+from sqlalchemy import create_engine, select
+
+from app.core.config import get_settings
+from app.core.context import Ctx, Role
+from app.db.metadata import (
+    metadata,
+    recon_app_setting,
+    recon_data_source,
+    recon_metadata_migration,
+    recon_purge_log,
+    recon_run,
+    recon_user,
+)
+from app.schemas.errors import ErrorCode
+from app.services.metadata_migration import (
+    clean_target_schema,
+    delete_old_sqlite,
+    get_migration_status,
+    list_migrations,
+    precheck,
+    set_maintenance_mode,
+    start_migration,
+)
+
+
+@pytest.fixture
+def migration_env(tmp_path: Path, monkeypatch):
+    db_file = tmp_path / "recon_source.db"
+    db_url = f"sqlite:///{db_file.as_posix()}"
+    monkeypatch.setenv("RECON_DB_URL", db_url)
+    monkeypatch.setenv("RECON_SECRET_KEY", "super-secret-key-123456789")
+
+    get_settings.cache_clear()
+
+    src_engine = create_engine(db_url)
+    metadata.create_all(src_engine)
+
+    admin_ctx = Ctx(
+        user_id=1,
+        username="admin_tester",
+        roles=[Role.ADMIN],
+        full_name="Admin Tester",
+    )
+    viewer_ctx = Ctx(
+        user_id=2,
+        username="viewer_tester",
+        roles=[Role.VIEWER],
+        full_name="Viewer Tester",
+    )
+
+    target_db = tmp_path / "target_recon.db"
+    target_engine = create_engine(f"sqlite:///{target_db.as_posix()}")
+
+    return src_engine, target_engine, admin_ctx, viewer_ctx
+
+
+def test_permission_checks(migration_env):
+    _, _, _, viewer_ctx = migration_env
+
+    r1 = precheck(viewer_ctx, target_ds_id=99)
+    assert r1.ok is False
+    assert r1.code == ErrorCode.FORBIDDEN
+
+    r2 = set_maintenance_mode(viewer_ctx, enabled=True)
+    assert r2.ok is False
+    assert r2.code == ErrorCode.FORBIDDEN
+
+    r3 = clean_target_schema(viewer_ctx, target_ds_id=99, confirm_schema="TEST")
+    assert r3.ok is False
+    assert r3.code == ErrorCode.FORBIDDEN
+
+    r4 = delete_old_sqlite(viewer_ctx, confirm_filename="recon_app.db")
+    assert r4.ok is False
+    assert r4.code == ErrorCode.FORBIDDEN
+
+
+def test_precheck_target_not_found(migration_env):
+    _, _, admin_ctx, _ = migration_env
+    res = precheck(admin_ctx, target_ds_id=99999)
+    assert res.ok is False
+    assert res.code == ErrorCode.NOT_FOUND
+
+
+def test_precheck_running_run_blocks(migration_env):
+    src_engine, target_engine, admin_ctx, _ = migration_env
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Tạo một data source đích
+    with src_engine.begin() as conn:
+        ds_id = conn.execute(
+            recon_data_source.insert().values(
+                NAME="Target Oracle Mock",
+                ENV="TEST",
+                PURPOSE="SOURCE",
+                DB_TYPE="ORACLE",
+                HOST="localhost",
+                PORT=1521,
+                SERVICE_NAME="XEPDB1",
+                DEFAULT_SCHEMA="RECON_TEST",
+                USERNAME="recon_test",
+                PASSWORD_ENC="dummy",
+                IS_ACTIVE="Y",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+
+        # Tạo 1 run PROCESSING
+        run_id = conn.execute(
+            recon_run.insert().values(
+                TEMPLATE_ID=1,
+                TEMPLATE_VERSION=1,
+                PROFILE_CODE="DEFAULT",
+                DATA_SOURCE_ID=ds_id,
+                STATUS="PROCESSING",
+                P_FROM=now,
+                P_TO=now,
+                CREATED_BY=admin_ctx.username,
+                CREATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+
+    res = precheck(admin_ctx, target_ds_id=ds_id, mock_target_engine=target_engine)
+    assert res.ok is False
+    assert res.code == ErrorCode.MIGRATION_RUNNING
+
+    # Dọn dẹp run processing
+    with src_engine.begin() as conn:
+        conn.execute(
+            recon_run.delete().where(recon_run.c.ID == run_id)
+        )
+
+
+def test_precheck_target_not_empty(migration_env):
+    src_engine, target_engine, admin_ctx, _ = migration_env
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Khởi tạo bảng ở target_engine và chèn dữ liệu
+    metadata.create_all(target_engine)
+    with target_engine.begin() as t_conn:
+        t_conn.execute(
+            recon_user.insert().values(
+                USERNAME="target_existing_user",
+                FULL_NAME="Existing",
+                PASSWORD_HASH="hash",
+                IS_ACTIVE="Y",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_AT=now,
+            )
+        )
+
+    with src_engine.begin() as conn:
+        ds_id = conn.execute(
+            recon_data_source.insert().values(
+                NAME="Target Oracle Mock 2",
+                ENV="TEST",
+                PURPOSE="SOURCE",
+                DB_TYPE="ORACLE",
+                HOST="localhost",
+                PORT=1521,
+                SERVICE_NAME="XEPDB1",
+                DEFAULT_SCHEMA="RECON_TEST",
+                USERNAME="recon_test",
+                PASSWORD_ENC="dummy",
+                IS_ACTIVE="Y",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+
+    res = precheck(admin_ctx, target_ds_id=ds_id, mock_target_engine=target_engine)
+    assert res.ok is False
+    assert res.code == ErrorCode.MIGRATION_TARGET_NOT_EMPTY
+
+
+def test_clean_target_schema(migration_env):
+    src_engine, target_engine, admin_ctx, _ = migration_env
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    with src_engine.begin() as conn:
+        ds_id = conn.execute(
+            recon_data_source.insert().values(
+                NAME="Target Clean Test",
+                ENV="TEST",
+                PURPOSE="SOURCE",
+                DB_TYPE="ORACLE",
+                HOST="localhost",
+                PORT=1521,
+                SERVICE_NAME="XEPDB1",
+                DEFAULT_SCHEMA="RECON_SCHEMA_XYZ",
+                USERNAME="recon_test",
+                PASSWORD_ENC="dummy",
+                IS_ACTIVE="Y",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+
+    # Khởi tạo bảng trên target_engine
+    metadata.create_all(target_engine)
+
+    # 1. Sai tên confirm
+    res_err = clean_target_schema(
+        admin_ctx,
+        target_ds_id=ds_id,
+        confirm_schema="WRONG_NAME",
+        mock_target_engine=target_engine,
+    )
+    assert res_err.ok is False
+    assert res_err.code == ErrorCode.VALIDATION_ERROR
+
+    # 2. Đúng tên confirm
+    res = clean_target_schema(
+        admin_ctx,
+        target_ds_id=ds_id,
+        confirm_schema="RECON_SCHEMA_XYZ",
+        mock_target_engine=target_engine,
+    )
+    assert res.ok is True
+    assert res.data["cleaned"] is True
+
+
+def test_set_maintenance_mode(migration_env):
+    src_engine, _, admin_ctx, _ = migration_env
+
+    res_on = set_maintenance_mode(admin_ctx, enabled=True)
+    assert res_on.ok is True
+    assert res_on.data["maintenance"] == "Y"
+
+    with src_engine.connect() as conn:
+        val = conn.execute(
+            select(recon_app_setting.c.VALUE).where(recon_app_setting.c.KEY == "MAINTENANCE")
+        ).scalar()
+        assert val == "Y"
+
+    res_off = set_maintenance_mode(admin_ctx, enabled=False)
+    assert res_off.ok is True
+    assert res_off.data["maintenance"] == "N"
+
+
+def test_start_migration_success(migration_env):
+    src_engine, target_engine, admin_ctx, _ = migration_env
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Tạo đích trống
+    with src_engine.begin() as conn:
+        ds_id = conn.execute(
+            recon_data_source.insert().values(
+                NAME="Target Migration Live",
+                ENV="TEST",
+                PURPOSE="SOURCE",
+                DB_TYPE="ORACLE",
+                HOST="localhost",
+                PORT=1521,
+                SERVICE_NAME="XEPDB1",
+                DEFAULT_SCHEMA="RECON_LIVE",
+                USERNAME="recon_live",
+                PASSWORD_ENC="dummy",
+                IS_ACTIVE="Y",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+
+        # Thêm 1 user nguồn để có dữ liệu copy
+        conn.execute(
+            recon_user.insert().values(
+                USERNAME="source_user_mig",
+                FULL_NAME="Source User",
+                PASSWORD_HASH="hash123",
+                IS_ACTIVE="Y",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_AT=now,
+            )
+        )
+
+    # Precheck
+    pre = precheck(admin_ctx, target_ds_id=ds_id, mode="NO_TEMP", mock_target_engine=target_engine)
+    assert pre.ok is True
+    assert pre.data["ready"] is True
+
+    # Chạy migration
+    res = start_migration(admin_ctx, target_ds_id=ds_id, mode="NO_TEMP", mock_target_engine=target_engine)
+    assert res.ok is True
+    migration_id = res.data["migration_id"]
+    assert res.data["status"] == "DONE"
+
+    # Kiểm tra target_engine có dữ liệu
+    with target_engine.connect() as t_conn:
+        user_rows = t_conn.execute(select(recon_user.c.USERNAME)).fetchall()
+        usernames = [r[0] for r in user_rows]
+        assert "source_user_mig" in usernames
+
+    # Kiểm tra status & list
+    st = get_migration_status(admin_ctx, migration_id=migration_id)
+    assert st.ok is True
+    assert st.data["STATUS"] == "DONE"
+    assert "RECON_USER" in st.data["REPORT_JSON"]
+
+    lst = list_migrations(admin_ctx)
+    assert lst.ok is True
+    assert len(lst.data) >= 1
+
+
+def test_start_migration_failure_preserves_source(migration_env):
+    src_engine, target_engine, admin_ctx, _ = migration_env
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    with src_engine.begin() as conn:
+        ds_id = conn.execute(
+            recon_data_source.insert().values(
+                NAME="Target Fail Test",
+                ENV="TEST",
+                PURPOSE="SOURCE",
+                DB_TYPE="ORACLE",
+                HOST="localhost",
+                PORT=1521,
+                SERVICE_NAME="XEPDB1",
+                DEFAULT_SCHEMA="RECON_FAIL",
+                USERNAME="recon_fail",
+                PASSWORD_ENC="dummy",
+                IS_ACTIVE="Y",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+
+    # Precheck
+    pre = precheck(admin_ctx, target_ds_id=ds_id, mode="NO_TEMP", mock_target_engine=target_engine)
+    assert pre.ok is True
+
+    # Giả lập lỗi khi sao chép
+    with patch("app.services.metadata_migration._copy_table_data", side_effect=RuntimeError("Lỗi kết nối giả lập giữa chừng")):
+        res = start_migration(admin_ctx, target_ds_id=ds_id, mode="NO_TEMP", mock_target_engine=target_engine)
+        assert res.ok is False
+        assert res.code == ErrorCode.INTERNAL_ERROR
+
+    # Kiểm tra record trong RECON_METADATA_MIGRATION có STATUS = FAILED
+    with src_engine.connect() as conn:
+        failed_mig = conn.execute(
+            select(recon_metadata_migration).where(recon_metadata_migration.c.TARGET_DS_ID == ds_id)
+        ).mappings().first()
+        assert failed_mig is not None
+        assert failed_mig["STATUS"] == "FAILED"
+        assert "Lỗi kết nối giả lập" in str(failed_mig["ERROR_MSG"])
+
+        # Kiểm tra SQLite nguồn vẫn còn nguyên
+        ds_rows = conn.execute(select(recon_data_source.c.ID)).fetchall()
+        assert len(ds_rows) >= 1
+
+
+def test_delete_old_sqlite_restrictions(migration_env, tmp_path: Path):
+    src_engine, _, admin_ctx, _ = migration_env
+
+    # Khi đang chạy trên SQLite (mặc định của migration_env)
+    r_err = delete_old_sqlite(admin_ctx, confirm_filename="recon_app.db")
+    assert r_err.ok is False
+    assert r_err.code == ErrorCode.FORBIDDEN
+    assert "chỉ được xóa bản lưu sqlite cũ sau khi" in r_err.message.lower()
+
+    # Giả lập chạy trên Oracle và xóa file sqlite
+    sqlite_file = tmp_path / "recon_old.db"
+    sqlite_file.write_bytes(b"dummy sqlite database contents")
+    assert sqlite_file.exists()
+
+    with patch("app.services.metadata_migration.get_recon_engine") as mock_engine_fn:
+        mock_eng = mock_engine_fn.return_value
+        mock_eng.dialect.name = "oracle"
+        mock_eng.connect.return_value = src_engine.connect()
+        mock_eng.begin.return_value = src_engine.begin()
+
+        # 1. Sai tên confirm
+        res_mismatch = delete_old_sqlite(
+            admin_ctx,
+            confirm_filename="wrong.db",
+            target_sqlite_path=str(sqlite_file),
+        )
+        assert res_mismatch.ok is False
+        assert res_mismatch.code == ErrorCode.VALIDATION_ERROR
+
+        # 2. Đúng tên confirm
+        res = delete_old_sqlite(
+            admin_ctx,
+            confirm_filename=sqlite_file.name,
+            target_sqlite_path=str(sqlite_file),
+        )
+        assert res.ok is True
+        assert not sqlite_file.exists()
+        assert res.data["bytes_freed"] > 0
+
+        # Kiểm tra RECON_PURGE_LOG đã ghi
+        with src_engine.connect() as conn:
+            purge_row = conn.execute(
+                select(recon_purge_log).where(recon_purge_log.c.ACTOR == admin_ctx.username)
+            ).first()
+            assert purge_row is not None

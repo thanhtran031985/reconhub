@@ -29,6 +29,7 @@ from app.db.metadata import (
 )
 from app.schemas.run import PurgeFilter
 from app.services.data_source import sync_current_metadata_source
+from app.services.metadata_migration import precheck, start_migration
 from app.services.temp_data import preview, purge_filter, purge_runs, usage
 
 
@@ -275,7 +276,58 @@ def purge_temp_cmd(args: argparse.Namespace) -> None:
 
 
 def migrate_metadata_cmd(args: argparse.Namespace) -> None:
-    print("migrate-metadata: Tính năng sẽ được kích hoạt ở task 13-metadata-migration.")
+    """Chuyển metadata RECON_APP từ SQLite sang Oracle qua CLI."""
+    ctx = Ctx(user_id=1, username="cli_admin", full_name="Quản trị viên CLI", roles=[Role.ADMIN])
+    target_ds_id = getattr(args, "target_ds", None)
+    mode = getattr(args, "mode", "NO_TEMP")
+    is_dry_run = getattr(args, "dry_run", False)
+    force = getattr(args, "force", False)
+
+    if not target_ds_id:
+        print("Lỗi: Cần cung cấp ID của Data Source Oracle đích qua --target-ds.", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"=== BẮT ĐẦU KIỂM TRA TRƯỚC (PRECHECK) CHO DATA SOURCE #{target_ds_id} (MODE: {mode}) ===")
+    pre_res = precheck(ctx, target_ds_id=target_ds_id, mode=mode)
+    if not pre_res.ok or not pre_res.data:
+        print(f"Lỗi precheck: {pre_res.message}", file=sys.stderr)
+        sys.exit(1)
+
+    data = pre_res.data
+    print(f"Data Source đích: {data['target_name']} (ENV: {data['target_env']})")
+    print(f"Tổng số bảng cần chuyển: {len(data['tables'])}")
+    print(f"Tổng số bản ghi ước tính: {data['total_rows']:,}")
+    print(f"Tổng dung lượng ước tính: {data['total_bytes_est'] / (1024 * 1024):.2f} MB")
+    print("\nChi tiết các bảng:")
+    for t in data["tables"]:
+        print(f"  - {t['table']:<25}: {t['rows']:>8,} dòng (~{t['bytes_est'] / 1024:>7.1f} KB)")
+
+    if is_dry_run:
+        print("\n[DRY-RUN] Precheck thành công! Không thực hiện chuyển dữ liệu.")
+        return
+
+    if not force:
+        confirm = input(
+            f"\nBạn có chắc chắn muốn chuyển dữ liệu RECON_APP sang Data Source #{target_ds_id}? "
+            "Hệ thống sẽ kích hoạt chế độ bảo trì trong khi chuyển. [y/N]: "
+        )
+        if confirm.strip().lower() not in ("y", "yes"):
+            print("Đã hủy thao tác chuyển metadata.")
+            return
+
+    print("\n=== ĐANG THỰC HIỆN CHUYỂN DỮ LIỆU SANG ORACLE... ===")
+    mig_res = start_migration(ctx, target_ds_id=target_ds_id, mode=mode)
+    if not mig_res.ok or not mig_res.data:
+        print(f"Lỗi khi chuyển metadata: {mig_res.message}", file=sys.stderr)
+        sys.exit(1)
+
+    m_data = mig_res.data
+    print("\n=== CHUYỂN DỮ LIỆU THÀNH CÔNG! ===")
+    print(f"Phiên chuyển ID: {m_data['migration_id']}")
+    print(f"Bản lưu SQLite cũ tại: {m_data['old_sqlite_path']}")
+    print("\nCác bước tiếp theo cần thực hiện:")
+    for step in m_data.get("next_steps", []):
+        print(f"  {step}")
 
 
 def seed_cmd(args: argparse.Namespace) -> None:
@@ -478,6 +530,19 @@ def main() -> None:
 
     # migrate-metadata
     p_mig = subparsers.add_parser("migrate-metadata", help="Chuyển metadata RECON_APP sang Oracle")
+    p_mig.add_argument("--target-ds", type=int, help="ID của Data Source Oracle đích")
+    p_mig.add_argument(
+        "--mode",
+        choices=["NO_TEMP", "FULL", "CONFIG_ONLY"],
+        default="NO_TEMP",
+        help="Chế độ chuyển dữ liệu (mặc định: NO_TEMP)",
+    )
+    p_mig.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Chỉ kiểm tra trước (precheck) mà không thực hiện chuyển",
+    )
+    p_mig.add_argument("--force", action="store_true", help="Bỏ qua câu hỏi xác nhận")
     p_mig.set_defaults(func=migrate_metadata_cmd)
 
     # seed

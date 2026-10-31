@@ -17,7 +17,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 10 | [10-new-run-ui](10-new-run-ui/task.md) — Màn Chạy đối soát | ✅ | 07, 08 | feat/10-new-run-ui |
 | 11 | [11-run-result-ui](11-run-result-ui/task.md) — Màn Kết quả run, grid động, Đã kiểm tra xong | ✅ | 07, 08 | feat/11-run-result-ui |
 | 12 | [12-export-history](12-export-history/task.md) — Lịch sử run (xóa nhiều run), Dashboard tối thiểu, hoàn thiện MVP | ✅ | 10, 11 | feat/12-export-history |
-| 13 | [13-metadata-migration](13-metadata-migration/task.md) — Chuyển RECON_APP từ SQLite sang Oracle, xóa bản lưu SQLite cũ | ⬜ | 02, 12 | feat/13-metadata-migration |
+| 13 | [13-metadata-migration](13-metadata-migration/task.md) — Chuyển RECON_APP từ SQLite sang Oracle, xóa bản lưu SQLite cũ | ✅ | 02, 12 | feat/13-metadata-migration |
 | 14 | [14-issue-handling](14-issue-handling/task.md) — Xử lý chênh lệch | ⬜ | 12 | feat/14-issue-handling |
 | 15 | [15-dashboard-compare](15-dashboard-compare/task.md) — Dashboard đầy đủ và so sánh hai run | ⬜ | 12 | feat/15-dashboard-compare |
 | 16 | [16-production-readiness](16-production-readiness/task.md) — Triển khai trên Windows và Linux (không Docker) | ⬜ | 00–15 | feat/16-production-readiness |

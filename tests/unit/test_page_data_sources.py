@@ -71,3 +71,44 @@ def test_render_storage_tab() -> None:
     with patch("app.ui.pages.data_sources.get_current_ctx", return_value=admin_ctx):
         page_str = str(layout())
         assert "XOA" in page_str
+
+
+def test_render_storage_tab_with_migration_and_sqlite() -> None:
+    mock_usage = {
+        "temp_bytes": 0,
+        "warning_gb": 2.0,
+        "warning_days": 30,
+        "is_warning": False,
+        "uncheck_count": 0,
+        "stale_count": 0,
+    }
+    mock_oracle_sources = [
+        {
+            "ID": 10,
+            "NAME": "Oracle Billing UAT",
+            "ENV": "UAT",
+            "USERNAME": "recon_uat",
+            "HOST": "db.corp",
+            "PORT": 1521,
+            "SERVICE_NAME": "ORCL",
+        }
+    ]
+    # Khi đang chạy SQLite
+    content_sqlite = render_storage_tab(mock_usage, purge_logs=[], is_oracle=False, oracle_sources=mock_oracle_sources)
+    c_str = str(content_sqlite)
+    assert "Chuyển dữ liệu sang Oracle" in c_str
+    assert "Đang chạy trên SQLite" in c_str
+
+    # Khi đang chạy Oracle
+    mock_mig = {"OLD_SQLITE_PATH": "data/recon_app.db", "OLD_SQLITE_DELETED_AT": None}
+    content_oracle = render_storage_tab(
+        mock_usage,
+        purge_logs=[],
+        is_oracle=True,
+        oracle_sources=mock_oracle_sources,
+        latest_migration=mock_mig,
+    )
+    o_str = str(content_oracle)
+    assert "Chuyển dữ liệu sang Oracle" in o_str
+    assert "Bản lưu SQLite cũ đang được lưu trữ an toàn" in o_str
+    assert "data/recon_app.db" in o_str

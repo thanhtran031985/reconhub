@@ -5,7 +5,7 @@ import argparse
 import pytest
 from sqlalchemy import create_engine, select
 
-from app.cli import create_admin_cmd, reset_password_cmd, seed_cmd
+from app.cli import create_admin_cmd, migrate_metadata_cmd, reset_password_cmd, seed_cmd
 from app.core.auth import verify_password
 from app.db.metadata import metadata, recon_user, recon_user_role
 
@@ -109,3 +109,11 @@ def test_cli_seed_idempotent(cli_db) -> None:
     with engine.connect() as conn:
         users_again = conn.execute(select(recon_user)).mappings().all()
         assert len(users_again) == 4
+
+
+def test_cli_migrate_metadata_missing_target(cli_db) -> None:
+    args = argparse.Namespace(target_ds=None)
+    with pytest.raises(SystemExit) as exc:
+        migrate_metadata_cmd(args)
+    assert exc.value.code != 0
+

@@ -15,6 +15,7 @@ from app.core.session import get_current_ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
     recon_data_source,
+    recon_metadata_migration,
     recon_purge_log,
 )
 from app.schemas.run import PurgeFilter
@@ -23,6 +24,12 @@ from app.services.data_source import (
     list_data_sources,
     test_data_source,
     update_data_source,
+)
+from app.services.metadata_migration import (
+    clean_target_schema,
+    delete_old_sqlite,
+    precheck,
+    start_migration,
 )
 from app.services.oracle_admin import generate_target_user_sql
 from app.services.temp_data import preview, purge_filter, usage
@@ -172,6 +179,9 @@ def render_data_sources_table(
 def render_storage_tab(
     usage_info: dict[str, Any],
     purge_logs: list[dict[str, Any]],
+    is_oracle: bool = False,
+    oracle_sources: list[dict[str, Any]] | None = None,
+    latest_migration: dict[str, Any] | None = None,
 ) -> Any:
     """Tab quản lý lưu trữ RECON_APP và xóa dữ liệu tạm theo điều kiện."""
     temp_bytes = usage_info.get("temp_bytes", 0)
@@ -180,6 +190,7 @@ def render_storage_tab(
     is_warn = usage_info.get("is_warning", False)
     uncheck = usage_info.get("uncheck_count", 0)
     stale = usage_info.get("stale_count", 0)
+    oracle_list = oracle_sources or []
 
     # 1. Khối Dữ liệu tạm (KPI + Cấu hình ngưỡng)
     temp_kpis = dmc.SimpleGrid(
@@ -257,6 +268,48 @@ def render_storage_tab(
 
     # Khối SQL Oracle
     target_sql = generate_target_user_sql("RECON_APP", "ReconHub2026#Secure")
+
+    target_options = [
+        {
+            "value": str(ds["ID"]),
+            "label": f"{ds['NAME']} ({ds.get('ENV', 'ORACLE')}) — {ds.get('USERNAME', '')}@{ds.get('HOST', '')}:{ds.get('PORT', 1521)}/{ds.get('SERVICE_NAME', '')}",
+        }
+        for ds in oracle_list
+    ]
+
+    if is_oracle and latest_migration is not None:
+        sqlite_path_text = latest_migration.get("OLD_SQLITE_PATH")
+        sqlite_deleted = bool(latest_migration.get("OLD_SQLITE_DELETED_AT"))
+        if sqlite_deleted:
+            sqlite_status_node = alert_box(
+                title="Bản lưu SQLite cũ đã được xóa",
+                message=f"Bản lưu SQLite cũ đã được xóa an toàn lúc {format_datetime(latest_migration.get('OLD_SQLITE_DELETED_AT'))}.",
+                tone="ok",
+                icon="lucide:check-circle-2",
+            )
+        elif sqlite_path_text:
+            sqlite_status_node = dmc.Stack(
+                [
+                    alert_box(
+                        title="Bản lưu SQLite cũ đang được lưu trữ an toàn",
+                        message=f"Đường dẫn file: {sqlite_path_text}. File này được giữ nguyên làm dự phòng sau khi chuyển sang Oracle.",
+                        tone="info",
+                        icon="lucide:hard-drive",
+                    ),
+                    button_danger("Xóa bản lưu SQLite cũ", id="ds-mig-delete-sqlite-open-btn", icon="lucide:trash", size="xs"),
+                    html.Div(id="ds-mig-delete-sqlite-alert"),
+                ],
+                gap="sm",
+            )
+        else:
+            sqlite_status_node = dmc.Text("Không tìm thấy thông tin bản lưu SQLite cũ cần dọn dẹp.", size="sm", c="dimmed")
+    else:
+        sqlite_status_node = alert_box(
+            title="Đang chạy trên SQLite",
+            message="Ứng dụng hiện đang chạy trực tiếp trên cơ sở dữ liệu SQLite nguồn. Chức năng xóa bản lưu SQLite chỉ được kích hoạt sau khi ReconHub đã chuyển sang chạy trên Oracle.",
+            tone="info",
+            icon="lucide:info",
+        )
 
     return dmc.Stack(
         [
@@ -339,19 +392,86 @@ def render_storage_tab(
                 p="lg",
                 radius="md",
             ),
-            # Đích Oracle
+            # Khối Chuyển dữ liệu sang Oracle (Task 13)
             dmc.Paper(
                 dmc.Stack(
                     [
                         dmc.Group(
                             [
-                                dmc.Title("Đích lưu trữ Oracle (Chuẩn bị)", order=4),
-                                dmc.Badge("Task 13", color="purple", variant="light", size="sm"),
+                                dmc.Title("Chuyển dữ liệu sang Oracle", order=4),
+                                dmc.Badge("Metadata Migration", color="blue", variant="light", size="sm"),
                             ],
                             gap="sm",
                         ),
                         dmc.Text(
-                            "Khi cần chuyển RECON_APP từ SQLite sang Oracle, chạy script sau trên cơ sở dữ liệu Oracle để khởi tạo schema:",
+                            "Di chuyển toàn bộ metadata, cấu hình template, lịch sử chạy và kết quả đối soát từ SQLite sang schema Oracle đích.",
+                            size="sm",
+                            c="dimmed",
+                        ),
+                        dmc.SimpleGrid(
+                            cols=2,
+                            children=[
+                                dmc.Select(
+                                    id="ds-mig-target-select",
+                                    label="Data Source Oracle đích",
+                                    placeholder="Chọn Data Source Oracle..." if target_options else "Chưa có Data Source Oracle nào",
+                                    data=target_options,
+                                    clearable=True,
+                                ),
+                                dmc.Select(
+                                    id="ds-mig-mode-select",
+                                    label="Chế độ chuyển dữ liệu",
+                                    data=[
+                                        {"value": "NO_TEMP", "label": "NO_TEMP — Bỏ qua dữ liệu Excel tạm (Khuyên dùng)"},
+                                        {"value": "FULL", "label": "FULL — Toàn bộ (gồm cả dữ liệu Excel tạm)"},
+                                        {"value": "CONFIG_ONLY", "label": "CONFIG_ONLY — Chỉ cấu hình & người dùng"},
+                                    ],
+                                    value="NO_TEMP",
+                                ),
+                            ],
+                        ),
+                        dmc.Group(
+                            [
+                                button_primary("Kiểm tra trước", id="ds-mig-precheck-btn", icon="lucide:check-square"),
+                                button_subtle("Xóa schema đích", id="ds-mig-clean-open-btn", color="red", icon="lucide:trash-2"),
+                                button_primary("Chuyển sang Oracle", id="ds-mig-start-btn", icon="lucide:arrow-right"),
+                            ],
+                            justify="flex-start",
+                            gap="sm",
+                        ),
+                        html.Div(id="ds-mig-result-container"),
+                    ],
+                    gap="md",
+                ),
+                withBorder=True,
+                p="lg",
+                radius="md",
+            ),
+            # Khối Bản lưu SQLite cũ (Task 13)
+            dmc.Paper(
+                dmc.Stack(
+                    [
+                        dmc.Title("Bản lưu SQLite cũ", order=4),
+                        dmc.Text(
+                            "Quản lý và giải phóng file cơ sở dữ liệu SQLite nguồn sau khi toàn bộ hệ thống đã chuyển sang vận hành trên Oracle.",
+                            size="sm",
+                            c="dimmed",
+                        ),
+                        sqlite_status_node,
+                    ],
+                    gap="sm",
+                ),
+                withBorder=True,
+                p="lg",
+                radius="md",
+            ),
+            # Script tạo schema Oracle
+            dmc.Paper(
+                dmc.Stack(
+                    [
+                        dmc.Title("Script khởi tạo schema đích Oracle", order=4),
+                        dmc.Text(
+                            "Trước khi chuyển dữ liệu, có thể chạy script sau trên cơ sở dữ liệu Oracle để khởi tạo user và phân quyền:",
                             size="sm",
                             c="dimmed",
                         ),
@@ -538,6 +658,24 @@ def layout() -> Any:
                 confirm_label="Xóa dữ liệu tạm",
                 danger=True,
             ),
+            # Modal xác nhận Xóa bảng schema đích
+            modal_confirm(
+                id="ds-mig-clean-modal",
+                title="Xác nhận xóa bảng schema đích",
+                description="Thao tác này sẽ DROP toàn bộ các bảng RECON_* trên schema đích để chuẩn bị chạy lại migration. Dữ liệu trên SQLite nguồn hoàn toàn không bị ảnh hưởng.",
+                confirm_text="XOA",
+                confirm_label="Xác nhận xóa bảng đích",
+                danger=True,
+            ),
+            # Modal xác nhận Xóa bản lưu SQLite cũ
+            modal_confirm(
+                id="ds-mig-delete-sqlite-modal",
+                title="Xác nhận xóa bản lưu SQLite cũ",
+                description="Thao tác này sẽ xóa vĩnh viễn file cơ sở dữ liệu SQLite nguồn trên máy chủ. Hãy chắc chắn rằng hệ thống Oracle đã vận hành ổn định.",
+                confirm_text="XOA",
+                confirm_label="Xác nhận xóa file SQLite",
+                danger=True,
+            ),
             dcc.Store(id="ds-purge-preview-store"),
         ],
         size="xl",
@@ -581,6 +719,7 @@ def update_sources_table(store_data: Any) -> Any:
     Output("ds-store-storage", "data"),
     Input("ds-refresh-btn", "n_clicks"),
     Input("ds-purge-confirm-modal-confirm", "n_clicks"),
+    Input("ds-mig-delete-sqlite-modal-confirm", "n_clicks"),
 )
 def load_storage_data(*args: Any) -> Any:
     ctx = get_current_ctx()
@@ -590,14 +729,35 @@ def load_storage_data(*args: Any) -> Any:
     usage_res = usage(ctx)
     usage_data = usage_res.data.model_dump() if usage_res.ok and usage_res.data else {}
 
-    # Lấy nhật ký xóa
+    # Lấy nhật ký xóa và cấu hình lưu trữ
     engine = get_recon_engine()
+    is_oracle = engine.dialect.name == "oracle"
     purge_logs: list[dict[str, Any]] = []
+    oracle_sources: list[dict[str, Any]] = []
+    latest_mig: dict[str, Any] | None = None
+
     with engine.connect() as conn:
         stmt = select(recon_purge_log).order_by(desc(recon_purge_log.c.PURGED_AT)).limit(10)
         purge_logs = [dict(r) for r in conn.execute(stmt).mappings().all()]
 
-    return {"usage": usage_data, "purge_logs": purge_logs}
+        ds_stmt = select(recon_data_source).where(
+            recon_data_source.c.DB_TYPE == "ORACLE",
+            recon_data_source.c.IS_ACTIVE == "Y",
+        )
+        oracle_sources = [dict(r) for r in conn.execute(ds_stmt).mappings().all()]
+
+        mig_stmt = select(recon_metadata_migration).order_by(desc(recon_metadata_migration.c.ID)).limit(1)
+        mig_row = conn.execute(mig_stmt).mappings().first()
+        if mig_row:
+            latest_mig = dict(mig_row)
+
+    return {
+        "usage": usage_data,
+        "purge_logs": purge_logs,
+        "is_oracle": is_oracle,
+        "oracle_sources": oracle_sources,
+        "latest_migration": latest_mig,
+    }
 
 
 @callback(
@@ -611,6 +771,9 @@ def update_storage_content(store_data: Any) -> Any:
     return render_storage_tab(
         usage_info=store_data.get("usage", {}),
         purge_logs=store_data.get("purge_logs", []),
+        is_oracle=store_data.get("is_oracle", False),
+        oracle_sources=store_data.get("oracle_sources", []),
+        latest_migration=store_data.get("latest_migration"),
     )
 
 
@@ -877,3 +1040,250 @@ def handle_test_drawer_connection(n_clicks: Any, ds_id: Any) -> Any:
         else:
             return alert_box("Thất bại", d.get("message") or "Không kết nối được đến máy chủ Oracle", tone="crit")
     return alert_box("Lỗi kết nối", res.message, tone="crit")
+
+
+# Callbacks chuyển metadata sang Oracle (Task 13)
+@callback(
+    Output("ds-mig-result-container", "children"),
+    Input("ds-mig-precheck-btn", "n_clicks"),
+    State("ds-mig-target-select", "value"),
+    State("ds-mig-mode-select", "value"),
+    prevent_initial_call=True,
+)
+def handle_migration_precheck(n_clicks: Any, target_ds_id: Any, mode: str | None) -> Any:
+    if not target_ds_id:
+        return alert_box("Lưu ý", "Vui lòng chọn Data Source Oracle đích trước khi kiểm tra.", tone="warn")
+
+    ctx = get_current_ctx()
+    if ctx is None or Role.ADMIN not in ctx.roles:
+        return alert_box("Từ chối", "Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện.", tone="crit")
+
+    res = precheck(ctx, int(target_ds_id), mode=mode or "NO_TEMP")
+    if not res.ok or not res.data:
+        return alert_box("Kiểm tra thất bại", res.message or "Không thể kiểm tra đích.", tone="crit")
+
+    d = res.data
+    table_rows = []
+    for t in d.get("tables", []):
+        table_rows.append(
+            html.Tr(
+                [
+                    html.Td(dmc.Text(t["table"], size="xs", ff="monospace")),
+                    html.Td(dmc.Text(f"{t['rows']:,}".replace(",", "."), size="xs")),
+                    html.Td(dmc.Text(format_bytes(t["bytes_est"]), size="xs")),
+                ]
+            )
+        )
+
+    t_node = dmc.Table(
+        striped=True,
+        children=[
+            html.Thead(
+                html.Tr(
+                    [
+                        html.Th("Tên bảng"),
+                        html.Th("Số dòng"),
+                        html.Th("Ước tính"),
+                    ]
+                )
+            ),
+            html.Tbody(table_rows),
+        ],
+    )
+
+    return alert_box(
+        title=f"Đích sẵn sàng: {d['target_name']} ({d['target_env']})",
+        message=dmc.Stack(
+            [
+                dmc.Text(
+                    f"Chế độ: {d['mode']} · Tổng số dòng: {d['total_rows']:,} · Dung lượng ước tính: {format_bytes(d['total_bytes_est'])}".replace(
+                        ",", "."
+                    ),
+                    size="sm",
+                    fw=600,
+                ),
+                dmc.ScrollArea(t_node, h=200),
+                dmc.Text("Sẵn sàng chuyển. Nhấn 'Chuyển sang Oracle' để thực hiện.", size="xs", c="dimmed"),
+            ],
+            gap="xs",
+        ),
+        tone="ok",
+        icon="lucide:check-circle-2",
+    )
+
+
+@callback(
+    Output("ds-mig-result-container", "children", allow_duplicate=True),
+    Input("ds-mig-start-btn", "n_clicks"),
+    State("ds-mig-target-select", "value"),
+    State("ds-mig-mode-select", "value"),
+    prevent_initial_call=True,
+)
+def handle_migration_start(n_clicks: Any, target_ds_id: Any, mode: str | None) -> Any:
+    if not target_ds_id:
+        return alert_box("Lưu ý", "Vui lòng chọn Data Source Oracle đích trước khi chuyển.", tone="warn")
+
+    ctx = get_current_ctx()
+    if ctx is None or Role.ADMIN not in ctx.roles:
+        return alert_box("Từ chối", "Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện.", tone="crit")
+
+    res = start_migration(ctx, int(target_ds_id), mode=mode or "NO_TEMP")
+    if not res.ok or not res.data:
+        return alert_box("Chuyển dữ liệu thất bại", res.message or "Có lỗi xảy ra trong quá trình chuyển.", tone="crit")
+
+    d = res.data
+    report = d.get("report", {})
+    comp_rows = []
+    for t_name, info in report.items():
+        comp_rows.append(
+            html.Tr(
+                [
+                    html.Td(dmc.Text(t_name, size="xs", ff="monospace")),
+                    html.Td(dmc.Text(f"{info.get('src_rows', 0):,}".replace(",", "."), size="xs")),
+                    html.Td(dmc.Text(f"{info.get('tgt_rows', 0):,}".replace(",", "."), size="xs")),
+                    html.Td(
+                        dmc.Badge("Khớp SHA256", color="ok", variant="light", size="xs")
+                        if info.get("checksum_matched")
+                        else dmc.Badge("Chưa kiểm tra", color="gray", variant="light", size="xs")
+                    ),
+                ]
+            )
+        )
+
+    t_report = dmc.Table(
+        striped=True,
+        children=[
+            html.Thead(
+                html.Tr(
+                    [
+                        html.Th("Bảng"),
+                        html.Th("Nguồn (SQLite)"),
+                        html.Th("Đích (Oracle)"),
+                        html.Th("Đối chiếu"),
+                    ]
+                )
+            ),
+            html.Tbody(comp_rows),
+        ],
+    )
+
+    steps_list = [dmc.Text(s, size="xs") for s in d.get("next_steps", [])]
+
+    return alert_box(
+        title=f"Chuyển dữ liệu thành công! (Phiên #{d.get('migration_id')})",
+        message=dmc.Stack(
+            [
+                dmc.Text("Tất cả các bảng đã được sao chép và đối chiếu toàn vẹn dữ liệu:", size="sm", fw=600),
+                dmc.ScrollArea(t_report, h=220),
+                dmc.Divider(),
+                dmc.Text("Các bước tiếp theo cần thực hiện:", size="sm", fw=600),
+                dmc.Stack(steps_list, gap=4),
+            ],
+            gap="xs",
+        ),
+        tone="ok",
+        icon="lucide:check-circle-2",
+    )
+
+
+@callback(
+    Output("ds-mig-clean-modal", "opened"),
+    Input("ds-mig-clean-open-btn", "n_clicks"),
+    Input("ds-mig-clean-modal-cancel", "n_clicks"),
+    State("ds-mig-clean-modal", "opened"),
+    prevent_initial_call=True,
+)
+def toggle_clean_modal(open_clicks: Any, cancel_clicks: Any, is_opened: bool) -> bool:
+    return not is_opened
+
+
+@callback(
+    Output("ds-mig-clean-modal", "opened", allow_duplicate=True),
+    Output("ds-mig-result-container", "children", allow_duplicate=True),
+    Input("ds-mig-clean-modal-confirm", "n_clicks"),
+    State("ds-mig-clean-modal-input", "value"),
+    State("ds-mig-target-select", "value"),
+    prevent_initial_call=True,
+)
+def handle_clean_schema(n_clicks: Any, input_val: str | None, target_ds_id: Any) -> tuple[bool, Any]:
+    if input_val != "XOA" or not target_ds_id:
+        return False, dash.no_update
+
+    ctx = get_current_ctx()
+    if ctx is None or Role.ADMIN not in ctx.roles:
+        return False, alert_box("Lỗi", "Chưa đăng nhập", tone="crit")
+
+    # Lấy thông tin default schema của target ds
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        ds_row = conn.execute(
+            select(recon_data_source).where(recon_data_source.c.ID == int(target_ds_id))
+        ).mappings().first()
+
+    if not ds_row:
+        return False, alert_box("Lỗi", "Không tìm thấy Data Source đích", tone="crit")
+
+    schema_name = str(ds_row.get("DEFAULT_SCHEMA") or ds_row.get("USERNAME") or "").upper()
+    res = clean_target_schema(ctx, int(target_ds_id), confirm_schema=schema_name)
+    if not res.ok or not res.data:
+        return False, alert_box("Lỗi dọn dẹp schema", res.message or "Lỗi dọn dẹp", tone="crit")
+
+    return False, alert_box(
+        "Đã dọn dẹp schema đích",
+        f"Đã drop các bảng RECON_* trên schema '{schema_name}' ({len(res.data.get('dropped_tables', []))} bảng).",
+        tone="ok",
+    )
+
+
+@callback(
+    Output("ds-mig-delete-sqlite-modal", "opened"),
+    Input("ds-mig-delete-sqlite-open-btn", "n_clicks"),
+    Input("ds-mig-delete-sqlite-modal-cancel", "n_clicks"),
+    State("ds-mig-delete-sqlite-modal", "opened"),
+    prevent_initial_call=True,
+)
+def toggle_delete_sqlite_modal(open_clicks: Any, cancel_clicks: Any, is_opened: bool) -> bool:
+    return not is_opened
+
+
+@callback(
+    Output("ds-mig-delete-sqlite-modal", "opened", allow_duplicate=True),
+    Output("ds-mig-delete-sqlite-alert", "children"),
+    Input("ds-mig-delete-sqlite-modal-confirm", "n_clicks"),
+    State("ds-mig-delete-sqlite-modal-input", "value"),
+    prevent_initial_call=True,
+)
+def handle_delete_sqlite(n_clicks: Any, input_val: str | None) -> tuple[bool, Any]:
+    if input_val != "XOA":
+        return False, dash.no_update
+
+    ctx = get_current_ctx()
+    if ctx is None or Role.ADMIN not in ctx.roles:
+        return False, alert_box("Lỗi", "Chưa đăng nhập", tone="crit")
+
+    # Lấy tên file sqlite từ bản migration gần nhất
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        mig_row = conn.execute(
+            select(recon_metadata_migration)
+            .where(
+                recon_metadata_migration.c.STATUS == "DONE",
+                recon_metadata_migration.c.OLD_SQLITE_DELETED_AT.is_(None),
+            )
+            .order_by(desc(recon_metadata_migration.c.ID))
+        ).mappings().first()
+
+    if not mig_row or not mig_row.get("OLD_SQLITE_PATH"):
+        return False, alert_box("Lỗi", "Không tìm thấy file SQLite cũ cần xóa.", tone="crit")
+
+    from pathlib import Path
+    f_name = Path(mig_row["OLD_SQLITE_PATH"]).name
+    res = delete_old_sqlite(ctx, confirm_filename=f_name)
+    if not res.ok or not res.data:
+        return False, alert_box("Không thể xóa", res.message or "Lỗi khi xóa", tone="crit")
+
+    return False, alert_box(
+        "Thành công",
+        f"Đã xóa file SQLite cũ '{f_name}', giải phóng {format_bytes(res.data.get('bytes_freed', 0))}.",
+        tone="ok",
+    )
