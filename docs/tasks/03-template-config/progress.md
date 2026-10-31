@@ -4,12 +4,27 @@ Trạng thái: 🔄
 
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
-| 1 | Pydantic model | ✅ | 2026-10-31 |  |
-| 2 | Validator có kết nối | 🔄 |  |  |
-| 3 | Repo/service version | ⬜ |  |  |
+| 1 | Pydantic model | ✅ | 2026-10-31 | 9be5c68 |
+| 2 | Validator có kết nối | ✅ | 2026-10-31 |  |
+| 3 | Repo/service version | 🔄 |  |  |
 | 4 | Export/import + diagram + seed | ⬜ |  |  |
 
 ## Nhật ký
+### Bước 2 — 2026-10-31 23:53
+- Đã làm:
+  - Cài đặt `app/services/template_validate.py`: hàm `validate_template_connected(ctx, config, data_source_id)` xác thực cấu hình `DbSourceSpec` với catalog CSDL Oracle thực tế:
+    - Kiểm tra bảng/view tồn tại trong schema (báo lỗi `TABLE_NOT_FOUND` kèm đường dẫn `db_source.table`).
+    - Kiểm tra mọi cột DB được tham chiếu trong `fields[].db`, `filters[].column`, `static_where[].column` tồn tại trong bảng (báo lỗi `COLUMN_NOT_FOUND` kèm đường dẫn chính xác).
+    - Kiểm tra các cột lọc dùng cho `p_from`, `p_to` bắt buộc có kiểu `DATE` hoặc `TIMESTAMP` (báo lỗi nếu là chuỗi/số).
+    - Xử lý mất kết nối hoặc không truy cập được Data Source thành cảnh báo (warnings) an toàn, không chặn việc lưu nháp template.
+  - Viết test `tests/unit/test_template_config_connected.py` với 6 test case bao quát bảng không tồn tại, cột không tồn tại, cột ngày sai kiểu, mất kết nối mạng và không chọn data source.
+  - Bổ sung test integration `test_validate_template_connected_oracle` trong `tests/integration/test_oracle_smoke.py` (tự động skip khi thiếu VPN/môi trường).
+- Kiểm tra:
+  - `uv run pytest tests/unit/test_template_config_connected.py -v`: 6/6 passed.
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 40 source files.
+  - `uv run poe test`: 85 passed, 3 skipped.
+- Suy ra (nếu có): Tách biệt rõ hai cấp độ xác thực (tĩnh qua Pydantic schema validation và động qua kết nối catalog Data Source) giúp giao diện người dùng lưu nháp linh hoạt ngay cả khi đang offline hoặc chưa kết nối VPN, đồng thời cảnh báo rõ ràng trước khi kích hoạt.
 ### Bước 1 — 2026-10-31 23:50
 - Đã làm:
   - Cài đặt `app/schemas/template_config.py` gồm toàn bộ các model Pydantic v2 theo Spec 03: `FileSpec`, `RowFilter`, `RowFilters`, `FieldSpec`, `DerivedSpec`, `DerivedExpr`, `DbSourceSpec`, `SourceFilter`, `StaticFilter`, `ParamSpec`, `TimeFilterSpec`, `MeasureSpec`, `ProfileSpec`, `ControlTotalSpec`, `TemplateConfig`.
