@@ -1,13 +1,13 @@
 # Tiến độ — 05-db-fetch
 
-Trạng thái: 🔄
+Trạng thái: ✅
 
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | Builder kind=table | ✅ | 2026-11-01 | acacce8 |
 | 2 | SQL gộp theo profile | ✅ | 2026-11-01 | dc57a11 |
 | 3 | SQL guard | ✅ | 2026-11-01 | b294d46 |
-| 4 | Fetch + describe | ✅ | 2026-11-01 |  |
+| 4 | Fetch + describe | ✅ | 2026-11-01 | c8b63a1 |
 
 ## Nhật ký
 ### Bước 4 — 2026-11-01 00:46
