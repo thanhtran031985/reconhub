@@ -7,11 +7,33 @@ Trạng thái: 🔄
 | 1 | Reader | ✅ | 2026-11-01 | 82133db |
 | 2 | Mapping + detect | ✅ | 2026-11-01 | ed4906c |
 | 3 | Normalize + derive + invalid | ✅ | 2026-11-01 | 53e8843 |
-| 4 | Control total + filters | ✅ | 2026-11-01 |  |
-| 5 | Inspect | 🔄 |  |  |
-| 6 | Service file + nạp dữ liệu tạm | ⬜ |  |  |
+| 4 | Control total + filters | ✅ | 2026-11-01 | 48e486f |
+| 5 | Inspect | ✅ | 2026-11-01 |  |
+| 6 | Service file + nạp dữ liệu tạm | 🔄 |  |  |
 
 ## Nhật ký
+### Bước 5 — 2026-11-01 00:20
+- Đã làm:
+  - Cài đặt `app/engine/inspect.py`:
+    - `remove_accents`: hàm loại bỏ dấu tiếng Việt chuẩn xác (xử lý toàn bộ nguyên âm có dấu, ký tự `đ/Đ` và tổ hợp NFD).
+    - `to_upper_snake`: chuyển đổi tiêu đề cột sang định danh UPPER_SNAKE_CASE chuẩn (tối đa 30 ký tự, thêm tiền tố `F_` nếu bắt đầu bằng chữ số).
+    - `inspect_sample(file_path, sheet_name=None)`:
+      - Quét và phát hiện các dòng tổng ứng viên (`CandidateTotalRow`) ở cuối file dựa trên các từ khóa ("tổng", "total", "sum",...) và trích xuất giá trị các cột số.
+      - Phân tích từng cột:
+        - Nhận diện cột có số 0 ở đầu (e.g. `"0334"`, `"0304422444-021"`) để ưu tiên gán kiểu `text`.
+        - Nhận diện cột lẫn kiểu số/chữ (`has_mixed_types`).
+        - Nhận diện cột ngày/ngày giờ theo regex và serial date Excel.
+        - Đếm số giá trị duy nhất, tổng ô non-null và tính tỷ lệ duy nhất (`unique_ratio`).
+        - Gợi ý cột ứng viên làm khóa chính (`is_candidate_key`) cho các trường mã định danh/hóa đơn có tỷ lệ duy nhất cao.
+        - Gợi ý kiểu dữ liệu (`suggested_type`: text, number, date, datetime).
+  - Viết test `tests/unit/test_excel_inspect.py` xác thực:
+    - Phân tích file mẫu `dtp_sample_200.xlsx`: phát hiện dòng tổng 202 ("Dịch vụ": "Tổng tiền", "Thành tiền": "366732000"), gợi ý đúng "Số hóa đơn" là `SO_HOA_DON` (candidate key, text), "Ngày lập hóa đơn" là `NGAY_LAP_HOA_DON` (datetime), "Thành tiền" là `THANH_TIEN` (number).
+    - Phân tích file CSV có cột mã số thuế có số 0 ở đầu (`0304422444-021`, `0334`) giữ nguyên kiểu `text`.
+- Kiểm tra:
+  - `uv run pytest tests/unit/test_excel_inspect.py -v`: 2/2 passed.
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 49 source files.
+- Suy ra (nếu có): Cột ngày giờ dạng `01/02/2026` bắt đầu bằng `0` không được tính là `has_leading_zero`; việc kiểm tra nhận diện ngày tháng cần được ưu tiên trước khi kiểm tra số 0 ở đầu.
 ### Bước 4 — 2026-11-01 00:18
 - Đã làm:
   - Cài đặt `app/engine/control_total.py`:
