@@ -1,0 +1,14 @@
+[Unit]
+Description=ReconHub Database Backup Job
+After=network.target
+
+[Service]
+Type=oneshot
+User=reconhub
+Group=reconhub
+WorkingDirectory=/opt/reconhub
+EnvironmentFile=/opt/reconhub/.env
+ExecStart=/opt/reconhub/.venv/bin/python -m app.cli backup
+StandardOutput=append:/var/log/reconhub/backup.log
+StandardError=append:/var/log/reconhub/backup_error.log
+

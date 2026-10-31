@@ -1,0 +1,20 @@
+[Unit]
+Description=ReconHub Background Job Worker
+After=network.target reconhub-web.service
+
+[Service]
+Type=simple
+User=reconhub
+Group=reconhub
+WorkingDirectory=/opt/reconhub
+EnvironmentFile=/opt/reconhub/.env
+ExecStart=/opt/reconhub/.venv/bin/python -m worker
+Restart=always
+RestartSec=5s
+LimitNOFILE=65535
+StandardOutput=append:/var/log/reconhub/worker.log
+StandardError=append:/var/log/reconhub/worker_error.log
+
+[Install]
+WantedBy=multi-user.target
+

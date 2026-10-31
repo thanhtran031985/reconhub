@@ -24,6 +24,12 @@ dependencies = [
     "structlog>=25.1.0",
 ]
 
+[project.optional-dependencies]
+prod = [
+    "waitress>=3.0.0",
+    "gunicorn>=23.0.0; sys_platform != 'win32'",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.3.0",

@@ -20,7 +20,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 13 | [13-metadata-migration](13-metadata-migration/task.md) — Chuyển RECON_APP từ SQLite sang Oracle, xóa bản lưu SQLite cũ | ✅ | 02, 12 | feat/13-metadata-migration |
 | 14 | [14-issue-handling](14-issue-handling/task.md) — Xử lý chênh lệch | ✅ | 12 | feat/14-issue-handling |
 | 15 | [15-dashboard-compare](15-dashboard-compare/task.md) — Dashboard đầy đủ và so sánh hai run | ✅ | 12 | feat/15-dashboard-compare |
-| 16 | [16-production-readiness](16-production-readiness/task.md) — Triển khai trên Windows và Linux (không Docker) | ⬜ | 00–15 | feat/16-production-readiness |
+| 16 | [16-production-readiness](16-production-readiness/task.md) — Triển khai trên Windows và Linux (không Docker) | ✅ | 00–15 | feat/16-production-readiness |
 
 Thiết kế: 11 màn (designs/components/Screen01–Screen11), 13 thành phần, Gallery. Giao diện dựng bằng Dash Mantine Components.
 

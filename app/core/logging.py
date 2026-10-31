@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from typing import Any
 
 import structlog
@@ -41,7 +42,12 @@ def setup_logging() -> None:
         ],
     )
 
-    file_handler = logging.FileHandler(str(log_file), encoding="utf-8")
+    file_handler = RotatingFileHandler(
+        str(log_file),
+        maxBytes=10 * 1024 * 1024,  # 10 MB
+        backupCount=5,
+        encoding="utf-8",
+    )
     file_handler.setFormatter(formatter)
 
     console_handler = logging.StreamHandler(sys.stdout)

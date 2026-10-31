@@ -65,17 +65,23 @@ def list_reasons(ctx: Ctx) -> list[dict[str, Any]]:
             .mappings()
             .all()
         )
-    return [
-        {
-            "ID": r["id"],
-            "id": r["id"],
-            "USERNAME": r["username"],
-            "username": r["username"],
-            "FULL_NAME": r["full_name"],
-            "full_name": r["full_name"],
-        }
-        for r in rows
-    ]
+    result = []
+    for r in rows:
+        d = dict(r)
+        code = d.get("CODE") or d.get("code")
+        label = d.get("LABEL") or d.get("label")
+        active = d.get("IS_ACTIVE") or d.get("is_active") or "Y"
+        result.append(
+            {
+                "CODE": code,
+                "code": code,
+                "LABEL": label,
+                "label": label,
+                "IS_ACTIVE": active,
+                "is_active": active,
+            }
+        )
+    return result
 
 
 @service

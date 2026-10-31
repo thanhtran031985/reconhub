@@ -10,6 +10,7 @@ import getpass
 import json
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy import select, update
 
@@ -492,6 +493,133 @@ def seed_cmd(args: argparse.Namespace) -> None:
                     print(f"Hoàn tất: Đã nạp template mẫu '{tmpl_code}'.")
 
 
+
+def backup_cmd(args: argparse.Namespace) -> None:
+    """Tạo bản sao lưu SQLite database (VACUUM INTO) và xoay vòng giữ tối đa 14 bản."""
+    settings = get_settings()
+    db_url = settings.RECON_DB_URL
+
+    if not db_url.startswith("sqlite"):
+        print(f"Chú ý: Cơ sở dữ liệu RECON_APP hiện tại ({db_url.split('://')[0]}) không phải SQLite.")
+        print("Bản sao lưu cho Oracle được quản lý tự động bởi DBA thông qua RMAN hoặc Data Pump.")
+        return
+
+    dest_dir = getattr(args, "dest", None)
+    if dest_dir:
+        backup_dir = Path(dest_dir)
+    else:
+        backup_dir = settings.PROJECT_ROOT / "backup"
+
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_file = backup_dir / f"recon_app_{timestamp}.db"
+
+    engine = get_recon_engine()
+    print(f"Đang thực hiện sao lưu cơ sở dữ liệu SQLite vào '{backup_file}'...")
+
+    try:
+        with engine.connect() as conn:
+            try:
+                conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+            except Exception:
+                pass
+            clean_path = str(backup_file.resolve()).replace("\\", "/")
+            conn.exec_driver_sql(f"VACUUM INTO '{clean_path}'")
+    finally:
+        engine.dispose()
+
+    file_size = backup_file.stat().st_size
+    print(f"Thành công: Đã tạo bản sao lưu '{backup_file.name}' ({file_size:,} bytes).")
+
+    keep_count = getattr(args, "keep", 14) or 14
+    existing_backups = sorted(
+        backup_dir.glob("recon_app_*.db"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+    if len(existing_backups) > keep_count:
+        to_delete = existing_backups[keep_count:]
+        print(f"Đang dọn dẹp các bản sao lưu cũ hơn (giữ lại {keep_count} bản gần nhất):")
+        for old_b in to_delete:
+            try:
+                old_b.unlink()
+                print(f"  - Đã xóa: {old_b.name}")
+            except Exception as e:
+                print(f"  ! Không thể xóa {old_b.name}: {e}", file=sys.stderr)
+
+    remaining = len(list(backup_dir.glob("recon_app_*.db")))
+    print(f"Tổng số bản sao lưu hiện có: {remaining}/{keep_count}.")
+
+
+def restore_cmd(args: argparse.Namespace) -> None:
+    """Khôi phục cơ sở dữ liệu SQLite từ file backup."""
+    settings = get_settings()
+    db_url = settings.RECON_DB_URL
+
+    if not db_url.startswith("sqlite"):
+        print("Lỗi: Lệnh restore chỉ áp dụng cho SQLite database.", file=sys.stderr)
+        sys.exit(1)
+
+    backup_file_path = getattr(args, "file", None)
+    if not backup_file_path:
+        print("Lỗi: Vui lòng chỉ định file sao lưu qua --file <path>.", file=sys.stderr)
+        sys.exit(1)
+
+    backup_path = Path(backup_file_path)
+    if not backup_path.exists():
+        print(f"Lỗi: Không tìm thấy file sao lưu '{backup_path}'.", file=sys.stderr)
+        sys.exit(1)
+
+    prefix = "sqlite:///"
+    if db_url.startswith(prefix):
+        raw_db_path = db_url[len(prefix):]
+    else:
+        raw_db_path = "data/recon_app.db"
+
+    target_db = Path(raw_db_path)
+    if not target_db.is_absolute():
+        target_db = settings.PROJECT_ROOT / target_db
+
+    target_db.parent.mkdir(parents=True, exist_ok=True)
+
+    engine = get_recon_engine()
+    try:
+        with engine.connect() as conn:
+            try:
+                conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+            except Exception:
+                pass
+    except Exception:
+        pass
+    finally:
+        engine.dispose()
+
+    import gc
+    gc.collect()
+
+    if target_db.exists():
+        safety_bak = target_db.with_suffix(".db.pre_restore_bak")
+        import shutil
+        shutil.copy2(target_db, safety_bak)
+        print(f"Đã tạo bản lưu dự phòng cơ sở dữ liệu hiện tại tại '{safety_bak.name}'.")
+
+    import shutil
+    shutil.copy2(backup_path, target_db)
+
+    # Xóa file WAL và SHM cũ nếu có để tránh phục hồi trạng thái cũ
+    for suffix in ["-wal", "-shm"]:
+        companion = target_db.with_name(target_db.name + suffix)
+        if companion.exists():
+            try:
+                companion.unlink()
+            except Exception:
+                pass
+
+    print(f"Thành công: Đã khôi phục cơ sở dữ liệu từ '{backup_path.name}' vào '{target_db}'.")
+
+
 def main() -> None:
     if sys.platform == "win32":
         try:
@@ -548,6 +676,17 @@ def main() -> None:
     # seed
     p_seed = subparsers.add_parser("seed", help="Nạp dữ liệu mẫu ban đầu")
     p_seed.set_defaults(func=seed_cmd)
+
+    # backup
+    p_backup = subparsers.add_parser("backup", help="Sao lưu cơ sở dữ liệu SQLite (VACUUM INTO)")
+    p_backup.add_argument("--dest", help="Thư mục lưu trữ bản backup (mặc định: backup/)")
+    p_backup.add_argument("--keep", type=int, default=14, help="Số lượng bản sao lưu tối đa giữ lại (mặc định: 14)")
+    p_backup.set_defaults(func=backup_cmd)
+
+    # restore
+    p_restore = subparsers.add_parser("restore", help="Khôi phục cơ sở dữ liệu SQLite từ file backup")
+    p_restore.add_argument("--file", required=True, help="Đường dẫn file sao lưu .db")
+    p_restore.set_defaults(func=restore_cmd)
 
     args = parser.parse_args()
     if hasattr(args, "func"):

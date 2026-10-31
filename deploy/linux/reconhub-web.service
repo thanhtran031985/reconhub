@@ -1,0 +1,24 @@
+[Unit]
+Description=ReconHub Web Application (Gunicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=reconhub
+Group=reconhub
+WorkingDirectory=/opt/reconhub
+EnvironmentFile=/opt/reconhub/.env
+ExecStart=/opt/reconhub/.venv/bin/gunicorn \
+    --workers 4 \
+    --bind 127.0.0.1:8050 \
+    --timeout 600 \
+    --access-logfile /var/log/reconhub/access.log \
+    --error-logfile /var/log/reconhub/error.log \
+    app.wsgi:server
+Restart=always
+RestartSec=5s
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+
