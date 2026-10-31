@@ -6,7 +6,7 @@ Trạng thái: 🔄
 |---|---|---|---|---|
 | 1 | Precheck + create | ✅ | 2026-11-01 | 09ba5b4 |
 | 2 | Worker + executor | ✅ | 2026-11-01 | 71d298a |
-| 3 | Đọc kết quả | ✅ | 2026-11-01 | |
+| 3 | Đọc kết quả | ✅ | 2026-11-01 | 2ea1b9e |
 | 4 | Dry-run + activate + grain | ⬜ |  |  |
 | 5 | Xóa dữ liệu tạm | ⬜ |  |  |
 | 6 | Demo | ⬜ |  |  |
