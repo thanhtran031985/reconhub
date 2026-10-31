@@ -6,11 +6,17 @@ Trạng thái: 🔄
 |---|---|---|---|---|
 | 1 | Aggregate | ✅ | 2026-11-01 | 558fe62 |
 | 2 | Compare | ✅ | 2026-11-01 | 4584740 |
-| 3 | Pipeline + summary | ✅ | 2026-11-01 | |
-| 4 | Export | ⬜ |  |  |
+| 3 | Pipeline + summary | ✅ | 2026-11-01 | 5c927f9 |
+| 4 | Export | ✅ | 2026-11-01 | |
 | 5 | Hiệu năng sơ bộ | ⬜ |  |  |
 
 ## Nhật ký
+### Bước 4 — 2026-11-01 01:08
+- Đã làm: Cài đặt `app/engine/export_styles.py` và `app/engine/export.py` (`write_export`). Sinh đầy đủ Sheet "Tổng hợp", các sheet riêng cho trạng thái khác MATCHED ("Lệch giá trị", "Thiếu trong DB", "Thiếu trong Excel", v.v.), sheet "Khớp" và sheet "Không hợp lệ". Định dạng cột khóa `@` Text qua `write_string` giữ nguyên số 0 ở đầu (ví dụ "0334"), tô màu ô lệch `#FDECEC` (Spec 04 mục 10). Viết test `tests/unit/test_engine_export.py` đọc lại bằng openpyxl xác minh định dạng và màu fill.
+- Kiểm tra: `uv run pytest tests/unit/test_engine_export.py -v` (1 passed); `uv run poe test-engine` (198 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
+- Suy ra (nếu có): Export giữ trọn vẹn số 0 ở đầu của chuỗi mã số thuế / mã đối tác.
+- Việc cần người làm thủ công: Không có.
+
 ### Bước 3 — 2026-11-01 01:06
 - Đã làm: Cài đặt `app/engine/summary.py` (`build_summary`, `build_columns_metadata`), `app/engine/pipeline.py` (`run_pipeline`), cập nhật `apply_profile_filters` trong `filters.py`. Viết toàn bộ 12 Golden cases (G01–G12) trong `tests/golden/test_golden_cases.py` và sinh `db.parquet` chuẩn từ `02_seed_src_test.sql`.
 - Kiểm tra: `uv run pytest tests/golden/test_golden_cases.py -v` (12 passed); `uv run poe test-engine` (197 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
