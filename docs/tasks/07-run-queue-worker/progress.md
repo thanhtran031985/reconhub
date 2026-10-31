@@ -8,7 +8,7 @@ Trạng thái: 🔄
 | 2 | Worker + executor | ✅ | 2026-11-01 | 71d298a |
 | 3 | Đọc kết quả | ✅ | 2026-11-01 | 2ea1b9e |
 | 4 | Dry-run + activate + grain | ✅ | 2026-11-01 | 77ce617 |
-| 5 | Xóa dữ liệu tạm | ✅ | 2026-11-01 | |
+| 5 | Xóa dữ liệu tạm | ✅ | 2026-11-01 | c3c2911 |
 | 6 | Demo | ⬜ |  |  |
 
 ## Nhật ký
