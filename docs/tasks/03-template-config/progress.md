@@ -6,10 +6,29 @@ Trạng thái: 🔄
 |---|---|---|---|---|
 | 1 | Pydantic model | ✅ | 2026-10-31 | 9be5c68 |
 | 2 | Validator có kết nối | ✅ | 2026-10-31 | f48a33d |
-| 3 | Repo/service version | ✅ | 2026-10-31 |  |
-| 4 | Export/import + diagram + seed | 🔄 |  |  |
+| 3 | Repo/service version | ✅ | 2026-10-31 | 7c36c51 |
+| 4 | Export/import + diagram + seed | ✅ | 2026-11-01 |  |
 
 ## Nhật ký
+### Bước 4 — 2026-11-01 00:01
+- Đã làm:
+  - Cài đặt `app/services/diagram.py`: sinh 5 sơ đồ Mermaid hợp lệ từ cấu hình `TemplateConfig`:
+    1. `generate_pipeline_diagram`: sơ đồ luồng dữ liệu đối soát tổng quan (`flowchart LR`) từ Excel qua lọc & chuẩn hóa, phái sinh, profile đối chiếu với dữ liệu Oracle DB.
+    2. `generate_fields_normalization_diagram`: sơ đồ các bước chuẩn hóa từng trường dữ liệu.
+    3. `generate_db_query_diagram`: sơ đồ câu lệnh truy vấn CSDL kèm điều kiện lọc WHERE và danh sách cột SELECT.
+    4. `generate_profiles_hierarchy_diagram`: sơ đồ quan hệ cây profile đối soát và liên kết drilldown.
+    5. `generate_control_total_diagram`: sơ đồ kiểm tra đối chiếu tổng kiểm soát file với tổng cộng dồn dữ liệu chi tiết.
+  - Cài đặt `app/services/template_export_import.py`:
+    - `export_template(ctx, template_id, version)`: trích xuất toàn bộ thông tin metadata và cấu hình JSON của template.
+    - `import_template(ctx, data, overwrite)`: nạp template từ file JSON, kiểm tra tính hợp lệ qua Pydantic schema, bảo vệ chống ghi đè vô tình khi `overwrite=False`.
+  - Cập nhật lệnh CLI `seed_cmd` trong `app/cli.py` để tự động nạp template mẫu `DTP_HOA_DON_TAC_NGHIEP` (tự động liên kết Data Source `ORACLE_TEST` nếu có sẵn) đảm bảo tính idempotent.
+  - Viết test `tests/unit/test_template_diagram.py` (kiểm tra đầy đủ cả 5 sơ đồ Mermaid) và `tests/unit/test_template_seed_export_import.py` (kiểm tra export, import mới, chặn trùng mã, ghi đè và nạp seed qua CLI).
+- Kiểm tra:
+  - `uv run pytest tests/unit/test_template_diagram.py tests/unit/test_template_seed_export_import.py -v`: 8/8 passed.
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 43 source files.
+  - `uv run poe test`: 100 passed, 3 skipped.
+- Suy ra (nếu có): Trích xuất sơ đồ Mermaid trực tiếp từ cấu hình Pydantic giúp tài liệu hóa và trực quan hóa trực tiếp luồng đối soát trên giao diện mà không cần duy trì sơ đồ thủ công riêng biệt.
 ### Bước 3 — 2026-10-31 23:57
 - Đã làm:
   - Cài đặt `app/services/template.py` gồm các dịch vụ quản lý vòng đời template và phiên bản theo Spec 03:

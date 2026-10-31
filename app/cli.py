@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import json
 import sys
 from datetime import datetime, timezone
 
@@ -14,11 +15,17 @@ from sqlalchemy import select, update
 
 from app.core.audit import write_audit_log
 from app.core.auth import hash_password
-from app.core.config import get_settings
+from app.core.config import PROJECT_ROOT, get_settings
 from app.core.crypto import encrypt_secret
 from app.core.session import invalidate_user_session_cache
 from app.db.engine import get_recon_engine
-from app.db.metadata import recon_data_source, recon_user, recon_user_role
+from app.db.metadata import (
+    recon_data_source,
+    recon_template,
+    recon_template_version,
+    recon_user,
+    recon_user_role,
+)
 from app.services.data_source import sync_current_metadata_source
 
 
@@ -295,6 +302,65 @@ def seed_cmd(args: argparse.Namespace) -> None:
                     )
                 )
                 print(f"Hoàn tất: Đã nạp nguồn dữ liệu mẫu 'ORACLE_TEST' ({env_val}).")
+
+    # 4. Nạp template mẫu DTP_HOA_DON_TAC_NGHIEP
+    sample_tmpl_file = PROJECT_ROOT / "samples" / "templates" / "DTP_HOA_DON_TAC_NGHIEP.json"
+    if sample_tmpl_file.exists():
+        with open(sample_tmpl_file, "r", encoding="utf-8") as f:
+            tmpl_data = json.load(f)
+
+        tmpl_code = "DTP_HOA_DON_TAC_NGHIEP"
+        with engine.begin() as conn:
+            existing_tmpl = conn.execute(
+                select(recon_template.c.ID).where(recon_template.c.CODE == tmpl_code)
+            ).scalar_one_or_none()
+
+            if existing_tmpl is None:
+                oracle_ds_id = (
+                    conn.execute(select(recon_data_source.c.ID).where(recon_data_source.c.NAME == "ORACLE_TEST"))
+                    .scalars()
+                    .first()
+                )
+
+                ins_tmpl = conn.execute(
+                    recon_template.insert().values(
+                        CODE=tmpl_code,
+                        NAME="Đối soát hóa đơn tác nghiệp DTP",
+                        DESCRIPTION="Template mẫu đối soát hóa đơn tác nghiệp DTP với CSDL Oracle",
+                        OWNER="admin",
+                        STATUS="DRAFT",
+                        CURRENT_VERSION=1,
+                        CREATED_AT=now,
+                        UPDATED_AT=now,
+                        ROW_VERSION=1,
+                    )
+                )
+                if ins_tmpl.inserted_primary_key:
+                    tmpl_id = int(ins_tmpl.inserted_primary_key[0])
+
+                    conn.execute(
+                        recon_template_version.insert().values(
+                            TEMPLATE_ID=tmpl_id,
+                            VERSION=1,
+                            STATUS="DRAFT",
+                            CONFIG_JSON=tmpl_data,
+                            DATA_SOURCE_ID=oracle_ds_id,
+                            DRY_RUN_OK="N",
+                            CREATED_BY="SEED",
+                            CREATED_AT=now,
+                        )
+                    )
+
+                    write_audit_log(
+                        conn=conn,
+                        entity="TEMPLATE",
+                        entity_id=tmpl_id,
+                        action="SEED_TEMPLATE",
+                        actor="SEED",
+                        new_data={"code": tmpl_code, "version": 1},
+                        now=now,
+                    )
+                    print(f"Hoàn tất: Đã nạp template mẫu '{tmpl_code}'.")
 
 
 def main() -> None:
