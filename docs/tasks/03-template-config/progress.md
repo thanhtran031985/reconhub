@@ -1,13 +1,13 @@
 # Tiến độ — 03-template-config
 
-Trạng thái: 🔄
+Trạng thái: ✅
 
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | Pydantic model | ✅ | 2026-10-31 | 9be5c68 |
 | 2 | Validator có kết nối | ✅ | 2026-10-31 | f48a33d |
 | 3 | Repo/service version | ✅ | 2026-10-31 | 7c36c51 |
-| 4 | Export/import + diagram + seed | ✅ | 2026-11-01 |  |
+| 4 | Export/import + diagram + seed | ✅ | 2026-11-01 | b49b518 |
 
 ## Nhật ký
 ### Bước 4 — 2026-11-01 00:01
