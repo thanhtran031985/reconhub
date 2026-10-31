@@ -16,6 +16,7 @@ from sqlalchemy import select, update
 from app.core.audit import write_audit_log
 from app.core.auth import hash_password
 from app.core.config import PROJECT_ROOT, get_settings
+from app.core.context import Ctx, Role
 from app.core.crypto import encrypt_secret
 from app.core.session import invalidate_user_session_cache
 from app.db.engine import get_recon_engine
@@ -26,7 +27,9 @@ from app.db.metadata import (
     recon_user,
     recon_user_role,
 )
+from app.schemas.run import PurgeFilter
 from app.services.data_source import sync_current_metadata_source
+from app.services.temp_data import preview, purge_filter, purge_runs, usage
 
 
 def create_admin_cmd(args: argparse.Namespace) -> None:
@@ -194,7 +197,81 @@ def reset_password_cmd(args: argparse.Namespace) -> None:
 
 
 def purge_temp_cmd(args: argparse.Namespace) -> None:
-    print("purge-temp: Tính năng sẽ được kích hoạt ở task 07-run-queue-worker.")
+    ctx = Ctx(user_id=1, username="cli_admin", full_name="Quản trị viên CLI", roles=[Role.ADMIN])
+    run_id = getattr(args, "run", None)
+    checked_before_str = getattr(args, "checked_before", None)
+    is_dry_run = getattr(args, "dry_run", False)
+
+    if run_id is not None:
+        if is_dry_run:
+            print(f"[DRY-RUN] Xem trước: Dữ liệu tạm của run #{run_id} sẽ được xóa.")
+            return
+        res = purge_runs(ctx, [run_id])
+        if res.ok and res.data:
+            print(
+                f"Thành công: Đã xóa dữ liệu tạm của run #{run_id} (giải phóng {res.data.get('bytes_freed', 0):,} bytes)."
+            )
+        else:
+            print(f"Lỗi: {res.message}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    if checked_before_str is not None:
+        try:
+            dt = datetime.strptime(checked_before_str.strip(), "%Y-%m-%d")
+        except ValueError:
+            print("Lỗi: Định dạng ngày --checked-before phải là YYYY-MM-DD.", file=sys.stderr)
+            sys.exit(1)
+
+        flt = PurgeFilter(before_date=dt, only_checked=True)
+        prev = preview(ctx, flt)
+        if not prev.ok or not prev.data:
+            print(f"Lỗi preview: {prev.message}", file=sys.stderr)
+            sys.exit(1)
+
+        run_count = prev.data["run_count"]
+        est_rows = prev.data["rows_estimated"]
+        est_bytes = prev.data["bytes_estimated"]
+
+        print(
+            f"Tìm thấy {run_count} run đã kiểm tra trước ngày {checked_before_str} ({est_rows:,} dòng, ước tính ~{est_bytes / (1024 * 1024):.1f} MB)."
+        )
+
+        if is_dry_run:
+            print("[DRY-RUN] Kết thúc chế độ xem trước (không có dữ liệu nào bị xóa).")
+            return
+
+        if run_count == 0:
+            print("Không có run nào thỏa mãn điều kiện để xóa.")
+            return
+
+        res = purge_filter(ctx, flt, confirm_text="XOA")
+        if res.ok and res.data:
+            print(
+                f"Thành công: Đã xóa dữ liệu tạm của {res.data['runs_purged']} run ({res.data['rows_deleted']:,} dòng)."
+            )
+        else:
+            print(f"Lỗi: {res.message}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    # Nếu không truyền tham số, in thông tin usage
+    u = usage(ctx)
+    if u.ok and u.data:
+        d = u.data
+        total_mb = d["total_bytes"] / (1024 * 1024)
+        print("=== BÁO CÁO DỮ LIỆU TẠM RECONHUB ===")
+        print(f"- Tổng dung lượng dữ liệu tạm: {total_mb:.2f} MB (~{d['total_bytes']:,} bytes)")
+        print(f"- Số dòng Excel tạm: {d['excel_rows_count']:,} dòng")
+        print(f"- Số run chưa kiểm tra: {d['runs_unchecked_count']}")
+        print(f"- Số run giữ dữ liệu tạm chưa xóa: {d['runs_unpurged_count']}")
+        print(f"- Số run giữ dữ liệu tạm quá {d['warn_days']} ngày: {d['runs_overdue_count']}")
+        if d["is_warning"]:
+            print(f"CẢNH BÁO: {d['warning_message']}")
+        else:
+            print("Trạng thái: Dung lượng nằm trong ngưỡng an toàn.")
+    else:
+        print("Lỗi khi kiểm tra dung lượng dữ liệu tạm.", file=sys.stderr)
 
 
 def migrate_metadata_cmd(args: argparse.Namespace) -> None:
@@ -394,6 +471,9 @@ def main() -> None:
 
     # purge-temp
     p_purge = subparsers.add_parser("purge-temp", help="Dọn dẹp dữ liệu tạm theo yêu cầu")
+    p_purge.add_argument("--run", type=int, help="ID của run cần xóa dữ liệu tạm")
+    p_purge.add_argument("--checked-before", help="Xóa các run đã kiểm tra trước ngày này (YYYY-MM-DD)")
+    p_purge.add_argument("--dry-run", action="store_true", help="Chỉ xem trước số run và dung lượng mà không xóa thật")
     p_purge.set_defaults(func=purge_temp_cmd)
 
     # migrate-metadata

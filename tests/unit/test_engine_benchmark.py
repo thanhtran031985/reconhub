@@ -26,20 +26,24 @@ def test_engine_benchmark_200k_rows() -> None:
     dates = ["2026-02-01"] * n_rows
     row_nos = list(range(1, n_rows + 1))
 
-    excel_df = pl.DataFrame({
-        "INVOICE_NO": invoices,
-        "AMOUNT": amounts,
-        "QTY": qtys,
-        "INV_DATE": dates,
-        "__row_no": row_nos,
-    })
+    excel_df = pl.DataFrame(
+        {
+            "INVOICE_NO": invoices,
+            "AMOUNT": amounts,
+            "QTY": qtys,
+            "INV_DATE": dates,
+            "__row_no": row_nos,
+        }
+    )
 
-    db_df = pl.DataFrame({
-        "INVOICE_NO": [f"INV_{i:06d}" for i in range(n_unique_keys)],
-        "AMOUNT": [Decimal("301.00")] * n_unique_keys,
-        "QTY": [Decimal("4")] * n_unique_keys,
-        "INV_DATE": ["2026-02-01"] * n_unique_keys,
-    })
+    db_df = pl.DataFrame(
+        {
+            "INVOICE_NO": [f"INV_{i:06d}" for i in range(n_unique_keys)],
+            "AMOUNT": [Decimal("301.00")] * n_unique_keys,
+            "QTY": [Decimal("4")] * n_unique_keys,
+            "INV_DATE": ["2026-02-01"] * n_unique_keys,
+        }
+    )
     t_gen = time.perf_counter() - t0
     print(f"[BENCHMARK] Sinh du lieu 200k dong: {t_gen:.2f}s")
 

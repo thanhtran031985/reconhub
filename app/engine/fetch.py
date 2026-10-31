@@ -123,4 +123,3 @@ class MockFetcher:
         if self.default_path and self.default_path.exists():
             return pl.read_parquet(self.default_path)
         return pl.DataFrame()
-

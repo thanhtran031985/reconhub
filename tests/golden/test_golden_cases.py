@@ -146,7 +146,15 @@ def test_golden_g03_leading_zero() -> None:
         tmp_csv = f.name
 
     fields = [
-        FieldSpec(name="TAX_CODE", label="Mã số thuế", excel="TAX_CODE", db="TAX_CODE", type="text", norm=["trim"], required=True),
+        FieldSpec(
+            name="TAX_CODE",
+            label="Mã số thuế",
+            excel="TAX_CODE",
+            db="TAX_CODE",
+            type="text",
+            norm=["trim"],
+            required=True,
+        ),
         FieldSpec(name="AMOUNT", label="Số tiền", excel="AMOUNT", db="AMOUNT", type="number"),
     ]
     profiles = [
@@ -159,10 +167,12 @@ def test_golden_g03_leading_zero() -> None:
     ]
     cfg = make_test_config(fields, profiles, date_col="TAX_CODE")
 
-    db_df = pl.DataFrame([
-        {"TAX_CODE": "0334", "AMOUNT": Decimal("1000")},
-        {"TAX_CODE": "0304422444-021", "AMOUNT": Decimal("2000")},
-    ])
+    db_df = pl.DataFrame(
+        [
+            {"TAX_CODE": "0334", "AMOUNT": Decimal("1000")},
+            {"TAX_CODE": "0304422444-021", "AMOUNT": Decimal("2000")},
+        ]
+    )
 
     res = run_pipeline(excel_path=tmp_csv, config=cfg, fetcher=db_df)
     assert res.summary["CNT_MATCHED"] == 2
@@ -181,7 +191,15 @@ def test_golden_g04_excel_serial_date() -> None:
 
     fields = [
         FieldSpec(name="INV_NO", label="Số HĐ", excel="INV_NO", db="INV_NO", type="text", required=True),
-        FieldSpec(name="INV_DATE", label="Ngày HĐ", excel="INV_DATE", db="INV_DATE", type="datetime", format="dd/MM/yyyy HH:mm:ss", required=True),
+        FieldSpec(
+            name="INV_DATE",
+            label="Ngày HĐ",
+            excel="INV_DATE",
+            db="INV_DATE",
+            type="datetime",
+            format="dd/MM/yyyy HH:mm:ss",
+            required=True,
+        ),
         FieldSpec(name="AMOUNT", label="Số tiền", excel="AMOUNT", db="AMOUNT", type="number"),
     ]
     profiles = [
@@ -196,10 +214,12 @@ def test_golden_g04_excel_serial_date() -> None:
     ]
     cfg = make_test_config(fields, profiles, date_col="INV_DATE")
 
-    db_df = pl.DataFrame([
-        {"INV_NO": "INV-1", "AMOUNT": Decimal("100"), "INV_DATE": datetime(2026, 2, 1, 12, 0, 0)},
-        {"INV_NO": "INV-2", "AMOUNT": Decimal("200"), "INV_DATE": datetime(2026, 2, 1, 12, 0, 0)},
-    ])
+    db_df = pl.DataFrame(
+        [
+            {"INV_NO": "INV-1", "AMOUNT": Decimal("100"), "INV_DATE": datetime(2026, 2, 1, 12, 0, 0)},
+            {"INV_NO": "INV-2", "AMOUNT": Decimal("200"), "INV_DATE": datetime(2026, 2, 1, 12, 0, 0)},
+        ]
+    )
 
     res = run_pipeline(excel_path=tmp_csv, config=cfg, fetcher=db_df)
     assert res.summary["CNT_MATCHED"] == 2
@@ -255,9 +275,11 @@ def test_golden_g07_inconsistent() -> None:
     ]
     cfg = make_test_config(fields, profiles, date_col="INV_DATE")
 
-    db_df = pl.DataFrame([
-        {"INVOICE_NO": "INV-INC", "INV_DATE": "2026-02-01", "AMOUNT": Decimal("200")},
-    ])
+    db_df = pl.DataFrame(
+        [
+            {"INVOICE_NO": "INV-INC", "INV_DATE": "2026-02-01", "AMOUNT": Decimal("200")},
+        ]
+    )
 
     res = run_pipeline(excel_path=tmp_csv, config=cfg, fetcher=db_df)
     assert res.summary["CNT_INCONSISTENT"] == 1
@@ -290,9 +312,11 @@ def test_golden_g08_duplicate() -> None:
     ]
     cfg = make_test_config(fields, profiles, date_col="INVOICE_NO")
 
-    db_df = pl.DataFrame([
-        {"INVOICE_NO": "INV-DUP", "AMOUNT": Decimal("100")},
-    ])
+    db_df = pl.DataFrame(
+        [
+            {"INVOICE_NO": "INV-DUP", "AMOUNT": Decimal("100")},
+        ]
+    )
 
     res = run_pipeline(excel_path=tmp_csv, config=cfg, fetcher=db_df)
     assert res.summary["CNT_DUPLICATE"] >= 1
@@ -348,24 +372,44 @@ def test_golden_g10_tolerance() -> None:
             name="Theo Khóa",
             group_by=["KEY"],
             measures=[
-                MeasureSpec(name="AMT_ABS", label="Amt Abs", agg="sum", field="AMT_ABS", compare="abs_tol", tolerance=Decimal("2.0")),
-                MeasureSpec(name="AMT_PCT", label="Amt Pct", agg="sum", field="AMT_PCT", compare="pct_tol", tolerance=Decimal("1.0")),
-                MeasureSpec(name="AMT_ROUND", label="Amt Round", agg="sum", field="AMT_ROUND", compare="exact", round=0),
-                MeasureSpec(name="AMT_NULL", label="Amt Null", agg="sum", field="AMT_NULL", compare="exact", null_as="zero"),
+                MeasureSpec(
+                    name="AMT_ABS",
+                    label="Amt Abs",
+                    agg="sum",
+                    field="AMT_ABS",
+                    compare="abs_tol",
+                    tolerance=Decimal("2.0"),
+                ),
+                MeasureSpec(
+                    name="AMT_PCT",
+                    label="Amt Pct",
+                    agg="sum",
+                    field="AMT_PCT",
+                    compare="pct_tol",
+                    tolerance=Decimal("1.0"),
+                ),
+                MeasureSpec(
+                    name="AMT_ROUND", label="Amt Round", agg="sum", field="AMT_ROUND", compare="exact", round=0
+                ),
+                MeasureSpec(
+                    name="AMT_NULL", label="Amt Null", agg="sum", field="AMT_NULL", compare="exact", null_as="zero"
+                ),
             ],
         )
     ]
     cfg = make_test_config(fields, profiles, date_col="KEY")
 
-    db_df = pl.DataFrame([
-        {
-            "KEY": "K1",
-            "AMT_ABS": Decimal("100.0"),
-            "AMT_PCT": Decimal("1000.0"),
-            "AMT_ROUND": Decimal("49.6"),
-            "AMT_NULL": Decimal("0.0"),
-        }
-    ])
+    db_df = pl.DataFrame(
+        [
+            {
+                "KEY": "K1",
+                "AMT_ABS": Decimal("100.0"),
+                "AMT_PCT": Decimal("1000.0"),
+                "AMT_ROUND": Decimal("49.6"),
+                "AMT_NULL": Decimal("0.0"),
+            }
+        ]
+    )
 
     res = run_pipeline(excel_path=tmp_csv, config=cfg, fetcher=db_df)
     assert res.summary["CNT_MATCHED"] == 1
@@ -402,10 +446,12 @@ def test_golden_g11_value_map_filter() -> None:
     ]
     cfg = make_test_config(fields, profiles, date_col="STATUS")
 
-    db_df = pl.DataFrame([
-        {"INV_NO": "INV-1", "STATUS": "ORIGINAL", "AMOUNT": Decimal("100")},
-        {"INV_NO": "INV-2", "STATUS": "CANCEL", "AMOUNT": Decimal("200")},
-    ])
+    db_df = pl.DataFrame(
+        [
+            {"INV_NO": "INV-1", "STATUS": "ORIGINAL", "AMOUNT": Decimal("100")},
+            {"INV_NO": "INV-2", "STATUS": "CANCEL", "AMOUNT": Decimal("200")},
+        ]
+    )
 
     res = run_pipeline(excel_path=tmp_csv, config=cfg, fetcher=db_df)
     assert res.summary["CNT_MATCHED"] == 1
@@ -435,10 +481,12 @@ def test_golden_g12_csv() -> None:
     ]
     cfg = make_test_config(fields, profiles, date_col="INV_DATE")
 
-    db_df = pl.DataFrame([
-        {"INV_NO": "HD001", "INV_DATE": "2026-02-01", "AMOUNT": Decimal("1500000")},
-        {"INV_NO": "HD002", "INV_DATE": "2026-02-01", "AMOUNT": Decimal("2500000")},
-    ])
+    db_df = pl.DataFrame(
+        [
+            {"INV_NO": "HD001", "INV_DATE": "2026-02-01", "AMOUNT": Decimal("1500000")},
+            {"INV_NO": "HD002", "INV_DATE": "2026-02-01", "AMOUNT": Decimal("2500000")},
+        ]
+    )
 
     res = run_pipeline(excel_path=tmp_csv, config=cfg, fetcher=db_df)
     assert res.summary["CNT_MATCHED"] == 2

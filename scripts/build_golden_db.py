@@ -23,18 +23,20 @@ def build_golden_db() -> None:
         m = pattern.search(line)
         if m:
             inv, dt, point, txn, pin, srv, qty, amt, status, org = m.groups()
-            rows.append({
-                "INVOICE_NO": inv,
-                "INVOICE_DATE": datetime.strptime(dt, "%Y-%m-%d %H:%M:%S"),
-                "COLLECT_POINT": point,
-                "TXN_ID": txn,
-                "PIN_NO": pin,
-                "SERVICE_CODE": srv,
-                "QUANTITY": Decimal(qty),
-                "AMOUNT": Decimal(amt),
-                "INVOICE_STATUS": status,
-                "ORG_CODE": org,
-            })
+            rows.append(
+                {
+                    "INVOICE_NO": inv,
+                    "INVOICE_DATE": datetime.strptime(dt, "%Y-%m-%d %H:%M:%S"),
+                    "COLLECT_POINT": point,
+                    "TXN_ID": txn,
+                    "PIN_NO": pin,
+                    "SERVICE_CODE": srv,
+                    "QUANTITY": Decimal(qty),
+                    "AMOUNT": Decimal(amt),
+                    "INVOICE_STATUS": status,
+                    "ORG_CODE": org,
+                }
+            )
 
     df = pl.DataFrame(rows)
     print(f"Total rows parsed: {len(df)}")

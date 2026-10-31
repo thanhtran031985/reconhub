@@ -11,7 +11,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 04 | [04-excel-reader](04-excel-reader/task.md) — Đọc Excel, chuẩn hóa, control total, nạp dữ liệu tạm | ✅ | 00 | feat/04-excel-reader |
 | 05 | [05-db-fetch](05-db-fetch/task.md) — SQL sinh từ bảng/cột, SQL guard, fetch Oracle qua VPN | ✅ | 02, 03 | feat/05-db-fetch |
 | 06 | [06-compare-engine](06-compare-engine/task.md) — Gộp, ghép, so sánh, trạng thái, summary, export | ✅ | 04, 05 | feat/06-compare-engine |
-| 07 | [07-run-queue-worker](07-run-queue-worker/task.md) — Run, hàng đợi, worker, dry-run, xóa dữ liệu tạm theo yêu cầu | ⬜ | 03, 06 | feat/07-run-queue-worker |
+| 07 | [07-run-queue-worker](07-run-queue-worker/task.md) — Run, hàng đợi, worker, dry-run, xóa dữ liệu tạm theo yêu cầu | ✅ | 03, 06 | feat/07-run-queue-worker |
 | 08 | [08-app-shell-ui](08-app-shell-ui/task.md) — Component Dash Mantine, AppShell, Templates, Data Sources, Người dùng | ⬜ | 01, 02, 03, 07 | feat/08-app-shell-ui |
 | 09 | [09-template-wizard-ui](09-template-wizard-ui/task.md) — Wizard đăng ký template 5 bước và Sơ đồ diễn giải | ⬜ | 07, 08 | feat/09-template-wizard-ui |
 | 10 | [10-new-run-ui](10-new-run-ui/task.md) — Màn Chạy đối soát | ⬜ | 07, 08 | feat/10-new-run-ui |

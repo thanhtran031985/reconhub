@@ -130,6 +130,8 @@ def run_pipeline(
     # 10. Lấy dữ liệu DB
     if isinstance(fetcher, pl.DataFrame):
         db_raw = fetcher
+    elif callable(fetcher):
+        db_raw = fetcher(config, profile, p_from, p_to, 1_000_000, 600)
     elif hasattr(fetcher, "fetch_df"):
         sql, binds = build_source_sql(config, profile, params_dict)
         ok, err_msg = check_sql(sql, list(binds.keys()))

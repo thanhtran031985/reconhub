@@ -98,32 +98,32 @@ def _evaluate_measure(
         abs_diff = abs(x_dec - d_dec)
 
         if m.compare == "exact":
-            passes = (abs_diff == Decimal("0"))
+            passes = abs_diff == Decimal("0")
         elif m.compare == "abs_tol":
             tol = Decimal(str(m.tolerance or 0))
-            passes = (abs_diff <= tol)
+            passes = abs_diff <= tol
         elif m.compare == "pct_tol":
             tol_pct = Decimal(str(m.tolerance or 0))
             max_val = max(abs(x_dec), abs(d_dec))
             if max_val == Decimal("0"):
                 passes = True
             else:
-                passes = (abs_diff <= (tol_pct / Decimal("100")) * max_val)
+                passes = abs_diff <= (tol_pct / Decimal("100")) * max_val
         else:
-            passes = (abs_diff == Decimal("0"))
+            passes = abs_diff == Decimal("0")
 
         return passes, x_val, d_val, diff
 
     # Nếu là chuỗi
     if isinstance(x_val, str) and isinstance(d_val, str):
         if m.ignore_case:
-            passes = (x_val.strip().upper() == d_val.strip().upper())
+            passes = x_val.strip().upper() == d_val.strip().upper()
         else:
-            passes = (x_val.strip() == d_val.strip())
+            passes = x_val.strip() == d_val.strip()
         return passes, x_val, d_val, diff
 
     # Các kiểu khác (ngày, v.v.)
-    passes = (x_val == d_val)
+    passes = x_val == d_val
     return passes, x_val, d_val, diff
 
 

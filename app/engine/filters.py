@@ -162,7 +162,6 @@ def apply_time_filter(
     )
 
 
-
 def apply_profile_filters(df: pl.DataFrame, filters: list[dict[str, Any]]) -> pl.DataFrame:
     """Áp dụng bộ lọc riêng của profile (Spec 04 mục 5, Golden G11)."""
     if df.is_empty() or not filters:
@@ -203,5 +202,3 @@ def apply_profile_filters(df: pl.DataFrame, filters: list[dict[str, Any]]) -> pl
     if not kept_rows:
         return pl.DataFrame(schema=df.schema)
     return pl.from_dicts(kept_rows, schema=df.schema)
-
-

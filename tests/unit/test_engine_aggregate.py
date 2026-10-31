@@ -10,9 +10,27 @@ from app.schemas.template_config import MeasureSpec, ProfileSpec
 
 def test_aggregate_standard_measures() -> None:
     data = [
-        {"INVOICE_NO": "INV-001", "AMOUNT": Decimal("100.50"), "QTY": Decimal("2"), "INV_DATE": "2026-02-01", "__row_no": 2},
-        {"INVOICE_NO": "INV-001", "AMOUNT": Decimal("200.25"), "QTY": Decimal("3"), "INV_DATE": "2026-02-01", "__row_no": 3},
-        {"INVOICE_NO": "INV-002", "AMOUNT": Decimal("50.00"), "QTY": Decimal("1"), "INV_DATE": "2026-02-01", "__row_no": 4},
+        {
+            "INVOICE_NO": "INV-001",
+            "AMOUNT": Decimal("100.50"),
+            "QTY": Decimal("2"),
+            "INV_DATE": "2026-02-01",
+            "__row_no": 2,
+        },
+        {
+            "INVOICE_NO": "INV-001",
+            "AMOUNT": Decimal("200.25"),
+            "QTY": Decimal("3"),
+            "INV_DATE": "2026-02-01",
+            "__row_no": 3,
+        },
+        {
+            "INVOICE_NO": "INV-002",
+            "AMOUNT": Decimal("50.00"),
+            "QTY": Decimal("1"),
+            "INV_DATE": "2026-02-01",
+            "__row_no": 4,
+        },
     ]
     df = pl.DataFrame(data)
 

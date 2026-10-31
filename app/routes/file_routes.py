@@ -36,3 +36,28 @@ def download_file(file_id: int) -> Any:
         as_attachment=True,
         download_name=f_info["original_name"],
     )
+
+
+@file_bp.route("/download/export/<int:run_id>", methods=["GET"])
+def download_export(run_id: int) -> Any:
+    ctx = get_current_ctx()
+    if ctx is None:
+        abort(401)
+
+    from app.services.run_service import export_run
+
+    res = export_run(ctx, run_id)
+    if not res.ok or not isinstance(res.data, dict):
+        if res.code == ErrorCode.NOT_FOUND:
+            abort(404)
+        abort(403)
+
+    export_path = Path(str(res.data["export_path"]))
+    if not export_path.exists():
+        abort(404)
+
+    return send_file(
+        export_path,
+        as_attachment=True,
+        download_name=f"ReconHub_Run_{run_id}.xlsx",
+    )
