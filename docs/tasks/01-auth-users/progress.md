@@ -6,12 +6,25 @@ Trạng thái: 🔄
 |---|---|---|---|---|
 | 1 | ServiceResult và mã lỗi | ✅ | 2026-10-31 | 8968b15 |
 | 2 | Băm mật khẩu + login + khóa | ✅ | 2026-10-31 | c5c695e |
-| 3 | Phiên + before_request | ✅ | 2026-10-31 | (sẽ commit) |
-| 4 | Service user + LAST_ADMIN + audit | 🔄 |  |  |
-| 5 | CLI + seed | ⬜ |  |  |
+| 3 | Phiên + before_request | ✅ | 2026-10-31 | b32e630 |
+| 4 | Service user + LAST_ADMIN + audit | ✅ | 2026-10-31 | (sẽ commit) |
+| 5 | CLI + seed | 🔄 |  |  |
 | 6 | UI login, đổi mật khẩu, tài khoản | ⬜ |  |  |
 
 ## Nhật ký
+### Bước 4 — 2026-10-31 23:07
+- Đã làm:
+  - Viết test `tests/unit/test_user_service.py` kiểm tra: Viewer gọi service Admin bị FORBIDDEN, tạo user và chặn trùng username (case-insensitive), bảo vệ bất biến `LAST_ADMIN` (chặn deactive và chặn xóa role Admin của quản trị viên cuối cùng), kiểm tra `write_audit_log` tự động mask mật khẩu thành `"***"`, người dùng tự đổi mật khẩu cá nhân.
+  - Cài đặt `app/core/audit.py` ghi nhận nhật ký kiểm toán vào `RECON_AUDIT_LOG` trong cùng transaction với hàm ẩn thông tin nhạy cảm `_mask_sensitive`.
+  - Cài đặt `app/schemas/user.py` chứa DTOs: `UserCreateDTO`, `UserUpdateDTO`, `UserResponse`, `ChangePasswordDTO`, `ResetPasswordDTO`.
+  - Cài đặt `app/services/user.py` gồm `list_users`, `create_user`, `update_user`, `set_active`, `unlock_user`, `reset_password`, `change_password`, `get_login_log`.
+- Kiểm tra:
+  - `uv run pytest tests/unit/test_user_service.py -v`: 5/5 passed.
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 29 source files.
+  - `uv run poe test`: 35 passed, 1 skipped.
+- Suy ra (nếu có): Invalidate session cache của người dùng ngay khi Admin cập nhật quyền, đổi mật khẩu, hoặc deactive để phiên làm việc của user bị ngắt ngay lập tức ở request kế tiếp.
+
 ### Bước 3 — 2026-10-31 23:04
 - Đã làm:
   - Viết test `tests/integration/test_session_middleware.py` kiểm tra: chưa đăng nhập redirect về `/login`, đường dẫn công khai (`/health`, `/login`, assets, dash layout) mở tự do, người dùng đã đăng nhập truy cập thành công, đổi `SESSION_VERSION` trong DB làm phiên cũ bị đăng xuất, cờ `MUST_CHANGE_PW` tự động bắt buộc chuyển sang `/login?step=change`, kiểm tra header `Origin` trên `/_dash-update-component` chống CSRF.
