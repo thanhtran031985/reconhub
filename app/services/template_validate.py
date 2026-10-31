@@ -53,9 +53,7 @@ def validate_template_connected(
         return {
             "is_valid": True,
             "errors": [],
-            "warnings": [
-                f"Không thể kết nối tới Data Source: {exc}. Cảnh báo: Cấu hình chưa được xác thực với CSDL."
-            ],
+            "warnings": [f"Không thể kết nối tới Data Source: {exc}. Cảnh báo: Cấu hình chưa được xác thực với CSDL."],
         }
 
     if table_name not in table_names:

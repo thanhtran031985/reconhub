@@ -251,9 +251,7 @@ class TemplateConfig(BaseModel):
                 _make_error(("db_source", "table"), "Bắt buộc phải chỉ định bảng/view ('table') khi kind='table'")
             )
 
-        param_map: dict[str, tuple[int, ParamSpec]] = {
-            p.name: (i, p) for i, p in enumerate(self.db_source.params)
-        }
+        param_map: dict[str, tuple[int, ParamSpec]] = {p.name: (i, p) for i, p in enumerate(self.db_source.params)}
         for req_param in ("p_from", "p_to"):
             if req_param not in param_map:
                 errors.append(

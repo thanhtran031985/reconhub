@@ -28,17 +28,50 @@ def auth_ctx() -> Ctx:
 
 @pytest.fixture
 def mock_catalog_dtp() -> dict[str, Any]:
-    tables = [
-        {"name": "SRC_FACT_INVOICE_DTP", "type": "TABLE", "schema": "RECON_SRC"}
-    ]
+    tables = [{"name": "SRC_FACT_INVOICE_DTP", "type": "TABLE", "schema": "RECON_SRC"}]
     columns = [
-        {"name": "COLLECT_POINT", "data_type": "VARCHAR2", "nullable": True, "length": 50, "precision": None, "scale": None},
+        {
+            "name": "COLLECT_POINT",
+            "data_type": "VARCHAR2",
+            "nullable": True,
+            "length": 50,
+            "precision": None,
+            "scale": None,
+        },
         {"name": "TXN_ID", "data_type": "VARCHAR2", "nullable": True, "length": 100, "precision": None, "scale": None},
-        {"name": "INVOICE_NO", "data_type": "VARCHAR2", "nullable": False, "length": 50, "precision": None, "scale": None},
-        {"name": "INVOICE_STATUS", "data_type": "VARCHAR2", "nullable": True, "length": 20, "precision": None, "scale": None},
-        {"name": "INVOICE_DATE", "data_type": "TIMESTAMP", "nullable": False, "length": None, "precision": None, "scale": None},
+        {
+            "name": "INVOICE_NO",
+            "data_type": "VARCHAR2",
+            "nullable": False,
+            "length": 50,
+            "precision": None,
+            "scale": None,
+        },
+        {
+            "name": "INVOICE_STATUS",
+            "data_type": "VARCHAR2",
+            "nullable": True,
+            "length": 20,
+            "precision": None,
+            "scale": None,
+        },
+        {
+            "name": "INVOICE_DATE",
+            "data_type": "TIMESTAMP",
+            "nullable": False,
+            "length": None,
+            "precision": None,
+            "scale": None,
+        },
         {"name": "PIN_NO", "data_type": "VARCHAR2", "nullable": True, "length": 50, "precision": None, "scale": None},
-        {"name": "SERVICE_CODE", "data_type": "VARCHAR2", "nullable": True, "length": 50, "precision": None, "scale": None},
+        {
+            "name": "SERVICE_CODE",
+            "data_type": "VARCHAR2",
+            "nullable": True,
+            "length": 50,
+            "precision": None,
+            "scale": None,
+        },
         {"name": "QUANTITY", "data_type": "NUMBER", "nullable": True, "length": None, "precision": 10, "scale": 0},
         {"name": "AMOUNT", "data_type": "NUMBER", "nullable": True, "length": None, "precision": 18, "scale": 2},
         {"name": "ORG_CODE", "data_type": "VARCHAR2", "nullable": True, "length": 20, "precision": None, "scale": None},
@@ -49,8 +82,10 @@ def mock_catalog_dtp() -> dict[str, Any]:
 def test_validate_template_connected_success(auth_ctx, mock_catalog_dtp) -> None:
     cfg = get_sample_config()
 
-    with patch("app.services.template_validate.list_tables") as mock_tables, \
-         patch("app.services.template_validate.list_columns") as mock_cols:
+    with (
+        patch("app.services.template_validate.list_tables") as mock_tables,
+        patch("app.services.template_validate.list_columns") as mock_cols,
+    ):
         mock_tables.return_value = mock_catalog_dtp["tables"]
         mock_cols.return_value = mock_catalog_dtp["columns"]
 
@@ -70,7 +105,9 @@ def test_validate_template_connected_table_not_found(auth_ctx) -> None:
         res = validate_template_connected(auth_ctx, cfg, data_source_id=1)
         assert res.ok is True
         assert res.data["is_valid"] is False
-        assert any(e["code"] == ErrorCode.TABLE_NOT_FOUND and e["path"] == "db_source.table" for e in res.data["errors"])
+        assert any(
+            e["code"] == ErrorCode.TABLE_NOT_FOUND and e["path"] == "db_source.table" for e in res.data["errors"]
+        )
 
 
 def test_validate_template_connected_column_not_found(auth_ctx, mock_catalog_dtp) -> None:
@@ -79,8 +116,10 @@ def test_validate_template_connected_column_not_found(auth_ctx, mock_catalog_dtp
     # Bỏ cột AMOUNT khỏi bảng DB
     cols_without_amount = [c for c in mock_catalog_dtp["columns"] if c["name"] != "AMOUNT"]
 
-    with patch("app.services.template_validate.list_tables") as mock_tables, \
-         patch("app.services.template_validate.list_columns") as mock_cols:
+    with (
+        patch("app.services.template_validate.list_tables") as mock_tables,
+        patch("app.services.template_validate.list_columns") as mock_cols,
+    ):
         mock_tables.return_value = mock_catalog_dtp["tables"]
         mock_cols.return_value = cols_without_amount
 
@@ -88,7 +127,10 @@ def test_validate_template_connected_column_not_found(auth_ctx, mock_catalog_dtp
         assert res.ok is True
         assert res.data["is_valid"] is False
         # Cột AMOUNT ở fields[9].db
-        assert any(e["code"] == ErrorCode.COLUMN_NOT_FOUND and "fields" in e["path"] and ".db" in e["path"] for e in res.data["errors"])
+        assert any(
+            e["code"] == ErrorCode.COLUMN_NOT_FOUND and "fields" in e["path"] and ".db" in e["path"]
+            for e in res.data["errors"]
+        )
 
 
 def test_validate_template_connected_time_filter_not_date_type(auth_ctx, mock_catalog_dtp) -> None:
@@ -102,8 +144,10 @@ def test_validate_template_connected_time_filter_not_date_type(auth_ctx, mock_ca
             c_copy["data_type"] = "VARCHAR2"
         cols_varchar_date.append(c_copy)
 
-    with patch("app.services.template_validate.list_tables") as mock_tables, \
-         patch("app.services.template_validate.list_columns") as mock_cols:
+    with (
+        patch("app.services.template_validate.list_tables") as mock_tables,
+        patch("app.services.template_validate.list_columns") as mock_cols,
+    ):
         mock_tables.return_value = mock_catalog_dtp["tables"]
         mock_cols.return_value = cols_varchar_date
 
