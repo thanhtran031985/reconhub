@@ -85,5 +85,6 @@ pythonpath = ["."]
 markers = [
     "oracle: test tích hợp với Oracle qua VPN",
     "slow: test tốn nhiều thời gian",
+    "bench: benchmark test hiệu năng",
 ]
 

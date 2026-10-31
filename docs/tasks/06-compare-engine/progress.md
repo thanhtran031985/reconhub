@@ -1,16 +1,22 @@
 # Tiến độ — 06-compare-engine
 
-Trạng thái: 🔄
+Trạng thái: ✅
 
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | Aggregate | ✅ | 2026-11-01 | 558fe62 |
 | 2 | Compare | ✅ | 2026-11-01 | 4584740 |
 | 3 | Pipeline + summary | ✅ | 2026-11-01 | 5c927f9 |
-| 4 | Export | ✅ | 2026-11-01 | |
-| 5 | Hiệu năng sơ bộ | ⬜ |  |  |
+| 4 | Export | ✅ | 2026-11-01 | 74ecb32 |
+| 5 | Hiệu năng sơ bộ | ✅ | 2026-11-01 | |
 
 ## Nhật ký
+### Bước 5 — 2026-11-01 01:12
+- Đã làm: Thêm marker `bench` vào `pyproject.toml`, viết bài kiểm tra đo hiệu năng `tests/unit/test_engine_benchmark.py` với 200.000 dòng Excel và 100.000 dòng DB. Ghi nhận thời gian: Gộp Excel 200k dòng: 1.58s; Gộp DB 100k dòng: 0.92s; So sánh Full Outer Join 100k nhóm: 3.35s; Tổng thời gian xử lý: 5.86s (vượt trội so với mốc mục tiêu 30s).
+- Kiểm tra: `uv run pytest tests/unit/test_engine_benchmark.py -v -m bench -s` (1 passed); `uv run poe test` (199 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
+- Suy ra (nếu có): Polars thực thi vector hóa và song song hóa cực nhanh trên dữ liệu lớn.
+- Việc cần người làm thủ công: Không có.
+
 ### Bước 4 — 2026-11-01 01:08
 - Đã làm: Cài đặt `app/engine/export_styles.py` và `app/engine/export.py` (`write_export`). Sinh đầy đủ Sheet "Tổng hợp", các sheet riêng cho trạng thái khác MATCHED ("Lệch giá trị", "Thiếu trong DB", "Thiếu trong Excel", v.v.), sheet "Khớp" và sheet "Không hợp lệ". Định dạng cột khóa `@` Text qua `write_string` giữ nguyên số 0 ở đầu (ví dụ "0334"), tô màu ô lệch `#FDECEC` (Spec 04 mục 10). Viết test `tests/unit/test_engine_export.py` đọc lại bằng openpyxl xác minh định dạng và màu fill.
 - Kiểm tra: `uv run pytest tests/unit/test_engine_export.py -v` (1 passed); `uv run poe test-engine` (198 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
