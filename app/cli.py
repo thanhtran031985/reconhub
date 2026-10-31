@@ -14,9 +14,12 @@ from sqlalchemy import select, update
 
 from app.core.audit import write_audit_log
 from app.core.auth import hash_password
+from app.core.config import get_settings
+from app.core.crypto import encrypt_secret
 from app.core.session import invalidate_user_session_cache
 from app.db.engine import get_recon_engine
-from app.db.metadata import recon_user, recon_user_role
+from app.db.metadata import recon_data_source, recon_user, recon_user_role
+from app.services.data_source import sync_current_metadata_source
 
 
 def create_admin_cmd(args: argparse.Namespace) -> None:
@@ -253,6 +256,45 @@ def seed_cmd(args: argparse.Namespace) -> None:
             created_count += 1
 
         print(f"Hoàn tất: Đã nạp {created_count} người dùng mẫu mới (tổng 4 người dùng mẫu).")
+
+    # 2. Đồng bộ nguồn metadata hiện tại
+    sync_current_metadata_source(engine)
+
+    # 3. Nạp data source mẫu ORACLE_TEST nếu có cấu hình trong môi trường
+    settings = get_settings()
+    if settings.ORACLE_TEST_HOST and settings.ORACLE_TEST_SERVICE and settings.ORACLE_TEST_USER:
+        env_val = (settings.APP_ENV or "DEV").upper()
+        with engine.begin() as conn:
+            existing_ds = conn.execute(
+                select(recon_data_source.c.ID)
+                .where(recon_data_source.c.NAME == "ORACLE_TEST")
+                .where(recon_data_source.c.ENV == env_val)
+            ).scalar_one_or_none()
+
+            if existing_ds is None:
+                pw_enc = encrypt_secret(settings.ORACLE_TEST_PASSWORD) if settings.ORACLE_TEST_PASSWORD else None
+                conn.execute(
+                    recon_data_source.insert().values(
+                        NAME="ORACLE_TEST",
+                        ENV=env_val,
+                        PURPOSE="SOURCE",
+                        DB_TYPE="ORACLE",
+                        HOST=settings.ORACLE_TEST_HOST,
+                        PORT=int(settings.ORACLE_TEST_PORT or 1521),
+                        SERVICE_NAME=settings.ORACLE_TEST_SERVICE,
+                        USERNAME=settings.ORACLE_TEST_USER,
+                        PASSWORD_ENC=pw_enc,
+                        DEFAULT_SCHEMA=settings.ORACLE_TEST_SRC_SCHEMA or None,
+                        CALL_TIMEOUT_S=600,
+                        MAX_ROWS=1000000,
+                        IS_ACTIVE="Y",
+                        IS_CURRENT_METADATA="N",
+                        CREATED_BY="SEED",
+                        CREATED_AT=now,
+                        UPDATED_AT=now,
+                    )
+                )
+                print(f"Hoàn tất: Đã nạp nguồn dữ liệu mẫu 'ORACLE_TEST' ({env_val}).")
 
 
 def main() -> None:

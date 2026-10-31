@@ -6,10 +6,23 @@ Trạng thái: 🔄
 |---|---|---|---|---|
 | 1 | Mã hóa + repo + service | ✅ | 2026-10-31 | d514653 |
 | 2 | Kiểm tra kết nối | ✅ | 2026-10-31 | cc5a68b |
-| 3 | open_source + catalog | ✅ | 2026-10-31 | (sẽ commit) |
-| 4 | METADATA đang dùng + seed | 🔄 |  |  |
+| 3 | open_source + catalog | ✅ | 2026-10-31 | a1a5da8 |
+| 4 | METADATA đang dùng + seed | ✅ | 2026-10-31 |  |
 
 ## Nhật ký
+### Bước 4 — 2026-10-31 23:43
+- Đã làm:
+  - Cài đặt `sync_current_metadata_source(engine)` trong `app/services/data_source.py`: tự động nhận diện kết nối SQLite hoặc Oracle hiện tại của ứng dụng và đồng bộ vào `RECON_DATA_SOURCE` với `IS_CURRENT_METADATA='Y'`, đảm bảo luôn chỉ có duy nhất 1 bản ghi metadata hiện hành (idempotent).
+  - Tích hợp `sync_current_metadata_source()` vào quy trình khởi động web server tại `app/ui/app.py` và quy trình seed dữ liệu tại `app/cli.py`.
+  - Bổ sung nạp data source mẫu `ORACLE_TEST` trong lệnh CLI `seed_cmd` khi phát hiện biến môi trường cấu hình `ORACLE_TEST_*`.
+  - Cập nhật `Settings` trong `app/core/config.py` hỗ trợ linh hoạt cả `ORACLE_TEST_DSN` và các trường thành phần `ORACLE_TEST_HOST`, `ORACLE_TEST_PORT`, `ORACLE_TEST_SERVICE`, `ORACLE_TEST_USER`, `ORACLE_TEST_PASSWORD`.
+  - Viết test `tests/unit/test_data_source_startup.py` kiểm tra đồng bộ metadata nguồn hiện tại và tính idempotent của việc nạp nguồn Oracle test.
+- Kiểm tra:
+  - `uv run pytest tests/unit/test_data_source_startup.py -v`: 2/2 passed.
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 38 source files.
+  - `uv run poe test`: 56 passed, 2 skipped.
+- Suy ra (nếu có): Dùng model_validator trên Pydantic Settings để tự động đồng bộ qua lại giữa chuỗi DSN tổng hợp và các thành phần host/port/service giúp cấu hình môi trường tương thích tối đa với cả định dạng chuỗi DSN chuẩn và biến chi tiết.
 ### Bước 3 — 2026-10-31 23:33
 - Đã làm:
   - Cài đặt `app/services/source_conn.py`: hàm `open_source_connection(ds_id)` mở kết nối Oracle thin mode, thiết lập `call_timeout` theo `CALL_TIMEOUT_S`, bắt lỗi mất kết nối chuyển thành mã lỗi `SOURCE_CONNECTION_LOST`.

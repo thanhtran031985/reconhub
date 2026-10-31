@@ -14,6 +14,7 @@ from app.core.session import get_user_session_state
 from app.db.engine import get_recon_engine
 from app.routes.auth_routes import auth_bp
 from app.routes.health import health_bp
+from app.services.data_source import sync_current_metadata_source
 from app.ui.layout import create_shell_layout
 from app.ui.theme import THEME
 
@@ -43,6 +44,11 @@ def create_app() -> Dash:
 
     flask_server.register_blueprint(health_bp)
     flask_server.register_blueprint(auth_bp)
+
+    try:
+        sync_current_metadata_source()
+    except Exception:
+        pass
 
     @flask_server.before_request  # type: ignore[untyped-decorator]
     def auth_and_security_guard() -> Any:

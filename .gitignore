@@ -10,6 +10,7 @@ test-results/
 data/
 storage/
 backup/
+logs/
 *.db
 *.db-wal
 *.db-shm

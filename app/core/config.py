@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import computed_field
+from pydantic import computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -57,6 +57,41 @@ class Settings(BaseSettings):
     ORACLE_TEST_SRC_SCHEMA: str = ""
     ORACLE_TEST_APP_USER: str = ""
     ORACLE_TEST_APP_PASSWORD: str = ""
+    ORACLE_TEST_HOST: str = ""
+    ORACLE_TEST_PORT: int = 1521
+    ORACLE_TEST_SERVICE: str = ""
+    ORACLE_TEST_USER: str = ""
+    ORACLE_TEST_PASSWORD: str = ""
+
+    @model_validator(mode="after")
+    def _sync_oracle_test_settings(self) -> Settings:
+        # Neu co DSN nhung chua co host/service
+        if self.ORACLE_TEST_DSN and not self.ORACLE_TEST_HOST:
+            try:
+                host_port, service = self.ORACLE_TEST_DSN.split("/", 1)
+                if ":" in host_port:
+                    host, port_str = host_port.split(":", 1)
+                    self.ORACLE_TEST_HOST = host
+                    self.ORACLE_TEST_PORT = int(port_str)
+                else:
+                    self.ORACLE_TEST_HOST = host_port
+                self.ORACLE_TEST_SERVICE = service
+            except Exception:
+                pass
+
+        # Neu co HOST va SERVICE nhung chua co DSN
+        if self.ORACLE_TEST_HOST and self.ORACLE_TEST_SERVICE and not self.ORACLE_TEST_DSN:
+            self.ORACLE_TEST_DSN = f"{self.ORACLE_TEST_HOST}:{self.ORACLE_TEST_PORT}/{self.ORACLE_TEST_SERVICE}"
+
+        # Dong bo USER/PASSWORD qua lai
+        if not self.ORACLE_TEST_USER and self.ORACLE_TEST_SRC_USER:
+            self.ORACLE_TEST_USER = self.ORACLE_TEST_SRC_USER
+            self.ORACLE_TEST_PASSWORD = self.ORACLE_TEST_SRC_PASSWORD
+        elif not self.ORACLE_TEST_SRC_USER and self.ORACLE_TEST_USER:
+            self.ORACLE_TEST_SRC_USER = self.ORACLE_TEST_USER
+            self.ORACLE_TEST_SRC_PASSWORD = self.ORACLE_TEST_PASSWORD
+
+        return self
 
     @computed_field  # type: ignore[prop-decorator]
     @property

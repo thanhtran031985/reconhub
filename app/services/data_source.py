@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Any
 
 import oracledb
-from sqlalchemy import create_engine, select, text, update
+from sqlalchemy import Engine, create_engine, select, text, update
 
 from app.core.audit import write_audit_log
+from app.core.config import get_settings
 from app.core.context import Ctx, Role, require_role
 from app.core.crypto import decrypt_secret, encrypt_secret
 from app.db.engine import get_recon_engine
@@ -419,3 +420,104 @@ def test_data_source(ctx: Ctx, ds_id: int) -> dict[str, Any]:
         "ms": ms,
         **extra_details,
     }
+
+
+def sync_current_metadata_source(engine: Engine | None = None) -> None:
+    """Tự động đồng bộ nguồn lưu trữ METADATA hiện tại vào RECON_DATA_SOURCE."""
+    if engine is None:
+        engine = get_recon_engine()
+    settings = get_settings()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    env = settings.APP_ENV.upper()
+
+    db_type = "SQLITE"
+    file_path: str | None = None
+    host: str | None = None
+    port: int | None = None
+    service_name: str | None = None
+    username: str | None = None
+
+    url = engine.url
+    backend = url.get_backend_name().lower()
+    if "oracle" in backend:
+        db_type = "ORACLE"
+        host = url.host
+        port = url.port or 1521
+        service_name = url.database
+        username = url.username
+    else:
+        db_type = "SQLITE"
+        if url.database:
+            file_path = str(Path(url.database))
+        elif settings.RECON_DB_URL.startswith("sqlite:///"):
+            file_path = str(Path(settings.RECON_DB_URL[len("sqlite:///") :]))
+
+    with engine.begin() as conn:
+        existing = (
+            conn.execute(select(recon_data_source).where(recon_data_source.c.IS_CURRENT_METADATA == "Y"))
+            .mappings()
+            .first()
+        )
+
+        if existing is not None:
+            conn.execute(
+                update(recon_data_source)
+                .where(recon_data_source.c.ID == existing["ID"])
+                .values(
+                    DB_TYPE=db_type,
+                    FILE_PATH=file_path,
+                    HOST=host,
+                    PORT=port,
+                    SERVICE_NAME=service_name,
+                    USERNAME=username,
+                    ENV=env,
+                    UPDATED_AT=now,
+                )
+            )
+        else:
+            name = "RECON_APP (Hiện tại)"
+            name_exists = conn.execute(
+                select(recon_data_source.c.ID)
+                .where(recon_data_source.c.NAME == name)
+                .where(recon_data_source.c.ENV == env)
+            ).scalar_one_or_none()
+
+            if name_exists is not None:
+                conn.execute(
+                    update(recon_data_source)
+                    .where(recon_data_source.c.ID == name_exists)
+                    .values(
+                        PURPOSE="METADATA",
+                        DB_TYPE=db_type,
+                        FILE_PATH=file_path,
+                        HOST=host,
+                        PORT=port,
+                        SERVICE_NAME=service_name,
+                        USERNAME=username,
+                        IS_ACTIVE="Y",
+                        IS_CURRENT_METADATA="Y",
+                        UPDATED_AT=now,
+                    )
+                )
+            else:
+                conn.execute(
+                    recon_data_source.insert().values(
+                        NAME=name,
+                        ENV=env,
+                        PURPOSE="METADATA",
+                        DB_TYPE=db_type,
+                        FILE_PATH=file_path,
+                        HOST=host,
+                        PORT=port,
+                        SERVICE_NAME=service_name,
+                        USERNAME=username,
+                        PASSWORD_ENC=None,
+                        CALL_TIMEOUT_S=600,
+                        MAX_ROWS=1000000,
+                        IS_ACTIVE="Y",
+                        IS_CURRENT_METADATA="Y",
+                        CREATED_BY="SYSTEM",
+                        CREATED_AT=now,
+                        UPDATED_AT=now,
+                    )
+                )
