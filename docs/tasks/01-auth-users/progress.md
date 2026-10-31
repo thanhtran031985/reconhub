@@ -8,10 +8,24 @@ Trạng thái: 🔄
 | 2 | Băm mật khẩu + login + khóa | ✅ | 2026-10-31 | c5c695e |
 | 3 | Phiên + before_request | ✅ | 2026-10-31 | b32e630 |
 | 4 | Service user + LAST_ADMIN + audit | ✅ | 2026-10-31 | b8b415f |
-| 5 | CLI + seed | ✅ | 2026-10-31 | (sẽ commit) |
-| 6 | UI login, đổi mật khẩu, tài khoản | 🔄 |  |  |
+| 5 | CLI + seed | ✅ | 2026-10-31 | 5bf89d8 |
+| 6 | UI login, đổi mật khẩu, tài khoản | ✅ | 2026-10-31 | (sẽ commit) |
 
 ## Nhật ký
+### Bước 6 — 2026-10-31 23:15
+- Đã làm:
+  - Cài đặt trang `/login` (`app/ui/pages/login.py`) theo thiết kế Screen10-Login: thẻ 400px căn giữa, hỗ trợ view đăng nhập thông thường và view đổi mật khẩu bắt buộc (`step=change`), các callback xác thực và cập nhật phiên.
+  - Cài đặt trang `/account` (`app/ui/pages/account.py`): hiển thị bảng thông tin tài khoản hiện tại, vai trò người dùng, form đổi mật khẩu cá nhân kèm ghi chú đăng xuất khỏi các phiên khác.
+  - Cài đặt trang `/forbidden` (`app/ui/pages/forbidden.py`): hiển thị giao diện 403 thân thiện khi người dùng thiếu quyền, kèm nút quay lại Trang chủ.
+  - Cài đặt layout tổng thể `app/ui/layout.py`: tích hợp `dmc.AppShell` với Header (Logo ReconHub, nhãn môi trường DEV/UAT/PROD, menu người dùng có Tài khoản và Đăng xuất). Ẩn AppShell ngoài khi ở trang `/login`.
+  - Viết test `tests/test_ui_auth.py` kiểm tra rendering của trang Login, Đổi mật khẩu bắt buộc, Tài khoản và Forbidden.
+- Kiểm tra:
+  - `uv run pytest tests/test_ui_auth.py -v`: 4/4 passed.
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 33 source files.
+  - `uv run poe test`: 42 passed, 1 skipped.
+- Suy ra (nếu có): Lấy layout của page qua `dash.page_registry` trong test thay vì import trực tiếp module để tránh đăng ký trùng pathname khi Dash quét folder `pages`.
+
 ### Bước 5 — 2026-10-31 23:10
 - Đã làm:
   - Viết test `tests/unit/test_cli.py` kiểm tra: lệnh `create-admin` từ chối khi đã có admin trừ khi có cờ `--force`, lệnh `reset-password` cập nhật hash mật khẩu mới và bật cờ `MUST_CHANGE_PW`, lệnh `seed` nạp 4 user mẫu idempotent (chạy nhiều lần không trùng lặp).

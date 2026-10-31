@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-import dash
 import dash_mantine_components as dmc
 from dash import Dash
 from flask import redirect, request, session
@@ -15,6 +14,7 @@ from app.core.session import get_user_session_state
 from app.db.engine import get_recon_engine
 from app.routes.auth_routes import auth_bp
 from app.routes.health import health_bp
+from app.ui.layout import create_shell_layout
 from app.ui.theme import THEME
 
 UI_DIR = Path(__file__).resolve().parent
@@ -109,7 +109,7 @@ def create_app() -> Dash:
         return None
 
     dash_app.layout = dmc.MantineProvider(
-        children=dash.page_container,
+        children=create_shell_layout(),
         theme=THEME,
     )
 
