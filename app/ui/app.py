@@ -26,6 +26,9 @@ def create_app() -> Dash:
     """Tạo và cấu hình ứng dụng Dash & Flask server."""
     settings = get_settings()
 
+    import dash._pages as _pages
+    _pages.PAGE_REGISTRY.clear()
+
     dash_app = Dash(
         __name__,
         use_pages=True,

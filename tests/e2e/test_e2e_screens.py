@@ -62,3 +62,10 @@ def test_e2e_templates_page_accessible(e2e_client) -> None:
     resp = e2e_client.get("/templates")
     assert resp.status_code == 200
     assert b"ReconHub" in resp.data
+
+
+def test_e2e_data_sources_page_accessible(e2e_client) -> None:
+    resp = e2e_client.get("/data-sources")
+    assert resp.status_code == 200
+    assert b"ReconHub" in resp.data
+    assert b"Data Sources" in resp.data

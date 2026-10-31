@@ -28,7 +28,7 @@ from app.ui.components.status_chip import status_chip
 
 try:
     dash.register_page(  # type: ignore[no-untyped-call]
-        __name__,
+        f"pages.{__name__.split('.')[-1]}",
         path="/templates",
         title="Danh sách Template — ReconHub",
     )

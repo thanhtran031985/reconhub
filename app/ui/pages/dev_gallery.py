@@ -20,7 +20,7 @@ from app.ui.formatters import format_bytes, format_currency, format_datetime, fo
 
 try:
     dash.register_page(  # type: ignore[no-untyped-call]
-        __name__,
+        f"pages.{__name__.split('.')[-1]}",
         path="/dev/ui",
         title="Thư viện Component — ReconHub",
     )
