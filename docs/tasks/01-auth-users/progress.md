@@ -1,6 +1,6 @@
 # Tiến độ — 01-auth-users
 
-Trạng thái: 🔄
+Trạng thái: ✅
 
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
@@ -9,7 +9,7 @@ Trạng thái: 🔄
 | 3 | Phiên + before_request | ✅ | 2026-10-31 | b32e630 |
 | 4 | Service user + LAST_ADMIN + audit | ✅ | 2026-10-31 | b8b415f |
 | 5 | CLI + seed | ✅ | 2026-10-31 | 5bf89d8 |
-| 6 | UI login, đổi mật khẩu, tài khoản | ✅ | 2026-10-31 | (sẽ commit) |
+| 6 | UI login, đổi mật khẩu, tài khoản | ✅ | 2026-10-31 | 586fba6 |
 
 ## Nhật ký
 ### Bước 6 — 2026-10-31 23:15
