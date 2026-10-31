@@ -5,11 +5,23 @@ Trạng thái: 🔄
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | Mã hóa + repo + service | ✅ | 2026-10-31 | d514653 |
-| 2 | Kiểm tra kết nối | ✅ | 2026-10-31 | (sẽ commit) |
-| 3 | open_source + catalog | 🔄 |  |  |
-| 4 | METADATA đang dùng + seed | ⬜ |  |  |
+| 2 | Kiểm tra kết nối | ✅ | 2026-10-31 | cc5a68b |
+| 3 | open_source + catalog | ✅ | 2026-10-31 | (sẽ commit) |
+| 4 | METADATA đang dùng + seed | 🔄 |  |  |
 
 ## Nhật ký
+### Bước 3 — 2026-10-31 23:33
+- Đã làm:
+  - Cài đặt `app/services/source_conn.py`: hàm `open_source_connection(ds_id)` mở kết nối Oracle thin mode, thiết lập `call_timeout` theo `CALL_TIMEOUT_S`, bắt lỗi mất kết nối chuyển thành mã lỗi `SOURCE_CONNECTION_LOST`.
+  - Cài đặt `app/engine/catalog.py`: hàm `list_tables(ds_id, schema, q)` và `list_columns(ds_id, schema, table)` truy vấn danh mục Oracle (`ALL_TABLES`, `ALL_VIEWS`, `ALL_TAB_COLUMNS`), hỗ trợ bộ đệm in-memory TTL 10 phút (600s), hàm `invalidate_catalog_cache`.
+  - Viết test `tests/unit/test_catalog.py` kiểm tra kết nối nguồn, bắt lỗi timeout/mất kết nối, lấy danh sách bảng/view từ DB và từ cache, lọc từ khóa `q`, lấy chi tiết kiểu dữ liệu/độ dài/precision/scale của các cột.
+- Kiểm tra:
+  - `uv run pytest tests/unit/test_catalog.py -v`: 4/4 passed.
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 38 source files.
+  - `uv run poe test`: 54 passed, 2 skipped.
+- Suy ra (nếu có): Trong Python unittest.mock, patch target cần chỉ định đúng vị trí import (`app.engine.catalog.open_source_connection`) thay vì nơi định nghĩa gốc để tránh module gọi kết nối mạng thật khi chạy unit test.
+
 ### Bước 2 — 2026-10-31 23:31
 - Đã làm:
   - Cài đặt hàm `test_data_source(ctx, ds_id)` trong `app/services/data_source.py`: đo thời gian phản hồi ms; kiểm tra kết nối SQLite đọc file và dung lượng MB; kiểm tra kết nối Oracle thin mode kèm cấu hình `call_timeout`.
