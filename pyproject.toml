@@ -1,0 +1,89 @@
+[project]
+name = "reconhub"
+version = "0.1.0"
+description = "Web app nội bộ đối soát dữ liệu Excel với Oracle"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "dash>=3.0.0",
+    "dash-mantine-components>=2.8.0",
+    "dash-ag-grid>=31.3.0",
+    "dash-iconify>=0.1.2",
+    "flask>=3.0.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "polars>=1.20.0",
+    "fastexcel>=0.12.0",
+    "xlsxwriter>=3.2.0",
+    "openpyxl>=3.1.5",
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14.0",
+    "oracledb>=2.5.0",
+    "cryptography>=44.0.0",
+    "argon2-cffi>=23.1.0",
+    "structlog>=25.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-cov>=6.0.0",
+    "pytest-playwright>=0.6.0",
+    "ruff>=0.9.0",
+    "mypy>=1.14.0",
+    "poethepoet>=0.32.0",
+]
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app", "worker"]
+
+[tool.poe.tasks]
+install = "uv sync"
+dev = "python scripts/dev_server.py"
+worker = "python -m worker"
+test = "pytest -v"
+test-engine = "pytest tests/ -m \"not oracle\" -v"
+test-oracle = "pytest tests/integration/test_oracle_smoke.py -m oracle -v"
+typecheck = "mypy app worker"
+lint = "ruff check app worker scripts tests"
+format = "ruff format app worker scripts tests"
+db-migrate = "alembic upgrade head"
+db-seed = "python -m app.cli seed"
+theme = "python scripts/gen_dmc_theme.py"
+design-system = "python scripts/design_system.py"
+e2e = "pytest tests/e2e/ -v"
+tasks-dashboard = "python scripts/tasks_dashboard.py"
+create-admin = "python -m app.cli create-admin"
+reset-password = "python -m app.cli reset-password"
+purge-temp = "python -m app.cli purge-temp"
+migrate-metadata = "python -m app.cli migrate-metadata"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "oracle: test tích hợp với Oracle qua VPN",
+    "slow: test tốn nhiều thời gian",
+]
+
