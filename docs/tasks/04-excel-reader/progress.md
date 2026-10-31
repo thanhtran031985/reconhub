@@ -1,6 +1,6 @@
 # Tiến độ — 04-excel-reader
 
-Trạng thái: 🔄
+Trạng thái: ✅
 
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
@@ -9,7 +9,7 @@ Trạng thái: 🔄
 | 3 | Normalize + derive + invalid | ✅ | 2026-11-01 | 53e8843 |
 | 4 | Control total + filters | ✅ | 2026-11-01 | 48e486f |
 | 5 | Inspect | ✅ | 2026-11-01 | 414f7e8 |
-| 6 | Service file + nạp dữ liệu tạm | ✅ | 2026-11-01 |  |
+| 6 | Service file + nạp dữ liệu tạm | ✅ | 2026-11-01 | 7309f44 |
 
 ## Nhật ký
 ### Bước 6 — 2026-11-01 00:30
