@@ -7,11 +7,23 @@ Trạng thái: 🔄
 | 1 | ServiceResult và mã lỗi | ✅ | 2026-10-31 | 8968b15 |
 | 2 | Băm mật khẩu + login + khóa | ✅ | 2026-10-31 | c5c695e |
 | 3 | Phiên + before_request | ✅ | 2026-10-31 | b32e630 |
-| 4 | Service user + LAST_ADMIN + audit | ✅ | 2026-10-31 | (sẽ commit) |
-| 5 | CLI + seed | 🔄 |  |  |
-| 6 | UI login, đổi mật khẩu, tài khoản | ⬜ |  |  |
+| 4 | Service user + LAST_ADMIN + audit | ✅ | 2026-10-31 | b8b415f |
+| 5 | CLI + seed | ✅ | 2026-10-31 | (sẽ commit) |
+| 6 | UI login, đổi mật khẩu, tài khoản | 🔄 |  |  |
 
 ## Nhật ký
+### Bước 5 — 2026-10-31 23:10
+- Đã làm:
+  - Viết test `tests/unit/test_cli.py` kiểm tra: lệnh `create-admin` từ chối khi đã có admin trừ khi có cờ `--force`, lệnh `reset-password` cập nhật hash mật khẩu mới và bật cờ `MUST_CHANGE_PW`, lệnh `seed` nạp 4 user mẫu idempotent (chạy nhiều lần không trùng lặp).
+  - Cài đặt đầy đủ `app/cli.py` cho `create-admin`, `reset-password`, `seed` (nạp 4 user mẫu: admin, owner, operator, viewer). Xử lý an toàn stdout/stderr UTF-8 trên console Windows.
+- Kiểm tra:
+  - `uv run pytest tests/unit/test_cli.py -v`: 3/3 passed.
+  - `uv run poe db-seed`: Đã nạp 4 user mẫu thành công; chạy lại thông báo 0 user mới (idempotent).
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 29 source files.
+  - `uv run poe test`: 38 passed, 1 skipped.
+- Suy ra (nếu có): Thêm reconfigure UTF-8 an toàn cho Windows cmd/powershell để không bị UnicodeEncodeError charmap cp1252 khi CLI in tiếng Việt.
+
 ### Bước 4 — 2026-10-31 23:07
 - Đã làm:
   - Viết test `tests/unit/test_user_service.py` kiểm tra: Viewer gọi service Admin bị FORBIDDEN, tạo user và chặn trùng username (case-insensitive), bảo vệ bất biến `LAST_ADMIN` (chặn deactive và chặn xóa role Admin của quản trị viên cuối cùng), kiểm tra `write_audit_log` tự động mask mật khẩu thành `"***"`, người dùng tự đổi mật khẩu cá nhân.
