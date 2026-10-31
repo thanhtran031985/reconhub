@@ -348,7 +348,9 @@ def render_step_2(
                     ),
                     style={"padding": "8px 10px"},
                 ),
-                html.Td(dmc.Badge("derived", size="xs", variant="light", color="purple"), style={"padding": "8px 10px"}),
+                html.Td(
+                    dmc.Badge("derived", size="xs", variant="light", color="purple"), style={"padding": "8px 10px"}
+                ),
                 html.Td(html.Span("2026-02-01", className="mono"), style={"padding": "8px 10px"}),
             ],
             style={"borderBottom": "1px solid var(--border-subtle, #e2e8f0)"},
@@ -368,7 +370,9 @@ def render_step_2(
                     dmc.Group(
                         [
                             button_subtle("Gợi ý lại", id="wizard-re-suggest-btn", icon="lucide:sparkles", size="sm"),
-                            button_subtle("Trường dẫn xuất", id="wizard-add-derived-btn", icon="lucide:plus", size="sm"),
+                            button_subtle(
+                                "Trường dẫn xuất", id="wizard-add-derived-btn", icon="lucide:plus", size="sm"
+                            ),
                         ],
                         gap="sm",
                     ),
@@ -416,8 +420,8 @@ def render_step_3(
         'SELECT "INVOICE_NO", "INVOICE_DATE", "COLLECT_POINT", "TXN_ID", "PIN_NO",\n'
         '       "SERVICE_CODE", "QUANTITY", "AMOUNT", "INVOICE_STATUS"\n'
         'FROM   "RECON_SRC"."SRC_FACT_INVOICE_DTP"\n'
-        "WHERE  \"INVOICE_DATE\" >= :p_from\n"
-        "AND    \"INVOICE_DATE\" <= :p_to\n"
+        'WHERE  "INVOICE_DATE" >= :p_from\n'
+        'AND    "INVOICE_DATE" <= :p_to\n'
         'AND    "ORG_CODE" = :p_org'
     )
 
@@ -442,7 +446,11 @@ def render_step_3(
         db_col = f.get("db")
         if db_col:
             status_badge = dmc.Badge("Đã map", size="xs", variant="light", color="green")
-            col_type = "VARCHAR2" if "NO" in db_col or "ID" in db_col or "CODE" in db_col else ("DATE" if "DATE" in db_col else "NUMBER")
+            col_type = (
+                "VARCHAR2"
+                if "NO" in db_col or "ID" in db_col or "CODE" in db_col
+                else ("DATE" if "DATE" in db_col else "NUMBER")
+            )
         else:
             status_badge = dmc.Badge("Chỉ có ở Excel", size="xs", variant="light", color="yellow")
             col_type = "—"
@@ -456,7 +464,8 @@ def render_step_3(
                             value=db_col or "— Không có —",
                             size="xs",
                             className="mono",
-                            data=[{"label": c[0], "value": c[0]} for c in db_cols_chips] + [{"label": "— Không có —", "value": "— Không có —"}],
+                            data=[{"label": c[0], "value": c[0]} for c in db_cols_chips]
+                            + [{"label": "— Không có —", "value": "— Không có —"}],
                             style={"width": 170},
                         ),
                         style={"padding": "8px 10px"},
@@ -573,8 +582,20 @@ def render_step_3(
                                             [
                                                 html.Tr(
                                                     [
-                                                        html.Td([html.B("Từ ngày giờ "), html.Span("p_from *", className="mono")]),
-                                                        html.Td(dmc.Select(value="INVOICE_DATE", data=["INVOICE_DATE"], size="xs", className="mono")),
+                                                        html.Td(
+                                                            [
+                                                                html.B("Từ ngày giờ "),
+                                                                html.Span("p_from *", className="mono"),
+                                                            ]
+                                                        ),
+                                                        html.Td(
+                                                            dmc.Select(
+                                                                value="INVOICE_DATE",
+                                                                data=["INVOICE_DATE"],
+                                                                size="xs",
+                                                                className="mono",
+                                                            )
+                                                        ),
                                                         html.Td(html.Span(">=", className="mono")),
                                                         html.Td("Ngày giờ"),
                                                         html.Td("Hôm qua 00:00:00"),
@@ -582,8 +603,20 @@ def render_step_3(
                                                 ),
                                                 html.Tr(
                                                     [
-                                                        html.Td([html.B("Đến ngày giờ "), html.Span("p_to *", className="mono")]),
-                                                        html.Td(dmc.Select(value="INVOICE_DATE", data=["INVOICE_DATE"], size="xs", className="mono")),
+                                                        html.Td(
+                                                            [
+                                                                html.B("Đến ngày giờ "),
+                                                                html.Span("p_to *", className="mono"),
+                                                            ]
+                                                        ),
+                                                        html.Td(
+                                                            dmc.Select(
+                                                                value="INVOICE_DATE",
+                                                                data=["INVOICE_DATE"],
+                                                                size="xs",
+                                                                className="mono",
+                                                            )
+                                                        ),
                                                         html.Td(html.Span("<=", className="mono")),
                                                         html.Td("Ngày giờ"),
                                                         html.Td("Hôm qua 23:59:59"),
@@ -591,25 +624,51 @@ def render_step_3(
                                                 ),
                                                 html.Tr(
                                                     [
-                                                        html.Td([html.B("Đơn vị "), html.Span("p_org *", className="mono")]),
-                                                        html.Td(dmc.Select(value="ORG_CODE", data=["ORG_CODE"], size="xs", className="mono")),
+                                                        html.Td(
+                                                            [html.B("Đơn vị "), html.Span("p_org *", className="mono")]
+                                                        ),
+                                                        html.Td(
+                                                            dmc.Select(
+                                                                value="ORG_CODE",
+                                                                data=["ORG_CODE"],
+                                                                size="xs",
+                                                                className="mono",
+                                                            )
+                                                        ),
                                                         html.Td(html.Span("=", className="mono")),
                                                         html.Td("—"),
-                                                        html.Td(dmc.TextInput(value="BDP", size="xs", className="mono", style={"width": 80})),
+                                                        html.Td(
+                                                            dmc.TextInput(
+                                                                value="BDP",
+                                                                size="xs",
+                                                                className="mono",
+                                                                style={"width": 80},
+                                                            )
+                                                        ),
                                                     ]
                                                 ),
                                             ]
                                         ),
                                     ],
                                 ),
-                                button_subtle("Thêm tham số lọc", id="wizard-add-param-btn", icon="lucide:plus", size="xs", mt="xs"),
+                                button_subtle(
+                                    "Thêm tham số lọc",
+                                    id="wizard-add-param-btn",
+                                    icon="lucide:plus",
+                                    size="xs",
+                                    mt="xs",
+                                ),
                                 dmc.Title("Điều kiện cố định", order=5, mt="md", mb="xs"),
                                 dmc.Group(
                                     [
                                         html.Span("INVOICE_STATUS", className="mono"),
                                         html.Span("="),
-                                        dmc.TextInput(value="ORIGINAL", size="xs", className="mono", style={"width": 160}),
-                                        button_subtle("Thêm điều kiện", id="wizard-add-filter-btn", icon="lucide:plus", size="xs"),
+                                        dmc.TextInput(
+                                            value="ORIGINAL", size="xs", className="mono", style={"width": 160}
+                                        ),
+                                        button_subtle(
+                                            "Thêm điều kiện", id="wizard-add-filter-btn", icon="lucide:plus", size="xs"
+                                        ),
                                     ],
                                     gap="sm",
                                 ),
@@ -678,14 +737,21 @@ def render_step_3(
                                 dmc.Select(
                                     id="wizard-excel-time-field",
                                     label="Trường thời gian lọc Excel",
-                                    data=[{"label": "INV_DATETIME", "value": "INV_DATETIME"}, {"label": "Không lọc Excel", "value": "NONE"}],
+                                    data=[
+                                        {"label": "INV_DATETIME", "value": "INV_DATETIME"},
+                                        {"label": "Không lọc Excel", "value": "NONE"},
+                                    ],
                                     value="INV_DATETIME",
                                     mb="sm",
                                 ),
                                 dmc.Select(
                                     id="wizard-excel-suggest-range",
                                     label="Gợi ý khi chạy",
-                                    data=[{"label": "Hôm qua", "value": "yesterday"}, {"label": "Tháng trước", "value": "last_month"}, {"label": "Để trống", "value": "none"}],
+                                    data=[
+                                        {"label": "Hôm qua", "value": "yesterday"},
+                                        {"label": "Tháng trước", "value": "last_month"},
+                                        {"label": "Để trống", "value": "none"},
+                                    ],
                                     value="yesterday",
                                 ),
                             ],
@@ -703,12 +769,16 @@ def render_step_4(
 ) -> Any:
     """Dựng giao diện Bước 4: Hồ sơ đối soát (Profile so sánh) & Measures."""
     profiles = config.get("profiles", [])
-    active_prof = profiles[0] if profiles else {
-        "code": "BY_INVOICE",
-        "name": "Theo số hóa đơn",
-        "group_by": ["INVOICE_NO"],
-        "measures": [],
-    }
+    active_prof = (
+        profiles[0]
+        if profiles
+        else {
+            "code": "BY_INVOICE",
+            "name": "Theo số hóa đơn",
+            "group_by": ["INVOICE_NO"],
+            "measures": [],
+        }
+    )
 
     # Danh sách trường có sẵn (cả fields và derived)
     avail_fields = [f.get("name") for f in config.get("fields", []) if f.get("name")]
@@ -731,12 +801,23 @@ def render_step_4(
     ]
 
     # Bảng Measures
-    measures = active_prof.get("measures", [
-        {"name": "TOTAL_AMOUNT", "label": "Tổng tiền", "agg": "sum", "field": "AMOUNT", "compare": "abs_tol", "tolerance": 1, "round": 0},
-        {"name": "TOTAL_QTY", "label": "Số lượng", "agg": "sum", "field": "QTY", "compare": "exact", "round": 0},
-        {"name": "INV_DATE", "label": "Ngày HĐ", "agg": "first_distinct", "field": "INV_DATE", "compare": "exact"},
-        {"name": "LINE_CNT", "label": "Số dòng", "agg": "count", "field": "*", "compare": "display_only"},
-    ])
+    measures = active_prof.get(
+        "measures",
+        [
+            {
+                "name": "TOTAL_AMOUNT",
+                "label": "Tổng tiền",
+                "agg": "sum",
+                "field": "AMOUNT",
+                "compare": "abs_tol",
+                "tolerance": 1,
+                "round": 0,
+            },
+            {"name": "TOTAL_QTY", "label": "Số lượng", "agg": "sum", "field": "QTY", "compare": "exact", "round": 0},
+            {"name": "INV_DATE", "label": "Ngày HĐ", "agg": "first_distinct", "field": "INV_DATE", "compare": "exact"},
+            {"name": "LINE_CNT", "label": "Số dòng", "agg": "count", "field": "*", "compare": "display_only"},
+        ],
+    )
 
     measure_rows = []
     for m in measures:
@@ -784,8 +865,7 @@ def render_step_4(
 
     # Tab items cho profile
     tab_list = [
-        dmc.TabsTab(p.get("name", p.get("code", "Profile")), value=p.get("code", "BY_INVOICE"))
-        for p in profiles
+        dmc.TabsTab(p.get("name", p.get("code", "Profile")), value=p.get("code", "BY_INVOICE")) for p in profiles
     ]
     if not tab_list:
         tab_list = [dmc.TabsTab("Theo số hóa đơn (mặc định)", value="BY_INVOICE")]
@@ -916,7 +996,10 @@ def render_step_4(
                                                     children=dmc.Select(
                                                         id="wizard-drilldown-select",
                                                         label="Drill-down tới",
-                                                        data=[{"label": "Chi tiết dòng", "value": "BY_LINE"}, {"label": "Không phân rã", "value": "NONE"}],
+                                                        data=[
+                                                            {"label": "Chi tiết dòng", "value": "BY_LINE"},
+                                                            {"label": "Không phân rã", "value": "NONE"},
+                                                        ],
                                                         value="BY_LINE",
                                                     ),
                                                 ),
@@ -968,7 +1051,7 @@ def render_step_5(
     grain_warnings = dry_run_data.get("grain_warnings", []) if dry_run_data else []
 
     ct_diff = summary.get("CONTROL_TOTAL_DIFF", 0)
-    ct_ok = (ct_diff == 0)
+    ct_ok = ct_diff == 0
     ct_val = "Khớp" if ct_ok else f"Lệch ({ct_diff:,.0f} đ)"
     ct_tone = "ok" if ct_ok else "warn"
 
@@ -1047,7 +1130,7 @@ def render_step_5(
                 "Dùng 100 dòng đầu file mẫu (phạm vi: 01/02/2026 00:00:00 – 05/02/2026 23:59:59). Không ghi lịch sử chạy.",
                 tone="info",
             ),
-            *( [html.Div(warning_alerts, style={"marginTop": 12})] if warning_alerts else [] ),
+            *([html.Div(warning_alerts, style={"marginTop": 12})] if warning_alerts else []),
             # Card 2: 4 KPI Cards kết quả Dry-run
             dmc.Grid(
                 gap="md",
@@ -1223,9 +1306,7 @@ def render_diagrams_tab(config: dict[str, Any]) -> Any:
                             dmc.AccordionItem(
                                 [
                                     dmc.AccordionControl("Xem mã nguồn Mermaid"),
-                                    dmc.AccordionPanel(
-                                        code_block(mermaid_code, language="text")
-                                    ),
+                                    dmc.AccordionPanel(code_block(mermaid_code, language="text")),
                                 ],
                                 value="code",
                             )
@@ -1237,6 +1318,7 @@ def render_diagrams_tab(config: dict[str, Any]) -> Any:
         )
 
     return html.Div(cards_ui)
+
 
 try:
     dash.register_page(  # type: ignore[no-untyped-call]
@@ -1623,7 +1705,9 @@ def handle_run_dry_run(
         },
         "grain_warnings": [],
     }
-    return alert_box("Chạy thử nghiệm hoàn tất thành công. Toàn bộ chỉ số đã được cập nhật.", tone="ok"), simulated_result
+    return alert_box(
+        "Chạy thử nghiệm hoàn tất thành công. Toàn bộ chỉ số đã được cập nhật.", tone="ok"
+    ), simulated_result
 
 
 @callback(

@@ -1,0 +1,755 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+import dash
+import dash_mantine_components as dmc
+from dash import Input, Output, State, callback, dcc, html
+from dash_iconify import DashIconify
+
+from app.core.context import Role
+from app.core.session import get_current_ctx
+from app.schemas.run import RunListFilter
+from app.services.run_service import list_runs
+from app.services.temp_data import purge_runs
+from app.services.template import list_templates
+from app.services.user import list_users
+from app.ui.components.alert_box import alert_box
+from app.ui.components.button import button_danger, button_primary, button_subtle
+from app.ui.components.empty_state import empty_state
+from app.ui.components.status_chip import status_chip
+from app.ui.formatters import format_bytes
+
+try:
+    dash.register_page(__name__, path="/history", title="Lịch sử – ReconHub")  # type: ignore[no-untyped-call]
+except Exception:
+    pass
+
+
+def format_short_dt(iso_str: str | None) -> str:
+    """Định dạng ngày giờ ngắn gọn DD/MM HH:mm."""
+    if not iso_str:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(iso_str)
+        return dt.strftime("%d/%m %H:%M")
+    except Exception:
+        return str(iso_str)
+
+
+def format_date_range(p_from: str | None, p_to: str | None) -> str:
+    """Định dạng khoảng ngày giờ: 01/02 00:00 → 05/02 23:59."""
+    f_str = format_short_dt(p_from)
+    t_str = format_short_dt(p_to)
+    if f_str == "—" and t_str == "—":
+        return "—"
+    return f"{f_str} → {t_str}"
+
+
+def render_header(count: int, month_year: str = "") -> dmc.Stack:
+    """Tiêu đề H1 và phụ đề màn hình Lịch sử."""
+    my = month_year or datetime.now().strftime("tháng %m/%Y")
+    title_text = f"Lịch sử: {count} run trong {my}"
+    return dmc.Stack(
+        [
+            dmc.Title(title_text, order=1, id="history-title"),
+            dmc.Text(
+                "Truy vết file gốc, version, khoảng tìm kiếm, người chạy. Chọn nhiều run để xóa dữ liệu tạm (Admin).",
+                c="dimmed",
+                size="sm",
+            ),
+        ],
+        gap=4,
+    )
+
+
+def render_filter_bar(
+    templates_options: list[dict[str, str]],
+    users_options: list[dict[str, str]],
+) -> dmc.Group:
+    """Thanh bộ lọc 5 tiêu chí theo thiết kế Screen07."""
+    return dmc.Group(
+        [
+            dmc.Select(
+                id="history-filter-template",
+                label="Template",
+                placeholder="Tất cả",
+                data=[{"label": "Tất cả", "value": "ALL"}, *templates_options],
+                value="ALL",
+                w=220,
+                clearable=False,
+            ),
+            dmc.Select(
+                id="history-filter-checked",
+                label="Kiểm tra",
+                data=[
+                    {"label": "Tất cả", "value": "ALL"},
+                    {"label": "Chưa kiểm tra", "value": "UNCHECKED"},
+                    {"label": "Đã kiểm tra", "value": "CHECKED"},
+                ],
+                value="ALL",
+                w=170,
+                clearable=False,
+            ),
+            dmc.Select(
+                id="history-filter-purged",
+                label="Dữ liệu tạm",
+                data=[
+                    {"label": "Tất cả", "value": "ALL"},
+                    {"label": "Còn", "value": "RETAINED"},
+                    {"label": "Đã xóa", "value": "PURGED"},
+                ],
+                value="ALL",
+                w=160,
+                clearable=False,
+            ),
+            dmc.Select(
+                id="history-filter-user",
+                label="Người chạy",
+                placeholder="Tất cả",
+                data=[{"label": "Tất cả", "value": "ALL"}, *users_options],
+                value="ALL",
+                w=170,
+                clearable=False,
+            ),
+            dmc.TextInput(
+                id="history-filter-filename",
+                label="Tên file",
+                placeholder="Tìm theo tên file",
+                leftSection=DashIconify(icon="lucide:search", width=14),
+                w=240,
+            ),
+        ],
+        gap="md",
+        align="flex-end",
+    )
+
+
+def render_bulk_alert(selected_count: int, is_admin: bool) -> html.Div:
+    """Thanh cảnh báo thông tin chọn nhiều run kèm nút xóa dữ liệu tạm."""
+    if not is_admin or selected_count == 0:
+        return html.Div(id="history-bulk-alert", style={"display": "none"})
+
+    return html.Div(
+        id="history-bulk-alert",
+        children=[
+            dmc.Alert(
+                id="history-bulk-alert-box",
+                title=None,
+                color="blue",
+                variant="light",
+                icon=DashIconify(icon="lucide:info", width=18),
+                children=dmc.Group(
+                    [
+                        dmc.Text(
+                            ["Đã chọn ", html.B(str(selected_count)), " run."],
+                            id="history-bulk-text",
+                            size="sm",
+                        ),
+                        button_danger(
+                            "Xóa dữ liệu tạm",
+                            id="history-open-bulk-modal-btn",
+                            size="xs",
+                            icon="lucide:trash-2",
+                        ),
+                    ],
+                    justify="space-between",
+                    align="center",
+                    w="100%",
+                ),
+            )
+        ],
+    )
+
+
+def render_runs_table(
+    items: list[dict[str, Any]],
+    is_admin: bool,
+    selected_ids: set[int],
+) -> Any:
+    """Dựng bảng lịch sử run theo thiết kế Screen07."""
+    if not items:
+        return empty_state(
+            title="Chưa có run nào",
+            description="Các lần chạy sẽ hiện ở đây kèm file gốc và tham số.",
+            action=dmc.Anchor(
+                button_primary("Chạy đối soát", icon="lucide:play"),
+                href="/runs/new",
+            ),
+        )
+
+    # Header hàng
+    headers = []
+    if is_admin:
+        # Checkbox Chọn tất cả (chỉ áp dụng với các run chưa xóa tạm)
+        unpurged_runs = [r["id"] for r in items if not r.get("temp_purged_at")]
+        all_checked = bool(unpurged_runs) and all(r_id in selected_ids for r_id in unpurged_runs)
+        headers.append(
+            dmc.TableTh(
+                dmc.Checkbox(
+                    id="history-select-all-cb",
+                    checked=all_checked,
+                    disabled=len(unpurged_runs) == 0,
+                    **{"aria-label": "Chọn tất cả run chưa xóa dữ liệu tạm"},
+                ),
+                w=40,
+            )
+        )
+
+    headers.extend(
+        [
+            dmc.TableTh("Run"),
+            dmc.TableTh("Thời gian chạy"),
+            dmc.TableTh("Template"),
+            dmc.TableTh("Profile"),
+            dmc.TableTh("Khoảng tìm kiếm"),
+            dmc.TableTh("File"),
+            dmc.TableTh("Người chạy"),
+            dmc.TableTh("Trạng thái"),
+            dmc.TableTh("Khớp", style={"textAlign": "right"}),
+            dmc.TableTh("Kiểm tra"),
+            dmc.TableTh("Dữ liệu tạm"),
+            dmc.TableTh("", style={"textAlign": "right"}),
+        ]
+    )
+
+    rows = []
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    for r in items:
+        r_id = r["id"]
+        is_purged = bool(r.get("temp_purged_at"))
+        is_selected = r_id in selected_ids
+
+        tds = []
+        if is_admin:
+            tds.append(
+                dmc.TableTd(
+                    dmc.Checkbox(
+                        id={"type": "history-run-cb", "index": r_id},
+                        checked=is_selected and not is_purged,
+                        disabled=is_purged,
+                        **{"aria-label": f"Chọn run #{r_id}"},
+                    )
+                )
+            )
+
+        # Run ID
+        tds.append(
+            dmc.TableTd(
+                dmc.Anchor(
+                    f"#{r_id}",
+                    href=f"/runs/{r_id}",
+                    className="rh-code",
+                    fw=600,
+                    underline="hover",
+                )
+            )
+        )
+
+        # Thời gian chạy
+        tds.append(dmc.TableTd(format_short_dt(r.get("created_at"))))
+
+        # Template code + ver
+        ver_text = f" v{r['template_version']}" if r.get("template_version") else ""
+        t_code = r.get("template_code") or r.get("template_name") or "Template"
+        tds.append(dmc.TableTd(f"{t_code}{ver_text}", className="rh-code"))
+
+        # Profile code
+        tds.append(dmc.TableTd(r.get("profile_code") or "—"))
+
+        # Khoảng tìm kiếm
+        tds.append(
+            dmc.TableTd(
+                format_date_range(r.get("p_from"), r.get("p_to")),
+                className="rh-code",
+                style={"whiteSpace": "nowrap"},
+            )
+        )
+
+        # File gốc
+        f_name = r.get("filename") or "—"
+        tds.append(dmc.TableTd(f_name, style={"maxWidth": 180, "overflow": "hidden", "textOverflow": "ellipsis"}))
+
+        # Người chạy
+        tds.append(dmc.TableTd(r.get("created_by") or "—", className="rh-code"))
+
+        # Trạng thái run
+        status_val = r.get("status", "QUEUED")
+        has_diff = (
+            (r.get("cnt_mismatch", 0) > 0)
+            or (r.get("cnt_missing_in_db", 0) > 0)
+            or (r.get("cnt_missing_in_excel", 0) > 0)
+        )
+        if status_val == "DONE":
+            if has_diff:
+                chip_node = status_chip("MISMATCH", label="Có lệch", icon="lucide:flag")
+            else:
+                chip_node = status_chip("MATCHED", label="Khớp", icon="lucide:check")
+        elif status_val == "RUNNING":
+            pct = r.get("progress_pct", 0)
+            chip_node = status_chip("RUNNING", label=f"Đang chạy {pct}%", icon="lucide:loader")
+        elif status_val == "FAILED":
+            chip_node = status_chip("FAILED", label="Lỗi", icon="lucide:alert-triangle")
+        else:
+            chip_node = status_chip(status_val)
+        tds.append(dmc.TableTd(chip_node))
+
+        # % Khớp
+        match_pct = r.get("match_pct")
+        if match_pct is not None and status_val == "DONE":
+            pct_fmt = f"{match_pct:.1f}%".replace(".", ",")
+            pct_node = dmc.Text(pct_fmt, size="sm", fw=500, style={"textAlign": "right"})
+        else:
+            pct_node = dmc.Text("—", size="sm", c="dimmed", style={"textAlign": "right"})
+        tds.append(dmc.TableTd(pct_node))
+
+        # Trạng thái kiểm tra
+        if r.get("checked_at"):
+            chk_user = r.get("checked_by") or ""
+            label_chk = f"Đã kiểm tra · {chk_user}" if chk_user else "Đã kiểm tra"
+            chk_chip = status_chip("CHECKED", label=label_chk, icon="lucide:check")
+        else:
+            chk_chip = status_chip("UNCHECKED", label="Chưa kiểm tra", icon="lucide:circle")
+        tds.append(dmc.TableTd(chk_chip))
+
+        # Trạng thái dữ liệu tạm
+        if is_purged:
+            purged_date = format_short_dt(r.get("temp_purged_at")).split(" ")[0]
+            temp_chip = status_chip("PURGED", label=f"Đã xóa {purged_date}", icon="lucide:trash-2")
+        else:
+            sz_fmt = format_bytes(r.get("file_size") or (1024 * 1024 * 3))
+            # Kiểm tra xem có quá hạn 30 ngày không
+            created_dt = None
+            if r.get("created_at"):
+                try:
+                    created_dt = datetime.fromisoformat(r["created_at"])
+                except Exception:
+                    pass
+            days_old = (now - created_dt).days if created_dt else 0
+            if days_old >= 30:
+                temp_label = f"Còn {days_old} ngày · {sz_fmt}"
+            else:
+                temp_label = f"Còn · {sz_fmt}"
+            temp_chip = status_chip("RETAINED", label=temp_label, icon="lucide:database")
+        tds.append(dmc.TableTd(temp_chip))
+
+        # Nút thao tác
+        actions_group = [
+            dmc.Anchor(
+                button_subtle("Xem", size="xs"),
+                href=f"/runs/{r_id}",
+            )
+        ]
+        if not is_purged and r.get("file_id"):
+            actions_group.append(
+                dmc.Anchor(
+                    button_subtle("Tải", size="xs", icon="lucide:download"),
+                    href=f"/download/file/{r['file_id']}",
+                )
+            )
+
+        tds.append(dmc.TableTd(dmc.Group(actions_group, gap=4, justify="flex-end")))
+        rows.append(dmc.TableTr(tds))
+
+    return html.Div(
+        dmc.Card(
+            dmc.Table(
+                [
+                    dmc.TableThead(dmc.TableTr(headers)),
+                    dmc.TableTbody(rows),
+                ],
+                striped=False,
+                highlightOnHover=True,
+                withTableBorder=False,
+                withColumnBorders=False,
+            ),
+            withBorder=True,
+            padding=0,
+            radius="sm",
+        ),
+        style={"overflowX": "auto"},
+    )
+
+
+def render_bulk_purge_modal() -> dmc.Modal:
+    """Hộp thoại xác nhận xóa dữ liệu tạm của nhiều run đã chọn (gõ XOA)."""
+    return dmc.Modal(
+        id="history-bulk-purge-modal",
+        opened=False,
+        title=dmc.Text("Xóa dữ liệu tạm của run đã chọn", fw=700, size="lg"),
+        centered=True,
+        size="md",
+        children=[
+            dmc.Stack(
+                [
+                    dmc.Text(
+                        id="history-bulk-purge-summary-text",
+                        size="sm",
+                        c="dimmed",
+                    ),
+                    dmc.SimpleGrid(
+                        cols=2,
+                        spacing="md",
+                        children=[
+                            dmc.Stack(
+                                [
+                                    dmc.Text("Sẽ xóa", fw=600, size="sm"),
+                                    dmc.List(
+                                        [
+                                            dmc.ListItem("Dòng Excel đã nạp"),
+                                            dmc.ListItem("File gốc, cache, file export đã sinh"),
+                                        ],
+                                        size="xs",
+                                        c="dimmed",
+                                    ),
+                                ],
+                                gap=4,
+                            ),
+                            dmc.Stack(
+                                [
+                                    dmc.Text("Giữ lại", fw=600, size="sm"),
+                                    dmc.List(
+                                        [
+                                            dmc.ListItem("Kết quả, tổng hợp, tham số run"),
+                                            dmc.ListItem("Export (sinh lại từ kết quả)"),
+                                        ],
+                                        size="xs",
+                                        c="dimmed",
+                                    ),
+                                ],
+                                gap=4,
+                            ),
+                        ],
+                    ),
+                    dmc.Alert(
+                        "Run chưa kiểm tra sẽ được đánh dấu 'Đã xóa dữ liệu tạm' nhưng vẫn là 'Chưa kiểm tra'.",
+                        title="Lưu ý",
+                        color="yellow",
+                        variant="light",
+                        icon=DashIconify(icon="lucide:alert-triangle", width=18),
+                    ),
+                    dmc.Stack(
+                        [
+                            dmc.TextInput(
+                                id="history-bulk-confirm-input",
+                                label="Gõ XOA để xác nhận",
+                                placeholder="XOA",
+                                className="rh-code",
+                            ),
+                            dmc.Text(
+                                id="history-bulk-confirm-error",
+                                c="red",
+                                size="xs",
+                                style={"display": "none"},
+                            ),
+                        ],
+                        gap=4,
+                    ),
+                    dmc.Group(
+                        [
+                            button_subtle("Hủy", id="history-bulk-cancel-btn"),
+                            button_danger(
+                                "Xóa dữ liệu tạm",
+                                id="history-bulk-confirm-btn",
+                            ),
+                        ],
+                        justify="flex-end",
+                        mt="md",
+                    ),
+                ],
+                gap="md",
+            )
+        ],
+    )
+
+
+def layout() -> html.Div:
+    """Giao diện chính màn hình Lịch sử run."""
+    ctx = get_current_ctx()
+    # Danh sách template cho dropdown bộ lọc
+    tpl_options: list[dict[str, str]] = []
+    usr_options: list[dict[str, str]] = []
+    if ctx:
+        try:
+            tpl_res = list_templates(ctx)
+            if tpl_res.ok and tpl_res.data:
+                tpl_options = [{"label": f"{t['code']} – {t['name']}", "value": str(t["id"])} for t in tpl_res.data]
+        except Exception:
+            pass
+        try:
+            usr_res = list_users(ctx)
+            if usr_res.ok and usr_res.data:
+                usr_options = [{"label": u.username, "value": u.username} for u in usr_res.data]
+        except Exception:
+            pass
+
+    return html.Div(
+        [
+            dcc.Store(id="history-selected-runs-store", data=[]),
+            dcc.Store(id="history-refresh-trigger", data=0),
+            html.Div(id="history-notification-area"),
+            dmc.Stack(
+                [
+                    render_header(count=0),
+                    render_filter_bar(tpl_options, usr_options),
+                    html.Div(id="history-bulk-alert-container"),
+                    dcc.Loading(
+                        id="history-loading",
+                        type="circle",
+                        children=html.Div(id="history-table-container"),
+                    ),
+                ],
+                gap="lg",
+                p="lg",
+            ),
+            render_bulk_purge_modal(),
+        ]
+    )
+
+
+@callback(
+    Output("history-table-container", "children"),
+    Output("history-title", "children"),
+    Input("history-filter-template", "value"),
+    Input("history-filter-checked", "value"),
+    Input("history-filter-purged", "value"),
+    Input("history-filter-user", "value"),
+    Input("history-filter-filename", "value"),
+    Input("history-refresh-trigger", "data"),
+    Input("history-selected-runs-store", "data"),
+)
+def update_history_table(
+    tpl_val: str | None,
+    chk_val: str | None,
+    purge_val: str | None,
+    usr_val: str | None,
+    file_val: str | None,
+    _refresh: int,
+    selected_data: list[int] | None,
+) -> tuple[Any, str]:
+    """Cập nhật bảng danh sách run theo các bộ lọc tiêu chí."""
+    ctx = get_current_ctx()
+    if ctx is None:
+        return (
+            alert_box(
+                "Bạn cần đăng nhập để xem lịch sử run.",
+                tone="crit",
+            ),
+            "Lịch sử run",
+        )
+
+    is_admin = Role.ADMIN in ctx.roles
+    selected_ids = set(selected_data or [])
+
+    # Xây dựng filter object
+    template_id = int(tpl_val) if tpl_val and tpl_val != "ALL" and str(tpl_val).isdigit() else None
+    created_by = usr_val if usr_val and usr_val != "ALL" else None
+    filename_search = file_val.strip() if file_val and file_val.strip() else None
+
+    is_checked = None
+    if chk_val == "CHECKED":
+        is_checked = True
+    elif chk_val == "UNCHECKED":
+        is_checked = False
+
+    is_temp_purged = None
+    if purge_val == "PURGED":
+        is_temp_purged = True
+    elif purge_val == "RETAINED":
+        is_temp_purged = False
+
+    filter_obj = RunListFilter(
+        template_id=template_id,
+        created_by=created_by,
+        filename=filename_search,
+        is_checked=is_checked,
+        is_temp_purged=is_temp_purged,
+        page=1,
+        page_size=100,
+    )
+
+    try:
+        res = list_runs(ctx, filter_obj)
+        if not res.ok:
+            return (
+                alert_box(
+                    f"Không tải được lịch sử run. Lỗi: {res.message}",
+                    tone="crit",
+                    action=button_subtle("Thử lại", id="history-retry-btn", size="sm"),
+                ),
+                "Lịch sử run",
+            )
+
+        items = res.data.get("items", []) if res.data else []
+        total = res.data.get("total", len(items)) if res.data else 0
+
+        my = datetime.now().strftime("tháng %m/%Y")
+        title_text = f"Lịch sử: {total} run trong {my}"
+
+        table_node = render_runs_table(items, is_admin=is_admin, selected_ids=selected_ids)
+        return table_node, title_text
+
+    except Exception as e:
+        return (
+            alert_box(
+                f"Lỗi hệ thống khi tải lịch sử: {e!s}",
+                tone="crit",
+                action=button_subtle("Thử lại", id="history-retry-btn", size="sm"),
+            ),
+            "Lịch sử run",
+        )
+
+
+@callback(
+    Output("history-bulk-alert-container", "children"),
+    Input("history-selected-runs-store", "data"),
+)
+def update_bulk_alert(selected_data: list[int] | None) -> Any:
+    """Cập nhật thanh thông báo khi có run được chọn."""
+    ctx = get_current_ctx()
+    is_admin = bool(ctx and Role.ADMIN in ctx.roles)
+    count = len(selected_data or [])
+    return render_bulk_alert(count, is_admin)
+
+
+@callback(
+    Output("history-selected-runs-store", "data"),
+    Input({"type": "history-run-cb", "index": dash.ALL}, "checked"),
+    Input("history-select-all-cb", "checked"),
+    State("history-selected-runs-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_run_selection(
+    cb_values: list[bool],
+    select_all_val: bool | None,
+    current_selected: list[int] | None,
+) -> list[int]:
+    """Xử lý chọn run đơn lẻ hoặc chọn tất cả."""
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return current_selected or []
+
+    trigger_id = ctx_dash.triggered[0]["prop_id"]
+
+    # Nếu trigger là "history-select-all-cb"
+    if "history-select-all-cb" in trigger_id:
+        if select_all_val:
+            # Lấy tất cả IDs từ inputs
+            all_inputs = ctx_dash.inputs_list[0]
+            ids = [item["id"]["index"] for item in all_inputs]
+            return ids
+        else:
+            return []
+
+    # Nếu trigger là 1 checkbox cụ thể
+    new_selected = []
+    all_inputs = ctx_dash.inputs_list[0]
+    for item in all_inputs:
+        if item.get("value"):
+            new_selected.append(item["id"]["index"])
+
+    return new_selected
+
+
+@callback(
+    Output("history-bulk-purge-modal", "opened"),
+    Output("history-bulk-purge-summary-text", "children"),
+    Output("history-bulk-confirm-input", "value"),
+    Output("history-bulk-confirm-error", "style"),
+    Output("history-bulk-confirm-error", "children"),
+    Input("history-open-bulk-modal-btn", "n_clicks"),
+    Input("history-bulk-cancel-btn", "n_clicks"),
+    State("history-selected-runs-store", "data"),
+    prevent_initial_call=True,
+)
+def toggle_bulk_purge_modal(
+    open_clicks: int | None,
+    cancel_clicks: int | None,
+    selected_data: list[int] | None,
+) -> tuple[bool, str, str, dict[str, str], str]:
+    """Mở hoặc đóng hộp thoại xác nhận xóa dữ liệu tạm của các run đã chọn."""
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False, "", "", {"display": "none"}, ""
+
+    trigger = ctx_dash.triggered[0]["prop_id"]
+    if "history-bulk-cancel-btn" in trigger:
+        return False, "", "", {"display": "none"}, ""
+
+    count = len(selected_data or [])
+    summary = f"Đã chọn {count} run. Dữ liệu tạm của các run này sẽ được giải phóng khỏi ổ đĩa."
+    return True, summary, "", {"display": "none"}, ""
+
+
+@callback(
+    Output("history-bulk-confirm-error", "style", allow_duplicate=True),
+    Output("history-bulk-confirm-error", "children", allow_duplicate=True),
+    Output("history-bulk-purge-modal", "opened", allow_duplicate=True),
+    Output("history-selected-runs-store", "data", allow_duplicate=True),
+    Output("history-refresh-trigger", "data", allow_duplicate=True),
+    Output("history-notification-area", "children"),
+    Input("history-bulk-confirm-btn", "n_clicks"),
+    State("history-bulk-confirm-input", "value"),
+    State("history-selected-runs-store", "data"),
+    State("history-refresh-trigger", "data"),
+    prevent_initial_call=True,
+)
+def handle_confirm_bulk_purge(
+    n_clicks: int | None,
+    confirm_text: str | None,
+    selected_data: list[int] | None,
+    refresh_count: int,
+) -> tuple[Any, ...]:
+    """Thực thi xóa dữ liệu tạm của danh sách run khi nhập đúng từ khóa 'XOA'."""
+    if not n_clicks:
+        return {"display": "none"}, "", dash.no_update, dash.no_update, dash.no_update, None
+
+    if not confirm_text or confirm_text.strip() != "XOA":
+        return (
+            {"display": "block"},
+            "Bạn phải nhập chính xác 'XOA' để xác nhận.",
+            True,
+            dash.no_update,
+            dash.no_update,
+            None,
+        )
+
+    ctx = get_current_ctx()
+    if ctx is None or Role.ADMIN not in ctx.roles:
+        return (
+            {"display": "block"},
+            "Chỉ có Quản trị viên (Admin) mới có quyền xóa dữ liệu tạm.",
+            True,
+            dash.no_update,
+            dash.no_update,
+            None,
+        )
+
+    run_ids = selected_data or []
+    if not run_ids:
+        return {"display": "none"}, "", False, [], refresh_count + 1, None
+
+    res = purge_runs(ctx, run_ids)
+    if not res.ok:
+        return (
+            {"display": "block"},
+            f"Lỗi xóa dữ liệu tạm: {res.message}",
+            True,
+            dash.no_update,
+            dash.no_update,
+            None,
+        )
+
+    freed = res.data.get("bytes_freed", 0) if res.data else 0
+    notif = dmc.Notification(
+        id="history-purge-success-notif",
+        title="Thành công",
+        message=f"Đã xóa dữ liệu tạm của {len(run_ids)} run (giải phóng {format_bytes(freed)}).",
+        color="teal",
+        icon=DashIconify(icon="lucide:check", width=18),
+        action="show",
+    )
+
+    return {"display": "none"}, "", False, [], refresh_count + 1, notif

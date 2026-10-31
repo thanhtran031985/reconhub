@@ -570,7 +570,9 @@ def handle_open_edit_drawer(n_clicks_list: list[int | None]) -> Any:
         for log in history_logs.data:
             time_val = format_datetime(log.get("CREATED_AT"))
             success = log.get("SUCCESS") == "Y"
-            res_chip = status_chip("ACTIVE", label="Thành công") if success else status_chip("INVALID", label="Sai mật khẩu")
+            res_chip = (
+                status_chip("ACTIVE", label="Thành công") if success else status_chip("INVALID", label="Sai mật khẩu")
+            )
             ip_val = log.get("IP") or "—"
             h_rows.append(
                 html.Tr(
@@ -584,9 +586,7 @@ def handle_open_edit_drawer(n_clicks_list: list[int | None]) -> Any:
         history_table = dmc.Table(
             striped=True,
             children=[
-                html.Thead(
-                    html.Tr([html.Th("Thời gian"), html.Th("Kết quả"), html.Th("IP")])
-                ),
+                html.Thead(html.Tr([html.Th("Thời gian"), html.Th("Kết quả"), html.Th("IP")])),
                 html.Tbody(h_rows),
             ],
         )

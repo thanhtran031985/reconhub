@@ -230,8 +230,3 @@ def test_render_diagrams_tab(wizard_env) -> None:
     assert diag_content["display"] == "block"
     assert ft_nav["display"] == "none"
     assert diag_children is not None
-
-
-
-
-

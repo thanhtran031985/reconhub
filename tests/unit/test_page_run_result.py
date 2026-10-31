@@ -319,4 +319,3 @@ def test_layout_and_modals(run_result_env, monkeypatch) -> None:
     assert new_store["run"]["temp_purged_at"] is not None
     assert "Đã kiểm tra" in str(new_hd)
     assert "Dữ liệu tạm đã xóa" in str(new_hd)
-

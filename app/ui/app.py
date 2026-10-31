@@ -27,6 +27,7 @@ def create_app() -> Dash:
     settings = get_settings()
 
     import dash._pages as _pages
+
     _pages.PAGE_REGISTRY.clear()
 
     dash_app = Dash(

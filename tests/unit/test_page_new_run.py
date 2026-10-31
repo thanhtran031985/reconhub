@@ -38,14 +38,10 @@ def new_run_env(tmp_path, monkeypatch):
 
     # Kích hoạt template DTP_HOA_DON_TAC_NGHIEP
     with engine.begin() as conn:
-        tmpl_id = conn.scalar(
-            select(recon_template.c.ID).where(recon_template.c.CODE == "DTP_HOA_DON_TAC_NGHIEP")
-        )
+        tmpl_id = conn.scalar(select(recon_template.c.ID).where(recon_template.c.CODE == "DTP_HOA_DON_TAC_NGHIEP"))
         if tmpl_id:
             conn.execute(
-                update(recon_template)
-                .where(recon_template.c.ID == tmpl_id)
-                .values(STATUS="ACTIVE", CURRENT_VERSION=1)
+                update(recon_template).where(recon_template.c.ID == tmpl_id).values(STATUS="ACTIVE", CURRENT_VERSION=1)
             )
             conn.execute(
                 update(recon_template_version)
@@ -169,7 +165,10 @@ def test_render_params_and_execution_section(new_run_env) -> None:
         "p_to_str": "05/02/2026 23:59:59",
     }
     params_ui = render_params_section(
-        template_info={"code": "DTP", "config": {"profiles": [{"code": "BY_INVOICE", "name": "Theo số hóa đơn", "is_default": True}]}},
+        template_info={
+            "code": "DTP",
+            "config": {"profiles": [{"code": "BY_INVOICE", "name": "Theo số hóa đơn", "is_default": True}]},
+        },
         data_sources=ds_list,
         precheck_info=precheck_info,
         err_msg=None,
@@ -228,4 +227,3 @@ def test_layout_renders_with_active_templates(new_run_env, monkeypatch) -> None:
     assert "new-run-root" in s
     assert "Chạy đối soát" in s
     assert "new-run-upload" in s
-

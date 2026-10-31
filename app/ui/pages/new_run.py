@@ -232,7 +232,12 @@ def render_file_section(
             radius="sm",
             children=[
                 dmc.Title("1. File dữ liệu", order=4, mb="xs"),
-                dmc.Text("Kéo thả file vào đây hoặc chọn file để hệ thống nhận diện template.", size="sm", c="dimmed", mb="md"),
+                dmc.Text(
+                    "Kéo thả file vào đây hoặc chọn file để hệ thống nhận diện template.",
+                    size="sm",
+                    c="dimmed",
+                    mb="md",
+                ),
                 file_drop(
                     "new-run-upload",
                     hint=".xlsx · .xls · .csv · tối đa 50 MB",
@@ -470,8 +475,8 @@ def render_params_section(
                 checked=True,
                 mb="md",
             ),
-            *( [precheck_node] if precheck_node is not None else [] ),
-            *( [html.Div(dup_node, style={"marginTop": 8})] if dup_node is not None else [] ),
+            *([precheck_node] if precheck_node is not None else []),
+            *([html.Div(dup_node, style={"marginTop": 8})] if dup_node is not None else []),
         ],
     )
 
@@ -531,7 +536,7 @@ def render_execution_section(
                     ),
                 ],
             ),
-            *( [progress_box] if progress_box is not None else [] ),
+            *([progress_box] if progress_box is not None else []),
         ],
     )
 
@@ -563,16 +568,32 @@ def layout() -> Any:
         return html.Div(
             [
                 dmc.Title("Chạy đối soát", order=2, fw=700, mb="xs"),
-                dmc.Text("Upload file, kiểm tra template nhận diện, nhập khoảng ngày giờ tìm kiếm rồi chạy.", c="dimmed", mb="lg"),
+                dmc.Text(
+                    "Upload file, kiểm tra template nhận diện, nhập khoảng ngày giờ tìm kiếm rồi chạy.",
+                    c="dimmed",
+                    mb="lg",
+                ),
                 dmc.Paper(
                     withBorder=True,
                     p="xl",
                     radius="sm",
                     style={"textAlign": "center"},
                     children=[
-                        dmc.ThemeIcon(DashIconify(icon="lucide:layers", width=36), size="xl", radius="md", color="gray", variant="light", mb="md"),
+                        dmc.ThemeIcon(
+                            DashIconify(icon="lucide:layers", width=36),
+                            size="xl",
+                            radius="md",
+                            color="gray",
+                            variant="light",
+                            mb="md",
+                        ),
                         dmc.Title("Chưa có template nào đang dùng", order=3, mb="xs"),
-                        dmc.Text("Cần ít nhất một template Active để thực hiện chạy đối soát.", size="sm", c="dimmed", mb="md"),
+                        dmc.Text(
+                            "Cần ít nhất một template Active để thực hiện chạy đối soát.",
+                            size="sm",
+                            c="dimmed",
+                            mb="md",
+                        ),
                         dcc.Link(button_primary("Đăng ký template", icon="lucide:plus"), href="/templates/new"),
                     ],
                 ),
@@ -600,7 +621,12 @@ def layout() -> Any:
                     html.Div(
                         [
                             dmc.Title("Chạy đối soát", order=2, fw=700),
-                            dmc.Text("Upload file, kiểm tra template nhận diện, nhập khoảng ngày giờ tìm kiếm rồi chạy.", size="sm", c="dimmed", mt=4),
+                            dmc.Text(
+                                "Upload file, kiểm tra template nhận diện, nhập khoảng ngày giờ tìm kiếm rồi chạy.",
+                                size="sm",
+                                c="dimmed",
+                                mt=4,
+                            ),
                         ]
                     ),
                     dmc.Badge("UAT", color="teal", variant="light", size="lg"),

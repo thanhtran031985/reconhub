@@ -107,9 +107,7 @@ def render_header(run_info: dict[str, Any]) -> Any:
             )
         )
 
-    action_btns.append(
-        dcc.Link(button_subtle("Chạy lại", icon="lucide:refresh-cw"), href="/runs/new")
-    )
+    action_btns.append(dcc.Link(button_subtle("Chạy lại", icon="lucide:refresh-cw"), href="/runs/new"))
     action_btns.append(
         html.A(
             button_primary("Export Excel", icon="lucide:download"),
@@ -140,7 +138,7 @@ def render_header(run_info: dict[str, Any]) -> Any:
 def render_kpi_cards(summary: dict[str, Any]) -> Any:
     """Dựng 4 KPI Cards: Control total file, Tổng tiền Excel, Tổng tiền DB, Chênh lệch."""
     ct_diff = summary.get("CONTROL_TOTAL_DIFF", 0)
-    ct_ok = (ct_diff == 0)
+    ct_ok = ct_diff == 0
     ct_val = fmt_num(summary.get("EXCEL_TOTAL_AMOUNT", 366732000))
     ct_tone = "ok" if ct_ok else "warn"
 
@@ -251,7 +249,7 @@ def render_ratio_bar_and_tabs(summary: dict[str, Any], active_tab: str = "ALL") 
 
     tab_buttons = []
     for code, label, count, color in tab_defs:
-        is_active = (code == active_tab)
+        is_active = code == active_tab
         tab_buttons.append(
             dmc.Button(
                 [
@@ -287,7 +285,11 @@ def build_grid_headers(measures: list[dict[str, Any]], only_diff_cols: bool = Fa
             html.Th(
                 lbl,
                 colSpan=3,
-                style={"textAlign": "center", "background": "var(--bg-subtle, #f8fafc)", "borderLeft": "1px solid var(--border-subtle, #e2e8f0)"},
+                style={
+                    "textAlign": "center",
+                    "background": "var(--bg-subtle, #f8fafc)",
+                    "borderLeft": "1px solid var(--border-subtle, #e2e8f0)",
+                },
             )
         )
         sub_ths.extend(
@@ -330,13 +332,26 @@ def render_result_grid(
             val_db = r.get("db", {}).get(m_name)
             val_df = r.get("diff", {}).get(m_name)
 
-            has_diff = (val_df is not None and val_df != 0)
+            has_diff = val_df is not None and val_df != 0
             diff_cls = "rh-diff" if has_diff else ""
-            diff_style = {"background": "rgba(220, 38, 38, 0.08)", "color": "var(--crit, #dc2626)", "fontWeight": 600} if has_diff else {}
+            diff_style = (
+                {"background": "rgba(220, 38, 38, 0.08)", "color": "var(--crit, #dc2626)", "fontWeight": 600}
+                if has_diff
+                else {}
+            )
 
-            tds.append(html.Td(fmt_num(val_xl), style={"textAlign": "right", "borderLeft": "1px solid var(--border-subtle, #e2e8f0)"}))
+            tds.append(
+                html.Td(
+                    fmt_num(val_xl),
+                    style={"textAlign": "right", "borderLeft": "1px solid var(--border-subtle, #e2e8f0)"},
+                )
+            )
             tds.append(html.Td(fmt_num(val_db), style={"textAlign": "right"}))
-            tds.append(html.Td(fmt_num(val_df) if has_diff else "—", className=diff_cls, style={"textAlign": "right", **diff_style}))
+            tds.append(
+                html.Td(
+                    fmt_num(val_df) if has_diff else "—", className=diff_cls, style={"textAlign": "right", **diff_style}
+                )
+            )
 
         table_rows.append(
             html.Tr(
@@ -557,15 +572,69 @@ def layout(run_id: str | int | None = 1042, **kwargs: Any) -> Any:
 
     measures = [{"name": "TOTAL_AMOUNT", "label": "Tổng tiền", "type": "number"}]
     default_rows = [
-        {"key": "C26TBD0031338", "status": "DIFF", "excel": {"TOTAL_AMOUNT": 2592000}, "db": {"TOTAL_AMOUNT": 2430000}, "diff": {"TOTAL_AMOUNT": 162000}},
-        {"key": "C26TBD0031375", "status": "DIFF", "excel": {"TOTAL_AMOUNT": 1250000}, "db": {"TOTAL_AMOUNT": 2870000}, "diff": {"TOTAL_AMOUNT": -1620000}},
-        {"key": "C26TBD0031412", "status": "DIFF", "excel": {"TOTAL_AMOUNT": 1620000}, "db": {"TOTAL_AMOUNT": 0}, "diff": {"TOTAL_AMOUNT": 1620000}},
-        {"key": "C26TBD0031350", "status": "DIFF", "excel": {"TOTAL_AMOUNT": 1250000}, "db": {"TOTAL_AMOUNT": 1250000}, "diff": {"TOTAL_AMOUNT": 0}},
-        {"key": "C26TBD0031435", "status": "MISSING_DB", "excel": {"TOTAL_AMOUNT": 1250000}, "db": {}, "diff": {"TOTAL_AMOUNT": 1250000}},
-        {"key": "C26TBD0031485", "status": "MISSING_DB", "excel": {"TOTAL_AMOUNT": 1250000}, "db": {}, "diff": {"TOTAL_AMOUNT": 1250000}},
-        {"key": "C26TBD0099901", "status": "MISSING_EXCEL", "excel": {}, "db": {"TOTAL_AMOUNT": 1620000}, "diff": {"TOTAL_AMOUNT": -1620000}},
-        {"key": "C26TBD0099902", "status": "MISSING_EXCEL", "excel": {}, "db": {"TOTAL_AMOUNT": 1620000}, "diff": {"TOTAL_AMOUNT": -1620000}},
-        {"key": "C26TBD0031335", "status": "MATCHED", "excel": {"TOTAL_AMOUNT": 1620000}, "db": {"TOTAL_AMOUNT": 1620000}, "diff": {"TOTAL_AMOUNT": 0}},
+        {
+            "key": "C26TBD0031338",
+            "status": "DIFF",
+            "excel": {"TOTAL_AMOUNT": 2592000},
+            "db": {"TOTAL_AMOUNT": 2430000},
+            "diff": {"TOTAL_AMOUNT": 162000},
+        },
+        {
+            "key": "C26TBD0031375",
+            "status": "DIFF",
+            "excel": {"TOTAL_AMOUNT": 1250000},
+            "db": {"TOTAL_AMOUNT": 2870000},
+            "diff": {"TOTAL_AMOUNT": -1620000},
+        },
+        {
+            "key": "C26TBD0031412",
+            "status": "DIFF",
+            "excel": {"TOTAL_AMOUNT": 1620000},
+            "db": {"TOTAL_AMOUNT": 0},
+            "diff": {"TOTAL_AMOUNT": 1620000},
+        },
+        {
+            "key": "C26TBD0031350",
+            "status": "DIFF",
+            "excel": {"TOTAL_AMOUNT": 1250000},
+            "db": {"TOTAL_AMOUNT": 1250000},
+            "diff": {"TOTAL_AMOUNT": 0},
+        },
+        {
+            "key": "C26TBD0031435",
+            "status": "MISSING_DB",
+            "excel": {"TOTAL_AMOUNT": 1250000},
+            "db": {},
+            "diff": {"TOTAL_AMOUNT": 1250000},
+        },
+        {
+            "key": "C26TBD0031485",
+            "status": "MISSING_DB",
+            "excel": {"TOTAL_AMOUNT": 1250000},
+            "db": {},
+            "diff": {"TOTAL_AMOUNT": 1250000},
+        },
+        {
+            "key": "C26TBD0099901",
+            "status": "MISSING_EXCEL",
+            "excel": {},
+            "db": {"TOTAL_AMOUNT": 1620000},
+            "diff": {"TOTAL_AMOUNT": -1620000},
+        },
+        {
+            "key": "C26TBD0099902",
+            "status": "MISSING_EXCEL",
+            "excel": {},
+            "db": {"TOTAL_AMOUNT": 1620000},
+            "diff": {"TOTAL_AMOUNT": -1620000},
+        },
+        {
+            "key": "C26TBD0031335",
+            "status": "MATCHED",
+            "excel": {"TOTAL_AMOUNT": 1620000},
+            "db": {"TOTAL_AMOUNT": 1620000},
+            "diff": {"TOTAL_AMOUNT": 0},
+        },
     ]
 
     return html.Div(

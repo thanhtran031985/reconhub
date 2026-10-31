@@ -9,4 +9,3 @@ CREATE USER {schema_name} IDENTIFIED BY "{password}"
 
 GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE VIEW TO {schema_name};
 """
-

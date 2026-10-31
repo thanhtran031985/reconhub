@@ -312,7 +312,18 @@ def list_runs(ctx: Ctx, filter: RunListFilter) -> dict[str, Any]:
             recon_run,
             recon_template.c.CODE.label("TEMPLATE_CODE"),
             recon_template.c.NAME.label("TEMPLATE_NAME"),
-        ).select_from(recon_run.outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID))
+            recon_file.c.ORIGINAL_NAME.label("FILENAME"),
+            recon_file.c.SIZE_BYTES.label("FILE_SIZE"),
+            recon_run_summary.c.CNT_MATCHED.label("CNT_MATCHED"),
+            recon_run_summary.c.CNT_MISMATCH.label("CNT_MISMATCH"),
+            recon_run_summary.c.CNT_MISSING_IN_DB.label("CNT_MISSING_IN_DB"),
+            recon_run_summary.c.CNT_MISSING_IN_EXCEL.label("CNT_MISSING_IN_EXCEL"),
+            recon_run_summary.c.EXCEL_ROWS_INVALID.label("CNT_INVALID"),
+        ).select_from(
+            recon_run.outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID)
+            .outerjoin(recon_file, recon_run.c.FILE_ID == recon_file.c.ID)
+            .outerjoin(recon_run_summary, recon_run.c.ID == recon_run_summary.c.RUN_ID)
+        )
 
         if filter.template_id:
             base_query = base_query.where(recon_run.c.TEMPLATE_ID == filter.template_id)
@@ -329,6 +340,13 @@ def list_runs(ctx: Ctx, filter: RunListFilter) -> dict[str, Any]:
                 base_query = base_query.where(recon_run.c.CHECKED_AT.is_not(None))
             else:
                 base_query = base_query.where(recon_run.c.CHECKED_AT.is_(None))
+        if filter.is_temp_purged is not None:
+            if filter.is_temp_purged:
+                base_query = base_query.where(recon_run.c.TEMP_PURGED_AT.is_not(None))
+            else:
+                base_query = base_query.where(recon_run.c.TEMP_PURGED_AT.is_(None))
+        if filter.filename:
+            base_query = base_query.where(recon_file.c.ORIGINAL_NAME.ilike(f"%{filter.filename.strip()}%"))
 
         # Đếm tổng số
         count_stmt = select(func.count()).select_from(base_query.subquery())
@@ -341,6 +359,16 @@ def list_runs(ctx: Ctx, filter: RunListFilter) -> dict[str, Any]:
 
         items = []
         for r in rows:
+            cnt_matched = r["CNT_MATCHED"] or 0
+            cnt_mismatch = r["CNT_MISMATCH"] or 0
+            cnt_missing_db = r["CNT_MISSING_IN_DB"] or 0
+            cnt_missing_excel = r["CNT_MISSING_IN_EXCEL"] or 0
+            total_compared = cnt_matched + cnt_mismatch + cnt_missing_db + cnt_missing_excel
+            match_pct = (
+                round((cnt_matched / total_compared) * 100, 1)
+                if total_compared > 0
+                else (100.0 if r["STATUS"] == "DONE" and (r["CNT_INVALID"] or 0) == 0 else None)
+            )
             items.append(
                 {
                     "id": int(r["ID"]),
@@ -355,7 +383,20 @@ def list_runs(ctx: Ctx, filter: RunListFilter) -> dict[str, Any]:
                     "created_at": r["CREATED_AT"].isoformat() if r["CREATED_AT"] else None,
                     "finished_at": r["FINISHED_AT"].isoformat() if r["FINISHED_AT"] else None,
                     "checked_at": r["CHECKED_AT"].isoformat() if r["CHECKED_AT"] else None,
+                    "checked_by": r["CHECKED_BY"],
                     "temp_purged_at": r["TEMP_PURGED_AT"].isoformat() if r["TEMP_PURGED_AT"] else None,
+                    "temp_purged_by": r["TEMP_PURGED_BY"],
+                    "p_from": r["P_FROM"].isoformat() if r["P_FROM"] else None,
+                    "p_to": r["P_TO"].isoformat() if r["P_TO"] else None,
+                    "file_id": int(r["FILE_ID"]) if r["FILE_ID"] else None,
+                    "filename": str(r["FILENAME"]) if r["FILENAME"] else None,
+                    "file_size": int(r["FILE_SIZE"]) if r["FILE_SIZE"] else None,
+                    "cnt_matched": cnt_matched,
+                    "cnt_mismatch": cnt_mismatch,
+                    "cnt_missing_in_db": cnt_missing_db,
+                    "cnt_missing_in_excel": cnt_missing_excel,
+                    "cnt_invalid": r["CNT_INVALID"] or 0,
+                    "match_pct": match_pct,
                 }
             )
 

@@ -61,6 +61,8 @@ class RunListFilter(BaseModel):
     to_date: datetime | None = None
     created_by: str | None = None
     is_checked: bool | None = None
+    is_temp_purged: bool | None = None
+    filename: str | None = None
     page: int = 1
     page_size: int = 20
 
