@@ -15,3 +15,7 @@ backup/
 *.db-shm
 samples/private/*
 !samples/private/.gitkeep
+.archify/
+*.finalize.json
+*.finalize-summary.json
+*.delivery.json
