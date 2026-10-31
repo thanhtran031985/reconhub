@@ -1,16 +1,29 @@
 # Tiến độ — 08-app-shell-ui
 
-Trạng thái: 🔄
+Trạng thái: ✅
 
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | Component + gallery | ✅ | 2026-11-01 | 784f80b |
 | 2 | AppShell + banner | ✅ | 2026-11-01 | 5d39b0a |
 | 3 | Màn Templates | ✅ | 2026-11-01 | 28eb315 |
-| 4 | Màn Data Sources | ✅ | 2026-11-01 |  |
-| 5 | Màn Người dùng | 🔄 | 2026-11-01 |  |
+| 4 | Màn Data Sources | ✅ | 2026-11-01 | 6457186 |
+| 5 | Màn Người dùng | ✅ | 2026-11-01 | 5d653f6 |
 
 ## Nhật ký
+### Bước 5 — 2026-11-01 02:46
+- Đã làm: Cài đặt màn hình Quản lý Người dùng (`app/ui/pages/users.py`, Screen11):
+  - Phân quyền RBAC: Chỉ người dùng có vai trò `ADMIN` mới được truy cập, người dùng vai trò khác bị chuyển hướng tới `/forbidden`.
+  - Tiêu đề màn hình đếm động tổng số tài khoản và số tài khoản đang tạm khóa; nút "Thêm người dùng" (icon `lucide:plus`) và nút làm mới dữ liệu.
+  - Bộ lọc: Ô tìm kiếm (username, họ tên, email) kèm debounce; Chọn vai trò (Tất cả, Admin, Template Owner, Operator, Viewer); Chọn trạng thái (Tất cả, Hoạt động, Tạm khóa, Đã tắt).
+  - Bảng dữ liệu: Username (font mono đậm), Họ tên, Email, Vai trò (`status_chip` hoặc Badge nhiều vai trò), Trạng thái (Hoạt động `status_chip` tone ok, Tạm khóa đến HH:mm tone warn, Đã tắt tone off, Chờ đổi mật khẩu tone info), Lần đăng nhập cuối; Cột thao tác: Sửa, Đặt lại mật khẩu, Mở khóa (hiển thị khi tài khoản đang bị tạm khóa).
+  - Ngăn kéo Thêm / Sửa người dùng (Drawer 540px): Tên đăng nhập (chỉ nhập khi tạo, vô hiệu hóa khi sửa), Họ tên, Email, Nhóm checkbox vai trò (bắt buộc ≥ 1); Khi tạo mới: Mật khẩu ban đầu và tùy chọn bắt đổi mật khẩu lần đầu; Khi sửa: Khối chuyển đổi trạng thái Bật / Tắt tài khoản (chặn tắt quản trị viên cuối cùng `LAST_ADMIN`), bảng lịch sử đăng nhập gần nhất hiển thị thời gian, kết quả và địa chỉ IP.
+  - Hộp thoại Đặt lại mật khẩu (Modal): Nhập mật khẩu mới, tùy chọn bắt đổi mật khẩu lần tới, cảnh báo đăng xuất các phiên đang mở và tự động mở khóa tài khoản.
+  - Đáp ứng 4 trạng thái giao diện: Đang tải, Trống, Lỗi (có nút Thử lại) và Có dữ liệu.
+  - Viết bộ test `tests/unit/test_page_users.py` (4 passed) và bổ sung test e2e `tests/e2e/test_e2e_screens.py` (3 passed).
+- Kiểm tra: `uv run pytest tests/unit/test_page_users.py` (4 passed); `uv run poe e2e` (3 passed); `uv run poe test` (246 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
+- Suy ra (nếu có): Thao tác mở khóa nhanh trên bảng giúp quản trị viên xử lý ngay khi nhân viên bị khóa tài khoản do gõ sai mật khẩu nhiều lần mà không cần mở drawer.
+- Việc cần người làm thủ công: Không có.
 ### Bước 4 — 2026-11-01 02:18
 - Đã làm: Cài đặt màn hình Data Sources và Quản lý Lưu trữ (`app/ui/pages/data_sources.py`, Screen08) với 2 tab:
   - Tab 1 "Nguồn đối soát": Bảng danh sách nguồn Oracle (mã nguồn font mono, tên hiển thị, host:port/service, người dùng, ngày cập nhật, trạng thái kiểm tra kết nối `status_chip`, thao tác Kiểm tra kết nối và Sửa); Ngăn kéo thêm/sửa nguồn đối soát (Drawer) với validation đầy đủ, lưu mật khẩu mã hóa Fernet.

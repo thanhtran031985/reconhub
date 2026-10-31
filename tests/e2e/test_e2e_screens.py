@@ -69,3 +69,11 @@ def test_e2e_data_sources_page_accessible(e2e_client) -> None:
     assert resp.status_code == 200
     assert b"ReconHub" in resp.data
     assert b"Data Sources" in resp.data
+
+
+def test_e2e_users_page_accessible(e2e_client) -> None:
+    resp = e2e_client.get("/users")
+    assert resp.status_code == 200
+    assert b"ReconHub" in resp.data
+    assert b"users-page-root" in resp.data or b"users" in resp.data
+
