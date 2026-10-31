@@ -5,7 +5,7 @@ Trạng thái: 🔄
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | Precheck + create | ✅ | 2026-11-01 | 09ba5b4 |
-| 2 | Worker + executor | ✅ | 2026-11-01 | |
+| 2 | Worker + executor | ✅ | 2026-11-01 | 71d298a |
 | 3 | Đọc kết quả | ⬜ |  |  |
 | 4 | Dry-run + activate + grain | ⬜ |  |  |
 | 5 | Xóa dữ liệu tạm | ⬜ |  |  |
