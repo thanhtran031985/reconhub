@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     # Thư mục lưu trữ
     RECON_STORAGE_DIR: str = "./storage"
     BACKUP_DIR: str = "./backup"
+    MAX_UPLOAD_SIZE_MB: int = 100
 
     # Ngưỡng cảnh báo dữ liệu tạm
     TEMP_WARN_GB: int = 5

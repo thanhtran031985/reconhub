@@ -8,10 +8,33 @@ Trạng thái: 🔄
 | 2 | Mapping + detect | ✅ | 2026-11-01 | ed4906c |
 | 3 | Normalize + derive + invalid | ✅ | 2026-11-01 | 53e8843 |
 | 4 | Control total + filters | ✅ | 2026-11-01 | 48e486f |
-| 5 | Inspect | ✅ | 2026-11-01 |  |
-| 6 | Service file + nạp dữ liệu tạm | 🔄 |  |  |
+| 5 | Inspect | ✅ | 2026-11-01 | 414f7e8 |
+| 6 | Service file + nạp dữ liệu tạm | ✅ | 2026-11-01 |  |
 
 ## Nhật ký
+### Bước 6 — 2026-11-01 00:30
+- Đã làm:
+  - Cài đặt `app/services/file_service.py`:
+    - `upload_file(ctx, filename, content)`: kiểm tra magic bytes ngăn chặn đổi phần mở rộng trái phép (hỗ trợ .xlsx/.xlsm qua PK zip magic, .xls qua OLE2 magic, .csv qua text check không chứa byte nhị phân `\x00`); kiểm tra dung lượng theo `MAX_UPLOAD_SIZE_MB`; tính SHA-256; lưu trữ tại `storage/files/<sha256>.<ext>`; trích xuất danh sách sheet qua `list_sheets`; ghi nhận vào bảng `RECON_FILE`.
+    - `get_file(ctx, file_id)`: lấy thông tin file tải lên; báo lỗi `TEMP_DATA_PURGED` nếu file đã bị đánh dấu xóa hoặc không còn tồn tại trên ổ đĩa.
+  - Cài đặt `app/services/excel_load.py`:
+    - `load_excel_to_temp(ctx, file_id, template_id, template_version, sheet_name=None)`:
+      - Kiểm tra tái sử dụng (`is_reused=True`) nếu bản ghi `RECON_EXCEL_LOAD` với cùng file và phiên bản template đang hoạt động (`PURGED_AT IS NULL`), đảm bảo tính idempotent tuyệt đối.
+      - Nếu chưa nạp: thực thi toàn bộ pipeline reader -> row_filters -> mapping -> normalize (tách valid & invalid) -> derive -> control total.
+      - Ghi nhận `RECON_EXCEL_LOAD` và nạp toàn bộ các dòng vào `RECON_EXCEL_ROW` theo từng lô 5.000 dòng trong cùng một database transaction.
+  - Cài đặt Flask route `/download/file/<file_id>` trong `app/routes/file_routes.py`:
+    - Bảo vệ bằng middleware phiên đăng nhập: chưa đăng nhập chuyển hướng 302 về `/login`.
+    - Tải file dạng đính kèm (`send_file` kèm `original_name`).
+    - Trả mã 410 nếu dữ liệu tạm của file đã bị xóa theo yêu cầu.
+    - Đăng ký `file_bp` vào ứng dụng Flask tại `app/ui/app.py`.
+  - Bổ sung cấu hình `MAX_UPLOAD_SIZE_MB: int = 100` vào `Settings` tại `app/core/config.py`.
+  - Viết test unit `tests/unit/test_file_service.py` và integration `tests/integration/test_excel_load_integration.py`, `tests/integration/test_file_routes.py`.
+- Kiểm tra:
+  - `uv run pytest tests/unit/test_file_service.py tests/integration/test_excel_load_integration.py tests/integration/test_file_routes.py -v`: 7/7 passed.
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 52 source files.
+  - `uv run poe test-engine`: 128 passed.
+- Suy ra (nếu có): SQLAlchemy `JsonText` tự động deserialize chuỗi JSON từ DB thành `dict`, do đó không được gọi thêm `json.loads(str(cfg))` vì `str(dict)` sinh cú pháp nháy đơn `'` gây lỗi parse JSON.
 ### Bước 5 — 2026-11-01 00:20
 - Đã làm:
   - Cài đặt `app/engine/inspect.py`:
