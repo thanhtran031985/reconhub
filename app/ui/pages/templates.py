@@ -320,6 +320,7 @@ def layout() -> Any:
                     ),
                     # Khối nội dung danh sách template
                     html.Div(id="tmpl-content-container"),
+                    html.Button(id="tmpl-retry-btn", style={"display": "none"}),
                 ],
                 gap="lg",
                 py="xl",

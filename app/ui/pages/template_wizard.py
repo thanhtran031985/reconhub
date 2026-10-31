@@ -135,7 +135,7 @@ def render_step_1(
         [
             # Hàng trên: 2 cột
             dmc.Grid(
-                gap="lg",
+                gutter="lg",
                 children=[
                     # Cột 1: File mẫu & cấu trúc
                     dmc.GridCol(
@@ -152,7 +152,7 @@ def render_step_1(
                                     hint="Kéo thả file khác để thay thế (tối đa 50MB)",
                                 ),
                                 dmc.Grid(
-                                    gap="sm",
+                                    gutter="sm",
                                     mt="md",
                                     children=[
                                         dmc.GridCol(
@@ -524,7 +524,7 @@ def render_step_3(
             ),
             # Card 2: Bảng/View nguồn vs Điều kiện lọc
             dmc.Grid(
-                gap="md",
+                gutter="md",
                 mb="md",
                 children=[
                     # Cột trái: Bảng/View nguồn
@@ -690,7 +690,7 @@ def render_step_3(
             ),
             # Card 4: Cột DB -> Trường logic & Lọc Excel theo cùng khoảng
             dmc.Grid(
-                gap="md",
+                gutter="md",
                 children=[
                     dmc.GridCol(
                         span=7,
@@ -888,7 +888,7 @@ def render_step_4(
             ),
             # Layout 2 cột: Cột trái Trường có sẵn (260px) vs Cột phải Cấu hình profile
             dmc.Grid(
-                gap="md",
+                gutter="md",
                 children=[
                     # Cột trái: Trường có sẵn
                     dmc.GridCol(
@@ -979,7 +979,7 @@ def render_step_4(
                                             ],
                                         ),
                                         dmc.Grid(
-                                            gap="md",
+                                            gutter="md",
                                             mt="md",
                                             children=[
                                                 dmc.GridCol(
@@ -1081,7 +1081,7 @@ def render_step_5(
                         mb="md",
                     ),
                     dmc.Grid(
-                        gap="md",
+                        gutter="md",
                         children=[
                             dmc.GridCol(
                                 span=4,
@@ -1133,7 +1133,7 @@ def render_step_5(
             *([html.Div(warning_alerts, style={"marginTop": 12})] if warning_alerts else []),
             # Card 2: 4 KPI Cards kết quả Dry-run
             dmc.Grid(
-                gap="md",
+                gutter="md",
                 mt="md",
                 children=[
                     dmc.GridCol(

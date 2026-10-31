@@ -243,6 +243,7 @@ def render_file_section(
                     hint=".xlsx · .xls · .csv · tối đa 50 MB",
                     max_size=50 * 1024 * 1024,
                 ),
+                html.Div(button_subtle("Đổi file", id="new-run-change-file-btn", size="xs"), style={"display": "none"}),
             ],
         )
 
@@ -390,7 +391,7 @@ def render_params_section(
         children=[
             dmc.Title("2. Profile và tham số tìm kiếm", order=4, mb="xs"),
             dmc.Grid(
-                gap="md",
+                gutter="md",
                 mb="md",
                 children=[
                     dmc.GridCol(
@@ -415,7 +416,7 @@ def render_params_section(
             ),
             # Hàng tham số: p_from, p_to, p_org
             dmc.Grid(
-                gap="md",
+                gutter="md",
                 mb="xs",
                 children=[
                     dmc.GridCol(
@@ -634,7 +635,7 @@ def layout() -> Any:
             ),
             # Grid 2 cột: Cột 1 File, Cột 2 Params
             dmc.Grid(
-                gap="md",
+                gutter="md",
                 children=[
                     dmc.GridCol(
                         span=6,

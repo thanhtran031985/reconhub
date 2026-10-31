@@ -223,7 +223,7 @@ def render_storage_tab(
     # 2. Bảng nhật ký xóa
     log_rows = []
     for log in purge_logs:
-        purged_at = format_datetime(log.get("PURGED_AT") or log.get("purged_at"))
+        purged_at = format_datetime(log.get("CREATED_AT") or log.get("PURGED_AT") or log.get("purged_at"))
         scope = log.get("SCOPE") or log.get("scope") or "—"
         runs_cnt = log.get("RUNS_COUNT") or log.get("runs_count") or 0
         rows_cnt = log.get("ROWS_COUNT") or log.get("rows_count") or 0
@@ -697,7 +697,13 @@ def load_sources_data(*args: Any) -> Any:
     if not res.ok:
         return {"items": [], "error": res.message}
 
-    return {"items": res.data or [], "error": None}
+    raw_items = []
+    for item in (res.data or []):
+        if hasattr(item, "model_dump"):
+            raw_items.append(item.model_dump(mode="json"))
+        elif isinstance(item, dict):
+            raw_items.append(dict(item))
+    return {"items": raw_items, "error": None}
 
 
 @callback(
@@ -727,7 +733,15 @@ def load_storage_data(*args: Any) -> Any:
         return {}
 
     usage_res = usage(ctx)
-    usage_data = usage_res.data.model_dump() if usage_res.ok and usage_res.data else {}
+    if usage_res.ok and usage_res.data:
+        if hasattr(usage_res.data, "model_dump"):
+            usage_data = usage_res.data.model_dump(mode="json")
+        elif isinstance(usage_res.data, dict):
+            usage_data = dict(usage_res.data)
+        else:
+            usage_data = {}
+    else:
+        usage_data = {}
 
     # Lấy nhật ký xóa và cấu hình lưu trữ
     engine = get_recon_engine()
@@ -737,19 +751,32 @@ def load_storage_data(*args: Any) -> Any:
     latest_mig: dict[str, Any] | None = None
 
     with engine.connect() as conn:
-        stmt = select(recon_purge_log).order_by(desc(recon_purge_log.c.PURGED_AT)).limit(10)
-        purge_logs = [dict(r) for r in conn.execute(stmt).mappings().all()]
+        stmt = select(recon_purge_log).order_by(desc(recon_purge_log.c.CREATED_AT)).limit(10)
+        for r in conn.execute(stmt).mappings().all():
+            d = dict(r)
+            for k, v in list(d.items()):
+                if hasattr(v, "isoformat"):
+                    d[k] = v.isoformat()
+            purge_logs.append(d)
 
         ds_stmt = select(recon_data_source).where(
             recon_data_source.c.DB_TYPE == "ORACLE",
             recon_data_source.c.IS_ACTIVE == "Y",
         )
-        oracle_sources = [dict(r) for r in conn.execute(ds_stmt).mappings().all()]
+        for r in conn.execute(ds_stmt).mappings().all():
+            d = dict(r)
+            for k, v in list(d.items()):
+                if hasattr(v, "isoformat"):
+                    d[k] = v.isoformat()
+            oracle_sources.append(d)
 
         mig_stmt = select(recon_metadata_migration).order_by(desc(recon_metadata_migration.c.ID)).limit(1)
         mig_row = conn.execute(mig_stmt).mappings().first()
         if mig_row:
             latest_mig = dict(mig_row)
+            for k, v in list(latest_mig.items()):
+                if hasattr(v, "isoformat"):
+                    latest_mig[k] = v.isoformat()
 
     return {
         "usage": usage_data,
@@ -873,20 +900,24 @@ def handle_purge_preview(
     if not res.ok or not res.data:
         return alert_box("Lỗi xem trước", res.message, tone="crit"), None
 
-    d = res.data
+    d = res.data or {}
+    r_count = d.get("run_count", 0)
+    rows_est = d.get("rows_estimated", 0)
+    bytes_est = d.get("bytes_estimated", 0)
+
     alert_node = alert_box(
-        title=f"Tìm thấy {d.run_count} run phù hợp để xóa",
+        title=f"Tìm thấy {r_count} run phù hợp để xóa",
         message=dmc.Stack(
             [
                 dmc.Text(
-                    f"Số dòng tạm sẽ xóa: {d.row_count:,} dòng · Ước tính giải phóng: {format_bytes(d.freed_bytes_estimate)} · Số file gốc: {d.file_count}".replace(
+                    f"Số dòng tạm sẽ xóa: {rows_est:,} dòng · Ước tính giải phóng: {format_bytes(bytes_est)} · Số run: {r_count}".replace(
                         ",", "."
                     ),
                     size="sm",
                 ),
                 dmc.Text("Lưu ý: Kết quả đối soát và báo cáo Excel được lưu vĩnh viễn.", size="xs", c="dimmed"),
                 button_danger(
-                    f"Xóa dữ liệu tạm ({d.run_count} run)",
+                    f"Xóa dữ liệu tạm ({r_count} run)",
                     id="ds-purge-open-modal-btn",
                     size="xs",
                 ),
@@ -897,7 +928,7 @@ def handle_purge_preview(
         icon="lucide:alert-triangle",
     )
 
-    return alert_node, p_filter.model_dump()
+    return alert_node, p_filter.model_dump(mode='json')
 
 
 # Callback mở modal xác nhận Xóa

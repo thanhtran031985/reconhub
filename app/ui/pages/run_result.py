@@ -160,7 +160,7 @@ def render_kpi_cards(summary: dict[str, Any]) -> Any:
     cnt_diff = summary.get("CNT_DIFF", 4) + summary.get("CNT_MISSING_DB", 2) + summary.get("CNT_MISSING_EXCEL", 2)
 
     return dmc.Grid(
-        gap="md",
+        gutter="md",
         mb="lg",
         children=[
             dmc.GridCol(
@@ -950,7 +950,7 @@ def layout(run_id: str | int | None = 1042, **kwargs: Any) -> Any:
                     [
                         dmc.Checkbox(id="run-res-purge-check", label="Xóa luôn dữ liệu tạm của run này", checked=True),
                         dmc.Grid(
-                            gap="md",
+                            gutter="md",
                             mt="xs",
                             children=[
                                 dmc.GridCol(
