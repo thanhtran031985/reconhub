@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="light">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard – ReconHub</title>
+<link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"></head>
+<body>
+<div class="rh-app">
+<nav class="rh-nav" aria-label="Điều hướng chính">
+  <div class="rh-nav__logo"><span class="rh-nav__mark">RH</span><b>ReconHub</b></div>
+  <div class="rh-nav__sec">Đối soát</div><a href="../Screen01-Dashboard/preview.html" aria-current="page"><svg data-i="layout"></svg><span>Dashboard</span></a><a href="../Screen05-NewRun/preview.html"><svg data-i="play"></svg><span>Chạy đối soát</span></a><a href="../Screen06-RunResult/preview.html"><svg data-i="list"></svg><span>Kết quả run</span></a><a href="../Screen07-History/preview.html"><svg data-i="history"></svg><span>Lịch sử</span></a><div class="rh-nav__sec">Cấu hình</div><a href="../Screen02-Templates/preview.html"><svg data-i="puzzle"></svg><span>Templates</span></a><a href="../Screen03-TemplateWizard/preview.html"><svg data-i="pencil"></svg><span>Đăng ký template</span></a><a href="../Screen08-DataSources/preview.html"><svg data-i="database"></svg><span>Data Sources</span></a><a href="../Screen11-Users/preview.html"><svg data-i="users"></svg><span>Người dùng</span></a>
+</nav>
+<main class="rh-main" style="position:relative">
+<header class="rh-header"><div class="rh-crumb">ReconHub / <b>Dashboard</b></div><span class="rh-sp"></span><span class="rh-env rh-env--UAT">UAT</span>
+<button type="button" class="rh-user" id="usr" aria-haspopup="menu"><span class="rh-avatar">TT</span><span><b>thanhtran</b> · Admin</span></button></header>
+<div class="rh-menu" id="usrm" role="menu" hidden><div><b>Trần Thanh</b></div><a href="../Screen10-Login/preview.html#account" role="menuitem"><svg data-i="key"></svg>Tài khoản, đổi mật khẩu</a><a href="../Screen10-Login/preview.html" role="menuitem"><svg data-i="log-out"></svg>Đăng xuất</a></div>
+<div class="rh-banner" role="status"><svg data-i="alert-triangle"></svg>Dữ liệu tạm 5,2 GB, 12 run giữ quá 30 ngày. <a href="../Screen08-DataSources/preview.html">Xem và xóa</a></div>
+<div class="rh-content" id="root" data-state="normal">
+<div class="rh-row"><div><h1 class="rh-h1">Tháng 10/2026: 38 run, 9 chưa kiểm tra</h1><div class="rh-sub">Tổng quan đối soát. Run gần nhất lúc 31/10/2026 18:20:05. Số liệu minh họa.</div></div><span class="rh-sp"></span>
+<a class="rh-btn rh-btn--primary" href="../Screen05-NewRun/preview.html"><svg data-i="play"></svg>Chạy đối soát</a></div>
+<div data-show="error"><div class="rh-alert rh-alert--crit" role="alert"><svg data-i="alert-triangle"></svg><div>Không tải được số liệu tổng hợp. Đang hiển thị dữ liệu lúc 18:20:05.</div><button type="button" class="rh-btn rh-btn--sm">Thử lại</button></div></div><div data-show="loading" aria-busy="true"><div class="rh-grid rh-g4"><span class="rh-skel rh-skel--kpi"></span><span class="rh-skel rh-skel--kpi"></span><span class="rh-skel rh-skel--kpi"></span><span class="rh-skel rh-skel--kpi"></span></div><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span></div><div data-show="empty"><div class="rh-empty"><div class="rh-empty__title">Chưa có run nào trong kỳ 10/2026</div><div>Upload một file và chạy đối soát theo template đã đăng ký.</div><button type="button" class="rh-btn rh-btn--primary">Chạy đối soát</button></div></div>
+<div data-show="normal error"><div class="rh-grid rh-g4">
+<div class="rh-kpi"><div class="rh-kpi__label">Run trong kỳ</div><div class="rh-kpi__value">38</div><div class="rh-kpi__meta">35 hoàn thành · 2 lỗi · 1 đang chạy</div></div>
+<div class="rh-kpi"><div class="rh-kpi__label">Tỉ lệ khớp trung bình</div><div class="rh-kpi__value">98,6%</div><div class="rh-kpi__meta">Theo số nhóm so sánh</div></div>
+<div class="rh-kpi"><div class="rh-kpi__label">Chưa kiểm tra</div><div class="rh-kpi__value" style="color:var(--warn)">9</div><div class="rh-kpi__meta">Dữ liệu tạm 5,2 GB</div></div>
+<div class="rh-kpi"><div class="rh-kpi__label">Việc của tôi</div><div class="rh-kpi__value">4</div><div class="rh-kpi__meta">3 run chờ kiểm tra · 1 run lỗi</div></div></div>
+<section class="rh-card rh-card--flush" style="margin-top:var(--space-18)"><div class="rh-row" style="padding:var(--space-14) var(--space-18)"><h3 class="rh-card__title" style="margin:0">Run gần đây</h3><span class="rh-sp"></span><a class="rh-btn rh-btn--sm" href="../Screen07-History/preview.html">Xem lịch sử</a></div>
+<table class="rh-table"><thead><tr><th>Run</th><th>Template</th><th>Profile</th><th>Khoảng tìm kiếm</th><th>Trạng thái</th><th>Kiểm tra</th><th class="n">Khớp</th></tr></thead><tbody>
+<tr data-clickable><td class="mono">#1042</td><td>DTP – HĐ tác nghiệp</td><td>Theo số hóa đơn</td><td class="mono">01/02 00:00 → 05/02 23:59</td><td><span class="rh-chip rh-chip--warn"><svg data-i="flag"></svg>Có lệch</span></td><td><span class="rh-chip rh-chip--off">Chưa kiểm tra</span></td><td class="n">96,8%</td></tr>
+<tr><td class="mono">#1041</td><td>DT phí DV khối cảng</td><td>ORG × Application</td><td class="mono">01/09 00:00 → 30/09 23:59</td><td><span class="rh-chip rh-chip--ok"><svg data-i="check"></svg>Khớp</span></td><td><span class="rh-chip rh-chip--ok"><svg data-i="check"></svg>Đã kiểm tra</span></td><td class="n">100%</td></tr>
+<tr><td class="mono">#1040</td><td>Sản lượng tàu BDP</td><td>Chi tiết</td><td class="mono">30/10 00:00 → 30/10 23:59</td><td><span class="rh-chip rh-chip--info"><svg data-i="refresh"></svg>Đang chạy 55%</span></td><td>—</td><td class="n">—</td></tr>
+</tbody></table></section></div>
+</div></main></div>
+<script src="../_shared/preview.js"></script>
+
+</body></html>

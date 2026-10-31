@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "file": {
+    "sheet": "BÁO CÁO DTP", "sheet_pattern": null, "header_row": 1, "data_start_row": 2, "skip_footer_rows": 0,
+    "detect_by_headers": ["Số hóa đơn", "Ngày lập hóa đơn", "Thành tiền"],
+    "row_filters": { "drop_if": [{ "excel_col": "Số hóa đơn", "op": "is_null" }], "keep_if": [] },
+    "thousand_sep": ",", "decimal_sep": "."
+  },
+  "fields": [
+    { "name": "POINT", "label": "Điểm thu phí", "excel": "Điểm thu phí", "db": "COLLECT_POINT", "type": "text", "norm": ["trim", "upper"] },
+    { "name": "TXN_ID", "label": "Mã giao dịch", "excel": "Mã giao dịch", "db": "TXN_ID", "type": "text", "norm": ["trim"] },
+    { "name": "INVOICE_NO", "label": "Số hóa đơn", "excel": "Số hóa đơn", "db": "INVOICE_NO", "type": "text", "norm": ["trim", "upper"], "required": true },
+    { "name": "STATUS", "label": "Trạng thái", "excel": "Trạng thái", "db": "INVOICE_STATUS", "type": "text",
+      "norm": ["trim", { "value_map": { "HĐ Gốc": "ORIGINAL", "HĐ Thay thế": "REPLACE", "HĐ Hủy": "CANCEL" } }] },
+    { "name": "INV_DATETIME", "label": "Ngày lập hóa đơn", "excel": "Ngày lập hóa đơn", "db": "INVOICE_DATE", "type": "datetime", "format": "dd/MM/yyyy HH:mm:ss", "required": true },
+    { "name": "PIN", "label": "Số PIN", "excel": "Số PIN", "db": "PIN_NO", "type": "text", "norm": ["trim"] },
+    { "name": "SERVICE_CODE", "label": "Mã dịch vụ", "excel": "Mã dịch vụ", "db": "SERVICE_CODE", "type": "text", "norm": ["trim", "upper"] },
+    { "name": "SERVICE_NAME", "label": "Dịch vụ", "excel": "Dịch vụ", "db": null, "type": "text", "norm": ["trim"] },
+    { "name": "QTY", "label": "Số lượng", "excel": "Số lượng", "db": "QUANTITY", "type": "number" },
+    { "name": "AMOUNT", "label": "Thành tiền", "excel": "Thành tiền", "db": "AMOUNT", "type": "number" }
+  ],
+  "derived": [
+    { "name": "INV_DATE", "label": "Ngày HĐ", "type": "date", "expr": { "fn": "trunc_day", "args": ["INV_DATETIME"] } }
+  ],
+  "db_source": {
+    "kind": "table",
+    "table": "RECON_SRC.SRC_FACT_INVOICE_DTP",
+    "filters": [
+      { "param": "p_from", "column": "INVOICE_DATE", "op": ">=", "cast": "none" },
+      { "param": "p_to", "column": "INVOICE_DATE", "op": "<=", "cast": "none" },
+      { "param": "p_org", "column": "ORG_CODE", "op": "=", "cast": "none" }
+    ],
+    "static_where": [],
+    "sql": null,
+    "params": [
+      { "name": "p_from", "type": "datetime", "source": "user", "label": "Từ ngày giờ", "required": true, "suggest": "yesterday" },
+      { "name": "p_to", "type": "datetime", "source": "user", "label": "Đến ngày giờ", "required": true, "suggest": "yesterday" },
+      { "name": "p_org", "type": "text", "source": "default", "default": "BDP", "label": "Đơn vị", "required": true }
+    ],
+    "pushdown_aggregate": true
+  },
+  "time_filter": { "excel_field": "INV_DATETIME", "db_column": "INVOICE_DATE", "granularity": "datetime", "max_range_days": 93 },
+  "control_total": { "locate": { "excel_col": "Dịch vụ", "equals": "Tổng tiền" }, "value_col": "Thành tiền", "tolerance": 0 },
+  "profiles": [
+    { "code": "BY_INVOICE", "name": "Theo số hóa đơn", "is_default": true, "aggregate": true, "group_by": ["INVOICE_NO"], "filters": [], "main_measure": "TOTAL_AMOUNT", "drilldown_to": "BY_LINE",
+      "measures": [
+        { "name": "TOTAL_AMOUNT", "label": "Tổng tiền", "agg": "sum", "field": "AMOUNT", "compare": "abs_tol", "tolerance": 1, "round": 0 },
+        { "name": "TOTAL_QTY", "label": "Số lượng", "agg": "sum", "field": "QTY", "compare": "exact", "round": 0 },
+        { "name": "INV_DATE", "label": "Ngày HĐ", "agg": "first_distinct", "field": "INV_DATE", "compare": "exact" },
+        { "name": "LINE_CNT", "label": "Số dòng", "agg": "count", "compare": "display_only" } ] },
+    { "code": "BY_DAY_POINT", "name": "Ngày × điểm thu", "is_default": false, "aggregate": true, "group_by": ["INV_DATE", "POINT"], "filters": [], "main_measure": "TOTAL_AMOUNT", "drilldown_to": "BY_INVOICE",
+      "measures": [
+        { "name": "TOTAL_AMOUNT", "label": "Tổng tiền", "agg": "sum", "field": "AMOUNT", "compare": "abs_tol", "tolerance": 1, "round": 0 },
+        { "name": "INV_CNT", "label": "Số hóa đơn", "agg": "count_distinct", "field": "INVOICE_NO", "compare": "exact" } ] },
+    { "code": "BY_LINE", "name": "Chi tiết dòng", "is_default": false, "aggregate": true, "group_by": ["INVOICE_NO", "SERVICE_CODE", "PIN"], "filters": [], "main_measure": "AMOUNT",
+      "measures": [
+        { "name": "AMOUNT", "label": "Thành tiền", "agg": "sum", "field": "AMOUNT", "compare": "abs_tol", "tolerance": 1, "round": 0 },
+        { "name": "QTY", "label": "Số lượng", "agg": "sum", "field": "QTY", "compare": "exact", "round": 0 } ] }
+  ]
+}

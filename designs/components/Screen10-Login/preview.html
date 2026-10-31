@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="light"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Đăng nhập – ReconHub</title>
+<link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"></head><body>
+<div class="rh-login" id="root" data-state="normal">
+<div style="width:var(--size-login);max-width:100%">
+<div class="rh-tabs rh-tabs--seg" role="tablist" style="justify-content:center;margin-bottom:var(--space-14)">
+<button type="button" class="rh-tab" role="tab" aria-selected="true" data-v="login">Đăng nhập</button><button type="button" class="rh-tab" role="tab" aria-selected="false" data-v="change">Đổi mật khẩu bắt buộc</button><button type="button" class="rh-tab" role="tab" aria-selected="false" data-v="account">Tài khoản</button></div>
+<section class="rh-login__card" data-view="login">
+ <div class="rh-login__logo"><span class="rh-nav__mark">RH</span>ReconHub</div>
+ <div class="rh-sub" style="margin-bottom:var(--space-16)">Đối soát dữ liệu Excel và Oracle</div>
+ <div data-show="error"><div class="rh-alert rh-alert--crit" role="alert"><svg data-i="alert-triangle"></svg><div>Tên đăng nhập hoặc mật khẩu không đúng.</div></div></div>
+ <div data-show="empty"><div class="rh-alert rh-alert--warn" role="alert"><svg data-i="lock"></svg><div>Tài khoản tạm khóa đến 19:05 do đăng nhập sai 5 lần. Thử lại sau hoặc liên hệ Admin.</div></div></div>
+ <form class="rh-grid" onsubmit="return false">
+  <div class="rh-field"><label class="rh-label" for="u">Tên đăng nhập</label><input id="u" class="rh-input mono" autocomplete="username" value="thanhtran"></div>
+  <div class="rh-field"><label class="rh-label" for="p">Mật khẩu</label><input id="p" class="rh-input" type="password" autocomplete="current-password" value="secret"></div>
+  <button type="submit" class="rh-btn rh-btn--primary rh-btn--block" id="lg">Đăng nhập</button>
+ </form>
+ <div class="rh-sub" style="margin:var(--space-16) 0 0;font-size:var(--type-body-sm-size)">Quên mật khẩu: liên hệ Admin để được đặt lại.</div>
+</section>
+<section class="rh-login__card" data-view="change" hidden>
+ <div class="rh-login__logo"><span class="rh-nav__mark">RH</span>Đổi mật khẩu</div>
+ <div class="rh-alert rh-alert--info"><svg data-i="info"></svg><div>Xin chào <b>Nguyễn Văn A</b>. Đây là lần đăng nhập đầu (hoặc mật khẩu vừa được đặt lại), hãy đặt mật khẩu mới để tiếp tục.</div></div>
+ <form class="rh-grid" onsubmit="return false">
+  <div class="rh-field"><label class="rh-label" for="n1">Mật khẩu mới</label><input id="n1" class="rh-input" type="password" autocomplete="new-password"></div>
+  <div class="rh-field rh-field--error"><label class="rh-label" for="n2">Nhập lại mật khẩu mới</label><input id="n2" class="rh-input" type="password" aria-invalid="true" aria-describedby="n2m"><div class="rh-field__msg" id="n2m">Hai mật khẩu chưa giống nhau.</div></div>
+  <button type="submit" class="rh-btn rh-btn--primary rh-btn--block">Lưu và tiếp tục</button>
+ </form>
+</section>
+<section class="rh-login__card" data-view="account" hidden style="width:520px;max-width:96vw">
+ <div class="rh-login__logo"><span class="rh-avatar" style="width:32px;height:32px">TT</span>Tài khoản của tôi</div>
+ <table class="rh-table"><tbody><tr><td class="rh-label">Tên đăng nhập</td><td class="mono">thanhtran</td></tr><tr><td class="rh-label">Họ tên</td><td>Trần Thanh</td></tr>
+ <tr><td class="rh-label">Vai trò</td><td><span class="rh-chip rh-chip--plain">Admin</span> <span class="rh-chip rh-chip--plain">Template Owner</span></td></tr><tr><td class="rh-label">Đăng nhập cuối</td><td>31/10/2026 08:02:15</td></tr></tbody></table>
+ <h3 class="rh-card__title" style="margin-top:var(--space-18)">Đổi mật khẩu</h3>
+ <form class="rh-grid" onsubmit="return false">
+  <div class="rh-field"><label class="rh-label" for="o">Mật khẩu hiện tại</label><input id="o" class="rh-input" type="password" autocomplete="current-password"></div>
+  <div class="rh-grid rh-g2"><div class="rh-field"><label class="rh-label" for="a1">Mật khẩu mới</label><input id="a1" class="rh-input" type="password"></div><div class="rh-field"><label class="rh-label" for="a2">Nhập lại</label><input id="a2" class="rh-input" type="password"></div></div>
+  <div class="rh-row"><span class="rh-sub" style="margin:0;font-size:var(--type-body-sm-size)">Đổi mật khẩu sẽ đăng xuất các phiên khác.</span><span class="rh-sp"></span><a class="rh-btn" href="../Screen01-Dashboard/preview.html">Quay lại</a><button type="submit" class="rh-btn rh-btn--primary">Đổi mật khẩu</button></div>
+ </form>
+</section>
+</div></div>
+<script src="../_shared/preview.js"></script>
+<script>
+function show(v){document.querySelectorAll('[data-v]').forEach(function(t){t.setAttribute('aria-selected',t.dataset.v===v);});document.querySelectorAll('[data-view]').forEach(function(s){s.hidden=s.dataset.view!==v;});}
+document.querySelectorAll('[data-v]').forEach(function(t){t.addEventListener('click',function(){show(t.dataset.v);});});
+if(location.hash==='#account')show('account');
+var r=document.getElementById('root');var obs=new MutationObserver(function(){var b=document.getElementById('lg');if(r.dataset.state==='loading'){b.setAttribute('aria-busy','true');b.textContent='Đang đăng nhập…';}else{b.removeAttribute('aria-busy');b.textContent='Đăng nhập';}});obs.observe(r,{attributes:true});
+document.querySelectorAll('.pv-bar button[data-s]').forEach(function(b){if(b.dataset.s==='empty')b.textContent='Tạm khóa';});
+</script></body></html>

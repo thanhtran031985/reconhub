@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="light">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Xử lý chênh lệch – ReconHub</title>
+<link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"></head>
+<body>
+<div class="rh-app">
+<nav class="rh-nav" aria-label="Điều hướng chính">
+  <div class="rh-nav__logo"><span class="rh-nav__mark">RH</span><b>ReconHub</b></div>
+  <div class="rh-nav__sec">Đối soát</div><a href="../Screen01-Dashboard/preview.html"><svg data-i="layout"></svg><span>Dashboard</span></a><a href="../Screen05-NewRun/preview.html"><svg data-i="play"></svg><span>Chạy đối soát</span></a><a href="../Screen06-RunResult/preview.html" aria-current="page"><svg data-i="list"></svg><span>Kết quả run</span></a><a href="../Screen07-History/preview.html"><svg data-i="history"></svg><span>Lịch sử</span></a><div class="rh-nav__sec">Cấu hình</div><a href="../Screen02-Templates/preview.html"><svg data-i="puzzle"></svg><span>Templates</span></a><a href="../Screen03-TemplateWizard/preview.html"><svg data-i="pencil"></svg><span>Đăng ký template</span></a><a href="../Screen08-DataSources/preview.html"><svg data-i="database"></svg><span>Data Sources</span></a><a href="../Screen11-Users/preview.html"><svg data-i="users"></svg><span>Người dùng</span></a>
+</nav>
+<main class="rh-main" style="position:relative">
+<header class="rh-header"><div class="rh-crumb">ReconHub / <b>Xử lý chênh lệch</b></div><span class="rh-sp"></span><span class="rh-env rh-env--UAT">UAT</span>
+<button type="button" class="rh-user" id="usr" aria-haspopup="menu"><span class="rh-avatar">TT</span><span><b>thanhtran</b> · Admin</span></button></header>
+<div class="rh-menu" id="usrm" role="menu" hidden><div><b>Trần Thanh</b></div><a href="../Screen10-Login/preview.html#account" role="menuitem"><svg data-i="key"></svg>Tài khoản, đổi mật khẩu</a><a href="../Screen10-Login/preview.html" role="menuitem"><svg data-i="log-out"></svg>Đăng xuất</a></div>
+
+<div class="rh-content" id="root" data-state="normal">
+<h1 class="rh-h1">Xử lý chênh lệch: 214 đang mở, 3 giao cho bạn</h1><div class="rh-sub">Chênh lệch theo template và khóa, giữ qua các lần chạy.</div>
+<div data-show="error"><div class="rh-alert rh-alert--crit" role="alert"><svg data-i="alert-triangle"></svg><div>Không tải được danh sách chênh lệch. Đang hiển thị dữ liệu lúc 18:20:05.</div><button type="button" class="rh-btn rh-btn--sm">Thử lại</button></div></div><div data-show="loading" aria-busy="true"><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span></div><div data-show="empty"><div class="rh-empty"><div class="rh-empty__title">Không còn chênh lệch nào đang mở</div><div>Mọi chênh lệch đã được xử lý hoặc chấp nhận.</div><button type="button" class="rh-btn rh-btn--primary">Xem run gần nhất</button></div></div>
+<div data-show="normal error"><div class="rh-alert rh-alert--info"><svg data-i="info"></svg><div>Đã chọn <b>2</b> dòng.</div><select class="rh-select" style="width:170px;height:28px;margin-left:auto" aria-label="Nguyên nhân"><option>Nguyên nhân</option><option>DB thiếu</option></select><select class="rh-select" style="width:150px;height:28px" aria-label="Giao cho"><option>Giao cho</option><option>operator</option></select><button type="button" class="rh-btn rh-btn--sm rh-btn--primary" style="margin-left:0">Áp dụng</button></div>
+<section class="rh-card rh-card--flush"><table class="rh-table"><thead><tr><th><input type="checkbox" aria-label="Chọn tất cả"></th><th>Khóa</th><th>Trạng thái gần nhất</th><th class="n">Chênh</th><th>Nguyên nhân</th><th>Người xử lý</th><th>Xử lý</th><th>Lần đầu / gần nhất</th></tr></thead><tbody>
+<tr class="sel"><td><input type="checkbox" checked aria-label="Chọn"></td><td class="mono">C26TBD0031435</td><td><span class="rh-chip rh-chip--warn"><svg data-i="database-x"></svg>Thiếu trong DB</span></td><td class="n">1.250.000</td><td>DB thiếu</td><td class="mono">operator</td><td><span class="rh-chip rh-chip--info">Đang xử lý</span></td><td class="mono">#1039 / #1042</td></tr>
+<tr class="sel"><td><input type="checkbox" checked aria-label="Chọn"></td><td class="mono">C26TBD0031338</td><td><span class="rh-chip rh-chip--crit"><svg data-i="not-equal"></svg>Lệch giá trị</span></td><td class="n">162.000</td><td>—</td><td>—</td><td><span class="rh-chip rh-chip--warn"><svg data-i="flag"></svg>Mở</span></td><td class="mono">#1042 / #1042</td></tr></tbody></table></section></div>
+</div></main></div>
+<script src="../_shared/preview.js"></script>
+
+</body></html>

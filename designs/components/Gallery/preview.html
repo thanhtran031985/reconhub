@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="light">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thư viện thành phần – ReconHub</title>
+<link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"></head>
+<body>
+<div class="rh-app">
+<nav class="rh-nav" aria-label="Điều hướng chính">
+  <div class="rh-nav__logo"><span class="rh-nav__mark">RH</span><b>ReconHub</b></div>
+  <div class="rh-nav__sec">Đối soát</div><a href="../Screen01-Dashboard/preview.html"><svg data-i="layout"></svg><span>Dashboard</span></a><a href="../Screen05-NewRun/preview.html"><svg data-i="play"></svg><span>Chạy đối soát</span></a><a href="../Screen06-RunResult/preview.html"><svg data-i="list"></svg><span>Kết quả run</span></a><a href="../Screen07-History/preview.html"><svg data-i="history"></svg><span>Lịch sử</span></a><div class="rh-nav__sec">Cấu hình</div><a href="../Screen02-Templates/preview.html"><svg data-i="puzzle"></svg><span>Templates</span></a><a href="../Screen03-TemplateWizard/preview.html"><svg data-i="pencil"></svg><span>Đăng ký template</span></a><a href="../Screen08-DataSources/preview.html"><svg data-i="database"></svg><span>Data Sources</span></a><a href="../Screen11-Users/preview.html"><svg data-i="users"></svg><span>Người dùng</span></a>
+</nav>
+<main class="rh-main" style="position:relative">
+<header class="rh-header"><div class="rh-crumb">ReconHub / <b>Thư viện thành phần</b></div><span class="rh-sp"></span><span class="rh-env rh-env--DEV">DEV</span>
+<button type="button" class="rh-user" id="usr" aria-haspopup="menu"><span class="rh-avatar">TT</span><span><b>thanhtran</b> · Admin</span></button></header>
+<div class="rh-menu" id="usrm" role="menu" hidden><div><b>Trần Thanh</b></div><a href="../Screen10-Login/preview.html#account" role="menuitem"><svg data-i="key"></svg>Tài khoản, đổi mật khẩu</a><a href="../Screen10-Login/preview.html" role="menuitem"><svg data-i="log-out"></svg>Đăng xuất</a></div>
+
+<div class="rh-content" id="root" data-state="normal">
+<h1 class="rh-h1">Thư viện thành phần</h1><div class="rh-sub">Mọi thành phần trong một trang. Thanh dưới đổi 4 trạng thái và chế độ tối.</div>
+<section class="rh-card"><h3 class="rh-card__title">Button</h3><div class="rh-row"><button type="button" class="rh-btn rh-btn--primary"><svg data-i="play"></svg>Chạy đối soát</button><button type="button" class="rh-btn">Lưu nháp</button><button type="button" class="rh-btn rh-btn--ghost">Quay lại</button><button type="button" class="rh-btn rh-btn--danger"><svg data-i="trash"></svg>Xóa dữ liệu tạm</button><button type="button" class="rh-btn rh-btn--danger-fill">Xác nhận xóa</button><button type="button" class="rh-btn rh-btn--sm">Kiểm tra</button><button type="button" class="rh-btn rh-btn--primary" aria-busy="true">Đang chạy…</button><button type="button" class="rh-btn rh-btn--primary" aria-disabled="true">Lưu &amp; kích hoạt v4</button><span class="rh-sub" style="margin:0">Cần dry-run thành công trước khi kích hoạt</span></div></section>
+<section class="rh-card"><h3 class="rh-card__title">StatusChip</h3><div class="rh-row"><span class="rh-chip rh-chip--ok"><svg data-i="check"></svg>Khớp</span> <span class="rh-chip rh-chip--crit"><svg data-i="not-equal"></svg>Lệch giá trị</span> <span class="rh-chip rh-chip--warn"><svg data-i="database-x"></svg>Thiếu trong DB</span> <span class="rh-chip rh-chip--purple"><svg data-i="file-x"></svg>Thiếu trong Excel</span> <span class="rh-chip rh-chip--off"><svg data-i="shuffle"></svg>Không nhất quán</span> <span class="rh-chip rh-chip--warn"><svg data-i="copy"></svg>Trùng khóa</span> <span class="rh-chip rh-chip--crit"><svg data-i="alert-triangle"></svg>Không hợp lệ</span></div>
+<div class="rh-row" style="margin-top:var(--space-8)"><span class="rh-chip rh-chip--off">Chưa kiểm tra</span> <span class="rh-chip rh-chip--ok"><svg data-i="check"></svg>Đã kiểm tra</span> <span class="rh-chip rh-chip--warn"><svg data-i="info"></svg>Dữ liệu tạm còn · 3,2 MB</span> <span class="rh-chip rh-chip--off">Đã xóa 31/10</span> <span class="rh-chip rh-chip--ok"><svg data-i="check"></svg>Hoạt động</span> <span class="rh-chip rh-chip--warn"><svg data-i="lock"></svg>Tạm khóa đến 19:05</span> <span class="rh-chip rh-chip--off">Đã tắt</span> <span class="rh-chip rh-chip--plain">Template Owner</span> <span class="rh-chip rh-chip--key"><svg data-i="key"></svg>INVOICE_NO</span> <span class="rh-chip rh-chip--measure"><svg data-i="sigma"></svg>SUM AMOUNT</span></div>
+<div class="rh-row" style="margin-top:var(--space-8)"><span class="rh-env rh-env--DEV">DEV</span><span class="rh-env rh-env--UAT">UAT</span><span class="rh-env rh-env--PROD">PROD</span></div></section>
+<section class="rh-card"><h3 class="rh-card__title">Field</h3><div class="rh-grid rh-g3">
+<div class="rh-field"><label class="rh-label" for="a">Tên đăng nhập *</label><input id="a" class="rh-input mono" value="thanhtran"><div class="rh-field__msg">Chữ thường, số, dấu chấm, gạch dưới</div></div>
+<div class="rh-field rh-field--error"><label class="rh-label" for="b">Đến ngày giờ (p_to) *</label><input id="b" class="rh-input" type="datetime-local" step="1" value="2026-01-31T23:59:59" aria-invalid="true" aria-describedby="bm"><div class="rh-field__msg" id="bm">Đến ngày giờ phải lớn hơn hoặc bằng Từ ngày giờ.</div></div>
+<div class="rh-field"><label class="rh-label" for="c">Mật khẩu</label><input id="c" class="rh-input" type="password" value="abc"></div></div></section>
+<section class="rh-card"><h3 class="rh-card__title">Alert, banner</h3>
+<div class="rh-alert rh-alert--info"><svg data-i="info"></svg>200 dòng Excel → 190 nhóm theo (INVOICE_NO).</div>
+<div class="rh-alert rh-alert--warn"><svg data-i="alert-triangle"></svg>Dữ liệu tạm 5,2 GB, 12 run giữ quá 30 ngày.</div>
+<div class="rh-alert rh-alert--ok"><svg data-i="check"></svg>Control total khớp: 366.732.000</div>
+<div class="rh-alert rh-alert--crit"><svg data-i="alert-triangle"></svg>Không tải được kết quả run. Đang hiển thị dữ liệu lúc 18:20:05.<button type="button" class="rh-btn rh-btn--sm">Thử lại</button></div></section>
+<section class="rh-card"><h3 class="rh-card__title">Tabs, Stepper</h3>
+<div class="rh-tabs rh-tabs--seg"><button type="button" class="rh-tab" aria-selected="true">Cấu hình template</button><button type="button" class="rh-tab" aria-selected="false">Sơ đồ diễn giải</button></div>
+<div class="rh-tabs"><button type="button" class="rh-tab" aria-selected="true">Nguồn đối soát <span class="rh-chip rh-chip--info">3</span></button><button type="button" class="rh-tab" aria-selected="false">Lưu trữ RECON_APP</button></div>
+<div class="rh-steps"><button type="button" class="rh-step rh-step--done"><span class="rh-step__n">✓</span>File mẫu</button><button type="button" class="rh-step rh-step--warn"><span class="rh-step__n"><svg data-i="alert-triangle"></svg></span>Định nghĩa trường</button><button type="button" class="rh-step" aria-current="step"><span class="rh-step__n">3</span>Nguồn DB</button><button type="button" class="rh-step"><span class="rh-step__n">4</span>Profile</button><button type="button" class="rh-step"><span class="rh-step__n">5</span>Dry-run</button></div></section>
+<section class="rh-card"><h3 class="rh-card__title">KpiCard, DataGrid</h3><div class="rh-grid rh-g4"><div class="rh-kpi"><div class="rh-kpi__label">Run trong kỳ</div><div class="rh-kpi__value">38</div><div class="rh-kpi__meta">35 hoàn thành</div></div><div class="rh-kpi"><div class="rh-kpi__label">Dữ liệu tạm</div><div class="rh-kpi__value rh-kpi__value--sm" style="color:var(--warn)">5,2 GB</div><div class="rh-kpi__meta">vượt ngưỡng 5 GB</div></div></div>
+<div class="rh-scroll" style="margin-top:var(--space-12)"><table class="rh-table"><thead><tr><th rowspan="2" class="pin">Số hóa đơn</th><th rowspan="2">Trạng thái</th><th colspan="3" class="grp" style="text-align:center">Tổng tiền</th></tr><tr><th class="n grp">Excel</th><th class="n">DB</th><th class="n">Chênh</th></tr></thead><tbody>
+<tr><td class="mono pin">C26TBD0031338</td><td><span class="rh-chip rh-chip--crit"><svg data-i="not-equal"></svg>Lệch giá trị</span></td><td class="n grp rh-diff">2.592.000</td><td class="n rh-diff">2.430.000</td><td class="n rh-diff">162.000</td></tr>
+<tr><td class="mono pin">C26TBD0031335</td><td><span class="rh-chip rh-chip--ok"><svg data-i="check"></svg>Khớp</span></td><td class="n grp">1.620.000</td><td class="n">1.620.000</td><td class="n"></td></tr></tbody></table></div></section>
+<section class="rh-card"><h3 class="rh-card__title">FileDrop, Group by, CodeBlock, EmptyState, Skeleton</h3><div class="rh-grid rh-g3"><div class="rh-drop" role="button" tabindex="0"><svg data-i="upload"></svg> <b>Kéo thả file vào đây</b><br><small>.xlsx · .xls · .csv · tối đa 50 MB</small></div>
+<div class="rh-zone"><span class="rh-chip rh-chip--key"><svg data-i="key"></svg>INV_DATE</span> <span class="rh-chip rh-chip--key"><svg data-i="key"></svg>POINT</span></div><pre class="rh-code">SELECT "INVOICE_NO", SUM("AMOUNT")
+FROM ( ... ) GROUP BY ...</pre></div>
+<div class="rh-grid rh-g2"><div class="rh-empty"><div class="rh-empty__title">Chưa có run nào</div><div>Upload một file và chạy đối soát.</div><button type="button" class="rh-btn rh-btn--primary">Chạy đối soát</button></div><div><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span></div></div></section>
+</div></main></div>
+<script src="../_shared/preview.js"></script>
+
+</body></html>

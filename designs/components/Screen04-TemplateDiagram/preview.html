@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="light">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sơ đồ diễn giải – ReconHub</title>
+<link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"></head>
+<body>
+<div class="rh-app">
+<nav class="rh-nav" aria-label="Điều hướng chính">
+  <div class="rh-nav__logo"><span class="rh-nav__mark">RH</span><b>ReconHub</b></div>
+  <div class="rh-nav__sec">Đối soát</div><a href="../Screen01-Dashboard/preview.html"><svg data-i="layout"></svg><span>Dashboard</span></a><a href="../Screen05-NewRun/preview.html"><svg data-i="play"></svg><span>Chạy đối soát</span></a><a href="../Screen06-RunResult/preview.html"><svg data-i="list"></svg><span>Kết quả run</span></a><a href="../Screen07-History/preview.html"><svg data-i="history"></svg><span>Lịch sử</span></a><div class="rh-nav__sec">Cấu hình</div><a href="../Screen02-Templates/preview.html"><svg data-i="puzzle"></svg><span>Templates</span></a><a href="../Screen03-TemplateWizard/preview.html" aria-current="page"><svg data-i="pencil"></svg><span>Đăng ký template</span></a><a href="../Screen08-DataSources/preview.html"><svg data-i="database"></svg><span>Data Sources</span></a><a href="../Screen11-Users/preview.html"><svg data-i="users"></svg><span>Người dùng</span></a>
+</nav>
+<main class="rh-main" style="position:relative">
+<header class="rh-header"><div class="rh-crumb">ReconHub / <b>Đăng ký template</b></div><span class="rh-sp"></span><span class="rh-env rh-env--UAT">UAT</span>
+<button type="button" class="rh-user" id="usr" aria-haspopup="menu"><span class="rh-avatar">TT</span><span><b>thanhtran</b> · Admin</span></button></header>
+<div class="rh-menu" id="usrm" role="menu" hidden><div><b>Trần Thanh</b></div><a href="../Screen10-Login/preview.html#account" role="menuitem"><svg data-i="key"></svg>Tài khoản, đổi mật khẩu</a><a href="../Screen10-Login/preview.html" role="menuitem"><svg data-i="log-out"></svg>Đăng xuất</a></div>
+
+<div class="rh-content" id="root" data-state="normal">
+<h1 class="rh-h1">Đăng ký template: DTP_HOA_DON_TAC_NGHIEP</h1><div class="rh-sub">Sơ đồ sinh từ cấu hình bản nháp v4.</div>
+<div class="rh-tabs rh-tabs--seg" role="tablist"><a class="rh-tab" role="tab" aria-selected="false" href="../Screen03-TemplateWizard/preview.html">Cấu hình template</a><button type="button" class="rh-tab" role="tab" aria-selected="true">Sơ đồ diễn giải</button></div>
+<div data-show="error"><div class="rh-alert rh-alert--crit" role="alert"><svg data-i="alert-triangle"></svg><div>Không sinh được sơ đồ từ cấu hình. Đang hiển thị dữ liệu lúc 18:20:05.</div><button type="button" class="rh-btn rh-btn--sm">Thử lại</button></div></div><div data-show="loading" aria-busy="true"><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span></div><div data-show="empty"><div class="rh-empty"><div class="rh-empty__title">Chưa đủ cấu hình để vẽ sơ đồ</div><div>Hoàn thành bước 2 để xem sơ đồ mapping.</div><button type="button" class="rh-btn rh-btn--primary">Mở bước 2</button></div></div>
+<div data-show="normal error"><div id="fb" class="rh-alert rh-alert--warn" hidden><svg data-i="alert-triangle"></svg>Không tải được thư viện Mermaid. Đang hiện mã nguồn.</div><div aria-live="polite" id="live" class="rh-sub" style="margin:0"></div><section class="rh-card"><div class="rh-row"><h3 class="rh-card__title" style="margin:0">① Quy trình đăng ký template</h3><span class="rh-sp"></span><button type="button" class="rh-btn rh-btn--sm cp">Sao chép mã Mermaid</button></div><div class="rh-sub" style="margin:var(--space-4) 0 var(--space-12)">Dry-run đạt mới kích hoạt được version mới.</div><div style="overflow:auto;text-align:center"><pre class="mermaid">flowchart LR
+  S1["1. File mẫu"] --> S2["2. Định nghĩa trường"]
+  S2 --> S3["3. Nguồn DB<br/>bảng + cột lọc"]
+  S3 --> S4["4. Profile so sánh"]
+  S4 --> S5{"5. Dry-run đạt?"}
+  S5 -- "Có" --> A["Lưu & kích hoạt"]
+  S5 -- "Không" --> S2</pre></div></section><section class="rh-card"><div class="rh-row"><h3 class="rh-card__title" style="margin:0">② Ba lớp mapping</h3><span class="rh-sp"></span><button type="button" class="rh-btn rh-btn--sm cp">Sao chép mã Mermaid</button></div><div class="rh-sub" style="margin:var(--space-4) 0 var(--space-12)">Excel và DB gặp nhau ở trường logic.</div><div style="overflow:auto;text-align:center"><pre class="mermaid">flowchart LR
+  subgraph EX["Excel · BÁO CÁO DTP"]
+    E1["Số hóa đơn"]
+    E2["Ngày lập hóa đơn"]
+    E4["Thành tiền"]
+  end
+  subgraph LG["Trường logic"]
+    L1(["INVOICE_NO"])
+    L2(["INV_DATETIME → INV_DATE"])
+    L4(["AMOUNT"])
+  end
+  subgraph DB["Oracle · RECON_SRC.SRC_FACT_INVOICE_DTP"]
+    D1["INVOICE_NO"]
+    D2["INVOICE_DATE"]
+    D4["AMOUNT"]
+  end
+  E1 --> L1
+  E2 --> L2
+  E4 --> L4
+  D1 --> L1
+  D2 --> L2
+  D4 --> L4</pre></div></section><section class="rh-card"><div class="rh-row"><h3 class="rh-card__title" style="margin:0">③ Tham số thời gian</h3><span class="rh-sp"></span><button type="button" class="rh-btn rh-btn--sm cp">Sao chép mã Mermaid</button></div><div class="rh-sub" style="margin:var(--space-4) 0 var(--space-12)">Một khoảng do người dùng nhập, áp cho cả DB và Excel.</div><div style="overflow:auto;text-align:center"><pre class="mermaid">flowchart TB
+  U["Từ ngày giờ · Đến ngày giờ · Đơn vị"] --> V{"Hợp lệ?"}
+  V -- "Không" --> ERR["Báo lỗi, khóa nút Chạy"]
+  V -- "Có" --> DBQ["Oracle: INVOICE_DATE &gt;= :p_from<br/>AND INVOICE_DATE &lt;= :p_to<br/>AND ORG_CODE = :p_org"]
+  V -- "Có" --> XF["Excel: giữ dòng có INV_DATETIME trong khoảng"]
+  XF --> OUT["Dòng ngoài khoảng: đếm và hiển thị"]</pre></div></section><section class="rh-card"><div class="rh-row"><h3 class="rh-card__title" style="margin:0">④ Profile: gộp → ghép → so</h3><span class="rh-sp"></span><button type="button" class="rh-btn rh-btn--sm cp">Sao chép mã Mermaid</button></div><div class="rh-sub" style="margin:var(--space-4) 0 var(--space-12)">Cả hai phía gộp theo cùng Group by.</div><div style="overflow:auto;text-align:center"><pre class="mermaid">flowchart LR
+  XE["Excel"] --> GX["GROUP BY INVOICE_NO"]
+  QD["Oracle"] --> GD["SQL GROUP BY sinh tự động"]
+  GX --> J{"Ghép"}
+  GD --> J
+  J -- "Chỉ Excel" --> M1["Thiếu trong DB"]
+  J -- "Chỉ DB" --> M2["Thiếu trong Excel"]
+  J -- "Cả hai" --> C{"So theo sai số"}
+  C --> OK["Khớp"]
+  C --> MM["Lệch giá trị"]</pre></div></section><section class="rh-card"><div class="rh-row"><h3 class="rh-card__title" style="margin:0">⑤ Trình tự khi chạy</h3><span class="rh-sp"></span><button type="button" class="rh-btn rh-btn--sm cp">Sao chép mã Mermaid</button></div><div class="rh-sub" style="margin:var(--space-4) 0 var(--space-12)">Từ lúc upload đến khi kiểm tra xong.</div><div style="overflow:auto;text-align:center"><pre class="mermaid">sequenceDiagram
+  actor U as Người dùng
+  participant UI as ReconHub
+  participant W as Worker
+  participant DB as Oracle (qua VPN)
+  U->>UI: Upload, nhập Từ/Đến ngày giờ
+  UI->>W: Run vào hàng đợi
+  W->>W: Đọc, chuẩn hóa, lưu dữ liệu tạm
+  W->>DB: SQL gộp có bind
+  DB-->>W: Kết quả đã gộp
+  W->>UI: Lưu kết quả
+  U->>UI: Đã kiểm tra xong
+  UI->>UI: Xóa dữ liệu tạm theo yêu cầu</pre></div></section></div>
+</div></main></div>
+<script src="../_shared/preview.js"></script>
+<script>document.querySelectorAll('pre.mermaid').forEach(function(p){p.dataset.src=p.textContent;});
+document.querySelectorAll('.cp').forEach(function(b){b.addEventListener('click',function(){var t=b.closest('section').querySelector('pre').dataset.src;if(navigator.clipboard)navigator.clipboard.writeText(t);document.getElementById('live').textContent='Đã sao chép mã Mermaid.';});});
+function fb(){document.getElementById('fb').hidden=false;document.querySelectorAll('pre.mermaid').forEach(function(p){p.className='rh-code';p.style.textAlign='left';});}
+var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+s.onload=function(){try{mermaid.initialize({startOnLoad:false,securityLevel:'strict'});mermaid.run({nodes:document.querySelectorAll('pre.mermaid')}).catch(fb);}catch(e){fb();}};s.onerror=fb;document.head.appendChild(s);</script>
+</body></html>

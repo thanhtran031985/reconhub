@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="light">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chạy đối soát – ReconHub</title>
+<link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"></head>
+<body>
+<div class="rh-app">
+<nav class="rh-nav" aria-label="Điều hướng chính">
+  <div class="rh-nav__logo"><span class="rh-nav__mark">RH</span><b>ReconHub</b></div>
+  <div class="rh-nav__sec">Đối soát</div><a href="../Screen01-Dashboard/preview.html"><svg data-i="layout"></svg><span>Dashboard</span></a><a href="../Screen05-NewRun/preview.html" aria-current="page"><svg data-i="play"></svg><span>Chạy đối soát</span></a><a href="../Screen06-RunResult/preview.html"><svg data-i="list"></svg><span>Kết quả run</span></a><a href="../Screen07-History/preview.html"><svg data-i="history"></svg><span>Lịch sử</span></a><div class="rh-nav__sec">Cấu hình</div><a href="../Screen02-Templates/preview.html"><svg data-i="puzzle"></svg><span>Templates</span></a><a href="../Screen03-TemplateWizard/preview.html"><svg data-i="pencil"></svg><span>Đăng ký template</span></a><a href="../Screen08-DataSources/preview.html"><svg data-i="database"></svg><span>Data Sources</span></a><a href="../Screen11-Users/preview.html"><svg data-i="users"></svg><span>Người dùng</span></a>
+</nav>
+<main class="rh-main" style="position:relative">
+<header class="rh-header"><div class="rh-crumb">ReconHub / <b>Chạy đối soát</b></div><span class="rh-sp"></span><span class="rh-env rh-env--UAT">UAT</span>
+<button type="button" class="rh-user" id="usr" aria-haspopup="menu"><span class="rh-avatar">TT</span><span><b>thanhtran</b> · Admin</span></button></header>
+<div class="rh-menu" id="usrm" role="menu" hidden><div><b>Trần Thanh</b></div><a href="../Screen10-Login/preview.html#account" role="menuitem"><svg data-i="key"></svg>Tài khoản, đổi mật khẩu</a><a href="../Screen10-Login/preview.html" role="menuitem"><svg data-i="log-out"></svg>Đăng xuất</a></div>
+
+<div class="rh-content" id="root" data-state="normal">
+<h1 class="rh-h1">Chạy đối soát</h1><div class="rh-sub">Upload file, kiểm tra template nhận diện, nhập khoảng ngày giờ tìm kiếm rồi chạy.</div>
+<div data-show="error"><div class="rh-alert rh-alert--crit" role="alert"><svg data-i="alert-triangle"></svg><div>Không kiểm tra trước được (precheck). Đang hiển thị dữ liệu lúc 18:20:05.</div><button type="button" class="rh-btn rh-btn--sm">Thử lại</button></div></div><div data-show="loading" aria-busy="true"><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span><span class="rh-skel rh-skel--row"></span></div><div data-show="empty"><div class="rh-empty"><div class="rh-empty__title">Chưa có template nào đang dùng</div><div>Cần ít nhất một template Active để chạy đối soát.</div><button type="button" class="rh-btn rh-btn--primary">Đăng ký template</button></div></div>
+<div data-show="normal error"><div class="rh-grid rh-g2">
+<section class="rh-card"><h3 class="rh-card__title">1. File dữ liệu</h3>
+ <div class="rh-drop" id="drop" role="button" tabindex="0"><svg data-i="upload"></svg> <b>Kéo thả file vào đây</b> hoặc chọn file<br><small>.xlsx · .xls · .csv · tối đa 50 MB</small></div>
+ <div id="file" hidden><div class="rh-alert rh-alert--ok"><svg data-i="check"></svg><div><b class="mono">dtp_sample_200.xlsx</b> · 31 KB</div><button type="button" class="rh-btn rh-btn--sm" id="chg">Đổi file</button></div>
+ <div class="rh-alert rh-alert--info"><svg data-i="info"></svg><div>Nhận diện template <b class="mono">DTP_HOA_DON_TAC_NGHIEP v3</b> (khớp 3/3 header).</div></div>
+ <div class="rh-alert rh-alert--ok"><svg data-i="check"></svg>200 dòng hợp lệ · 1 dòng tổng đã loại · 0 dòng lỗi</div><div class="rh-alert rh-alert--ok"><svg data-i="check"></svg>Control total khớp: 366.732.000</div></div></section>
+<section class="rh-card"><h3 class="rh-card__title">2. Profile và tham số tìm kiếm</h3>
+ <div class="rh-grid rh-g2"><div class="rh-field"><label class="rh-label" for="pr">Profile</label><select id="pr" class="rh-select"><option>Theo số hóa đơn</option><option>Ngày × điểm thu</option></select></div>
+ <div class="rh-field"><label class="rh-label" for="ds">Data Source</label><select id="ds" class="rh-select"><option>ORACLE_TEST (DEV)</option><option>DWH_FIN (PROD)</option></select></div></div>
+ <div class="rh-grid" style="margin-top:var(--space-12);grid-template-columns:1fr 1fr 130px">
+  <div class="rh-field" id="ff"><label class="rh-label" for="from">Từ ngày giờ (p_from) *</label><input id="from" class="rh-input" type="datetime-local" step="1" value="2026-02-01T00:00:00"></div>
+  <div class="rh-field" id="tf"><label class="rh-label" for="to">Đến ngày giờ (p_to) *</label><input id="to" class="rh-input" type="datetime-local" step="1" value="2026-02-05T23:59:59"></div>
+  <div class="rh-field"><label class="rh-label" for="org">Đơn vị (p_org) *</label><input id="org" class="rh-input" value="BDP"></div></div>
+ <div class="rh-field__msg" id="rmsg" style="color:var(--crit);min-height:20px" aria-live="polite"></div>
+ <div class="rh-row"><span class="rh-label">Chọn nhanh</span><button type="button" class="rh-btn rh-btn--sm" data-q="y">Hôm qua</button><button type="button" class="rh-btn rh-btn--sm" data-q="m">Tháng trước</button></div>
+ <label class="rh-check" style="margin-top:var(--space-12)"><input type="checkbox" checked id="apx"> Áp dụng cùng khoảng thời gian cho dữ liệu Excel</label>
+ <div class="rh-alert rh-alert--info" id="info"><svg data-i="info"></svg><div id="infot"></div></div></section></div>
+<section class="rh-card"><div class="rh-row"><h3 class="rh-card__title" style="margin:0">3. Thực thi</h3><span class="rh-sp"></span><span class="rh-sub" style="margin:0" id="why"></span><button type="button" class="rh-btn rh-btn--primary" id="run" disabled><svg data-i="play"></svg>Chạy đối soát</button></div>
+ <div id="prog" hidden style="margin-top:var(--space-14)"><div class="rh-progress"><i id="bar" style="width:0"></i></div><div class="rh-sub" style="margin:var(--space-8) 0 0" id="stage" aria-live="polite"></div></div></section>
+<div id="pd-m" hidden><div class="rh-mask" data-close="pd-m"></div><div class="rh-modal" role="dialog" aria-modal="true" aria-labelledby="pd-m-t"><div class="rh-drawer__hd"><b id="pd-m-t">Chạy trên môi trường PROD</b></div><div class="rh-drawer__bd">Truy vấn sẽ chạy trên <b>DWH_FIN (PROD)</b> với khoảng <span class="mono" id="prange"></span>. Xác nhận để tiếp tục.</div><div class="rh-drawer__ft"><span class="rh-sp"></span><button type="button" class="rh-btn" data-close="pd-m">Hủy</button><button type="button" class="rh-btn rh-btn--primary" id="pd-m-yes">Xác nhận chạy</button></div></div></div></div>
+</div></main></div>
+<script src="../_shared/preview.js"></script>
+<script>document.addEventListener('click',function(e){var c=e.target.closest('[data-close]');if(c)document.getElementById(c.dataset.close).hidden=true;var o=e.target.closest('[data-open-modal]');if(o)document.getElementById(o.dataset.openModal).hidden=false;});
+document.addEventListener('keydown',function(e){if(e.key==='Escape')document.querySelectorAll('[id$="-m"]').forEach(function(m){m.hidden=true;});});function $(i){return document.getElementById(i);}var ok=false;function p(n){return String(n).padStart(2,'0');}
+function loc(d){return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());}
+function sh(v){var d=new Date(v);return isNaN(d)?'—':p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear()+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());}
+function chk(){var f=new Date($('from').value),t=new Date($('to').value),m='';if(!$('from').value||isNaN(f))m='Nhập Từ ngày giờ.';else if(!$('to').value||isNaN(t))m='Nhập Đến ngày giờ.';else if(f>t)m='Từ ngày giờ phải nhỏ hơn hoặc bằng Đến ngày giờ.';else if((t-f)/864e5>93)m='Khoảng tìm kiếm tối đa 93 ngày.';
+$('rmsg').textContent=m;['ff','tf'].forEach(function(x){$(x).classList.toggle('rh-field--error',!!m);});$('info').hidden=!!m;
+if(!m)$('infot').innerHTML='Oracle truy vấn với <span class="mono">:p_from = '+sh($('from').value)+'</span>, <span class="mono">:p_to = '+sh($('to').value)+'</span>. '+($('apx').checked?'Excel: <b>0 dòng</b> nằm ngoài khoảng.':'Excel không lọc theo thời gian.');
+$('run').disabled=!(ok&&!m);$('why').textContent=!ok?'Chọn file để bật nút chạy.':(m?'Sửa khoảng thời gian để chạy.':'');return !m;}
+['from','to','apx'].forEach(function(i){$(i).addEventListener('input',chk);});
+document.querySelectorAll('[data-q]').forEach(function(b){b.addEventListener('click',function(){var n=new Date(),f,t;if(b.dataset.q==='y'){f=new Date(n.getFullYear(),n.getMonth(),n.getDate()-1,0,0,0);t=new Date(n.getFullYear(),n.getMonth(),n.getDate()-1,23,59,59);}else{f=new Date(n.getFullYear(),n.getMonth()-1,1,0,0,0);t=new Date(n.getFullYear(),n.getMonth(),0,23,59,59);}$('from').value=loc(f);$('to').value=loc(t);chk();});});
+function pick(){$('drop').hidden=true;$('file').hidden=false;ok=true;chk();}$('drop').addEventListener('click',pick);$('drop').addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();pick();}});
+$('chg').addEventListener('click',function(){$('drop').hidden=false;$('file').hidden=true;ok=false;chk();});
+function go(){$('pd-m').hidden=true;$('prog').hidden=false;var st=['Đọc và chuẩn hóa file','Lọc thời gian, control total, lưu dữ liệu tạm','Truy vấn Oracle (qua VPN)','So sánh 190 nhóm','Ghi kết quả'],w=0;var id=setInterval(function(){w+=10;$('bar').style.width=w+'%';$('stage').textContent=Math.min(5,Math.floor(w/20)+1)+'/5 '+st[Math.min(4,Math.floor(w/20))];if(w>=100){clearInterval(id);$('stage').textContent='Hoàn tất. Đang mở kết quả run #1043.';}},200);}
+$('run').addEventListener('click',function(){if(!chk())return;if($('ds').value.indexOf('PROD')>=0){$('prange').textContent=sh($('from').value)+' → '+sh($('to').value);$('pd-m').hidden=false;}else go();});$('pd-m-yes').addEventListener('click',go);chk();</script>
+</body></html>
