@@ -12,6 +12,12 @@ from app.core.config import get_settings
 
 def setup_logging() -> None:
     """Khởi tạo cấu hình structlog ghi ra console và file logs/app.log."""
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
+
     settings = get_settings()
     log_dir = settings.PROJECT_ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)

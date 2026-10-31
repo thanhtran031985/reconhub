@@ -21,6 +21,7 @@ def main() -> None:
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
 
     # Khởi chạy Dash
     web_proc = subprocess.Popen(
@@ -60,17 +61,15 @@ def main() -> None:
 
     try:
         while True:
-            # Kiểm tra nếu 1 trong 2 tiến trình chết sớm
+            time.sleep(1)
+            # Nếu 1 trong 2 tiến trình chết, thông báo và dừng cả hai
             if web_proc.poll() is not None:
                 print("Dash server đã kết thúc đột ngột.")
-                break
+                shutdown()
             if worker_proc.poll() is not None:
                 print("Worker đã kết thúc đột ngột.")
-                break
-            time.sleep(0.5)
+                shutdown()
     except KeyboardInterrupt:
-        pass
-    finally:
         shutdown()
 
 
