@@ -82,3 +82,9 @@ def test_e2e_template_wizard_page_accessible(e2e_client) -> None:
     resp = e2e_client.get("/templates/new")
     assert resp.status_code == 200
     assert b"ReconHub" in resp.data
+
+
+def test_e2e_new_run_page_accessible(e2e_client) -> None:
+    resp = e2e_client.get("/runs/new")
+    assert resp.status_code == 200
+    assert b"ReconHub" in resp.data

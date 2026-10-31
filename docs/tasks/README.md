@@ -14,7 +14,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 07 | [07-run-queue-worker](07-run-queue-worker/task.md) — Run, hàng đợi, worker, dry-run, xóa dữ liệu tạm theo yêu cầu | ✅ | 03, 06 | feat/07-run-queue-worker |
 | 08 | [08-app-shell-ui](08-app-shell-ui/task.md) — Component Dash Mantine, AppShell, Templates, Data Sources, Người dùng | ✅ | 01, 02, 03, 07 | feat/08-app-shell-ui |
 | 09 | [09-template-wizard-ui](09-template-wizard-ui/task.md) — Wizard đăng ký template 5 bước và Sơ đồ diễn giải | ✅ | 07, 08 | feat/09-template-wizard-ui |
-| 10 | [10-new-run-ui](10-new-run-ui/task.md) — Màn Chạy đối soát | ⬜ | 07, 08 | feat/10-new-run-ui |
+| 10 | [10-new-run-ui](10-new-run-ui/task.md) — Màn Chạy đối soát | ✅ | 07, 08 | feat/10-new-run-ui |
 | 11 | [11-run-result-ui](11-run-result-ui/task.md) — Màn Kết quả run, grid động, Đã kiểm tra xong | ⬜ | 07, 08 | feat/11-run-result-ui |
 | 12 | [12-export-history](12-export-history/task.md) — Lịch sử run (xóa nhiều run), Dashboard tối thiểu, hoàn thiện MVP | ⬜ | 10, 11 | feat/12-export-history |
 | 13 | [13-metadata-migration](13-metadata-migration/task.md) — Chuyển RECON_APP từ SQLite sang Oracle, xóa bản lưu SQLite cũ | ⬜ | 02, 12 | feat/13-metadata-migration |
