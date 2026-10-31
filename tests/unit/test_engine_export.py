@@ -23,32 +23,44 @@ def test_export_excel_format_and_styles() -> None:
         group_by=["INVOICE_NO"],
         main_measure="TOTAL_AMOUNT",
         measures=[
-            MeasureSpec(name="TOTAL_AMOUNT", label="Tổng tiền", agg="sum", field="AMOUNT", compare="abs_tol", tolerance=Decimal("1.0"), round=0),
+            MeasureSpec(
+                name="TOTAL_AMOUNT",
+                label="Tổng tiền",
+                agg="sum",
+                field="AMOUNT",
+                compare="abs_tol",
+                tolerance=Decimal("1.0"),
+                round=0,
+            ),
             MeasureSpec(name="TOTAL_QTY", label="Số lượng", agg="sum", field="QTY", compare="exact", round=0),
             MeasureSpec(name="LINE_CNT", label="Số dòng", agg="count", compare="display_only"),
         ],
     )
 
     # 1 Khớp, 1 Lệch (có số 0 ở đầu khóa "0334"), 1 Thiếu DB, 1 Thiếu Excel
-    excel_raw = pl.DataFrame([
-        {"INVOICE_NO": "INV-MATCH", "AMOUNT": Decimal("100"), "QTY": Decimal("1"), "__row_no": 2},
-        {"INVOICE_NO": "0334", "AMOUNT": Decimal("150"), "QTY": Decimal("1"), "__row_no": 3},
-        {"INVOICE_NO": "INV-MISS-DB", "AMOUNT": Decimal("50"), "QTY": Decimal("1"), "__row_no": 4},
-    ])
+    excel_raw = pl.DataFrame(
+        [
+            {"INVOICE_NO": "INV-MATCH", "AMOUNT": Decimal("100"), "QTY": Decimal("1"), "__row_no": 2},
+            {"INVOICE_NO": "0334", "AMOUNT": Decimal("150"), "QTY": Decimal("1"), "__row_no": 3},
+            {"INVOICE_NO": "INV-MISS-DB", "AMOUNT": Decimal("50"), "QTY": Decimal("1"), "__row_no": 4},
+        ]
+    )
     excel_agg = aggregate(excel_raw, profile)
 
-    db_raw = pl.DataFrame([
-        {"INVOICE_NO": "INV-MATCH", "AMOUNT": Decimal("100"), "QTY": Decimal("1")},
-        {"INVOICE_NO": "0334", "AMOUNT": Decimal("200"), "QTY": Decimal("1")},
-        {"INVOICE_NO": "INV-MISS-EXCEL", "AMOUNT": Decimal("80"), "QTY": Decimal("2")},
-    ])
+    db_raw = pl.DataFrame(
+        [
+            {"INVOICE_NO": "INV-MATCH", "AMOUNT": Decimal("100"), "QTY": Decimal("1")},
+            {"INVOICE_NO": "0334", "AMOUNT": Decimal("200"), "QTY": Decimal("1")},
+            {"INVOICE_NO": "INV-MISS-EXCEL", "AMOUNT": Decimal("80"), "QTY": Decimal("2")},
+        ]
+    )
     db_agg = aggregate(db_raw, profile)
 
     res_df = compare(excel_agg, db_agg, profile)
 
-    invalid_df = pl.DataFrame([
-        {"__row_no": 10, "__raw_data": '{"INVOICE_NO": ""}', "__invalid_reasons": '["MISSING_KEY"]'}
-    ])
+    invalid_df = pl.DataFrame(
+        [{"__row_no": 10, "__raw_data": '{"INVOICE_NO": ""}', "__invalid_reasons": '["MISSING_KEY"]'}]
+    )
 
     summary = build_summary(
         result_df=res_df,
@@ -85,7 +97,12 @@ def test_export_excel_format_and_styles() -> None:
     mismatch_sheet = wb["Lệch giá trị"]
     # Hàng 1 là header
     headers = [cell.value for cell in mismatch_sheet[1]]
-    assert "INVOICE_NO" in headers or "Số hóa đơn" in headers or "Khóa" in headers or any("INVOICE" in str(h) for h in headers)
+    assert (
+        "INVOICE_NO" in headers
+        or "Số hóa đơn" in headers
+        or "Khóa" in headers
+        or any("INVOICE" in str(h) for h in headers)
+    )
 
     # Kiểm tra giá trị khóa giữ nguyên số 0 ở đầu ("0334") dạng text
     row_2_key_cell = mismatch_sheet.cell(row=2, column=1)

@@ -17,7 +17,15 @@ def _make_sample_profile() -> ProfileSpec:
         group_by=["INVOICE_NO"],
         main_measure="TOTAL_AMOUNT",
         measures=[
-            MeasureSpec(name="TOTAL_AMOUNT", label="Tổng tiền", agg="sum", field="AMOUNT", compare="abs_tol", tolerance=Decimal("1.0"), round=0),
+            MeasureSpec(
+                name="TOTAL_AMOUNT",
+                label="Tổng tiền",
+                agg="sum",
+                field="AMOUNT",
+                compare="abs_tol",
+                tolerance=Decimal("1.0"),
+                round=0,
+            ),
             MeasureSpec(name="TOTAL_QTY", label="Số lượng", agg="sum", field="QTY", compare="exact", round=0),
             MeasureSpec(name="LINE_CNT", label="Số dòng", agg="count", compare="display_only"),
         ],
@@ -28,19 +36,23 @@ def test_compare_full_outer_join_states() -> None:
     profile = _make_sample_profile()
 
     # Dữ liệu Excel
-    excel_raw = pl.DataFrame([
-        {"INVOICE_NO": "INV-MATCH", "AMOUNT": Decimal("100"), "QTY": Decimal("1"), "__row_no": 2},
-        {"INVOICE_NO": "INV-DIFF", "AMOUNT": Decimal("100"), "QTY": Decimal("1"), "__row_no": 3},
-        {"INVOICE_NO": "INV-MISS-DB", "AMOUNT": Decimal("50"), "QTY": Decimal("1"), "__row_no": 4},
-    ])
+    excel_raw = pl.DataFrame(
+        [
+            {"INVOICE_NO": "INV-MATCH", "AMOUNT": Decimal("100"), "QTY": Decimal("1"), "__row_no": 2},
+            {"INVOICE_NO": "INV-DIFF", "AMOUNT": Decimal("100"), "QTY": Decimal("1"), "__row_no": 3},
+            {"INVOICE_NO": "INV-MISS-DB", "AMOUNT": Decimal("50"), "QTY": Decimal("1"), "__row_no": 4},
+        ]
+    )
     excel_agg = aggregate(excel_raw, profile)
 
     # Dữ liệu DB
-    db_raw = pl.DataFrame([
-        {"INVOICE_NO": "INV-MATCH", "AMOUNT": Decimal("100"), "QTY": Decimal("1")},
-        {"INVOICE_NO": "INV-DIFF", "AMOUNT": Decimal("200"), "QTY": Decimal("1")},
-        {"INVOICE_NO": "INV-MISS-EXCEL", "AMOUNT": Decimal("80"), "QTY": Decimal("2")},
-    ])
+    db_raw = pl.DataFrame(
+        [
+            {"INVOICE_NO": "INV-MATCH", "AMOUNT": Decimal("100"), "QTY": Decimal("1")},
+            {"INVOICE_NO": "INV-DIFF", "AMOUNT": Decimal("200"), "QTY": Decimal("1")},
+            {"INVOICE_NO": "INV-MISS-EXCEL", "AMOUNT": Decimal("80"), "QTY": Decimal("2")},
+        ]
+    )
     db_agg = aggregate(db_raw, profile)
 
     res_df = compare(excel_agg, db_agg, profile)
@@ -89,15 +101,19 @@ def test_compare_inconsistent_priority() -> None:
         ],
     )
     # Excel có inconsistent
-    excel_raw = pl.DataFrame([
-        {"INVOICE_NO": "INV-INC", "INV_DATE": "2026-02-01", "__row_no": 2},
-        {"INVOICE_NO": "INV-INC", "INV_DATE": "2026-02-02", "__row_no": 3},
-    ])
+    excel_raw = pl.DataFrame(
+        [
+            {"INVOICE_NO": "INV-INC", "INV_DATE": "2026-02-01", "__row_no": 2},
+            {"INVOICE_NO": "INV-INC", "INV_DATE": "2026-02-02", "__row_no": 3},
+        ]
+    )
     excel_agg = aggregate(excel_raw, profile)
 
-    db_raw = pl.DataFrame([
-        {"INVOICE_NO": "INV-INC", "INV_DATE": "2026-02-01"},
-    ])
+    db_raw = pl.DataFrame(
+        [
+            {"INVOICE_NO": "INV-INC", "INV_DATE": "2026-02-01"},
+        ]
+    )
     db_agg = aggregate(db_raw, profile)
 
     res_df = compare(excel_agg, db_agg, profile)
@@ -116,15 +132,19 @@ def test_compare_duplicate_priority() -> None:
         ],
     )
     # Excel trùng khóa khi aggregate=False
-    excel_raw = pl.DataFrame([
-        {"INVOICE_NO": "INV-DUP", "AMOUNT": Decimal("100"), "__row_no": 2},
-        {"INVOICE_NO": "INV-DUP", "AMOUNT": Decimal("100"), "__row_no": 3},
-    ])
+    excel_raw = pl.DataFrame(
+        [
+            {"INVOICE_NO": "INV-DUP", "AMOUNT": Decimal("100"), "__row_no": 2},
+            {"INVOICE_NO": "INV-DUP", "AMOUNT": Decimal("100"), "__row_no": 3},
+        ]
+    )
     excel_agg = aggregate(excel_raw, profile)
 
-    db_raw = pl.DataFrame([
-        {"INVOICE_NO": "INV-DUP", "AMOUNT": Decimal("100")},
-    ])
+    db_raw = pl.DataFrame(
+        [
+            {"INVOICE_NO": "INV-DUP", "AMOUNT": Decimal("100")},
+        ]
+    )
     db_agg = aggregate(db_raw, profile)
 
     res_df = compare(excel_agg, db_agg, profile)
@@ -139,49 +159,59 @@ def test_compare_tolerance_and_round_g10() -> None:
         aggregate=True,
         group_by=["KEY"],
         measures=[
-            MeasureSpec(name="M_ABS", label="M Abs", agg="sum", field="M_ABS", compare="abs_tol", tolerance=Decimal("2.0")),
-            MeasureSpec(name="M_PCT", label="M Pct", agg="sum", field="M_PCT", compare="pct_tol", tolerance=Decimal("1.0")),
+            MeasureSpec(
+                name="M_ABS", label="M Abs", agg="sum", field="M_ABS", compare="abs_tol", tolerance=Decimal("2.0")
+            ),
+            MeasureSpec(
+                name="M_PCT", label="M Pct", agg="sum", field="M_PCT", compare="pct_tol", tolerance=Decimal("1.0")
+            ),
             MeasureSpec(name="M_ROUND", label="M Round", agg="sum", field="M_ROUND", compare="exact", round=0),
-            MeasureSpec(name="M_NULL", label="M Null As Zero", agg="sum", field="M_NULL", compare="exact", null_as="zero"),
+            MeasureSpec(
+                name="M_NULL", label="M Null As Zero", agg="sum", field="M_NULL", compare="exact", null_as="zero"
+            ),
         ],
     )
 
-    excel_raw = pl.DataFrame([
-        {
-            "KEY": "K1",
-            "M_ABS": Decimal("101.5"),  # Chênh 1.5 <= 2.0 -> MATCH
-            "M_PCT": Decimal("1008.0"),  # Chênh 8 / 1008 = 0.79% <= 1% -> MATCH
-            "M_ROUND": Decimal("50.4"),  # Làm tròn -> 50
-            "M_NULL": None,  # null_as="zero" -> 0
-            "__row_no": 2,
-        },
-        {
-            "KEY": "K2",
-            "M_ABS": Decimal("105.0"),  # Chênh 5.0 > 2.0 -> MISMATCH
-            "M_PCT": Decimal("1000.0"),
-            "M_ROUND": Decimal("50.0"),
-            "M_NULL": Decimal("0"),
-            "__row_no": 3,
-        },
-    ])
+    excel_raw = pl.DataFrame(
+        [
+            {
+                "KEY": "K1",
+                "M_ABS": Decimal("101.5"),  # Chênh 1.5 <= 2.0 -> MATCH
+                "M_PCT": Decimal("1008.0"),  # Chênh 8 / 1008 = 0.79% <= 1% -> MATCH
+                "M_ROUND": Decimal("50.4"),  # Làm tròn -> 50
+                "M_NULL": None,  # null_as="zero" -> 0
+                "__row_no": 2,
+            },
+            {
+                "KEY": "K2",
+                "M_ABS": Decimal("105.0"),  # Chênh 5.0 > 2.0 -> MISMATCH
+                "M_PCT": Decimal("1000.0"),
+                "M_ROUND": Decimal("50.0"),
+                "M_NULL": Decimal("0"),
+                "__row_no": 3,
+            },
+        ]
+    )
     excel_agg = aggregate(excel_raw, profile)
 
-    db_raw = pl.DataFrame([
-        {
-            "KEY": "K1",
-            "M_ABS": Decimal("100.0"),
-            "M_PCT": Decimal("1000.0"),
-            "M_ROUND": Decimal("49.6"),  # Làm tròn -> 50
-            "M_NULL": Decimal("0"),
-        },
-        {
-            "KEY": "K2",
-            "M_ABS": Decimal("100.0"),
-            "M_PCT": Decimal("1000.0"),
-            "M_ROUND": Decimal("50.0"),
-            "M_NULL": Decimal("0"),
-        },
-    ])
+    db_raw = pl.DataFrame(
+        [
+            {
+                "KEY": "K1",
+                "M_ABS": Decimal("100.0"),
+                "M_PCT": Decimal("1000.0"),
+                "M_ROUND": Decimal("49.6"),  # Làm tròn -> 50
+                "M_NULL": Decimal("0"),
+            },
+            {
+                "KEY": "K2",
+                "M_ABS": Decimal("100.0"),
+                "M_PCT": Decimal("1000.0"),
+                "M_ROUND": Decimal("50.0"),
+                "M_NULL": Decimal("0"),
+            },
+        ]
+    )
     db_agg = aggregate(db_raw, profile)
 
     res_df = compare(excel_agg, db_agg, profile)
@@ -228,19 +258,23 @@ def test_compare_sorting_order() -> None:
         ],
     )
     # Gồm: 1 MATCHED, 2 MISMATCH (lệch 50 và lệch 200), 1 MISSING_IN_DB
-    excel_raw = pl.DataFrame([
-        {"KEY": "K_MATCH", "AMOUNT": Decimal("100"), "__row_no": 1},
-        {"KEY": "K_DIFF_SMALL", "AMOUNT": Decimal("150"), "__row_no": 2},
-        {"KEY": "K_DIFF_LARGE", "AMOUNT": Decimal("300"), "__row_no": 3},
-        {"KEY": "K_MISS_DB", "AMOUNT": Decimal("70"), "__row_no": 4},
-    ])
+    excel_raw = pl.DataFrame(
+        [
+            {"KEY": "K_MATCH", "AMOUNT": Decimal("100"), "__row_no": 1},
+            {"KEY": "K_DIFF_SMALL", "AMOUNT": Decimal("150"), "__row_no": 2},
+            {"KEY": "K_DIFF_LARGE", "AMOUNT": Decimal("300"), "__row_no": 3},
+            {"KEY": "K_MISS_DB", "AMOUNT": Decimal("70"), "__row_no": 4},
+        ]
+    )
     excel_agg = aggregate(excel_raw, profile)
 
-    db_raw = pl.DataFrame([
-        {"KEY": "K_MATCH", "AMOUNT": Decimal("100")},
-        {"KEY": "K_DIFF_SMALL", "AMOUNT": Decimal("100")},
-        {"KEY": "K_DIFF_LARGE", "AMOUNT": Decimal("100")},
-    ])
+    db_raw = pl.DataFrame(
+        [
+            {"KEY": "K_MATCH", "AMOUNT": Decimal("100")},
+            {"KEY": "K_DIFF_SMALL", "AMOUNT": Decimal("100")},
+            {"KEY": "K_DIFF_LARGE", "AMOUNT": Decimal("100")},
+        ]
+    )
     db_agg = aggregate(db_raw, profile)
 
     res_df = compare(excel_agg, db_agg, profile)

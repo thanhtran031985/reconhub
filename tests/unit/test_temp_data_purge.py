@@ -251,7 +251,9 @@ def test_shared_data_lifecycle_and_purge(purge_setup, admin_ctx, test_db):
     # Bây giờ không còn run nào dùng chung nữa, RECON_EXCEL_ROW và file gốc được dọn dẹp sạch!
     with test_db.connect() as conn:
         # Load đã đánh dấu PURGED_AT
-        load_row_purged = conn.execute(select(recon_excel_load).where(recon_excel_load.c.PURGED_AT.is_not(None))).first()
+        load_row_purged = conn.execute(
+            select(recon_excel_load).where(recon_excel_load.c.PURGED_AT.is_not(None))
+        ).first()
         assert load_row_purged is not None
 
         # RECON_EXCEL_ROW đã bị xóa sạch (0 dòng)

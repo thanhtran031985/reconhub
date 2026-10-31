@@ -64,6 +64,7 @@ create-admin = "python -m app.cli create-admin"
 reset-password = "python -m app.cli reset-password"
 purge-temp = "python -m app.cli purge-temp"
 migrate-metadata = "python -m app.cli migrate-metadata"
+demo-run = "python scripts/demo_run.py"
 
 [tool.ruff]
 line-length = 120

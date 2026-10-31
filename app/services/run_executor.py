@@ -92,12 +92,16 @@ def execute_run(
         params_json = run_row["PARAMS_JSON"] or {}
         apply_range_excel = run_row["APPLY_RANGE_EXCEL"] == "Y"
 
-        tv_row = conn.execute(
-            select(recon_template_version).where(
-                recon_template_version.c.TEMPLATE_ID == template_id,
-                recon_template_version.c.VERSION == template_version,
+        tv_row = (
+            conn.execute(
+                select(recon_template_version).where(
+                    recon_template_version.c.TEMPLATE_ID == template_id,
+                    recon_template_version.c.VERSION == template_version,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if not tv_row:
             return {"run_id": run_id, "status": "FAILED", "error_code": ErrorCode.NOT_FOUND}
 
@@ -161,9 +165,11 @@ def execute_run(
             fetcher = mock_fetcher
         else:
             with engine.connect() as conn:
-                ds = conn.execute(
-                    select(recon_data_source).where(recon_data_source.c.ID == data_source_id)
-                ).mappings().first()
+                ds = (
+                    conn.execute(select(recon_data_source).where(recon_data_source.c.ID == data_source_id))
+                    .mappings()
+                    .first()
+                )
             max_rows = int(ds["MAX_ROWS"] or 1_000_000) if ds else 1_000_000
             timeout_s = int(ds["CALL_TIMEOUT_S"] or 600) if ds else 600
             fetcher = SourceFetcherWrapper(ds_id=data_source_id, max_rows=max_rows, timeout=timeout_s)
@@ -219,9 +225,13 @@ def execute_run(
                     status = str(row.get("STATUS") or row.get("__STATUS") or "")
 
                     key_dict = {f: _serialize_val(row.get(f)) for f in target_profile.group_by}
-                    excel_dict = {f"x__{m.name}": _serialize_val(row.get(f"x__{m.name}")) for m in target_profile.measures}
+                    excel_dict = {
+                        f"x__{m.name}": _serialize_val(row.get(f"x__{m.name}")) for m in target_profile.measures
+                    }
                     db_dict = {f"d__{m.name}": _serialize_val(row.get(f"d__{m.name}")) for m in target_profile.measures}
-                    diff_dict = {f"diff__{m.name}": _serialize_val(row.get(f"diff__{m.name}")) for m in target_profile.measures}
+                    diff_dict = {
+                        f"diff__{m.name}": _serialize_val(row.get(f"diff__{m.name}")) for m in target_profile.measures
+                    }
 
                     row_nos_list = row.get("__row_nos") or []
                     row_nos_str = ",".join(str(n) for n in row_nos_list) if isinstance(row_nos_list, list) else ""
@@ -250,7 +260,9 @@ def execute_run(
                     for m in target_profile.measures:
                         diff_val = row.get(f"diff__{m.name}")
                         if diff_val is not None:
-                            diff_abs = abs(Decimal(str(diff_val))) if isinstance(diff_val, (Decimal, int, float)) else None
+                            diff_abs = (
+                                abs(Decimal(str(diff_val))) if isinstance(diff_val, (Decimal, int, float)) else None
+                            )
                             diffs_to_insert.append(
                                 {
                                     "RUN_ID": run_id,

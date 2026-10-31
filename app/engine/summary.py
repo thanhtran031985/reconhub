@@ -27,53 +27,65 @@ def build_columns_metadata(
     # 1. Các cột khóa
     for g in profile.group_by:
         label = field_labels.get(g, g)
-        cols.append({
-            "field": g,
-            "headerName": label,
-            "type": "key",
-            "side": "key",
-        })
+        cols.append(
+            {
+                "field": g,
+                "headerName": label,
+                "type": "key",
+                "side": "key",
+            }
+        )
 
     # 2. Cột trạng thái
-    cols.append({
-        "field": "STATUS",
-        "headerName": "Trạng thái",
-        "type": "status",
-        "side": "status",
-    })
+    cols.append(
+        {
+            "field": "STATUS",
+            "headerName": "Trạng thái",
+            "type": "status",
+            "side": "status",
+        }
+    )
 
     # 3. Các cột measures: Excel, DB, Chênh lệch
     for m in profile.measures:
         m_label = m.label or m.name
-        cols.append({
-            "field": f"x__{m.name}",
-            "headerName": f"{m_label} (Excel)",
-            "type": "number" if m.agg in ("sum", "count", "count_distinct") else "text",
-            "side": "excel",
-            "measure": m.name,
-        })
-        cols.append({
-            "field": f"d__{m.name}",
-            "headerName": f"{m_label} (DB)",
-            "type": "number" if m.agg in ("sum", "count", "count_distinct") else "text",
-            "side": "db",
-            "measure": m.name,
-        })
-        cols.append({
-            "field": f"diff__{m.name}",
-            "headerName": f"Chênh {m_label}",
-            "type": "number" if m.agg in ("sum", "count", "count_distinct") else "text",
-            "side": "diff",
-            "measure": m.name,
-        })
+        cols.append(
+            {
+                "field": f"x__{m.name}",
+                "headerName": f"{m_label} (Excel)",
+                "type": "number" if m.agg in ("sum", "count", "count_distinct") else "text",
+                "side": "excel",
+                "measure": m.name,
+            }
+        )
+        cols.append(
+            {
+                "field": f"d__{m.name}",
+                "headerName": f"{m_label} (DB)",
+                "type": "number" if m.agg in ("sum", "count", "count_distinct") else "text",
+                "side": "db",
+                "measure": m.name,
+            }
+        )
+        cols.append(
+            {
+                "field": f"diff__{m.name}",
+                "headerName": f"Chênh {m_label}",
+                "type": "number" if m.agg in ("sum", "count", "count_distinct") else "text",
+                "side": "diff",
+                "measure": m.name,
+            }
+        )
 
     # 4. Cột số dòng Excel
-    cols.append({
-        "field": "__row_nos",
-        "headerName": "Dòng Excel",
-        "type": "list",
-        "side": "system",
-    })
+    cols.append(
+        {
+            "field": "__row_nos",
+            "headerName": "Dòng Excel",
+            "type": "list",
+            "side": "system",
+        }
+    )
 
     return cols
 

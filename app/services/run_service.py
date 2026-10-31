@@ -41,9 +41,9 @@ def precheck(
 
     # 1. Kiểm tra chế độ bảo trì MAINTENANCE
     with engine.connect() as conn:
-        setting = conn.execute(
-            select(recon_app_setting).where(recon_app_setting.c.KEY == "MAINTENANCE")
-        ).mappings().first()
+        setting = (
+            conn.execute(select(recon_app_setting).where(recon_app_setting.c.KEY == "MAINTENANCE")).mappings().first()
+        )
         if setting and setting["VALUE"] == "Y" and Role.ADMIN not in ctx.roles:
             raise ServiceError(
                 ErrorCode.MAINTENANCE_MODE,
@@ -59,9 +59,7 @@ def precheck(
 
     # 3. Đọc template version và cấu hình
     with engine.connect() as conn:
-        tmpl = conn.execute(
-            select(recon_template).where(recon_template.c.ID == params.template_id)
-        ).mappings().first()
+        tmpl = conn.execute(select(recon_template).where(recon_template.c.ID == params.template_id)).mappings().first()
         if not tmpl:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy template với id {params.template_id}.")
 
@@ -95,9 +93,7 @@ def precheck(
         if not ds_id:
             raise ServiceError(ErrorCode.NOT_FOUND, "Template chưa được cấu hình Data Source nguồn.")
 
-        ds = conn.execute(
-            select(recon_data_source).where(recon_data_source.c.ID == ds_id)
-        ).mappings().first()
+        ds = conn.execute(select(recon_data_source).where(recon_data_source.c.ID == ds_id)).mappings().first()
         if not ds:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Data Source với id {ds_id}.")
 
@@ -109,9 +105,7 @@ def precheck(
 
         est_rows: int | None = None
         if params.file_id:
-            f_row = conn.execute(
-                select(recon_file).where(recon_file.c.ID == params.file_id)
-            ).mappings().first()
+            f_row = conn.execute(select(recon_file).where(recon_file.c.ID == params.file_id)).mappings().first()
             if f_row:
                 # Ước lượng số dòng thô từ dung lượng file
                 size = f_row["SIZE_BYTES"] or 0
@@ -155,9 +149,7 @@ def create_run(
 
     with engine.begin() as conn:
         # 2. Lấy template và template_version
-        tmpl = conn.execute(
-            select(recon_template).where(recon_template.c.ID == params.template_id)
-        ).mappings().first()
+        tmpl = conn.execute(select(recon_template).where(recon_template.c.ID == params.template_id)).mappings().first()
         if not tmpl:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy template với id {params.template_id}.")
 
@@ -188,35 +180,30 @@ def create_run(
         sheet_name = params.sheet_name or cfg.file.sheet
 
         # Kiểm tra file_id
-        f_row = conn.execute(
-            select(recon_file).where(recon_file.c.ID == params.file_id)
-        ).mappings().first()
+        f_row = conn.execute(select(recon_file).where(recon_file.c.ID == params.file_id)).mappings().first()
         if not f_row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy file với id {params.file_id}.")
         if f_row["PURGED_AT"] is not None:
             raise ServiceError(ErrorCode.TEMP_DATA_PURGED, "File Excel đã bị xóa theo yêu cầu.")
 
         # 4. Thêm bản ghi RECON_RUN
-        run_stmt = (
-            recon_run.insert()
-            .values(
-                TEMPLATE_ID=params.template_id,
-                TEMPLATE_VERSION=version,
-                PROFILE_CODE=profile_code,
-                PROFILE_OVERRIDE=params.profile_override,
-                FILE_ID=params.file_id,
-                EXCEL_LOAD_ID=None,
-                SHEET_NAME=sheet_name,
-                DATA_SOURCE_ID=data_source_id,
-                P_FROM=params.p_from,
-                P_TO=params.p_to,
-                PARAMS_JSON=params.params,
-                APPLY_RANGE_EXCEL="Y" if params.apply_range_excel else "N",
-                STATUS="QUEUED",
-                PROGRESS_PCT=0,
-                CREATED_BY=ctx.username,
-                CREATED_AT=now,
-            )
+        run_stmt = recon_run.insert().values(
+            TEMPLATE_ID=params.template_id,
+            TEMPLATE_VERSION=version,
+            PROFILE_CODE=profile_code,
+            PROFILE_OVERRIDE=params.profile_override,
+            FILE_ID=params.file_id,
+            EXCEL_LOAD_ID=None,
+            SHEET_NAME=sheet_name,
+            DATA_SOURCE_ID=data_source_id,
+            P_FROM=params.p_from,
+            P_TO=params.p_to,
+            PARAMS_JSON=params.params,
+            APPLY_RANGE_EXCEL="Y" if params.apply_range_excel else "N",
+            STATUS="QUEUED",
+            PROGRESS_PCT=0,
+            CREATED_BY=ctx.username,
+            CREATED_AT=now,
         )
         res = conn.execute(run_stmt)
         pk = res.inserted_primary_key
@@ -261,7 +248,6 @@ def create_run(
     }
 
 
-
 @service
 def get_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
     """Lấy thông tin chi tiết của một lần chạy (run) kèm thống kê kết quả."""
@@ -273,9 +259,7 @@ def get_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
                 recon_template.c.CODE.label("TEMPLATE_CODE"),
                 recon_template.c.NAME.label("TEMPLATE_NAME"),
             )
-            .select_from(
-                recon_run.outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID)
-            )
+            .select_from(recon_run.outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID))
             .where(recon_run.c.ID == run_id)
         )
         row = conn.execute(stmt).mappings().first()
@@ -283,9 +267,9 @@ def get_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy run với id {run_id}.")
 
         # Đọc summary nếu có
-        summ_row = conn.execute(
-            select(recon_run_summary).where(recon_run_summary.c.RUN_ID == run_id)
-        ).mappings().first()
+        summ_row = (
+            conn.execute(select(recon_run_summary).where(recon_run_summary.c.RUN_ID == run_id)).mappings().first()
+        )
 
         summary_dict = dict(summ_row) if summ_row else None
 
@@ -324,16 +308,11 @@ def list_runs(ctx: Ctx, filter: RunListFilter) -> dict[str, Any]:
     """Lấy danh sách các lần chạy có phân trang và bộ lọc."""
     engine = get_recon_engine()
     with engine.connect() as conn:
-        base_query = (
-            select(
-                recon_run,
-                recon_template.c.CODE.label("TEMPLATE_CODE"),
-                recon_template.c.NAME.label("TEMPLATE_NAME"),
-            )
-            .select_from(
-                recon_run.outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID)
-            )
-        )
+        base_query = select(
+            recon_run,
+            recon_template.c.CODE.label("TEMPLATE_CODE"),
+            recon_template.c.NAME.label("TEMPLATE_NAME"),
+        ).select_from(recon_run.outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID))
 
         if filter.template_id:
             base_query = base_query.where(recon_run.c.TEMPLATE_ID == filter.template_id)
@@ -362,21 +341,23 @@ def list_runs(ctx: Ctx, filter: RunListFilter) -> dict[str, Any]:
 
         items = []
         for r in rows:
-            items.append({
-                "id": int(r["ID"]),
-                "template_id": int(r["TEMPLATE_ID"]),
-                "template_code": str(r["TEMPLATE_CODE"] or ""),
-                "template_name": str(r["TEMPLATE_NAME"] or ""),
-                "template_version": int(r["TEMPLATE_VERSION"]),
-                "profile_code": str(r["PROFILE_CODE"]),
-                "status": str(r["STATUS"]),
-                "progress_pct": int(r["PROGRESS_PCT"] or 0),
-                "created_by": r["CREATED_BY"],
-                "created_at": r["CREATED_AT"].isoformat() if r["CREATED_AT"] else None,
-                "finished_at": r["FINISHED_AT"].isoformat() if r["FINISHED_AT"] else None,
-                "checked_at": r["CHECKED_AT"].isoformat() if r["CHECKED_AT"] else None,
-                "temp_purged_at": r["TEMP_PURGED_AT"].isoformat() if r["TEMP_PURGED_AT"] else None,
-            })
+            items.append(
+                {
+                    "id": int(r["ID"]),
+                    "template_id": int(r["TEMPLATE_ID"]),
+                    "template_code": str(r["TEMPLATE_CODE"] or ""),
+                    "template_name": str(r["TEMPLATE_NAME"] or ""),
+                    "template_version": int(r["TEMPLATE_VERSION"]),
+                    "profile_code": str(r["PROFILE_CODE"]),
+                    "status": str(r["STATUS"]),
+                    "progress_pct": int(r["PROGRESS_PCT"] or 0),
+                    "created_by": r["CREATED_BY"],
+                    "created_at": r["CREATED_AT"].isoformat() if r["CREATED_AT"] else None,
+                    "finished_at": r["FINISHED_AT"].isoformat() if r["FINISHED_AT"] else None,
+                    "checked_at": r["CHECKED_AT"].isoformat() if r["CHECKED_AT"] else None,
+                    "temp_purged_at": r["TEMP_PURGED_AT"].isoformat() if r["TEMP_PURGED_AT"] else None,
+                }
+            )
 
         total_pages = (total + filter.page_size - 1) // filter.page_size if filter.page_size > 0 else 1
 
@@ -405,12 +386,16 @@ def get_run_columns(ctx: Ctx, run_id: int) -> list[dict[str, Any]]:
         if not run_row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy run {run_id}.")
 
-        tv = conn.execute(
-            select(recon_template_version.c.CONFIG_JSON).where(
-                recon_template_version.c.TEMPLATE_ID == run_row["TEMPLATE_ID"],
-                recon_template_version.c.VERSION == run_row["TEMPLATE_VERSION"],
+        tv = (
+            conn.execute(
+                select(recon_template_version.c.CONFIG_JSON).where(
+                    recon_template_version.c.TEMPLATE_ID == run_row["TEMPLATE_ID"],
+                    recon_template_version.c.VERSION == run_row["TEMPLATE_VERSION"],
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if not tv:
             return []
 
@@ -436,7 +421,11 @@ def get_run_rows(ctx: Ctx, run_id: int, filter: RunRowsFilter) -> dict[str, Any]
 
         # Sắp xếp
         if filter.sort_by == "abs_diff_sort":
-            order_col = desc(recon_result_row.c.ABS_DIFF_SORT) if filter.sort_dir == "desc" else recon_result_row.c.ABS_DIFF_SORT
+            order_col = (
+                desc(recon_result_row.c.ABS_DIFF_SORT)
+                if filter.sort_dir == "desc"
+                else recon_result_row.c.ABS_DIFF_SORT
+            )
         else:
             order_col = desc(recon_result_row.c.ROW_NO) if filter.sort_dir == "desc" else recon_result_row.c.ROW_NO
 
@@ -446,18 +435,20 @@ def get_run_rows(ctx: Ctx, run_id: int, filter: RunRowsFilter) -> dict[str, Any]
 
         items = []
         for r in rows:
-            items.append({
-                "row_no": int(r["ROW_NO"]),
-                "key_text": str(r["KEY_TEXT"]),
-                "status": str(r["STATUS"]),
-                "key": r["KEY_JSON"],
-                "excel": r["EXCEL_JSON"],
-                "db": r["DB_JSON"],
-                "diff": r["DIFF_JSON"],
-                "row_nos": r["EXCEL_ROW_NOS"],
-                "abs_diff_main": str(r["ABS_DIFF_MAIN"]) if r["ABS_DIFF_MAIN"] is not None else None,
-                "abs_diff_sort": r["ABS_DIFF_SORT"],
-            })
+            items.append(
+                {
+                    "row_no": int(r["ROW_NO"]),
+                    "key_text": str(r["KEY_TEXT"]),
+                    "status": str(r["STATUS"]),
+                    "key": r["KEY_JSON"],
+                    "excel": r["EXCEL_JSON"],
+                    "db": r["DB_JSON"],
+                    "diff": r["DIFF_JSON"],
+                    "row_nos": r["EXCEL_ROW_NOS"],
+                    "abs_diff_main": str(r["ABS_DIFF_MAIN"]) if r["ABS_DIFF_MAIN"] is not None else None,
+                    "abs_diff_sort": r["ABS_DIFF_SORT"],
+                }
+            )
 
         total_pages = (total + filter.page_size - 1) // filter.page_size if filter.page_size > 0 else 1
 
@@ -484,20 +475,28 @@ def get_row_detail(ctx: Ctx, run_id: int, row_no: int) -> dict[str, Any]:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy dòng {row_no} của run {run_id}.")
 
         # Đọc thông tin run để xem dữ liệu tạm đã xóa chưa
-        run_row = conn.execute(
-            select(
-                recon_run.c.TEMP_PURGED_AT,
-                recon_run.c.EXCEL_LOAD_ID,
-            ).where(recon_run.c.ID == run_id)
-        ).mappings().first()
+        run_row = (
+            conn.execute(
+                select(
+                    recon_run.c.TEMP_PURGED_AT,
+                    recon_run.c.EXCEL_LOAD_ID,
+                ).where(recon_run.c.ID == run_id)
+            )
+            .mappings()
+            .first()
+        )
 
         # Đọc diffs
-        diffs = conn.execute(
-            select(recon_result_diff).where(
-                recon_result_diff.c.RUN_ID == run_id,
-                recon_result_diff.c.ROW_NO == row_no,
+        diffs = (
+            conn.execute(
+                select(recon_result_diff).where(
+                    recon_result_diff.c.RUN_ID == run_id,
+                    recon_result_diff.c.ROW_NO == row_no,
+                )
             )
-        ).mappings().fetchall()
+            .mappings()
+            .fetchall()
+        )
 
         # Đọc dòng thô từ Excel nếu chưa bị xóa
         raw_rows = None
@@ -506,10 +505,14 @@ def get_row_detail(ctx: Ctx, run_id: int, row_no: int) -> dict[str, Any]:
             row_nos_str = row["EXCEL_ROW_NOS"] or ""
             row_nos = [int(n.strip()) for n in row_nos_str.split(",") if n.strip().isdigit()]
             if row_nos:
-                excel_rows_stmt = select(recon_excel_row).where(
-                    recon_excel_row.c.LOAD_ID == run_row["EXCEL_LOAD_ID"],
-                    recon_excel_row.c.EXCEL_ROW_NO.in_(row_nos),
-                ).order_by(recon_excel_row.c.EXCEL_ROW_NO)
+                excel_rows_stmt = (
+                    select(recon_excel_row)
+                    .where(
+                        recon_excel_row.c.LOAD_ID == run_row["EXCEL_LOAD_ID"],
+                        recon_excel_row.c.EXCEL_ROW_NO.in_(row_nos),
+                    )
+                    .order_by(recon_excel_row.c.EXCEL_ROW_NO)
+                )
                 raw_rows = [
                     {"excel_row_no": int(er["EXCEL_ROW_NO"]), "data": er["DATA_JSON"]}
                     for er in conn.execute(excel_rows_stmt).mappings().fetchall()
@@ -568,32 +571,40 @@ def export_run(
         if not run_row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy run {run_id}.")
 
-        tv = conn.execute(
-            select(recon_template_version.c.CONFIG_JSON).where(
-                recon_template_version.c.TEMPLATE_ID == run_row["TEMPLATE_ID"],
-                recon_template_version.c.VERSION == run_row["TEMPLATE_VERSION"],
+        tv = (
+            conn.execute(
+                select(recon_template_version.c.CONFIG_JSON).where(
+                    recon_template_version.c.TEMPLATE_ID == run_row["TEMPLATE_ID"],
+                    recon_template_version.c.VERSION == run_row["TEMPLATE_VERSION"],
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if not tv:
             raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy cấu hình template.")
 
         cfg = TemplateConfig.model_validate(tv["CONFIG_JSON"])
         profile = next((p for p in cfg.profiles if p.code == run_row["PROFILE_CODE"]), cfg.profiles[0])
 
-        summ_row = conn.execute(
-            select(recon_run_summary).where(recon_run_summary.c.RUN_ID == run_id)
-        ).mappings().first()
+        summ_row = (
+            conn.execute(select(recon_run_summary).where(recon_run_summary.c.RUN_ID == run_id)).mappings().first()
+        )
         summary_dict = dict(summ_row) if summ_row else {}
 
         # Lấy tất cả dòng kết quả
-        rows = conn.execute(
-            select(recon_result_row).where(recon_result_row.c.RUN_ID == run_id).order_by(recon_result_row.c.ROW_NO)
-        ).mappings().fetchall()
+        rows = (
+            conn.execute(
+                select(recon_result_row).where(recon_result_row.c.RUN_ID == run_id).order_by(recon_result_row.c.ROW_NO)
+            )
+            .mappings()
+            .fetchall()
+        )
 
         # Lấy dòng invalid
-        inv_rows = conn.execute(
-            select(recon_invalid_row).where(recon_invalid_row.c.RUN_ID == run_id)
-        ).mappings().fetchall()
+        inv_rows = (
+            conn.execute(select(recon_invalid_row).where(recon_invalid_row.c.RUN_ID == run_id)).mappings().fetchall()
+        )
 
     # Dựng result_df cho hàm write_export
     dict_list: list[dict[str, Any]] = []
@@ -619,6 +630,7 @@ def export_run(
     invalid_df = pl.DataFrame([dict(ir) for ir in inv_rows]) if inv_rows else pl.DataFrame()
 
     from app.core.config import get_settings
+
     settings = get_settings()
 
     if output_path is None:
@@ -630,6 +642,7 @@ def export_run(
         file_dest.parent.mkdir(parents=True, exist_ok=True)
 
     from app.engine.export import write_export
+
     write_export(
         output_path=file_dest,
         result_df=result_df,
@@ -645,7 +658,6 @@ def export_run(
         "export_path": str(file_dest),
         "file_name": file_dest.name,
     }
-
 
 
 @service
@@ -684,6 +696,7 @@ def dry_run(
 
     # 2. Thực thi run với cờ persist=False
     from app.services.run_executor import execute_run
+
     exec_res = execute_run(run_id=run_id, mock_fetcher=mock_fetcher, persist=False)
     if exec_res.get("status") != "DONE":
         raise ServiceError(

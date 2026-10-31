@@ -146,12 +146,16 @@ def test_dry_run_and_activate_lifecycle(draft_template_setup, admin_ctx, test_db
         assert len(res_rows) == 0
 
         # RECON_TEMPLATE_VERSION đã lưu DRY_RUN_OK='Y'
-        tv = conn.execute(
-            select(recon_template_version).where(
-                recon_template_version.c.TEMPLATE_ID == tmpl_id,
-                recon_template_version.c.VERSION == 1,
+        tv = (
+            conn.execute(
+                select(recon_template_version).where(
+                    recon_template_version.c.TEMPLATE_ID == tmpl_id,
+                    recon_template_version.c.VERSION == 1,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         assert tv is not None
         assert tv["DRY_RUN_OK"] == "Y"
         assert tv["DRY_RUN_JSON"] is not None
@@ -173,12 +177,16 @@ def test_dry_run_and_activate_lifecycle(draft_template_setup, admin_ctx, test_db
 
     # Kiểm tra DRY_RUN_OK đã bị reset về 'N'
     with test_db.connect() as conn:
-        tv_after = conn.execute(
-            select(recon_template_version).where(
-                recon_template_version.c.TEMPLATE_ID == tmpl_id,
-                recon_template_version.c.VERSION == 1,
+        tv_after = (
+            conn.execute(
+                select(recon_template_version).where(
+                    recon_template_version.c.TEMPLATE_ID == tmpl_id,
+                    recon_template_version.c.VERSION == 1,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         assert tv_after is not None
         assert tv_after["DRY_RUN_OK"] == "N"
 

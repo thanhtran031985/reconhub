@@ -42,11 +42,7 @@ class ReconWorker:
 
             for r_id in stale_run_ids:
                 logger.warn("Phát hiện job bị treo quá hạn, chuyển sang ERROR", run_id=r_id)
-                conn.execute(
-                    recon_run_queue.update()
-                    .where(recon_run_queue.c.RUN_ID == r_id)
-                    .values(STATUS="ERROR")
-                )
+                conn.execute(recon_run_queue.update().where(recon_run_queue.c.RUN_ID == r_id).values(STATUS="ERROR"))
                 conn.execute(
                     recon_run.update()
                     .where(recon_run.c.ID == r_id)
@@ -64,15 +60,14 @@ class ReconWorker:
 
     def _start_heartbeat(self, run_id: int, stop_ev: threading.Event) -> threading.Thread:
         """Tạo thread gửi tín hiệu nhịp tim định kỳ trong lúc job đang chạy."""
+
         def hb_worker() -> None:
             while not stop_ev.wait(timeout=3.0):
                 now = datetime.now(timezone.utc).replace(tzinfo=None)
                 try:
                     with self.engine.begin() as conn:
                         conn.execute(
-                            recon_run_queue.update()
-                            .where(recon_run_queue.c.RUN_ID == run_id)
-                            .values(HEARTBEAT_AT=now)
+                            recon_run_queue.update().where(recon_run_queue.c.RUN_ID == run_id).values(HEARTBEAT_AT=now)
                         )
                 except Exception as exc:
                     logger.warn("Không thể cập nhật heartbeat job", run_id=run_id, error=str(exc))

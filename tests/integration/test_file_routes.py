@@ -94,7 +94,6 @@ def test_download_file_authenticated(test_setup) -> None:
     assert "dtp_sample_200.xlsx" in res.headers["Content-Disposition"]
 
 
-
 def test_download_export_unauthenticated(test_setup) -> None:
     client, _ = test_setup
     res = client.get("/download/export/999")

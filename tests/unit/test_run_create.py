@@ -302,4 +302,3 @@ def test_create_run_success(seed_data, test_db, operator_ctx):
         )
         assert audit_row is not None
         assert audit_row["ACTION"] == "CREATE_RUN"
-

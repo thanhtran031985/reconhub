@@ -1,6 +1,6 @@
 # Tiến độ — 07-run-queue-worker
 
-Trạng thái: 🔄
+Trạng thái: ✅
 
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
@@ -9,9 +9,14 @@ Trạng thái: 🔄
 | 3 | Đọc kết quả | ✅ | 2026-11-01 | 2ea1b9e |
 | 4 | Dry-run + activate + grain | ✅ | 2026-11-01 | 77ce617 |
 | 5 | Xóa dữ liệu tạm | ✅ | 2026-11-01 | c3c2911 |
-| 6 | Demo | ⬜ |  |  |
+| 6 | Demo | ✅ | 2026-11-01 |  |
 
 ## Nhật ký
+### Bước 6 — 2026-11-01 01:43
+- Đã làm: Cài đặt kịch bản `scripts/demo_run.py` và task poe `demo-run = "python scripts/demo_run.py"`. Kịch bản thực hiện quy trình end-to-end: khởi tạo seed template và Data Source DTP, nạp file `samples/dtp_sample_200.xlsx`, kích hoạt template, tạo và đưa run vào hàng đợi, worker claim và thực thi qua 5 giai đoạn, in ra bảng tóm tắt kết quả khớp chính xác 100% với Golden Case G01 (184 MATCHED, 4 MISMATCH, 2 MISSING_IN_DB, 2 MISSING_IN_EXCEL, Control total 366.732.000). Hỗ trợ cờ `--purge` kiểm chứng toàn bộ quy trình đánh dấu đã kiểm tra, xóa dữ liệu tạm và xác nhận kích thước file SQLite thu hồi qua incremental vacuum.
+- Kiểm tra: `uv run poe demo-run` và `uv run poe demo-run --purge` hoàn thành xuất sắc; `uv run poe test` (225 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
+- Suy ra (nếu có): Kịch bản demo-run hoàn chỉnh làm mẫu chuẩn cho việc kiểm thử và chạy kiểm tra tích hợp định kỳ.
+- Việc cần người làm thủ công: Không có.
 ### Bước 5 — 2026-11-01 01:40
 - Đã làm: Cài đặt dịch vụ `app/services/temp_data.py` (`mark_checked`, `usage`, `preview`, `purge_runs`, `purge_filter`, `purge_results`) tuân thủ nghiêm ngặt nguyên tắc chỉ xóa dữ liệu tạm khi người dùng yêu cầu (ADR-012, Spec 04 mục 12). Cài đặt cơ chế an toàn dữ liệu dùng chung (chỉ xóa file gốc và `RECON_EXCEL_ROW` khi tất cả các run tham chiếu đã được xóa), giữ trọn vẹn kết quả `RECON_RESULT_*` và export Excel, gọi `PRAGMA incremental_vacuum` thu hồi dung lượng SQLite và ghi `RECON_PURGE_LOG` + audit log. Tích hợp lệnh CLI `purge-temp` (`--run`, `--checked-before`, `--dry-run`). Viết bài test `tests/unit/test_temp_data_purge.py` (7 tests) kiểm chứng quyền hạn, chặn xóa run RUNNING, xác nhận từ khóa `XOA` và kiểm tra file dùng chung.
 - Kiểm tra: `uv run pytest tests/unit/test_temp_data_purge.py` (7 passed); `uv run poe test` (225 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).

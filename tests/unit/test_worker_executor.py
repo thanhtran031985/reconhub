@@ -226,9 +226,7 @@ def test_execute_run_success(test_db, seed_data, admin_ctx):
         assert summ["CNT_MISSING_IN_EXCEL"] == 2
 
         # Kiểm tra RECON_RESULT_ROW có đủ dòng
-        total_rows = conn.execute(
-            select(recon_result_row).where(recon_result_row.c.RUN_ID == run_id)
-        ).all()
+        total_rows = conn.execute(select(recon_result_row).where(recon_result_row.c.RUN_ID == run_id)).all()
         assert len(total_rows) == 192  # 184 + 4 + 2 + 2
 
 
@@ -260,9 +258,7 @@ def test_execute_run_failure_cleans_up(test_db, seed_data, admin_ctx):
         assert "Lỗi mô phỏng mất kết nối" in r["ERROR_MSG"]
 
         # Không có bản ghi dở trong RECON_RESULT_ROW
-        res_rows = conn.execute(
-            select(recon_result_row).where(recon_result_row.c.RUN_ID == run_id)
-        ).all()
+        res_rows = conn.execute(select(recon_result_row).where(recon_result_row.c.RUN_ID == run_id)).all()
         assert len(res_rows) == 0
 
 

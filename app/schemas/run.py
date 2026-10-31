@@ -83,4 +83,3 @@ class PurgeFilter(BaseModel):
     before_date: datetime | None = None
     only_checked: bool = True
     created_by: str | None = None
-

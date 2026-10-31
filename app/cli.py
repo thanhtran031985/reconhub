@@ -208,7 +208,9 @@ def purge_temp_cmd(args: argparse.Namespace) -> None:
             return
         res = purge_runs(ctx, [run_id])
         if res.ok and res.data:
-            print(f"Thành công: Đã xóa dữ liệu tạm của run #{run_id} (giải phóng {res.data.get('bytes_freed', 0):,} bytes).")
+            print(
+                f"Thành công: Đã xóa dữ liệu tạm của run #{run_id} (giải phóng {res.data.get('bytes_freed', 0):,} bytes)."
+            )
         else:
             print(f"Lỗi: {res.message}", file=sys.stderr)
             sys.exit(1)
@@ -231,7 +233,9 @@ def purge_temp_cmd(args: argparse.Namespace) -> None:
         est_rows = prev.data["rows_estimated"]
         est_bytes = prev.data["bytes_estimated"]
 
-        print(f"Tìm thấy {run_count} run đã kiểm tra trước ngày {checked_before_str} ({est_rows:,} dòng, ước tính ~{est_bytes / (1024*1024):.1f} MB).")
+        print(
+            f"Tìm thấy {run_count} run đã kiểm tra trước ngày {checked_before_str} ({est_rows:,} dòng, ước tính ~{est_bytes / (1024 * 1024):.1f} MB)."
+        )
 
         if is_dry_run:
             print("[DRY-RUN] Kết thúc chế độ xem trước (không có dữ liệu nào bị xóa).")
@@ -243,7 +247,9 @@ def purge_temp_cmd(args: argparse.Namespace) -> None:
 
         res = purge_filter(ctx, flt, confirm_text="XOA")
         if res.ok and res.data:
-            print(f"Thành công: Đã xóa dữ liệu tạm của {res.data['runs_purged']} run ({res.data['rows_deleted']:,} dòng).")
+            print(
+                f"Thành công: Đã xóa dữ liệu tạm của {res.data['runs_purged']} run ({res.data['rows_deleted']:,} dòng)."
+            )
         else:
             print(f"Lỗi: {res.message}", file=sys.stderr)
             sys.exit(1)

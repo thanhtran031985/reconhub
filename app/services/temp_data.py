@@ -72,48 +72,46 @@ def _purge_run_internal(ctx: Ctx, run_id: int) -> tuple[int, int]:
     with engine.begin() as conn:
         # 2. Kiểm tra dữ liệu dùng chung cho EXCEL_LOAD
         if excel_load_id:
-            other_active_runs = conn.execute(
-                select(func.count(recon_run.c.ID)).where(
-                    recon_run.c.EXCEL_LOAD_ID == excel_load_id,
-                    recon_run.c.ID != run_id,
-                    recon_run.c.TEMP_PURGED_AT.is_(None),
-                )
-            ).scalar() or 0
+            other_active_runs = (
+                conn.execute(
+                    select(func.count(recon_run.c.ID)).where(
+                        recon_run.c.EXCEL_LOAD_ID == excel_load_id,
+                        recon_run.c.ID != run_id,
+                        recon_run.c.TEMP_PURGED_AT.is_(None),
+                    )
+                ).scalar()
+                or 0
+            )
 
             # Chỉ xóa RECON_EXCEL_ROW khi không còn run nào khác dùng chung
             if other_active_runs == 0:
                 # Đếm số dòng sẽ xóa
-                cnt = conn.execute(
-                    select(func.count()).where(recon_excel_row.c.LOAD_ID == excel_load_id)
-                ).scalar() or 0
+                cnt = conn.execute(select(func.count()).where(recon_excel_row.c.LOAD_ID == excel_load_id)).scalar() or 0
                 rows_deleted += cnt
                 bytes_freed += cnt * 150  # Ước tính 150 bytes / dòng
 
                 # Xóa các dòng trong RECON_EXCEL_ROW
-                conn.execute(
-                    delete(recon_excel_row).where(recon_excel_row.c.LOAD_ID == excel_load_id)
-                )
+                conn.execute(delete(recon_excel_row).where(recon_excel_row.c.LOAD_ID == excel_load_id))
 
                 # Đánh dấu PURGED_AT trên RECON_EXCEL_LOAD
                 conn.execute(
-                    update(recon_excel_load)
-                    .where(recon_excel_load.c.ID == excel_load_id)
-                    .values(PURGED_AT=now)
+                    update(recon_excel_load).where(recon_excel_load.c.ID == excel_load_id).values(PURGED_AT=now)
                 )
 
                 # Kiểm tra tiếp FILE_ID: còn EXCEL_LOAD nào khác của file chưa bị xóa không?
                 if file_id:
-                    other_active_loads = conn.execute(
-                        select(func.count(recon_excel_load.c.ID)).where(
-                            recon_excel_load.c.FILE_ID == file_id,
-                            recon_excel_load.c.PURGED_AT.is_(None),
-                        )
-                    ).scalar() or 0
+                    other_active_loads = (
+                        conn.execute(
+                            select(func.count(recon_excel_load.c.ID)).where(
+                                recon_excel_load.c.FILE_ID == file_id,
+                                recon_excel_load.c.PURGED_AT.is_(None),
+                            )
+                        ).scalar()
+                        or 0
+                    )
 
                     if other_active_loads == 0:
-                        f_rec = conn.execute(
-                            select(recon_file).where(recon_file.c.ID == file_id)
-                        ).mappings().first()
+                        f_rec = conn.execute(select(recon_file).where(recon_file.c.ID == file_id)).mappings().first()
                         if f_rec and f_rec["STORAGE_PATH"]:
                             file_p = Path(str(f_rec["STORAGE_PATH"]))
                             if file_p.exists():
@@ -214,9 +212,7 @@ def usage(ctx: Ctx) -> dict[str, Any]:
     warn_gb = 5.0
     warn_days = 30
     with engine.connect() as conn:
-        s_gb = conn.execute(
-            select(recon_app_setting.c.VALUE).where(recon_app_setting.c.KEY == "TEMP_WARN_GB")
-        ).scalar()
+        s_gb = conn.execute(select(recon_app_setting.c.VALUE).where(recon_app_setting.c.KEY == "TEMP_WARN_GB")).scalar()
         if s_gb:
             try:
                 warn_gb = float(s_gb)
@@ -234,20 +230,23 @@ def usage(ctx: Ctx) -> dict[str, Any]:
 
         # Đếm các chỉ số
         excel_rows_count = conn.execute(select(func.count(recon_excel_row.c.LOAD_ID))).scalar() or 0
-        unchecked_count = conn.execute(
-            select(func.count(recon_run.c.ID)).where(recon_run.c.CHECKED_AT.is_(None))
-        ).scalar() or 0
-        unpurged_count = conn.execute(
-            select(func.count(recon_run.c.ID)).where(recon_run.c.TEMP_PURGED_AT.is_(None))
-        ).scalar() or 0
+        unchecked_count = (
+            conn.execute(select(func.count(recon_run.c.ID)).where(recon_run.c.CHECKED_AT.is_(None))).scalar() or 0
+        )
+        unpurged_count = (
+            conn.execute(select(func.count(recon_run.c.ID)).where(recon_run.c.TEMP_PURGED_AT.is_(None))).scalar() or 0
+        )
 
         overdue_threshold = now - timedelta(days=warn_days)
-        overdue_count = conn.execute(
-            select(func.count(recon_run.c.ID)).where(
-                recon_run.c.TEMP_PURGED_AT.is_(None),
-                recon_run.c.CREATED_AT < overdue_threshold,
-            )
-        ).scalar() or 0
+        overdue_count = (
+            conn.execute(
+                select(func.count(recon_run.c.ID)).where(
+                    recon_run.c.TEMP_PURGED_AT.is_(None),
+                    recon_run.c.CREATED_AT < overdue_threshold,
+                )
+            ).scalar()
+            or 0
+        )
 
     total_est_bytes = disk_bytes + (excel_rows_count * 150)
     is_warn = (total_est_bytes > warn_gb * 1024 * 1024 * 1024) or (overdue_count > 0)
@@ -255,9 +254,7 @@ def usage(ctx: Ctx) -> dict[str, Any]:
 
     warning_msg = None
     if is_warn:
-        warning_msg = (
-            f"Dữ liệu tạm {warn_gb_fmt} GB, {overdue_count} run giữ quá {warn_days} ngày. Xem và xóa"
-        )
+        warning_msg = f"Dữ liệu tạm {warn_gb_fmt} GB, {overdue_count} run giữ quá {warn_days} ngày. Xem và xóa"
 
     return {
         "total_bytes": total_est_bytes,
@@ -299,11 +296,14 @@ def preview(ctx: Ctx, filter: PurgeFilter) -> dict[str, Any]:
         est_rows = 0
         load_ids = [r["EXCEL_LOAD_ID"] for r in matching_runs if r["EXCEL_LOAD_ID"]]
         if load_ids:
-            est_rows = conn.execute(
-                select(func.coalesce(func.sum(recon_excel_load.c.ROWS_READ), 0)).where(
-                    recon_excel_load.c.ID.in_(load_ids)
-                )
-            ).scalar() or 0
+            est_rows = (
+                conn.execute(
+                    select(func.coalesce(func.sum(recon_excel_load.c.ROWS_READ), 0)).where(
+                        recon_excel_load.c.ID.in_(load_ids)
+                    )
+                ).scalar()
+                or 0
+            )
 
         est_bytes = (est_rows * 150) + (len(run_ids) * 1024 * 100)
 
@@ -434,24 +434,16 @@ def purge_results(
     threshold = now - timedelta(days=older_than_days)
 
     with engine.connect() as conn:
-        old_runs = conn.execute(
-            select(recon_run.c.ID).where(recon_run.c.CREATED_AT < threshold)
-        ).fetchall()
+        old_runs = conn.execute(select(recon_run.c.ID).where(recon_run.c.CREATED_AT < threshold)).fetchall()
         old_run_ids = [int(r[0]) for r in old_runs]
 
     if not old_run_ids:
         return {"runs_cleared": 0, "rows_deleted": 0}
 
     with engine.begin() as conn:
-        conn.execute(
-            delete(recon_result_diff).where(recon_result_diff.c.RUN_ID.in_(old_run_ids))
-        )
-        res_del = conn.execute(
-            delete(recon_result_row).where(recon_result_row.c.RUN_ID.in_(old_run_ids))
-        )
-        conn.execute(
-            delete(recon_invalid_row).where(recon_invalid_row.c.RUN_ID.in_(old_run_ids))
-        )
+        conn.execute(delete(recon_result_diff).where(recon_result_diff.c.RUN_ID.in_(old_run_ids)))
+        res_del = conn.execute(delete(recon_result_row).where(recon_result_row.c.RUN_ID.in_(old_run_ids)))
+        conn.execute(delete(recon_invalid_row).where(recon_invalid_row.c.RUN_ID.in_(old_run_ids)))
 
         rows_deleted = res_del.rowcount or 0
 
