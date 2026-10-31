@@ -1,13 +1,13 @@
 # Tiến độ — 02-data-sources
 
-Trạng thái: 🔄
+Trạng thái: ✅
 
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | Mã hóa + repo + service | ✅ | 2026-10-31 | d514653 |
 | 2 | Kiểm tra kết nối | ✅ | 2026-10-31 | cc5a68b |
 | 3 | open_source + catalog | ✅ | 2026-10-31 | a1a5da8 |
-| 4 | METADATA đang dùng + seed | ✅ | 2026-10-31 |  |
+| 4 | METADATA đang dùng + seed | ✅ | 2026-10-31 | 6fb6ceb |
 
 ## Nhật ký
 ### Bước 4 — 2026-10-31 23:43
