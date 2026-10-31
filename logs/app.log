@@ -4,3 +4,5 @@
 2026-10-31T15:29:59.352502Z [info     ] Worker đã dừng sạch sẽ         worker_id=worker-1793460599
 2026-10-31T15:32:40.629559Z [info     ] Worker khởi động               poll_interval=0.1 worker_id=worker-1793460760
 2026-10-31T15:32:40.927055Z [info     ] Worker đã dừng sạch sẽ         worker_id=worker-1793460760
+2026-10-31T15:33:41.826393Z [info     ] Worker khởi động               poll_interval=0.1 worker_id=worker-1793460821
+2026-10-31T15:33:42.124485Z [info     ] Worker đã dừng sạch sẽ         worker_id=worker-1793460821

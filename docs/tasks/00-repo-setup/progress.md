@@ -1,6 +1,6 @@
 # Tiến độ — 00-repo-setup
 
-Trạng thái: 🔄
+Trạng thái: ✅
 
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
@@ -9,7 +9,7 @@ Trạng thái: 🔄
 | 3 | Oracle test qua VPN | ✅ | 2026-10-31 | b95d2b2 |
 | 4 | Dash khung + theme + health | ✅ | 2026-10-31 | 4c3ad27 |
 | 5 | Worker khung + poe dev | ✅ | 2026-10-31 | 469bd08 |
-| 6 | Lint, typecheck, CI, cập nhật AGENTS.md mục Lệnh | ✅ | 2026-10-31 |  |
+| 6 | Lint, typecheck, CI, cập nhật AGENTS.md mục Lệnh | ✅ | 2026-10-31 | 9b366c3 |
 
 ## Nhật ký
 ### Bước 6 — 2026-10-31 22:32
