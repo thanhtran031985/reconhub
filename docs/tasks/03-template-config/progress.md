@@ -5,11 +5,29 @@ Trạng thái: 🔄
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | Pydantic model | ✅ | 2026-10-31 | 9be5c68 |
-| 2 | Validator có kết nối | ✅ | 2026-10-31 |  |
-| 3 | Repo/service version | 🔄 |  |  |
-| 4 | Export/import + diagram + seed | ⬜ |  |  |
+| 2 | Validator có kết nối | ✅ | 2026-10-31 | f48a33d |
+| 3 | Repo/service version | ✅ | 2026-10-31 |  |
+| 4 | Export/import + diagram + seed | 🔄 |  |  |
 
 ## Nhật ký
+### Bước 3 — 2026-10-31 23:57
+- Đã làm:
+  - Cài đặt `app/services/template.py` gồm các dịch vụ quản lý vòng đời template và phiên bản theo Spec 03:
+    - `list_templates(ctx, q, status)`: liệt kê danh sách template kèm trạng thái và phiên bản hiện hành.
+    - `get_template(ctx, template_id, version)`: lấy chi tiết template kèm cấu hình `CONFIG_JSON` của phiên bản chỉ định.
+    - `save_draft_template(...)`: tạo mới template hoặc ghi đè phiên bản nháp khi chưa có run; tự động tăng số hiệu phiên bản mới (`max + 1`) nếu phiên bản hiện tại đã có run ghi nhận; bảo vệ kiểm soát xung đột đồng thời qua `row_version` (trả `STALE_DATA`).
+    - `activate_version(...)`: kích hoạt phiên bản thành `ACTIVE`, chuyển các phiên bản `ACTIVE` trước đó thành `RETIRED`, yêu cầu kết quả `DRY_RUN_OK='Y'`.
+    - `clone_template(...)`: nhân bản template sang mã mới ở trạng thái `DRAFT` v1, chặn trùng mã (`TEMPLATE_CODE_EXISTS`).
+    - `archive_template(...)`: chuyển trạng thái sang `ARCHIVED` (không thể chạy đối soát mới).
+    - Phân quyền: các thao tác tạo/sửa/kích hoạt/lưu trữ yêu cầu vai trò `ADMIN` hoặc `TEMPLATE_OWNER`.
+    - Ghi nhận `RECON_AUDIT_LOG` trong cùng transaction cho mọi thay đổi.
+  - Viết test `tests/unit/test_template_service.py` với 7 test case kiểm tra lưu nháp mới, ghi đè nháp, tạo phiên bản mới khi đã có run, kiểm soát `STALE_DATA`, kích hoạt version, clone và archive.
+- Kiểm tra:
+  - `uv run pytest tests/unit/test_template_service.py -v`: 7/7 passed.
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 41 source files.
+  - `uv run poe test`: 92 passed, 3 skipped.
+- Suy ra (nếu có): Kiểm tra số lượng lượt chạy trong `RECON_RUN` của phiên bản hiện tại trước khi quyết định ghi đè hay sinh phiên bản mới giúp bảo toàn tính bất biến (immutability) của các kết quả đối soát trong quá khứ.
 ### Bước 2 — 2026-10-31 23:53
 - Đã làm:
   - Cài đặt `app/services/template_validate.py`: hàm `validate_template_connected(ctx, config, data_source_id)` xác thực cấu hình `DbSourceSpec` với catalog CSDL Oracle thực tế:
