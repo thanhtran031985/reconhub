@@ -6,12 +6,18 @@ Trạng thái: 🔄
 |---|---|---|---|---|
 | 1 | Precheck + create | ✅ | 2026-11-01 | 09ba5b4 |
 | 2 | Worker + executor | ✅ | 2026-11-01 | 71d298a |
-| 3 | Đọc kết quả | ⬜ |  |  |
+| 3 | Đọc kết quả | ✅ | 2026-11-01 | |
 | 4 | Dry-run + activate + grain | ⬜ |  |  |
 | 5 | Xóa dữ liệu tạm | ⬜ |  |  |
 | 6 | Demo | ⬜ |  |  |
 
 ## Nhật ký
+### Bước 3 — 2026-11-01 01:30
+- Đã làm: Cài đặt trọn vẹn nhóm hàm đọc kết quả trong `app/services/run_service.py` (`get_run`, `list_runs`, `get_run_columns`, `get_run_rows`, `get_row_detail`, `get_invalid_rows`, `export_run`). Hỗ trợ phân trang, tìm kiếm trên khóa, sắp xếp theo độ lệch tuyệt đối `ABS_DIFF_SORT`. Trích xuất các dòng thô Excel từ `RECON_EXCEL_ROW` kèm cơ chế thông báo rõ khi dữ liệu tạm đã bị xóa (`purged_at`). Tích hợp route Flask `/download/export/<run_id>` cho phép tải file export Excel. Viết bài test `tests/unit/test_run_query.py` xác minh đếm khớp chính xác trên G01 (184 MATCHED, 4 MISMATCH, 2 MISSING_IN_DB, 2 MISSING_IN_EXCEL) và kiểm tra file Excel sinh ra hợp lệ qua openpyxl.
+- Kiểm tra: `uv run pytest tests/unit/test_run_query.py` (7 passed); `uv run poe test` (217 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
+- Suy ra (nếu có): Export Excel từ các bảng kết quả lưu trong RECON_APP vẫn hoạt động độc lập và toàn vẹn ngay cả sau khi xóa các dòng dữ liệu tạm.
+- Việc cần người làm thủ công: Không có.
+
 ### Bước 2 — 2026-11-01 01:26
 - Đã làm: Cài đặt `app/services/run_executor.py` (`execute_run`, `SourceFetcherWrapper`) điều phối 5 giai đoạn READ (10%) -> FILTER (25%) -> FETCH_DB (55%) -> COMPARE (80%) -> SAVE (100%). Ghi nhận kết quả lô 5.000 dòng vào `RECON_RESULT_ROW`, `RECON_RESULT_DIFF`, `RECON_INVALID_ROW`, `RECON_RUN_SUMMARY`, an toàn rollback khi gặp sự cố không để kết quả dở. Nâng cấp `worker/runner.py` với thread heartbeat định kỳ và cơ chế tự động dọn dẹp job treo `reset_stale_jobs`. Viết bài test `tests/unit/test_worker_executor.py` kiểm chứng không tranh chấp claim job trên SQLite, thực thi đúng số liệu G01 (184 MATCHED, 4 MISMATCH, 2 MISSING_IN_DB, 2 MISSING_IN_EXCEL) và reset stale job.
 - Kiểm tra: `uv run pytest tests/unit/test_worker_executor.py` (4 passed); `uv run poe test` (209 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).

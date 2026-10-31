@@ -92,3 +92,12 @@ def test_download_file_authenticated(test_setup) -> None:
     assert res.status_code == 200
     assert len(res.data) == len(sample_path.read_bytes())
     assert "dtp_sample_200.xlsx" in res.headers["Content-Disposition"]
+
+
+
+def test_download_export_unauthenticated(test_setup) -> None:
+    client, _ = test_setup
+    res = client.get("/download/export/999")
+    # Chưa đăng nhập bị redirect về /login (302)
+    assert res.status_code == 302
+    assert "/login" in res.headers["Location"]
