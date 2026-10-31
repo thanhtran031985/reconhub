@@ -101,4 +101,3 @@ def detect_template(
                 return tmpl
 
     return None
-

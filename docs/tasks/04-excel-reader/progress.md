@@ -5,13 +5,34 @@ Trạng thái: 🔄
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | Reader | ✅ | 2026-11-01 | 82133db |
-| 2 | Mapping + detect | ✅ | 2026-11-01 |  |
-| 3 | Normalize + derive + invalid | 🔄 |  |  |
-| 4 | Control total + filters | ⬜ |  |  |
+| 2 | Mapping + detect | ✅ | 2026-11-01 | ed4906c |
+| 3 | Normalize + derive + invalid | ✅ | 2026-11-01 |  |
+| 4 | Control total + filters | 🔄 |  |  |
 | 5 | Inspect | ⬜ |  |  |
 | 6 | Service file + nạp dữ liệu tạm | ⬜ |  |  |
 
 ## Nhật ký
+### Bước 3 — 2026-11-01 00:15
+- Đã làm:
+  - Cài đặt `app/engine/normalize.py`:
+    - `normalize_value(val, field_spec)`: chuẩn hóa theo từng kiểu dữ liệu:
+      - `string`: Unicode NFC, trim, bảo toàn số 0 đứng trước (e.g. `"0334"`).
+      - `number`: xử lý định dạng số kiểu Việt Nam (`1.234.567,89`) và quốc tế (`1,234,567.89`), dấu ngoặc âm `(100)` -> `-100`, chuyển về `Decimal` chính xác, không dùng float.
+      - `date` / `datetime`: phân tích số ngày Excel serial date (epoch 1899-12-30 tính cả leap year 1900 của Lotus 1-2-3), định dạng theo `field_spec.format` (hỗ trợ `DD/MM/YYYY`, `YYYY-MM-DD`,...), hoặc parse ISO string.
+      - `boolean`: phân tích các chuỗi chân trị phổ biến (`true/false`, `1/0`, `có/không`, `t/f`, `yes/no`).
+    - `normalize(df, fields)`: chuẩn hóa toàn bộ DataFrame đã mapping cột logic; tách các dòng lỗi sang danh sách invalid rows (`__row_no`, `field`, `raw_value`, `reason`), trả về `(df_valid, invalid_rows)`.
+    - `derive(df, derived_fields)`: tính toán các trường phái sinh theo hàm cho phép (`trunc_day`, `concat`).
+  - Viết test `tests/unit/test_excel_normalize.py` xác thực:
+    - Chuẩn hóa toàn bộ mẫu DTP `dtp_sample_200.xlsx`.
+    - Golden G04: phân tích cả số serial date và chuỗi ngày tháng.
+    - Golden G09: phát hiện dòng dữ liệu không hợp lệ, phân loại nguyên nhân và tách riêng khỏi tập dòng hợp lệ.
+    - Tính toán trường phái sinh `trunc_day` và `concat`.
+- Kiểm tra:
+  - `uv run pytest tests/unit/test_excel_normalize.py -v`: 4/4 passed.
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 46 source files.
+  - `uv run poe test-engine`: 113 passed.
+- Suy ra (nếu có): Xử lý Excel serial date cần tính theo mốc `1899-12-30` do Excel kế thừa lỗi năm nhuận 1900 từ Lotus 1-2-3; việc chuyển đổi float thành `timedelta(days=int(serial), seconds=...)` bảo toàn chính xác giờ/phút/giây.
 ### Bước 2 — 2026-11-01 00:10
 - Đã làm:
   - Cài đặt `app/engine/mapping.py`:

@@ -66,9 +66,7 @@ def import_template(
 
     engine = get_recon_engine()
     with engine.connect() as conn:
-        existing = conn.execute(
-            select(recon_template).where(recon_template.c.CODE == code)
-        ).mappings().first()
+        existing = conn.execute(select(recon_template).where(recon_template.c.CODE == code)).mappings().first()
 
     if existing is not None:
         if not overwrite:
