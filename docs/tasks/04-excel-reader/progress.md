@@ -6,12 +6,29 @@ Trạng thái: 🔄
 |---|---|---|---|---|
 | 1 | Reader | ✅ | 2026-11-01 | 82133db |
 | 2 | Mapping + detect | ✅ | 2026-11-01 | ed4906c |
-| 3 | Normalize + derive + invalid | ✅ | 2026-11-01 |  |
-| 4 | Control total + filters | 🔄 |  |  |
-| 5 | Inspect | ⬜ |  |  |
+| 3 | Normalize + derive + invalid | ✅ | 2026-11-01 | 53e8843 |
+| 4 | Control total + filters | ✅ | 2026-11-01 |  |
+| 5 | Inspect | 🔄 |  |  |
 | 6 | Service file + nạp dữ liệu tạm | ⬜ |  |  |
 
 ## Nhật ký
+### Bước 4 — 2026-11-01 00:18
+- Đã làm:
+  - Cài đặt `app/engine/control_total.py`:
+    - `check_control_total(raw_df, valid_df, spec, fields, thousand_sep, decimal_sep)`: định vị dòng tổng trong dữ liệu thô `raw_df` theo điều kiện `spec.locate`, trích xuất giá trị số `file_total`; tính tổng `calc_total` từ cột chỉ định trên `valid_df`; kiểm tra sai lệch `diff <= tolerance`; trả về `ControlTotalResult(file_total, calc_total, diff, is_matched, warning, located_row_no)`. Cảnh báo `CONTROL_TOTAL_NOT_FOUND` nếu không tìm thấy dòng tổng.
+  - Cài đặt `app/engine/filters.py`:
+    - `apply_row_filters(df, row_filters)`: áp dụng các điều kiện lọc dòng `drop_if` và `keep_if` (hỗ trợ `is_null`, `not_null`, `equals`, `not_equals`, `in`, `regex`), dùng để loại bỏ dòng tổng/footer hoặc dòng rác trước khi chuẩn hóa.
+    - `apply_time_filter(df, time_filter, p_from, p_to)`: lọc dòng theo khoảng thời gian `[p_from, p_to]` (giờ Việt Nam, gồm cả 2 đầu; hỗ trợ cắt theo ngày hoặc ngày giờ). Đếm số dòng ngoài khoảng `out_of_range_count` và ghi nhận danh sách `__row_no` (tối đa 1000 dòng đầu).
+  - Viết test `tests/unit/test_excel_control_total_and_filters.py` xác thực:
+    - Kiểm tra Golden G05 trên mẫu DTP: phát hiện dòng 202 là dòng tổng (`366732000`), tính tổng 200 dòng dữ liệu khớp chính xác 100% (`diff = 0`).
+    - Kiểm tra sai số `tolerance` và trường hợp không khớp hoặc không tìm thấy dòng tổng.
+    - Kiểm tra `drop_if` loại bỏ dòng tổng khỏi 201 dòng thô còn đúng 200 dòng hóa đơn.
+    - Kiểm tra Golden G06: lọc thời gian theo khoảng rộng (giữ 200 dòng, `out_of_range = 0`) và lọc hẹp (đếm và ghi nhận chính xác dòng ngoài khoảng).
+- Kiểm tra:
+  - `uv run pytest tests/unit/test_excel_control_total_and_filters.py -v`: 6/6 passed.
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 48 source files.
+- Suy ra (nếu có): Dòng tổng cần được định vị trên `raw_df` trước khi lọc dòng, nhưng việc tính `calc_total` phải được thực hiện trên `valid_df` sau khi đã loại bỏ dòng tổng bằng `row_filters` để tránh tính trùng lặp.
 ### Bước 3 — 2026-11-01 00:15
 - Đã làm:
   - Cài đặt `app/engine/normalize.py`:
