@@ -15,6 +15,7 @@ from app.services.template import (
     archive_template,
     clone_template,
     get_template,
+    preview_source_sql,
     save_draft_template,
 )
 
@@ -223,3 +224,16 @@ def test_clone_and_archive_template(test_db, owner_ctx) -> None:
 
     get_arch = get_template(owner_ctx, template_id=tmpl_id)
     assert get_arch.data["status"] == "ARCHIVED"
+
+
+def test_preview_source_sql(test_db, owner_ctx) -> None:
+    cfg = get_sample_config()
+    res = save_draft_template(owner_ctx, code="DTP_PREVIEW", name="Template Preview", config=cfg)
+    tmpl_id = res.data["id"]
+
+    prev_res = preview_source_sql(owner_ctx, template_id=tmpl_id, profile_code="BY_INVOICE")
+    assert prev_res.ok is True
+    data = prev_res.data
+    assert "GROUP BY" in data["sql"]
+    assert data["profile_code"] == "BY_INVOICE"
+    assert '"INVOICE_NO"' in data["sql"]

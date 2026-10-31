@@ -6,10 +6,30 @@ Trạng thái: 🔄
 |---|---|---|---|---|
 | 1 | Builder kind=table | ✅ | 2026-11-01 | acacce8 |
 | 2 | SQL gộp theo profile | ✅ | 2026-11-01 | dc57a11 |
-| 3 | SQL guard | ✅ | 2026-11-01 |  |
-| 4 | Fetch + describe | 🔄 |  |  |
+| 3 | SQL guard | ✅ | 2026-11-01 | b294d46 |
+| 4 | Fetch + describe | ✅ | 2026-11-01 |  |
 
 ## Nhật ký
+### Bước 4 — 2026-11-01 00:46
+- Đã làm:
+  - Cài đặt `app/engine/fetch.py`:
+    - `fetch_df(conn, sql, binds, max_rows=1_000_000, timeout=600)`:
+      - Đặt `conn.call_timeout = timeout * 1000` ms và `cursor.arraysize = 10000`.
+      - Kéo dữ liệu theo lô chuyển sang Polars DataFrame, bảo toàn Decimal chính xác.
+      - Kiểm soát ngưỡng `max_rows`: ném lỗi `SOURCE_TOO_MANY_ROWS` nếu vượt quá giới hạn.
+      - Bắt và ánh xạ lỗi Oracle sang mã chuẩn: lỗi quá thời gian -> `SOURCE_TIMEOUT`; lỗi mất kết nối VPN (ORA-03113, ORA-03114, ORA-03135,...) -> `SOURCE_CONNECTION_LOST`.
+    - `MockFetcher`: hỗ trợ đọc dữ liệu giả lập từ Parquet/DataFrame cho testing offline và Golden cases.
+  - Cài đặt `describe_sql(conn, sql)` trong `app/engine/catalog.py`: bọc câu lệnh `SELECT * FROM (<sql>) WHERE 1=0` để lấy danh sách cột và kiểu dữ liệu.
+  - Cài đặt service trong `app/services/template.py`:
+    - `preview_source_sql(ctx, template_id, version, profile_code, params)`: sinh câu lệnh SQL và danh sách binds phục vụ Wizard xem trước.
+    - `describe_source(ctx, data_source_id, table_name, sql, schema)`: phân tích cấu trúc cột của bảng hoặc SQL tự viết có qua SQL guard.
+  - Viết test `tests/unit/test_db_fetch.py`, `tests/integration/test_oracle_fetch.py`, bổ sung test `test_preview_source_sql` trong `tests/unit/test_template_service.py`.
+- Kiểm tra:
+  - `uv run pytest tests/unit/test_db_fetch.py tests/integration/test_oracle_fetch.py tests/unit/test_template_service.py -v`: 13 passed, 1 skipped (test Oracle tự skip sạch sẽ khi thiếu VPN).
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 56 source files.
+  - `uv run poe test`: 172 passed, 4 skipped.
+- Suy ra (nếu có): Quá trình kéo dữ liệu từ Oracle Thin driver qua VPN cần thiết lập `call_timeout` trực tiếp trên connection object và đọc theo mẻ `fetchmany(10000)` để kiểm soát tràn bộ nhớ khi truy vấn trả về số lượng dòng khổng lồ.
 ### Bước 3 — 2026-11-01 00:40
 - Đã làm:
   - Cài đặt `app/engine/sql_guard.py`:
