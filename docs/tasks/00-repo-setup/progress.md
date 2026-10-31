@@ -7,11 +7,23 @@ Trạng thái: 🔄
 | 1 | pyproject + poe + config | ✅ | 2026-10-31 | 7c80f5e |
 | 2 | Schema + Alembic trên SQLite | ✅ | 2026-10-31 | b75e730 |
 | 3 | Oracle test qua VPN | ✅ | 2026-10-31 | b95d2b2 |
-| 4 | Dash khung + theme + health | ✅ | 2026-10-31 |  |
-| 5 | Worker khung + poe dev | 🔄 |  |  |
-| 6 | Lint, typecheck, CI, cập nhật AGENTS.md mục Lệnh | ⬜ |  |  |
+| 4 | Dash khung + theme + health | ✅ | 2026-10-31 | 4c3ad27 |
+| 5 | Worker khung + poe dev | ✅ | 2026-10-31 |  |
+| 6 | Lint, typecheck, CI, cập nhật AGENTS.md mục Lệnh | 🔄 |  |  |
 
 ## Nhật ký
+### Bước 5 — 2026-10-31 22:30
+- Đã làm:
+  - Cấu hình logging chuẩn với structlog trong `app/core/logging.py`, ghi song song console và file `logs/app.log`.
+  - Cài đặt `worker/runner.py` và `worker/__main__.py` hỗ trợ vòng lặp poll rỗng, heartbeat log, và cơ chế bắt tín hiệu dừng sạch sẽ (Ctrl+C / SIGTERM / SIGBREAK).
+  - Cài đặt `scripts/dev_server.py` khởi chạy song song Dash server và Worker trong 2 subprocess, tự động dừng cả hai khi ngắt.
+  - Viết test `tests/test_worker_lifecycle.py` kiểm tra vòng đời khởi động và dừng sạch của worker.
+- Kiểm tra:
+  - `uv run pytest tests/test_worker_lifecycle.py -v`: 1 passed trong 0.84s.
+  - `uv run poe test-engine`: 8 passed, 1 deselected trong 4.83s.
+- Suy ra (nếu có): Dùng subprocess quản lý cả Dash và Worker trong `scripts/dev_server.py` giúp dừng hoàn toàn tiến trình con khi nhấn Ctrl+C trên Windows.
+- Việc cần người làm thủ công: Không có.
+
 ### Bước 4 — 2026-10-31 22:27
 - Đã làm:
   - Cập nhật `scripts/gen_dmc_theme.py` tự động sao chép `designs/tokens.css` vào `app/ui/assets/tokens.css` và cấu hình UTF-8 stdout trên Windows.

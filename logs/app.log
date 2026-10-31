@@ -1,0 +1,4 @@
+2026-10-31T15:29:42.720790Z [info     ] Worker khởi động               poll_interval=0.1 worker_id=worker-1793460582
+2026-10-31T15:29:43.018365Z [info     ] Worker đã dừng sạch sẽ         worker_id=worker-1793460582
+2026-10-31T15:29:59.054032Z [info     ] Worker khởi động               poll_interval=0.1 worker_id=worker-1793460599
+2026-10-31T15:29:59.352502Z [info     ] Worker đã dừng sạch sẽ         worker_id=worker-1793460599
