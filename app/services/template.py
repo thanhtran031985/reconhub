@@ -9,9 +9,13 @@ from app.core.audit import write_audit_log
 from app.core.context import Ctx, Role, require_role
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_run, recon_template, recon_template_version
+from app.engine.catalog import describe_sql, list_columns
+from app.engine.sql_builder import build_source_sql
+from app.engine.sql_guard import check_sql
 from app.schemas.errors import ErrorCode, ServiceError
-from app.schemas.template_config import TemplateConfig
+from app.schemas.template_config import ProfileSpec, TemplateConfig
 from app.services import service
+from app.services.source_conn import open_source_connection
 
 
 @service
@@ -520,3 +524,73 @@ def archive_template(
         )
 
         return {"ok": True, "template_id": template_id, "status": "ARCHIVED"}
+
+
+@service
+def preview_source_sql(
+    ctx: Ctx,
+    template_id: int,
+    version: int | None = None,
+    profile_code: str | None = None,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Xem trước câu lệnh SQL sinh ra cho nguồn DB và danh sách bind parameters."""
+    require_role(ctx)
+    tmpl_res = get_template(ctx, template_id, version=version)
+    if not tmpl_res.ok or not isinstance(tmpl_res.data, dict):
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy template có ID {template_id}")
+
+    config = TemplateConfig.model_validate(tmpl_res.data["config"])
+    target_profile: ProfileSpec | None = None
+    if profile_code:
+        for p in config.profiles:
+            if p.code == profile_code:
+                target_profile = p
+                break
+    elif config.profiles:
+        for p in config.profiles:
+            if p.is_default:
+                target_profile = p
+                break
+        if target_profile is None:
+            target_profile = config.profiles[0]
+
+    sql, binds = build_source_sql(config, profile=target_profile, params=params)
+    return {
+        "template_id": template_id,
+        "version": tmpl_res.data["current_version"],
+        "profile_code": target_profile.code if target_profile else None,
+        "sql": sql,
+        "binds": binds,
+    }
+
+
+@service
+def describe_source(
+    ctx: Ctx,
+    data_source_id: int,
+    table_name: str | None = None,
+    sql: str | None = None,
+    schema: str | None = None,
+) -> list[dict[str, Any]]:
+    """Phân tích cấu trúc cột của bảng nguồn hoặc câu lệnh SQL tùy biến."""
+    require_role(ctx)
+    if not table_name and not sql:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Cần cung cấp table_name hoặc sql để phân tích cấu trúc cột.")
+
+    if sql:
+        is_safe, err_msg = check_sql(sql, allowed_params=["p_from", "p_to"])
+        if not is_safe:
+            raise ServiceError(ErrorCode.SQL_NOT_ALLOWED, err_msg or "Câu lệnh SQL không an toàn.")
+        conn = open_source_connection(data_source_id)
+        try:
+            return describe_sql(conn, sql)
+        finally:
+            conn.close()
+
+    assert table_name is not None
+    parts = table_name.split(".")
+    target_schema = parts[0] if len(parts) > 1 else (schema or "")
+    target_table = parts[1] if len(parts) > 1 else parts[0]
+
+    return list_columns(data_source_id, schema=target_schema, table_name=target_table)
