@@ -25,4 +25,3 @@ def drawer_right(
         shadow="xl",
         **kwargs,
     )
-

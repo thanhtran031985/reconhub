@@ -47,4 +47,3 @@ def file_drop(
         style={"width": "100%"},
         **kwargs,
     )
-

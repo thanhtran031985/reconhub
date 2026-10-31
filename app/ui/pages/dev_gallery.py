@@ -18,11 +18,14 @@ from app.ui.components.modal_confirm import modal_confirm
 from app.ui.components.status_chip import status_chip
 from app.ui.formatters import format_bytes, format_currency, format_datetime, format_number
 
-dash.register_page(  # type: ignore[no-untyped-call]
-    __name__,
-    path="/dev/ui",
-    title="Thư viện Component — ReconHub",
-)
+try:
+    dash.register_page(  # type: ignore[no-untyped-call]
+        __name__,
+        path="/dev/ui",
+        title="Thư viện Component — ReconHub",
+    )
+except Exception:
+    pass
 
 
 def layout() -> Any:

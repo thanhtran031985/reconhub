@@ -56,9 +56,7 @@ def status_chip(
 ) -> dmc.Badge:
     """Chip trạng thái luôn có icon + chữ theo chuẩn design system."""
     key = status.upper() if isinstance(status, str) else str(status)
-    tone, default_label, default_icon = STATUS_MAP.get(
-        key, ("off", label or str(status), icon or "lucide:info")
-    )
+    tone, default_label, default_icon = STATUS_MAP.get(key, ("off", label or str(status), icon or "lucide:info"))
 
     display_label = label if label is not None else default_label
     display_icon = icon if icon is not None else default_icon
@@ -75,4 +73,3 @@ def status_chip(
         radius="xl",
         **kwargs,
     )
-

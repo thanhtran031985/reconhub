@@ -36,4 +36,3 @@ def empty_state(
         bg="surface-2",
         **kwargs,
     )
-

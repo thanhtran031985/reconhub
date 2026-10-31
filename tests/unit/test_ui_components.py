@@ -64,7 +64,10 @@ def test_form_field_error_has_aria_describedby() -> None:
     )
     assert field_err is not None
     # Input element phải nhận aria-describedby trỏ tới test-email-error
-    assert input_elem_err.aria_describedby == "test-email-error" or getattr(input_elem_err, "aria-describedby", None) == "test-email-error"
+    assert (
+        input_elem_err.aria_describedby == "test-email-error"
+        or getattr(input_elem_err, "aria-describedby", None) == "test-email-error"
+    )
 
 
 def test_formatters() -> None:
@@ -90,4 +93,3 @@ def test_formatters() -> None:
     assert format_bytes(3355443) == "3,2 MB"
     assert format_bytes(1073741824) == "1,0 GB"
     assert format_bytes(None) == "—"
-

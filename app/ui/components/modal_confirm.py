@@ -19,9 +19,7 @@ def modal_confirm(
 ) -> dmc.Modal:
     """Hộp thoại xác nhận thao tác quan trọng hoặc xóa dữ liệu."""
     body_items: list[Any] = [
-        dmc.Text(description, size="sm", c="dimmed", mb="md")
-        if isinstance(description, str)
-        else description,
+        dmc.Text(description, size="sm", c="dimmed", mb="md") if isinstance(description, str) else description,
     ]
 
     if confirm_text:
@@ -67,4 +65,3 @@ def modal_confirm(
         radius="lg",
         withCloseButton=True,
     )
-

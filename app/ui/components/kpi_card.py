@@ -54,4 +54,3 @@ def kpi_card(
         radius="lg",
         shadow="xs",
     )
-

@@ -26,54 +26,74 @@ def build_breadcrumbs(pathname: str | None) -> list[dict[str, str]]:
     items: list[dict[str, str]] = [{"label": "Trang chủ", "href": "/"}]
 
     if pathname.startswith("/templates/new"):
-        items.extend([
-            {"label": "Templates", "href": "/templates"},
-            {"label": "Đăng ký mới"},
-        ])
+        items.extend(
+            [
+                {"label": "Templates", "href": "/templates"},
+                {"label": "Đăng ký mới"},
+            ]
+        )
     elif pathname.startswith("/templates/") and pathname.endswith("/diagram"):
-        items.extend([
-            {"label": "Templates", "href": "/templates"},
-            {"label": "Sơ đồ diễn giải"},
-        ])
+        items.extend(
+            [
+                {"label": "Templates", "href": "/templates"},
+                {"label": "Sơ đồ diễn giải"},
+            ]
+        )
     elif pathname == "/templates":
-        items.extend([
-            {"label": "Cấu hình"},
-            {"label": "Templates"},
-        ])
+        items.extend(
+            [
+                {"label": "Cấu hình"},
+                {"label": "Templates"},
+            ]
+        )
     elif pathname == "/runs/new":
-        items.extend([
-            {"label": "Đối soát"},
-            {"label": "Chạy đối soát"},
-        ])
+        items.extend(
+            [
+                {"label": "Đối soát"},
+                {"label": "Chạy đối soát"},
+            ]
+        )
     elif pathname.startswith("/runs/"):
-        items.extend([
-            {"label": "Lịch sử", "href": "/history"},
-            {"label": "Kết quả run"},
-        ])
+        items.extend(
+            [
+                {"label": "Lịch sử", "href": "/history"},
+                {"label": "Kết quả run"},
+            ]
+        )
     elif pathname == "/history":
-        items.extend([
-            {"label": "Đối soát"},
-            {"label": "Lịch sử run"},
-        ])
+        items.extend(
+            [
+                {"label": "Đối soát"},
+                {"label": "Lịch sử run"},
+            ]
+        )
     elif pathname == "/data-sources":
-        items.extend([
-            {"label": "Cấu hình"},
-            {"label": "Data Sources & Lưu trữ"},
-        ])
+        items.extend(
+            [
+                {"label": "Cấu hình"},
+                {"label": "Data Sources & Lưu trữ"},
+            ]
+        )
     elif pathname == "/users":
-        items.extend([
-            {"label": "Hệ thống"},
-            {"label": "Người dùng"},
-        ])
+        items.extend(
+            [
+                {"label": "Hệ thống"},
+                {"label": "Người dùng"},
+            ]
+        )
     elif pathname == "/account":
-        items.extend([
-            {"label": "Tài khoản cá nhân"},
-        ])
+        items.extend(
+            [
+                {"label": "Tài khoản cá nhân"},
+            ]
+        )
     elif pathname == "/dev/ui":
-        items.extend([
-            {"label": "Phát triển"},
-            {"label": "Thư viện UI"},
-        ])
+        items.extend(
+            [
+                {"label": "Phát triển"},
+                {"label": "Thư viện UI"},
+            ]
+        )
     else:
         items.append({"label": pathname.strip("/").capitalize()})
 
@@ -220,9 +240,7 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None) -> Any:
     bc_elements: list[Any] = []
     for i, b in enumerate(breadcrumbs_data):
         if "href" in b and i < len(breadcrumbs_data) - 1:
-            bc_elements.append(
-                dmc.Anchor(b["label"], href=b["href"], size="sm", c="dimmed", underline=False)
-            )
+            bc_elements.append(dmc.Anchor(b["label"], href=b["href"], size="sm", c="dimmed", underline=False))
         else:
             bc_elements.append(dmc.Text(b["label"], size="sm", fw=600, c="dark"))
 

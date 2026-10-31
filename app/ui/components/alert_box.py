@@ -39,7 +39,8 @@ def alert_box(
         color=tone,
         icon=icon_node,
         radius="md",
-        children=dmc.Stack(children_list, gap="xs") if len(children_list) > 1 else (children_list[0] if children_list else None),
+        children=dmc.Stack(children_list, gap="xs")
+        if len(children_list) > 1
+        else (children_list[0] if children_list else None),
         **kwargs,
     )
-

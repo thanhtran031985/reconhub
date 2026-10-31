@@ -28,4 +28,3 @@ def code_block(
             block=True,
             **kwargs,
         )
-

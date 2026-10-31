@@ -17,18 +17,20 @@ def button_primary(
 ) -> dmc.Button:
     """Nút chính màu primary."""
     left_sec = DashIconify(icon=icon, width=16) if icon else None
-    return dmc.Button(
-        text,
-        id=id,
-        color="primary",
-        variant="filled",
-        size=size,
-        radius="md",
-        leftSection=left_sec,
-        loading=loading,
-        disabled=disabled,
+    kw: dict[str, Any] = {
+        "color": "primary",
+        "variant": "filled",
+        "size": size,
+        "radius": "md",
+        "loading": loading,
+        "disabled": disabled,
         **kwargs,
-    )
+    }
+    if id is not None:
+        kw["id"] = id
+    if left_sec is not None:
+        kw["leftSection"] = left_sec
+    return dmc.Button(text, **kw)
 
 
 def button_danger(
@@ -42,18 +44,20 @@ def button_danger(
 ) -> dmc.Button:
     """Nút nguy hiểm / xóa màu crit."""
     left_sec = DashIconify(icon=icon, width=16) if icon else None
-    return dmc.Button(
-        text,
-        id=id,
-        color="crit",
-        variant="filled",
-        size=size,
-        radius="md",
-        leftSection=left_sec,
-        loading=loading,
-        disabled=disabled,
+    kw: dict[str, Any] = {
+        "color": "crit",
+        "variant": "filled",
+        "size": size,
+        "radius": "md",
+        "loading": loading,
+        "disabled": disabled,
         **kwargs,
-    )
+    }
+    if id is not None:
+        kw["id"] = id
+    if left_sec is not None:
+        kw["leftSection"] = left_sec
+    return dmc.Button(text, **kw)
 
 
 def button_subtle(
@@ -66,14 +70,15 @@ def button_subtle(
 ) -> dmc.Button:
     """Nút phụ dạng subtle."""
     left_sec = DashIconify(icon=icon, width=16) if icon else None
-    return dmc.Button(
-        text,
-        id=id,
-        color=color,
-        variant="subtle",
-        size=size,
-        radius="md",
-        leftSection=left_sec,
+    kw: dict[str, Any] = {
+        "color": color,
+        "variant": "subtle",
+        "size": size,
+        "radius": "md",
         **kwargs,
-    )
-
+    }
+    if id is not None:
+        kw["id"] = id
+    if left_sec is not None:
+        kw["leftSection"] = left_sec
+    return dmc.Button(text, **kw)

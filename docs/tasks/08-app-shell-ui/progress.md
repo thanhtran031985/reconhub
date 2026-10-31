@@ -5,12 +5,17 @@ Trạng thái: 🔄
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | Component + gallery | ✅ | 2026-11-01 | 784f80b |
-| 2 | AppShell + banner | ✅ | 2026-11-01 |  |
-| 3 | Màn Templates | 🔄 | 2026-11-01 |  |
-| 4 | Màn Data Sources | ⬜ |  |  |
+| 2 | AppShell + banner | ✅ | 2026-11-01 | 5d39b0a |
+| 3 | Màn Templates | ✅ | 2026-11-01 |  |
+| 4 | Màn Data Sources | 🔄 | 2026-11-01 |  |
 | 5 | Màn Người dùng | ⬜ |  |  |
 
 ## Nhật ký
+### Bước 3 — 2026-11-01 02:02
+- Đã làm: Cài đặt trọn vẹn màn hình Quản lý Template tại `app/ui/pages/templates.py` (Screen02). Thiết kế chuẩn giao diện: tiêu đề và mô tả, nút "Đăng ký template" (dẫn tới Wizard), nút "Import JSON" (kèm modal kéo thả file và switch ghi đè), nút làm mới danh sách; thanh tìm kiếm và lọc trạng thái (ACTIVE / DRAFT / ARCHIVED). Bảng template hiển thị đầy đủ thông tin: Mã template (font mono), Tên & mẫu file, Số trường logic, Danh sách profiles (kèm profile mặc định đánh dấu bằng key icon), Phiên bản, Chủ sở hữu (@username), Trạng thái (`status_chip`), và Menu thao tác (Sửa, Sơ đồ, Nhân bản, Export JSON tải file JSON, Lưu trữ). Đáp ứng đủ 4 trạng thái giao diện: Đang tải (Skeleton), Trống (EmptyState), Lỗi (Alert + nút Thử lại), và Có dữ liệu. Cài đặt các callbacks xử lý tải danh sách, lọc, Import JSON, Nhân bản template (`clone_template`), Lưu trữ template (`archive_template`) và Export JSON (`dcc.Download`). Viết bộ test `tests/unit/test_page_templates.py` và test e2e `tests/e2e/test_e2e_screens.py`.
+- Kiểm tra: `uv run pytest tests/unit/test_page_templates.py` (4 passed); `uv run poe e2e` (1 passed); `uv run poe test` (236 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
+- Suy ra (nếu có): Tích hợp tải file trực tiếp qua `dcc.Download` kết hợp dịch vụ `export_template` giúp xuất cấu hình JSON mượt mà ngay trên giao diện mà không cần reload trang.
+- Việc cần người làm thủ công: Không có.
 ### Bước 2 — 2026-11-01 01:55
 - Đã làm: Tái cấu trúc package layout `app/ui/layout/` với module `shell.py`. Xây dựng khung ứng dụng AppShell gồm thanh bên Navbar 232px (nền nav-bg, logo ReconHub, danh mục menu phân quyền chặt chẽ theo 4 vai trò Admin, Template Owner, Operator, Viewer); thanh trên Header 56px tích hợp Breadcrumbs định hướng động, nhãn môi trường (DEV/UAT/PROD) và menu người dùng góc phải (Tài khoản, Đăng xuất). Cài đặt cơ chế hiển thị Banner thông báo: Banner bảo trì (khi setting `MAINTENANCE_MODE == 'Y'`) và Banner cảnh báo dung lượng dữ liệu tạm (chỉ hiển thị cho vai trò Admin khi vượt ngưỡng dung lượng, kèm liên kết dẫn tới tab Lưu trữ). Viết bộ test `tests/unit/test_ui_shell.py` kiểm chứng quyền xem menu, điều kiện bật banner và sinh breadcrumb.
 - Kiểm tra: `uv run pytest tests/unit/test_ui_shell.py` (3 passed); `uv run poe test` (231 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
