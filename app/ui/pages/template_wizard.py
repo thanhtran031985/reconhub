@@ -14,6 +14,387 @@ from app.schemas.template_config import TemplateConfig
 from app.services.template import get_template, save_draft_template
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
+from app.ui.components.file_drop import file_drop
+
+
+def render_step_1(
+    config: dict[str, Any],
+    preview_rows: list[dict[str, Any]] | None = None,
+) -> Any:
+    """Dựng giao diện Bước 1: File mẫu & cấu trúc file."""
+    file_spec = config.get("file", {})
+    sheet_val = file_spec.get("sheet", "BÁO CÁO DTP")
+    header_row_val = file_spec.get("header_row", 1)
+    data_start_row_val = file_spec.get("data_start_row", 2)
+    detect_headers = file_spec.get("detect_by_headers", ["Số hóa đơn", "Ngày lập hóa đơn", "Thành tiền"])
+
+    # 5 dòng mẫu mặc định nếu chưa có file upload thực tế
+    sample_preview = preview_rows or [
+        {
+            "STT": "1",
+            "Điểm thu phí": "BDP-SMP",
+            "Mã giao dịch": "PAYMENTGW-GMDBDP-10456c031199",
+            "Số hóa đơn": "C26TBD0031335",
+            "Trạng thái": "HĐ Gốc",
+            "Ngày lập hóa đơn": "01/02/2026 00:00:00",
+            "Số PIN": "BDP2600130495",
+            "Mã dịch vụ": "NR",
+            "Dịch vụ": "Phí nâng container rỗng thường",
+            "Số lượng": "1",
+            "Thành tiền": "1620000",
+        },
+        {
+            "STT": "2",
+            "Điểm thu phí": "BD5-SMP",
+            "Mã giao dịch": "2062699179",
+            "Số hóa đơn": "C26TBD0031336",
+            "Trạng thái": "HĐ Gốc",
+            "Ngày lập hóa đơn": "01/02/2026 01:07:13",
+            "Số PIN": "BDP2600126062",
+            "Mã dịch vụ": "NH",
+            "Dịch vụ": "Phí nâng hàng container thường",
+            "Số lượng": "1",
+            "Thành tiền": "1458000",
+        },
+        {
+            "STT": "3",
+            "Điểm thu phí": "BD6-SMP",
+            "Mã giao dịch": "2062699216",
+            "Số hóa đơn": "C26TBD0031337",
+            "Trạng thái": "HĐ Gốc",
+            "Ngày lập hóa đơn": "01/02/2026 02:14:26",
+            "Số PIN": "BDP2600136463",
+            "Mã dịch vụ": "NR",
+            "Dịch vụ": "Phí nâng container rỗng lạnh",
+            "Số lượng": "1",
+            "Thành tiền": "2592000",
+        },
+        {
+            "STT": "4",
+            "Điểm thu phí": "SDC-SMP",
+            "Mã giao dịch": "2062699253",
+            "Số hóa đơn": "C26TBD0031338",
+            "Trạng thái": "HĐ Gốc",
+            "Ngày lập hóa đơn": "01/02/2026 03:21:39",
+            "Số PIN": "BDP2600144597",
+            "Mã dịch vụ": "NR",
+            "Dịch vụ": "Phí nâng container rỗng lạnh",
+            "Số lượng": "1",
+            "Thành tiền": "2592000",
+        },
+        {
+            "STT": "5",
+            "Điểm thu phí": "BDP-SMP",
+            "Mã giao dịch": "2062699290",
+            "Số hóa đơn": "C26TBD0031339",
+            "Trạng thái": "HĐ Gốc",
+            "Ngày lập hóa đơn": "01/02/2026 04:28:52",
+            "Số PIN": "BDP2600144118",
+            "Mã dịch vụ": "NR",
+            "Dịch vụ": "Phí nâng container rỗng lạnh",
+            "Số lượng": "1",
+            "Thành tiền": "2592000",
+        },
+    ]
+
+    preview_headers = list(sample_preview[0].keys())
+    th_cells = [
+        html.Th(
+            h,
+            style={
+                "padding": "8px 12px",
+                "fontSize": "13px",
+                "textAlign": "right" if h in ("STT", "Số lượng", "Thành tiền") else "left",
+            },
+        )
+        for h in preview_headers
+    ]
+    tb_rows = []
+    for r in sample_preview:
+        td_cells = [
+            html.Td(
+                html.Span(
+                    r.get(h, ""),
+                    className="mono" if h in ("Mã giao dịch", "Số hóa đơn", "Số PIN") else "",
+                ),
+                style={
+                    "padding": "8px 12px",
+                    "fontSize": "13px",
+                    "textAlign": "right" if h in ("STT", "Số lượng", "Thành tiền") else "left",
+                },
+            )
+            for h in preview_headers
+        ]
+        tb_rows.append(html.Tr(td_cells, style={"borderBottom": "1px solid var(--border-subtle, #e2e8f0)"}))
+
+    return html.Div(
+        [
+            # Hàng trên: 2 cột
+            dmc.Grid(
+                gap="lg",
+                children=[
+                    # Cột 1: File mẫu & cấu trúc
+                    dmc.GridCol(
+                        span=6,
+                        children=dmc.Paper(
+                            withBorder=True,
+                            p="md",
+                            radius="sm",
+                            children=[
+                                dmc.Title("File mẫu", order=4, mb="sm"),
+                                file_drop(
+                                    id="wizard-file-drop",
+                                    label="dtp_sample_200.xlsx",
+                                    hint="Kéo thả file khác để thay thế (tối đa 50MB)",
+                                ),
+                                dmc.Grid(
+                                    gap="sm",
+                                    mt="md",
+                                    children=[
+                                        dmc.GridCol(
+                                            span=6,
+                                            children=dmc.TextInput(
+                                                id="wizard-input-sheet",
+                                                label="Sheet",
+                                                value=sheet_val,
+                                            ),
+                                        ),
+                                        dmc.GridCol(
+                                            span=3,
+                                            children=dmc.NumberInput(
+                                                id="wizard-input-header-row",
+                                                label="Dòng header",
+                                                value=header_row_val,
+                                                min=1,
+                                            ),
+                                        ),
+                                        dmc.GridCol(
+                                            span=3,
+                                            children=dmc.NumberInput(
+                                                id="wizard-input-data-row",
+                                                label="Dữ liệu từ dòng",
+                                                value=data_start_row_val,
+                                                min=1,
+                                            ),
+                                        ),
+                                    ],
+                                ),
+                                dmc.Text("Header bắt buộc để nhận diện file", size="xs", fw=600, mt="md", mb=6),
+                                dmc.Group(
+                                    [dmc.Badge(h, variant="light", color="gray", radius="sm") for h in detect_headers],
+                                    gap=6,
+                                ),
+                            ],
+                        ),
+                    ),
+                    # Cột 2: Hệ thống phát hiện
+                    dmc.GridCol(
+                        span=6,
+                        children=dmc.Paper(
+                            withBorder=True,
+                            p="md",
+                            radius="sm",
+                            children=[
+                                dmc.Title("Hệ thống phát hiện", order=4, mb="sm"),
+                                alert_box("19 cột, 200 dòng dữ liệu.", tone="ok"),
+                                html.Div(style={"height": 8}),
+                                alert_box(
+                                    "Dòng cuối là dòng tổng (Dịch vụ = 'Tổng tiền', Thành tiền = 366.732.000). "
+                                    "Đề xuất loại khỏi dữ liệu và dùng làm control total.",
+                                    tone="warn",
+                                ),
+                                html.Div(style={"height": 8}),
+                                alert_box(
+                                    "'Số hóa đơn' có 190 giá trị khác nhau trên 200 dòng: đề xuất so ở mức gộp theo hóa đơn.",
+                                    tone="info",
+                                ),
+                                html.Div(style={"height": 8}),
+                                alert_box(
+                                    "'Mã giao dịch' lẫn số và chuỗi (PAYMENTGW-…): đọc dạng Text để không mất dữ liệu.",
+                                    tone="info",
+                                ),
+                                dmc.Checkbox(
+                                    id="wizard-apply-suggestions",
+                                    label="Áp dụng các đề xuất",
+                                    checked=True,
+                                    mt="md",
+                                ),
+                            ],
+                        ),
+                    ),
+                ],
+            ),
+            # Hàng dưới: Xem trước 5 dòng
+            dmc.Paper(
+                withBorder=True,
+                p="md",
+                radius="sm",
+                mt="lg",
+                children=[
+                    dmc.Title("Xem trước 5 dòng", order=4, mb="sm"),
+                    html.Div(
+                        dmc.Table(
+                            striped=True,
+                            children=[
+                                html.Thead(html.Tr(th_cells, style={"background": "var(--bg-subtle, #f8fafc)"})),
+                                html.Tbody(tb_rows),
+                            ],
+                        ),
+                        style={"overflowX": "auto"},
+                    ),
+                ],
+            ),
+        ]
+    )
+
+
+def render_step_2(
+    config: dict[str, Any],
+    errors: dict[str, str] | None = None,
+) -> Any:
+    """Dựng giao diện Bước 2: Định nghĩa & Ánh xạ trường."""
+    fields_list = config.get("fields", [])
+    derived_list = config.get("derived", [])
+
+    rows: list[Any] = []
+    # Fields
+    for idx, f in enumerate(fields_list):
+        f_name = f.get("name", "")
+        f_label = f.get("label", "")
+        f_excel = f.get("excel", "")
+        f_type = f.get("type", "text")
+        norms = f.get("norm", [])
+        norm_badges = []
+        for n in norms:
+            n_str = list(n.keys())[0] if isinstance(n, dict) else str(n)
+            norm_badges.append(dmc.Badge(n_str, size="xs", variant="light", color="gray"))
+
+        is_used = bool(f_excel)
+        err_key = f"fields.{idx}.name"
+        has_err = bool(errors and err_key in errors)
+
+        tr = html.Tr(
+            [
+                html.Td(dmc.Checkbox(checked=is_used, size="xs"), style={"padding": "8px 10px"}),
+                html.Td(html.B(f_excel or f_name), style={"padding": "8px 10px"}),
+                html.Td(
+                    dmc.TextInput(
+                        value=f_name,
+                        size="xs",
+                        className="mono",
+                        style={"width": 150},
+                        error=errors[err_key] if has_err and errors else None,
+                    ),
+                    style={"padding": "8px 10px"},
+                ),
+                html.Td(
+                    dmc.TextInput(value=f_label, size="xs", style={"width": 150}),
+                    style={"padding": "8px 10px"},
+                ),
+                html.Td(
+                    dmc.Select(
+                        value=f_type,
+                        size="xs",
+                        data=[
+                            {"label": "text", "value": "text"},
+                            {"label": "number", "value": "number"},
+                            {"label": "date", "value": "date"},
+                            {"label": "datetime", "value": "datetime"},
+                        ],
+                        style={"width": 110},
+                    ),
+                    style={"padding": "8px 10px"},
+                ),
+                html.Td(dmc.Group(norm_badges, gap=4), style={"padding": "8px 10px"}),
+                html.Td(html.Span("—", className="mono", style={"color": "dimmed"}), style={"padding": "8px 10px"}),
+            ],
+            style={"opacity": 1.0 if is_used else 0.5, "borderBottom": "1px solid var(--border-subtle, #e2e8f0)"},
+        )
+        rows.append(tr)
+
+    # Derived fields
+    for d in derived_list:
+        d_name = d.get("name", "")
+        d_label = d.get("label", "")
+        d_type = d.get("type", "date")
+        expr_str = f"derived: {d.get('expr', {}).get('fn', '')}"
+        tr = html.Tr(
+            [
+                html.Td(dmc.Checkbox(checked=True, size="xs"), style={"padding": "8px 10px"}),
+                html.Td(html.B(expr_str), style={"padding": "8px 10px"}),
+                html.Td(
+                    dmc.TextInput(value=d_name, size="xs", className="mono", style={"width": 150}),
+                    style={"padding": "8px 10px"},
+                ),
+                html.Td(
+                    dmc.TextInput(value=d_label, size="xs", style={"width": 150}),
+                    style={"padding": "8px 10px"},
+                ),
+                html.Td(
+                    dmc.Select(
+                        value=d_type,
+                        size="xs",
+                        data=[
+                            {"label": "text", "value": "text"},
+                            {"label": "number", "value": "number"},
+                            {"label": "date", "value": "date"},
+                            {"label": "datetime", "value": "datetime"},
+                        ],
+                        style={"width": 110},
+                    ),
+                    style={"padding": "8px 10px"},
+                ),
+                html.Td(dmc.Badge("derived", size="xs", variant="light", color="purple"), style={"padding": "8px 10px"}),
+                html.Td(html.Span("2026-02-01", className="mono"), style={"padding": "8px 10px"}),
+            ],
+            style={"borderBottom": "1px solid var(--border-subtle, #e2e8f0)"},
+        )
+        rows.append(tr)
+
+    return dmc.Paper(
+        withBorder=True,
+        p="md",
+        radius="sm",
+        children=[
+            dmc.Group(
+                justify="space-between",
+                mb="md",
+                children=[
+                    dmc.Title("Cột Excel → Trường logic", order=4),
+                    dmc.Group(
+                        [
+                            button_subtle("Gợi ý lại", id="wizard-re-suggest-btn", icon="lucide:sparkles", size="sm"),
+                            button_subtle("Trường dẫn xuất", id="wizard-add-derived-btn", icon="lucide:plus", size="sm"),
+                        ],
+                        gap="sm",
+                    ),
+                ],
+            ),
+            html.Div(
+                dmc.Table(
+                    striped=True,
+                    children=[
+                        html.Thead(
+                            html.Tr(
+                                [
+                                    html.Th("Dùng", style={"padding": "8px 10px"}),
+                                    html.Th("Cột Excel", style={"padding": "8px 10px"}),
+                                    html.Th("Trường logic", style={"padding": "8px 10px"}),
+                                    html.Th("Nhãn", style={"padding": "8px 10px"}),
+                                    html.Th("Kiểu", style={"padding": "8px 10px"}),
+                                    html.Th("Chuẩn hóa", style={"padding": "8px 10px"}),
+                                    html.Th("Giá trị mẫu", style={"padding": "8px 10px"}),
+                                ],
+                                style={"background": "var(--bg-subtle, #f8fafc)"},
+                            )
+                        ),
+                        html.Tbody(rows),
+                    ],
+                ),
+                style={"overflowX": "auto"},
+            ),
+        ],
+    )
 
 try:
     dash.register_page(  # type: ignore[no-untyped-call]
@@ -229,6 +610,27 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
 
 
 # Callbacks cơ bản cho Bước 1
+
+
+@callback(
+    Output("wizard-step-content", "children"),
+    Input("wizard-stepper", "active"),
+    State("wizard-config-store", "data"),
+)
+def handle_render_step_content(active_step: int, config_data: dict[str, Any] | None) -> Any:
+    """Hiển thị nội dung tương ứng theo bước hiện tại trên Stepper."""
+    cfg = config_data or {}
+    if active_step == 0:
+        return render_step_1(cfg)
+    elif active_step == 1:
+        return render_step_2(cfg)
+    elif active_step == 2:
+        return html.Div("Nội dung Bước 3: Nguồn DB (Đang hoàn thiện)")
+    elif active_step == 3:
+        return html.Div("Nội dung Bước 4: Profile so sánh (Đang hoàn thiện)")
+    elif active_step == 4:
+        return html.Div("Nội dung Bước 5: Dry-run (Đang hoàn thiện)")
+    return html.Div("Bước không xác định")
 
 
 @callback(

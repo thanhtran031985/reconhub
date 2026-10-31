@@ -122,3 +122,27 @@ def test_template_wizard_forbidden_for_viewer(wizard_env, monkeypatch) -> None:
     content = layout()
     s = str(content)
     assert "/forbidden" in s or "Không có quyền" in s or "dcc.Location" in s
+
+
+def test_render_step_1_and_step_2(wizard_env, monkeypatch) -> None:
+    from app.ui.pages.template_wizard import render_step_1, render_step_2
+
+    cfg = load_sample_config()
+    form_state = config_to_form_state(cfg)
+
+    # Step 1 render
+    step1_ui = render_step_1(form_state)
+    assert step1_ui is not None
+    s1 = str(step1_ui)
+    assert "File mẫu" in s1
+    assert "Hệ thống phát hiện" in s1
+    assert "Xem trước 5 dòng" in s1
+
+    # Step 2 render
+    step2_ui = render_step_2(form_state)
+    assert step2_ui is not None
+    s2 = str(step2_ui)
+    assert "Cột Excel → Trường logic" in s2
+    assert "INVOICE_NO" in s2
+    assert "Gợi ý lại" in s2
+
