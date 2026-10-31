@@ -65,7 +65,176 @@ def list_reasons(ctx: Ctx) -> list[dict[str, Any]]:
             .mappings()
             .all()
         )
-    return [dict(r) for r in rows]
+    return [
+        {
+            "ID": r["id"],
+            "id": r["id"],
+            "USERNAME": r["username"],
+            "username": r["username"],
+            "FULL_NAME": r["full_name"],
+            "full_name": r["full_name"],
+        }
+        for r in rows
+    ]
+
+
+@service
+def list_assignees(ctx: Ctx) -> list[dict[str, Any]]:
+    """Lấy danh sách người dùng có thể gán xử lý chênh lệch."""
+    require_role(ctx, *ALL_ROLES)
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        rows = (
+            conn.execute(
+                select(
+                    recon_user.c.ID.label("id"),
+                    recon_user.c.USERNAME.label("username"),
+                    recon_user.c.FULL_NAME.label("full_name"),
+                )
+                .where(recon_user.c.IS_ACTIVE == "Y")
+                .order_by(recon_user.c.FULL_NAME)
+            )
+            .mappings()
+            .all()
+        )
+    return [
+        {
+            "ID": r["id"],
+            "id": r["id"],
+            "USERNAME": r["username"],
+            "username": r["username"],
+            "FULL_NAME": r["full_name"],
+            "full_name": r["full_name"],
+        }
+        for r in rows
+    ]
+
+
+@service
+def update_issue_by_id(
+    ctx: Ctx,
+    issue_id: int,
+    status: str | None = None,
+    reason_code: str | None = None,
+    assignee_id: int | None = None,
+    note: str | None = None,
+) -> dict[str, Any]:
+    """Cập nhật trực tiếp một issue theo ID."""
+    require_role(ctx, *MUTATION_ROLES)
+    if status is not None and status not in VALID_ISSUE_STATUSES:
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR,
+            f"Trạng thái '{status}' không hợp lệ. Phải là một trong: {', '.join(VALID_ISSUE_STATUSES)}.",
+        )
+    engine = get_recon_engine()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with engine.begin() as conn:
+        issue = (
+            conn.execute(select(recon_issue).where(recon_issue.c.ID == issue_id))
+            .mappings()
+            .first()
+        )
+        if not issue:
+            raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Issue với ID {issue_id}.")
+
+        upd_values: dict[str, Any] = {
+            "UPDATED_BY": ctx.username,
+            "UPDATED_AT": now,
+            "ROW_VERSION": recon_issue.c.ROW_VERSION + 1,
+        }
+        if status is not None:
+            upd_values["STATUS"] = status
+        if reason_code is not None:
+            upd_values["REASON_CODE"] = reason_code
+        if assignee_id is not None:
+            upd_values["ASSIGNEE_ID"] = assignee_id
+        if note is not None:
+            upd_values["NOTE"] = note
+
+        conn.execute(
+            update(recon_issue)
+            .where(recon_issue.c.ID == issue_id)
+            .values(**upd_values)
+        )
+
+        write_audit_log(
+            conn=conn,
+            entity="ISSUE",
+            entity_id=str(issue_id),
+            action="UPDATE_ISSUE",
+            actor=ctx.username,
+            old_data=dict(issue),
+            new_data={k: v for k, v in upd_values.items() if k != "ROW_VERSION"},
+            now=now,
+        )
+
+    res = get_issue(ctx, issue_id=issue_id)
+    return dict(res.data) if res.data else {}
+
+
+@service
+def bulk_update_issues_by_ids(
+    ctx: Ctx,
+    issue_ids: list[int],
+    status: str | None = None,
+    reason_code: str | None = None,
+    assignee_id: int | None = None,
+    note: str | None = None,
+) -> dict[str, Any]:
+    """Cập nhật hàng loạt nhiều issue theo danh sách ID."""
+    require_role(ctx, *MUTATION_ROLES)
+    if not issue_ids:
+        return {"count": 0, "updated_issues": []}
+
+    if status is not None and status not in VALID_ISSUE_STATUSES:
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR,
+            f"Trạng thái '{status}' không hợp lệ. Phải là một trong: {', '.join(VALID_ISSUE_STATUSES)}.",
+        )
+
+    engine = get_recon_engine()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    upd_values: dict[str, Any] = {
+        "UPDATED_BY": ctx.username,
+        "UPDATED_AT": now,
+        "ROW_VERSION": recon_issue.c.ROW_VERSION + 1,
+    }
+    if status is not None:
+        upd_values["STATUS"] = status
+    if reason_code is not None:
+        upd_values["REASON_CODE"] = reason_code
+    if assignee_id is not None:
+        upd_values["ASSIGNEE_ID"] = assignee_id
+    if note is not None:
+        upd_values["NOTE"] = note
+
+    with engine.begin() as conn:
+        conn.execute(
+            update(recon_issue)
+            .where(recon_issue.c.ID.in_(issue_ids))
+            .values(**upd_values)
+        )
+
+        write_audit_log(
+            conn=conn,
+            entity="ISSUE",
+            entity_id=f"BULK_{len(issue_ids)}",
+            action="BULK_UPDATE_ISSUES",
+            actor=ctx.username,
+            new_data={
+                "issue_ids": issue_ids,
+                "status": status,
+                "reason_code": reason_code,
+                "assignee_id": assignee_id,
+            },
+            now=now,
+        )
+
+    return {
+        "count": len(issue_ids),
+        "updated_issues": issue_ids,
+    }
 
 
 @service

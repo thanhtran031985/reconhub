@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 import dash
 import dash_mantine_components as dmc
 from dash import Input, Output, callback, dcc, html
-from sqlalchemy import desc, func, select
 
 from app.core.context import Ctx
 from app.core.session import get_current_ctx
-from app.db.engine import get_recon_engine
-from app.db.metadata import recon_run, recon_run_summary, recon_template
-from app.services.temp_data import usage
+from app.services.dashboard import get_dashboard_summary
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.empty_state import empty_state
@@ -47,146 +44,11 @@ def format_date_range(p_from: str | None, p_to: str | None) -> str:
 
 
 def fetch_dashboard_stats(ctx: Ctx) -> dict[str, Any]:
-    """Tổng hợp số liệu thống kê cho màn hình Dashboard."""
-    engine = get_recon_engine()
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    start_of_month = datetime(now.year, now.month, 1)
-
-    with engine.connect() as conn:
-        # 1. Thống kê run trong tháng hiện tại
-        runs_query = select(recon_run).where(recon_run.c.CREATED_AT >= start_of_month)
-        all_month_runs = conn.execute(runs_query).mappings().fetchall()
-        total_runs = len(all_month_runs)
-
-        done_count = sum(1 for r in all_month_runs if r["STATUS"] == "DONE")
-        failed_count = sum(1 for r in all_month_runs if r["STATUS"] == "FAILED")
-        running_count = sum(1 for r in all_month_runs if r["STATUS"] in ("RUNNING", "QUEUED"))
-
-        unchecked_count = sum(1 for r in all_month_runs if r["STATUS"] == "DONE" and r["CHECKED_AT"] is None)
-
-        # Việc của tôi: các run của user hiện tại đang chờ kiểm tra hoặc bị lỗi
-        my_unchecked = sum(
-            1
-            for r in all_month_runs
-            if r["CREATED_BY"] == ctx.username and r["STATUS"] == "DONE" and r["CHECKED_AT"] is None
-        )
-        my_failed = sum(1 for r in all_month_runs if r["CREATED_BY"] == ctx.username and r["STATUS"] == "FAILED")
-        my_work = my_unchecked + my_failed
-
-        # 2. Tính tỷ lệ khớp trung bình từ recon_run_summary
-        avg_match_pct: float | None = None
-        sum_stmt = (
-            select(
-                func.sum(recon_run_summary.c.CNT_MATCHED).label("TOTAL_MATCHED"),
-                func.sum(recon_run_summary.c.CNT_MISMATCH).label("TOTAL_MISMATCH"),
-                func.sum(recon_run_summary.c.CNT_MISSING_IN_DB).label("TOTAL_MISSING_DB"),
-                func.sum(recon_run_summary.c.CNT_MISSING_IN_EXCEL).label("TOTAL_MISSING_EXCEL"),
-            )
-            .select_from(
-                recon_run_summary.join(recon_run, recon_run_summary.c.RUN_ID == recon_run.c.ID)
-            )
-            .where(recon_run.c.CREATED_AT >= start_of_month, recon_run.c.STATUS == "DONE")
-        )
-        sums = conn.execute(sum_stmt).mappings().first()
-        if sums and sums["TOTAL_MATCHED"] is not None:
-            tot_matched = sums["TOTAL_MATCHED"] or 0
-            tot_diff = (
-                (sums["TOTAL_MISMATCH"] or 0)
-                + (sums["TOTAL_MISSING_DB"] or 0)
-                + (sums["TOTAL_MISSING_EXCEL"] or 0)
-            )
-            tot_compared = tot_matched + tot_diff
-            if tot_compared > 0:
-                avg_match_pct = round((tot_matched / tot_compared) * 100, 1)
-
-        # 3. Lấy 5 run gần đây nhất
-        recent_stmt = (
-            select(
-                recon_run.c.ID,
-                recon_run.c.PROFILE_CODE,
-                recon_run.c.STATUS,
-                recon_run.c.PROGRESS_PCT,
-                recon_run.c.CREATED_AT,
-                recon_run.c.CHECKED_AT,
-                recon_run.c.CHECKED_BY,
-                recon_run.c.P_FROM,
-                recon_run.c.P_TO,
-                recon_template.c.NAME.label("TEMPLATE_NAME"),
-                recon_template.c.CODE.label("TEMPLATE_CODE"),
-                recon_run_summary.c.CNT_MATCHED,
-                recon_run_summary.c.CNT_MISMATCH,
-                recon_run_summary.c.CNT_MISSING_IN_DB,
-                recon_run_summary.c.CNT_MISSING_IN_EXCEL,
-            )
-            .select_from(
-                recon_run.outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID)
-                .outerjoin(recon_run_summary, recon_run.c.ID == recon_run_summary.c.RUN_ID)
-            )
-            .order_by(desc(recon_run.c.CREATED_AT))
-            .limit(10)
-        )
-        recent_rows = conn.execute(recent_stmt).mappings().fetchall()
-
-        recent_items = []
-        for r in recent_rows:
-            cnt_matched = r["CNT_MATCHED"] or 0
-            cnt_mismatch = r["CNT_MISMATCH"] or 0
-            cnt_missing_db = r["CNT_MISSING_IN_DB"] or 0
-            cnt_missing_excel = r["CNT_MISSING_IN_EXCEL"] or 0
-            tot_comp = cnt_matched + cnt_mismatch + cnt_missing_db + cnt_missing_excel
-            m_pct = round((cnt_matched / tot_comp) * 100, 1) if tot_comp > 0 else (100.0 if r["STATUS"] == "DONE" else None)
-
-            recent_items.append(
-                {
-                    "id": int(r["ID"]),
-                    "template_name": str(r["TEMPLATE_NAME"] or r["TEMPLATE_CODE"] or "Template"),
-                    "profile_code": str(r["PROFILE_CODE"] or "—"),
-                    "status": str(r["STATUS"]),
-                    "progress_pct": int(r["PROGRESS_PCT"] or 0),
-                    "created_at": r["CREATED_AT"].isoformat() if r["CREATED_AT"] else None,
-                    "checked_at": r["CHECKED_AT"].isoformat() if r["CHECKED_AT"] else None,
-                    "checked_by": r["CHECKED_BY"],
-                    "p_from": r["P_FROM"].isoformat() if r["P_FROM"] else None,
-                    "p_to": r["P_TO"].isoformat() if r["P_TO"] else None,
-                    "cnt_mismatch": cnt_mismatch,
-                    "cnt_missing_in_db": cnt_missing_db,
-                    "cnt_missing_in_excel": cnt_missing_excel,
-                    "match_pct": m_pct,
-                }
-            )
-
-        # Thời gian run gần nhất
-        last_run_time_str = "—"
-        if recent_items and recent_items[0]["created_at"]:
-            try:
-                l_dt = datetime.fromisoformat(recent_items[0]["created_at"])
-                last_run_time_str = l_dt.strftime("%d/%m/%Y %H:%M:%S")
-            except Exception:
-                pass
-
-    # Lấy thông tin dữ liệu tạm từ service usage
-    temp_bytes = 0
-    try:
-        u_res = usage(ctx)
-        if u_res.ok and u_res.data:
-            temp_bytes = u_res.data.get("total_bytes", 0)
-    except Exception:
-        pass
-
-    return {
-        "total_runs": total_runs,
-        "done_count": done_count,
-        "failed_count": failed_count,
-        "running_count": running_count,
-        "unchecked_count": unchecked_count,
-        "my_work": my_work,
-        "my_unchecked": my_unchecked,
-        "my_failed": my_failed,
-        "avg_match_pct": avg_match_pct,
-        "recent_runs": recent_items,
-        "last_run_time": last_run_time_str,
-        "temp_bytes": temp_bytes,
-    }
+    """Tổng hợp số liệu thống kê cho màn hình Dashboard thông qua service."""
+    res = get_dashboard_summary(ctx)
+    if not res.ok or not res.data:
+        return {}
+    return dict(res.data)
 
 
 def render_header(total: int, unchecked: int, last_run_time: str) -> dmc.Group:
@@ -263,6 +125,128 @@ def render_kpi_grid(stats: dict[str, Any]) -> dmc.SimpleGrid:
     )
 
 
+def render_diff_rate_by_template(diff_rates: list[dict[str, Any]]) -> dmc.Card:
+    """Card thống kê tỉ lệ lệch theo template (PRD C1)."""
+    header_group = dmc.Group(
+        [
+            dmc.Text("Tỉ lệ lệch theo template", fw=600, size="md"),
+            dmc.Anchor(
+                button_subtle("Quản lý template", size="xs", icon="lucide:layout-template"),
+                href="/templates",
+            ),
+        ],
+        justify="space-between",
+        align="center",
+        p="md",
+    )
+
+    if not diff_rates:
+        content: Any = dmc.Box(
+            empty_state(
+                title="Chưa có dữ liệu theo template",
+                description="Tỉ lệ lệch sẽ được tổng hợp khi có các lần chạy đối soát hoàn thành.",
+            ),
+            p="xl",
+        )
+    else:
+        headers = [
+            dmc.TableTh("Template"),
+            dmc.TableTh("Số run", style={"textAlign": "center"}),
+            dmc.TableTh("Tổng nhóm so sánh", style={"textAlign": "right"}),
+            dmc.TableTh("Nhóm lệch", style={"textAlign": "right"}),
+            dmc.TableTh("Tỉ lệ lệch", style={"minWidth": "200px"}),
+        ]
+
+        rows = []
+        for item in diff_rates:
+            t_name = item.get("template_name") or item.get("template_code") or "Template"
+            t_code = item.get("template_code", "")
+            r_cnt = item.get("run_count", 0)
+            tot_comp = item.get("total_compared", 0)
+            tot_diff = item.get("total_diff", 0)
+            diff_pct = item.get("diff_pct", 0.0)
+
+            diff_str = f"{diff_pct:.1f}%".replace(".", ",")
+            progress_color = "teal" if diff_pct == 0 else ("orange" if diff_pct <= 5.0 else "red")
+
+            rows.append(
+                dmc.TableTr(
+                    [
+                        dmc.TableTd(
+                            dmc.Stack(
+                                [
+                                    dmc.Text(t_name, fw=500, size="sm"),
+                                    dmc.Text(t_code, c="dimmed", size="xs", className="rh-code"),
+                                ],
+                                gap=2,
+                            )
+                        ),
+                        dmc.TableTd(
+                            dmc.Text(str(r_cnt), size="sm", style={"textAlign": "center"}),
+                        ),
+                        dmc.TableTd(
+                            dmc.Text(
+                                f"{tot_comp:,}".replace(",", "."),
+                                size="sm",
+                                style={"textAlign": "right"},
+                            ),
+                        ),
+                        dmc.TableTd(
+                            dmc.Text(
+                                f"{tot_diff:,}".replace(",", "."),
+                                size="sm",
+                                c="red" if tot_diff > 0 else "dimmed",
+                                fw=600 if tot_diff > 0 else 400,
+                                style={"textAlign": "right"},
+                            ),
+                        ),
+                        dmc.TableTd(
+                            dmc.Group(
+                                [
+                                    dmc.Progress(
+                                        value=min(100.0, diff_pct),
+                                        color=progress_color,
+                                        size="sm",
+                                        style={"flex": 1},
+                                    ),
+                                    dmc.Text(
+                                        diff_str,
+                                        size="xs",
+                                        fw=600,
+                                        c=progress_color,
+                                        style={"minWidth": "48px", "textAlign": "right"},
+                                    ),
+                                ],
+                                gap="xs",
+                                align="center",
+                            )
+                        ),
+                    ]
+                )
+            )
+
+        content = dmc.Table(
+            [
+                dmc.TableThead(dmc.TableTr(headers)),
+                dmc.TableTbody(rows),
+            ],
+            highlightOnHover=True,
+            withTableBorder=False,
+            withColumnBorders=False,
+        )
+
+    return dmc.Card(
+        [
+            header_group,
+            dmc.Divider(),
+            html.Div(content, style={"overflowX": "auto"}),
+        ],
+        withBorder=True,
+        padding=0,
+        radius="sm",
+    )
+
+
 def render_recent_runs_card(recent_items: list[dict[str, Any]]) -> dmc.Card:
     """Card danh sách các lần chạy gần đây nhất."""
     header_group = dmc.Group(
@@ -279,7 +263,7 @@ def render_recent_runs_card(recent_items: list[dict[str, Any]]) -> dmc.Card:
     )
 
     if not recent_items:
-        table_content = dmc.Box(
+        table_content: Any = dmc.Box(
             empty_state(
                 title="Chưa có run nào",
                 description="Bắt đầu chạy đối soát để theo dõi tiến độ và kết quả.",
@@ -412,6 +396,7 @@ def render_dashboard(_refresh: int) -> Any:
         unchecked = stats.get("unchecked_count", 0)
         last_time = stats.get("last_run_time", "—")
         recent_items = stats.get("recent_runs", [])
+        diff_rates = stats.get("diff_rate_by_template", [])
 
         # Kiểm tra trạng thái rỗng
         if total == 0:
@@ -434,12 +419,14 @@ def render_dashboard(_refresh: int) -> Any:
         header_node = render_header(total, unchecked, last_time)
         kpis_node = render_kpi_grid(stats)
         recent_card = render_recent_runs_card(recent_items)
+        diff_card = render_diff_rate_by_template(diff_rates)
 
         return dmc.Stack(
             [
                 header_node,
                 kpis_node,
                 recent_card,
+                diff_card,
             ],
             gap="lg",
             p="lg",

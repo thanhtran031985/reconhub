@@ -23,6 +23,7 @@ from app.ui.pages.dashboard import (
     format_date_range,
     format_short_dt,
     render_dashboard,
+    render_diff_rate_by_template,
     render_header,
     render_kpi_grid,
     render_recent_runs_card,
@@ -260,3 +261,26 @@ def test_render_dashboard_callback(dashboard_env, monkeypatch):
     assert "Run trong kỳ" in res_str
     assert "#201" in res_str
     assert "#202" in res_str
+    assert "Tỉ lệ lệch theo template" in res_str
+
+
+def test_render_diff_rate_by_template():
+    empty_card = render_diff_rate_by_template([])
+    assert "Chưa có dữ liệu theo template" in str(empty_card)
+
+    items = [
+        {
+            "template_id": 1,
+            "template_code": "DTP",
+            "template_name": "DTP Hóa Đơn",
+            "run_count": 5,
+            "total_compared": 1000,
+            "total_diff": 25,
+            "diff_pct": 2.5,
+        }
+    ]
+    card = render_diff_rate_by_template(items)
+    card_str = str(card)
+    assert "DTP Hóa Đơn" in card_str
+    assert "DTP" in card_str
+    assert "2,5%" in card_str

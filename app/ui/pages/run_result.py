@@ -9,11 +9,13 @@ from dash import Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
+from app.services.dashboard import compare_runs, get_previous_run
 from app.services.run_service import get_run
 from app.services.temp_data import mark_checked, purge_runs
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
 from app.ui.components.drawer import drawer_right
+from app.ui.components.empty_state import empty_state
 from app.ui.components.kpi_card import kpi_card
 from app.ui.components.modal_confirm import modal_confirm
 from app.ui.components.status_chip import status_chip
@@ -107,6 +109,9 @@ def render_header(run_info: dict[str, Any]) -> Any:
             )
         )
 
+    action_btns.append(
+        button_subtle("So với run trước", id="run-res-compare-btn", icon="lucide:git-compare")
+    )
     action_btns.append(
         dcc.Link(button_subtle("Chạy lại", icon="lucide:refresh-cw"), href="/runs/new")
     )
@@ -306,6 +311,9 @@ def render_result_grid(
     rows: list[dict[str, Any]],
     search_query: str = "",
     only_diff_cols: bool = False,
+    can_edit: bool = False,
+    selected_row_nos: list[int] | None = None,
+    **kwargs: Any,
 ) -> Any:
     """Dựng bảng dữ liệu kết quả đối soát kèm thanh tìm kiếm khóa và checkbox lọc cột lệch."""
     # Lọc client-side theo search_query
@@ -401,6 +409,11 @@ def render_detail_drawer(
     raw_excel_rows: list[dict[str, Any]],
     db_records: list[dict[str, Any]],
     temp_purged_at: str | None = None,
+    issue_info: dict[str, Any] | None = None,
+    reasons: list[dict[str, Any]] | None = None,
+    assignees: list[dict[str, Any]] | None = None,
+    can_edit: bool = False,
+    **kwargs: Any,
 ) -> Any:
     """Dựng nội dung Drawer chi tiết: Dòng Excel gốc và Dòng DB tương ứng theo khóa."""
     header_content = dmc.Group(
@@ -468,15 +481,344 @@ def render_detail_drawer(
     else:
         db_section = dmc.Text("Không có bản ghi DB trong khoảng tìm kiếm.", size="sm", c="dimmed")
 
+    items_to_render = [
+        header_content,
+        dmc.Title("Dòng Excel gốc", order=4, mt="md"),
+        excel_section,
+        dmc.Title("Dòng DB (truy vấn lại theo khóa)", order=4, mt="lg"),
+        db_section,
+    ]
+
+    if issue_info or can_edit:
+        st_iss = issue_info.get("STATUS", "OPEN") if issue_info else "OPEN"
+        items_to_render.extend(
+            [
+                dmc.Title("Xử lý chênh lệch", order=4, mt="lg"),
+                dmc.Paper(
+                    p="sm",
+                    withBorder=True,
+                    radius="sm",
+                    children=dmc.Stack(
+                        [
+                            dmc.Group(
+                                [
+                                    dmc.Text("Trạng thái xử lý:", size="sm", fw=500),
+                                    status_chip(st_iss),
+                                ],
+                                gap="xs",
+                            ),
+                            dmc.Text(
+                                f"Lý do: {issue_info.get('REASON_LABEL') or issue_info.get('REASON_CODE') or 'Chưa xác định'}"
+                                if issue_info
+                                else "",
+                                size="xs",
+                                c="dimmed",
+                            ),
+                            dmc.Text(
+                                f"Ghi chú: {issue_info.get('NOTE') or '—'}"
+                                if issue_info
+                                else "",
+                                size="xs",
+                            ),
+                        ],
+                        gap="xs",
+                    ),
+                ),
+            ]
+        )
+
+    return dmc.Stack(items_to_render, gap="xs")
+
+
+def render_run_res_bulk_bar(selected_row_nos: list[int] | None = None) -> Any:
+    """Thanh thao tác hàng loạt cho các dòng đã chọn trên kết quả run."""
+    if not selected_row_nos:
+        return html.Div(id="run-res-bulk-bar", style={"display": "none"})
+
+    count = len(selected_row_nos)
+    return dmc.Paper(
+        id="run-res-bulk-bar",
+        p="sm",
+        withBorder=True,
+        radius="sm",
+        children=dmc.Group(
+            [
+                dmc.Text(f"Đã chọn {count} dòng", fw=600, size="sm"),
+                button_primary("Xử lý hàng loạt", id="run-res-bulk-apply-btn", size="xs"),
+            ],
+            justify="space-between",
+            align="center",
+        ),
+    )
+
+
+def handle_save_issue_from_drawer(
+    n_clicks: int | None,
+    meta: dict[str, Any] | None,
+    status_val: str | None,
+    reason_code: str | None,
+    assignee_val: str | None,
+    note_val: str | None,
+) -> tuple[Any, int]:
+    """Lưu cập nhật issue cho dòng từ drawer kết quả run."""
+    if not n_clicks or not meta:
+        return dash.no_update, 0
+
+    ctx = get_current_ctx()
+    if ctx:
+        from app.services.issue import upsert_issue_for_row
+
+        r_id = int(meta.get("run_id", 0))
+        r_no = int(meta.get("row_no", 0))
+        ass_id = int(assignee_val) if assignee_val and str(assignee_val).isdigit() else None
+        res = upsert_issue_for_row(
+            ctx,
+            run_id=r_id,
+            row_no=r_no,
+            reason_code=reason_code,
+            assignee_id=ass_id,
+            status=status_val or "OPEN",
+            note=note_val,
+        )
+        if res.ok:
+            return alert_box("Đã lưu xử lý chênh lệch.", tone="ok"), 1
+        return alert_box(res.message or "Lỗi khi lưu xử lý.", tone="crit"), 0
+    return alert_box("Chưa đăng nhập.", tone="crit"), 0
+
+
+def handle_run_res_bulk_apply(
+    n_clicks: int | None,
+    data_store: dict[str, Any] | None,
+    selected_row_nos: list[int] | None,
+    reason_code: str | None = None,
+    assignee_val: str | None = None,
+    status_val: str | None = None,
+) -> tuple[int, list[int]]:
+    """Áp dụng xử lý hàng loạt cho các dòng kết quả run được chọn."""
+    if not n_clicks or not selected_row_nos:
+        return 0, []
+
+    ctx = get_current_ctx()
+    if ctx and data_store:
+        from app.services.issue import bulk_upsert_issues
+
+        run_info = data_store.get("run", {})
+        r_id = int(run_info.get("id", 0))
+        ass_id = int(assignee_val) if assignee_val and str(assignee_val).isdigit() else None
+        res = bulk_upsert_issues(
+            ctx,
+            run_id=r_id,
+            row_nos=selected_row_nos,
+            reason_code=reason_code,
+            assignee_id=ass_id,
+            status=status_val,
+        )
+        if res.ok:
+            return 1, []
+    return 0, []
+
+
+def render_compare_drawer_content(
+    run_id_a: int,
+    run_id_b: int,
+    compare_data: dict[str, Any] | None,
+    active_tab: str = "ALL",
+) -> Any:
+    """Dựng nội dung Drawer so sánh hai run phân loại chuẩn 3 nhóm."""
+    if not compare_data:
+        return empty_state(
+            title="Không có run trước để so sánh",
+            description="Không tìm thấy run thành công nào trước đó cùng Template và Profile.",
+        )
+
+    run_a = compare_data.get("run_a", {})
+    run_b = compare_data.get("run_b", {})
+    summary = compare_data.get("summary", {})
+    items = compare_data.get("items", [])
+
+    c_only_a = summary.get("count_only_in_a", 0)
+    c_only_b = summary.get("count_only_in_b", 0)
+    c_changed = summary.get("count_status_changed", 0)
+    c_same = summary.get("count_same_status", 0)
+
+    # 1. Header hai run
+    header_box = dmc.Paper(
+        p="sm",
+        withBorder=True,
+        radius="sm",
+        children=dmc.Group(
+            [
+                dmc.Stack(
+                    [
+                        dmc.Text("Run A (Trước)", size="xs", c="dimmed", fw=600),
+                        dmc.Text(f"#{run_a.get('id', run_id_a)}", fw=700, className="rh-code"),
+                    ],
+                    gap=2,
+                ),
+                DashIconify(icon="lucide:arrow-right", width=18, color="gray"),
+                dmc.Stack(
+                    [
+                        dmc.Text("Run B (Hiện tại)", size="xs", c="dimmed", fw=600),
+                        dmc.Text(f"#{run_b.get('id', run_id_b)}", fw=700, className="rh-code"),
+                    ],
+                    gap=2,
+                ),
+            ],
+            gap="lg",
+            align="center",
+        ),
+    )
+
+    # 2. 4 Thẻ KPI so sánh
+    kpis = dmc.SimpleGrid(
+        cols={"base": 2, "sm": 4},
+        spacing="sm",
+        children=[
+            kpi_card(
+                label="Chỉ có ở Run A",
+                value=c_only_a,
+                tone="warn" if c_only_a > 0 else "primary",
+                meta="Khóa đã hết",
+                icon="lucide:minus-circle",
+            ),
+            kpi_card(
+                label="Chỉ có ở Run B",
+                value=c_only_b,
+                tone="primary",
+                meta="Khóa mới phát sinh",
+                icon="lucide:plus-circle",
+            ),
+            kpi_card(
+                label="Đổi trạng thái",
+                value=c_changed,
+                tone="crit" if c_changed > 0 else "ok",
+                meta="Cần chú ý",
+                icon="lucide:refresh-cw",
+            ),
+            kpi_card(
+                label="Giữ nguyên",
+                value=c_same,
+                tone="ok",
+                meta="Trạng thái không đổi",
+                icon="lucide:check-circle-2",
+            ),
+        ],
+    )
+
+    # 3. Lọc Tab
+    tabs_data = [
+        ("ALL", "Tất cả", len(items)),
+        ("STATUS_CHANGED", "Đổi trạng thái", c_changed),
+        ("ONLY_IN_A", "Chỉ có ở A", c_only_a),
+        ("ONLY_IN_B", "Chỉ có ở B", c_only_b),
+        ("SAME_STATUS", "Giữ nguyên", c_same),
+    ]
+
+    tab_buttons = []
+    for code, lbl, cnt in tabs_data:
+        is_act = code == active_tab
+        tab_buttons.append(
+            dmc.Button(
+                [
+                    dmc.Text(lbl, size="xs", fw=600 if is_act else 400),
+                    dmc.Badge(
+                        str(cnt),
+                        size="xs",
+                        variant="light",
+                        color="primary" if is_act else "gray",
+                        ml=4,
+                    ),
+                ],
+                id={"type": "run-res-compare-tab", "index": code},
+                variant="filled" if is_act else "subtle",
+                color="primary" if is_act else "gray",
+                size="xs",
+            )
+        )
+
+    tabs_group = dmc.Group(tab_buttons, gap="xs", mt="sm", mb="xs")
+
+    # 4. Lọc items theo active_tab
+    if active_tab == "ALL":
+        filtered_items = items
+    else:
+        filtered_items = [it for it in items if it.get("category") == active_tab]
+
+    category_labels = {
+        "ONLY_IN_A": ("orange", "Chỉ có ở A"),
+        "ONLY_IN_B": ("blue", "Chỉ có ở B"),
+        "STATUS_CHANGED": ("red", "Đổi trạng thái"),
+        "SAME_STATUS": ("teal", "Giữ nguyên"),
+    }
+
+    if not filtered_items:
+        table_node: Any = empty_state(
+            title="Không có khóa nào",
+            description="Không có bản ghi nào trong nhóm đã chọn.",
+        )
+    else:
+        headers = [
+            dmc.TableTh("Khóa (Key)"),
+            dmc.TableTh("Phân loại"),
+            dmc.TableTh("Trạng thái Run A"),
+            dmc.TableTh("Trạng thái Run B"),
+            dmc.TableTh("Lệch Run A", style={"textAlign": "right"}),
+            dmc.TableTh("Lệch Run B", style={"textAlign": "right"}),
+        ]
+        rows = []
+        for it in filtered_items:
+            cat = it.get("category", "SAME_STATUS")
+            c_color, c_text = category_labels.get(cat, ("gray", cat))
+            st_a = it.get("status_a")
+            st_b = it.get("status_b")
+            diff_a = it.get("abs_diff_a")
+            diff_b = it.get("abs_diff_b")
+
+            rows.append(
+                dmc.TableTr(
+                    [
+                        dmc.TableTd(
+                            dmc.Text(it.get("key_text", "—"), fw=600, className="rh-code", size="xs")
+                        ),
+                        dmc.TableTd(dmc.Badge(c_text, color=c_color, size="xs", variant="light")),
+                        dmc.TableTd(status_chip(st_a) if st_a else dmc.Text("—", c="dimmed", size="xs")),
+                        dmc.TableTd(status_chip(st_b) if st_b else dmc.Text("—", c="dimmed", size="xs")),
+                        dmc.TableTd(
+                            dmc.Text(
+                                fmt_num(diff_a) if diff_a is not None else "—",
+                                size="xs",
+                                style={"textAlign": "right"},
+                            )
+                        ),
+                        dmc.TableTd(
+                            dmc.Text(
+                                fmt_num(diff_b) if diff_b is not None else "—",
+                                size="xs",
+                                style={"textAlign": "right"},
+                            )
+                        ),
+                    ]
+                )
+            )
+
+        table_node = dmc.Table(
+            [
+                dmc.TableThead(dmc.TableTr(headers)),
+                dmc.TableTbody(rows),
+            ],
+            highlightOnHover=True,
+            withTableBorder=False,
+            withColumnBorders=False,
+        )
+
     return dmc.Stack(
         [
-            header_content,
-            dmc.Title("Dòng Excel gốc", order=4, mt="md"),
-            excel_section,
-            dmc.Title("Dòng DB (truy vấn lại theo khóa)", order=4, mt="lg"),
-            db_section,
+            header_box,
+            kpis,
+            tabs_group,
+            html.Div(table_node, style={"maxHeight": "500px", "overflowY": "auto"}),
         ],
-        gap="xs",
+        gap="md",
     )
 
 
@@ -590,6 +932,16 @@ def layout(run_id: str | int | None = 1042, **kwargs: Any) -> Any:
                 size=540,
                 children=html.Div(id="run-res-drawer-content"),
             ),
+            # Drawer so sánh với run trước
+            drawer_right(
+                id="run-res-compare-drawer",
+                title="So sánh với Run trước",
+                opened=False,
+                size=820,
+                children=html.Div(id="run-res-compare-content"),
+            ),
+            dcc.Store(id="run-res-compare-store", data=None),
+            dcc.Store(id="run-res-compare-filter-store", data="ALL"),
             # Modal Đã kiểm tra xong
             modal_confirm(
                 id="run-res-check-modal",
@@ -843,5 +1195,123 @@ def handle_check_and_purge_modals(
         updated_store = {**(data_store or {}), "run": updated_run}
         new_header = render_header(updated_run)
         return False, False, new_header, updated_store
+
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+
+@callback(
+    Output("run-res-compare-drawer", "opened"),
+    Output("run-res-compare-content", "children"),
+    Output("run-res-compare-store", "data"),
+    Output("run-res-compare-filter-store", "data"),
+    Input("run-res-compare-btn", "n_clicks"),
+    Input({"type": "run-res-compare-tab", "index": dash.ALL}, "n_clicks"),
+    State("run-res-data-store", "data"),
+    State("run-res-compare-store", "data"),
+    State("run-res-compare-filter-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_compare_runs(
+    _compare_clicks: int | None,
+    _tab_clicks: list[int | None],
+    data_store: dict[str, Any] | None,
+    compare_store: dict[str, Any] | None,
+    current_filter: str | None,
+) -> tuple[Any, Any, Any, Any]:
+    """Mở Drawer và thực hiện so sánh hai run."""
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False, dash.no_update, dash.no_update, dash.no_update
+
+    trigger_id = ctx_dash.triggered[0]["prop_id"]
+    ctx = get_current_ctx()
+    run_info = data_store.get("run", {}) if data_store else {}
+    cur_id = int(run_info.get("id", 1042))
+
+    # 1. Bấm nút so sánh trên header
+    if "run-res-compare-btn" in trigger_id:
+        active_filter = "ALL"
+        compare_data = None
+        prev_run_id = None
+
+        if ctx:
+            prev_res = get_previous_run(ctx, cur_id)
+            if prev_res.ok and prev_res.data:
+                prev_run_id = int(prev_res.data["id"])
+                comp_res = compare_runs(ctx, run_id_a=prev_run_id, run_id_b=cur_id)
+                if comp_res.ok:
+                    compare_data = comp_res.data
+
+        # Fallback dữ liệu mẫu nếu không có run trước hoặc đang preview run 1042
+        if not compare_data and cur_id == 1042:
+            prev_run_id = 1041
+            compare_data = {
+                "run_a": {"id": 1041, "created_at": "2026-02-01T10:00:00"},
+                "run_b": {"id": 1042, "created_at": "2026-02-05T12:00:00"},
+                "summary": {
+                    "count_only_in_a": 1,
+                    "count_only_in_b": 2,
+                    "count_status_changed": 1,
+                    "count_same_status": 6,
+                    "total_keys": 10,
+                },
+                "items": [
+                    {
+                        "key_text": "C26TBD0031338",
+                        "category": "SAME_STATUS",
+                        "status_a": "DIFF",
+                        "status_b": "DIFF",
+                        "abs_diff_a": 162000,
+                        "abs_diff_b": 162000,
+                    },
+                    {
+                        "key_text": "C26TBD0031375",
+                        "category": "STATUS_CHANGED",
+                        "status_a": "DIFF",
+                        "status_b": "MATCHED",
+                        "abs_diff_a": 1620000,
+                        "abs_diff_b": 0,
+                    },
+                    {
+                        "key_text": "C26TBD0031412",
+                        "category": "ONLY_IN_A",
+                        "status_a": "DIFF",
+                        "status_b": None,
+                        "abs_diff_a": 1620000,
+                        "abs_diff_b": None,
+                    },
+                    {
+                        "key_text": "C26TBD0099901",
+                        "category": "ONLY_IN_B",
+                        "status_a": None,
+                        "status_b": "MISSING_EXCEL",
+                        "abs_diff_a": None,
+                        "abs_diff_b": 1620000,
+                    },
+                ],
+            }
+
+        ui = render_compare_drawer_content(
+            run_id_a=prev_run_id or 0,
+            run_id_b=cur_id,
+            compare_data=compare_data,
+            active_tab=active_filter,
+        )
+        return True, ui, compare_data, active_filter
+
+    # 2. Bấm tab lọc bên trong Drawer
+    if "run-res-compare-tab" in trigger_id:
+        import json
+
+        tab_dict = json.loads(trigger_id.split(".")[0])
+        new_tab = tab_dict.get("index", "ALL")
+
+        ui = render_compare_drawer_content(
+            run_id_a=compare_store.get("run_a", {}).get("id", 0) if compare_store else 0,
+            run_id_b=cur_id,
+            compare_data=compare_store,
+            active_tab=new_tab,
+        )
+        return True, ui, compare_store, new_tab
 
     return dash.no_update, dash.no_update, dash.no_update, dash.no_update

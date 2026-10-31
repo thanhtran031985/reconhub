@@ -17,6 +17,8 @@ from app.db.metadata import (
     recon_user_role,
 )
 from app.ui.pages.run_result import (
+    handle_compare_runs,
+    render_compare_drawer_content,
     render_detail_drawer,
     render_header,
     render_kpi_cards,
@@ -179,6 +181,7 @@ def test_render_header() -> None:
     assert "Dữ liệu tạm còn" in s
     assert "Đã kiểm tra xong" in s
     assert "Export Excel" in s
+    assert "So với run trước" in s
 
 
 def test_render_kpi_cards() -> None:
@@ -319,3 +322,78 @@ def test_layout_and_modals(run_result_env, monkeypatch) -> None:
     assert new_store["run"]["temp_purged_at"] is not None
     assert "Đã kiểm tra" in str(new_hd)
     assert "Dữ liệu tạm đã xóa" in str(new_hd)
+
+
+def test_render_compare_drawer_content() -> None:
+    empty_ui = render_compare_drawer_content(1041, 1042, None)
+    assert "Không có run trước để so sánh" in str(empty_ui)
+
+    compare_data = {
+        "run_a": {"id": 1041, "created_at": "2026-02-01T10:00:00"},
+        "run_b": {"id": 1042, "created_at": "2026-02-05T12:00:00"},
+        "summary": {
+            "count_only_in_a": 1,
+            "count_only_in_b": 2,
+            "count_status_changed": 1,
+            "count_same_status": 6,
+            "total_keys": 10,
+        },
+        "items": [
+            {
+                "key_text": "INV_001",
+                "category": "ONLY_IN_A",
+                "status_a": "DIFF",
+                "status_b": None,
+                "abs_diff_a": 100,
+                "abs_diff_b": None,
+            },
+            {
+                "key_text": "INV_002",
+                "category": "ONLY_IN_B",
+                "status_a": None,
+                "status_b": "DIFF",
+                "abs_diff_a": None,
+                "abs_diff_b": 200,
+            },
+            {
+                "key_text": "INV_003",
+                "category": "STATUS_CHANGED",
+                "status_a": "DIFF",
+                "status_b": "MATCHED",
+                "abs_diff_a": 50,
+                "abs_diff_b": 0,
+            },
+        ],
+    }
+
+    content_ui = render_compare_drawer_content(1041, 1042, compare_data, active_tab="ALL")
+    assert content_ui is not None
+    s = str(content_ui)
+    assert "#1041" in s
+    assert "#1042" in s
+    assert "Chỉ có ở Run A" in s
+    assert "Chỉ có ở Run B" in s
+    assert "Đổi trạng thái" in s
+    assert "Giữ nguyên" in s
+    assert "INV_001" in s
+    assert "INV_002" in s
+    assert "INV_003" in s
+
+
+def test_handle_compare_runs_callback(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "dash.callback_context",
+        type("MockCtx", (), {"triggered": [{"prop_id": "run-res-compare-btn.n_clicks"}]})(),
+    )
+    data_store = {
+        "run": {"id": 1042},
+        "summary": {},
+        "rows": [],
+    }
+    opened, ui, data, current_filter = handle_compare_runs(
+        1, [], data_store, None, None
+    )
+    assert opened is True
+    assert ui is not None
+    assert current_filter == "ALL"
+    assert data is not None
