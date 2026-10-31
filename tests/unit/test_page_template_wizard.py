@@ -146,3 +146,21 @@ def test_render_step_1_and_step_2(wizard_env, monkeypatch) -> None:
     assert "INVOICE_NO" in s2
     assert "Gợi ý lại" in s2
 
+
+def test_render_step_3_db_source(wizard_env, monkeypatch) -> None:
+    from app.ui.pages.template_wizard import render_step_3
+
+    cfg = load_sample_config()
+    form_state = config_to_form_state(cfg)
+
+    step3_ui = render_step_3(form_state)
+    assert step3_ui is not None
+    s3 = str(step3_ui)
+    assert "Nguồn dữ liệu DB" in s3
+    assert "Bảng/View nguồn" in s3
+    assert "Điều kiện lọc theo tham số" in s3
+    assert "Câu SELECT sinh ra" in s3
+    assert "Cột DB → Trường logic" in s3
+    assert "Lọc dữ liệu Excel theo cùng khoảng" in s3
+
+

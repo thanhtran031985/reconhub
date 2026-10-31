@@ -5,13 +5,27 @@ Trạng thái: 🔄
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | Khung + state + autosave | ✅ | 2026-11-01 | 14c0002 |
-| 2 | Bước 1–2 | ✅ | 2026-11-01 |  |
-| 3 | Bước 3 | 🔄 | 2026-11-01 |  |
-| 4 | Bước 4 | ⬜ |  |  |
+| 2 | Bước 1–2 | ✅ | 2026-11-01 | b0b2551 |
+| 3 | Bước 3 | ✅ | 2026-11-01 |  |
+| 4 | Bước 4 | 🔄 | 2026-11-01 |  |
 | 5 | Bước 5 + kích hoạt | ⬜ |  |  |
 | 6 | Tab sơ đồ | ⬜ |  |  |
 
 ## Nhật ký
+### Bước 3 — 2026-11-01 03:00
+- Đã làm: Cài đặt giao diện và xử lý Bước 3 (Nguồn dữ liệu DB & Điều kiện lọc) trong Wizard (`app/ui/pages/template_wizard.py`):
+  - Khối nguồn dữ liệu: Lựa chọn Data Source (nguồn đối soát Oracle), bộ chuyển đổi cách khai báo `Bảng/View` hoặc `SQL tự viết` (`dmc.SegmentedControl`), tùy chọn "Đẩy phép gộp (SUM, COUNT) xuống DB" (`pushdown_aggregate`).
+  - Chế độ Bảng/View:
+    - Ô nhập Bảng/View nguồn kèm tìm kiếm schema mặc định, danh sách các chip cột bảng nguồn kèm kiểu dữ liệu Oracle (`INVOICE_NO VARCHAR2(30)`, `INVOICE_DATE DATE`, `AMOUNT NUMBER(18,2)`, v.v.).
+    - Bảng cấu hình điều kiện lọc theo tham số (bắt buộc: `p_from` và `p_to` chỉ chọn cột DATE/TIMESTAMP kèm toán tử `>=` và `<=`; `p_org` lọc theo mã đơn vị) và nút thêm tham số lọc.
+    - Cấu hình điều kiện cố định (`INVOICE_STATUS = 'ORIGINAL'`) và nút thêm điều kiện.
+    - Khối xem trước câu `SELECT` sinh ra tự động (chỉ đọc) qua component `code_block`.
+  - Khối ánh xạ cột DB sang trường logic (`Cột DB → Trường logic`): Bảng đối soát từng trường logic với cột DB, hiển thị trạng thái `Đã map` hoặc `Chỉ có ở Excel`.
+  - Khối đồng bộ lọc thời gian Excel: Cấu hình `time_filter` áp dụng cùng khoảng ngày giờ người dùng nhập khi chạy cho cả hai phía DB và Excel.
+  - Bổ sung test đơn vị `test_render_step_3_db_source` trong `tests/unit/test_page_template_wizard.py`.
+- Kiểm tra: `uv run pytest tests/unit/test_page_template_wizard.py` (6 passed); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
+- Suy ra (nếu có): Tách biệt phần hiển thị câu SELECT sinh ra dạng chỉ đọc giúp người dùng nắm bắt chính xác câu lệnh sẽ được thực thi trên Oracle trước khi sang bước cấu hình gộp.
+- Việc cần người làm thủ công: Không có.
 ### Bước 2 — 2026-11-01 02:57
 - Đã làm: Cài đặt giao diện và xử lý logic cho Bước 1 (File mẫu & cấu trúc) và Bước 2 (Định nghĩa & ánh xạ trường) trong Wizard (`app/ui/pages/template_wizard.py`):
   - Bước 1 — File mẫu & Cấu trúc file (`render_step_1`):

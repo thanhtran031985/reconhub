@@ -14,6 +14,7 @@ from app.schemas.template_config import TemplateConfig
 from app.services.template import get_template, save_draft_template
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
+from app.ui.components.code_block import code_block
 from app.ui.components.file_drop import file_drop
 
 
@@ -396,6 +397,302 @@ def render_step_2(
         ],
     )
 
+
+def render_step_3(
+    config: dict[str, Any],
+    _errors: dict[str, str] | None = None,
+) -> Any:
+    """Dựng giao diện Bước 3: Nguồn dữ liệu DB & Điều kiện lọc."""
+    db_spec = config.get("db_source", {})
+    source_id = db_spec.get("source_id", "ORACLE_TEST")
+    mode_val = db_spec.get("kind", "table")
+    table_name = db_spec.get("table", "RECON_SRC.SRC_FACT_INVOICE_DTP")
+    pushdown = db_spec.get("pushdown_aggregate", True)
+
+    generated_sql = (
+        'SELECT "INVOICE_NO", "INVOICE_DATE", "COLLECT_POINT", "TXN_ID", "PIN_NO",\n'
+        '       "SERVICE_CODE", "QUANTITY", "AMOUNT", "INVOICE_STATUS"\n'
+        'FROM   "RECON_SRC"."SRC_FACT_INVOICE_DTP"\n'
+        "WHERE  \"INVOICE_DATE\" >= :p_from\n"
+        "AND    \"INVOICE_DATE\" <= :p_to\n"
+        'AND    "ORG_CODE" = :p_org'
+    )
+
+    db_cols_chips = [
+        ("INVOICE_NO", "VARCHAR2(30)"),
+        ("INVOICE_DATE", "DATE"),
+        ("COLLECT_POINT", "VARCHAR2(20)"),
+        ("TXN_ID", "VARCHAR2(80)"),
+        ("PIN_NO", "VARCHAR2(30)"),
+        ("SERVICE_CODE", "VARCHAR2(10)"),
+        ("QUANTITY", "NUMBER(12,2)"),
+        ("AMOUNT", "NUMBER(18,2)"),
+        ("INVOICE_STATUS", "VARCHAR2(20)"),
+        ("ORG_CODE", "VARCHAR2(10)"),
+    ]
+
+    # Mapping rows
+    mapping_rows = []
+    fields = config.get("fields", [])
+    for f in fields:
+        f_name = f.get("name", "")
+        db_col = f.get("db")
+        if db_col:
+            status_badge = dmc.Badge("Đã map", size="xs", variant="light", color="green")
+            col_type = "VARCHAR2" if "NO" in db_col or "ID" in db_col or "CODE" in db_col else ("DATE" if "DATE" in db_col else "NUMBER")
+        else:
+            status_badge = dmc.Badge("Chỉ có ở Excel", size="xs", variant="light", color="yellow")
+            col_type = "—"
+
+        mapping_rows.append(
+            html.Tr(
+                [
+                    html.Td(html.Span(f_name, className="mono"), style={"padding": "8px 10px"}),
+                    html.Td(
+                        dmc.Select(
+                            value=db_col or "— Không có —",
+                            size="xs",
+                            className="mono",
+                            data=[{"label": c[0], "value": c[0]} for c in db_cols_chips] + [{"label": "— Không có —", "value": "— Không có —"}],
+                            style={"width": 170},
+                        ),
+                        style={"padding": "8px 10px"},
+                    ),
+                    html.Td(html.Span(col_type, className="mono"), style={"padding": "8px 10px"}),
+                    html.Td(status_badge, style={"padding": "8px 10px"}),
+                ],
+                style={"borderBottom": "1px solid var(--border-subtle, #e2e8f0)"},
+            )
+        )
+
+    return html.Div(
+        [
+            # Card 1: Nguồn dữ liệu DB + Cách khai báo + Đẩy phép gộp
+            dmc.Paper(
+                withBorder=True,
+                p="md",
+                radius="sm",
+                mb="md",
+                children=[
+                    dmc.Title("Nguồn dữ liệu DB", order=4, mb="sm"),
+                    dmc.Group(
+                        align="flex-end",
+                        gap="lg",
+                        children=[
+                            dmc.Select(
+                                id="wizard-input-ds",
+                                label="Data Source (nguồn đối soát)",
+                                data=[{"label": f"{source_id} (DEV) – chỉ đọc", "value": source_id}],
+                                value=source_id,
+                                style={"width": 280},
+                            ),
+                            html.Div(
+                                [
+                                    dmc.Text("Cách khai báo", size="sm", fw=500, mb=4),
+                                    dmc.SegmentedControl(
+                                        id="wizard-db-mode",
+                                        value=mode_val,
+                                        data=[
+                                            {"label": "Bảng/View", "value": "table"},
+                                            {"label": "SQL tự viết", "value": "sql"},
+                                        ],
+                                        radius="sm",
+                                    ),
+                                ]
+                            ),
+                            dmc.Checkbox(
+                                id="wizard-input-pushdown",
+                                label="Đẩy phép gộp (SUM, COUNT) xuống DB",
+                                checked=pushdown,
+                                mb=6,
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            # Card 2: Bảng/View nguồn vs Điều kiện lọc
+            dmc.Grid(
+                gap="md",
+                mb="md",
+                children=[
+                    # Cột trái: Bảng/View nguồn
+                    dmc.GridCol(
+                        span=5,
+                        children=dmc.Paper(
+                            withBorder=True,
+                            p="md",
+                            radius="sm",
+                            children=[
+                                dmc.Title("Bảng/View nguồn", order=4, mb="sm"),
+                                dmc.TextInput(
+                                    id="wizard-input-table",
+                                    label="Bảng/View *",
+                                    value=table_name,
+                                    className="mono",
+                                    description="Gõ để tìm trong schema mặc định hoặc nhập SCHEMA.TÊN_BẢNG. Đã tải 10 cột.",
+                                ),
+                                dmc.Text("Cột bảng nguồn", size="xs", fw=600, mt="md", mb=6),
+                                dmc.Group(
+                                    [
+                                        dmc.Badge(f"{col} ({t})", size="xs", variant="light", color="gray", radius="sm")
+                                        for col, t in db_cols_chips
+                                    ],
+                                    gap=4,
+                                ),
+                            ],
+                        ),
+                    ),
+                    # Cột phải: Điều kiện lọc theo tham số & cố định
+                    dmc.GridCol(
+                        span=7,
+                        children=dmc.Paper(
+                            withBorder=True,
+                            p="md",
+                            radius="sm",
+                            children=[
+                                dmc.Title("Điều kiện lọc theo tham số", order=4, mb="sm"),
+                                dmc.Table(
+                                    striped=True,
+                                    children=[
+                                        html.Thead(
+                                            html.Tr(
+                                                [
+                                                    html.Th("Tham số (nhập khi chạy)"),
+                                                    html.Th("Cột DB"),
+                                                    html.Th("Phép"),
+                                                    html.Th("So theo"),
+                                                    html.Th("Mặc định"),
+                                                ],
+                                                style={"background": "var(--bg-subtle, #f8fafc)"},
+                                            )
+                                        ),
+                                        html.Tbody(
+                                            [
+                                                html.Tr(
+                                                    [
+                                                        html.Td([html.B("Từ ngày giờ "), html.Span("p_from *", className="mono")]),
+                                                        html.Td(dmc.Select(value="INVOICE_DATE", data=["INVOICE_DATE"], size="xs", className="mono")),
+                                                        html.Td(html.Span(">=", className="mono")),
+                                                        html.Td("Ngày giờ"),
+                                                        html.Td("Hôm qua 00:00:00"),
+                                                    ]
+                                                ),
+                                                html.Tr(
+                                                    [
+                                                        html.Td([html.B("Đến ngày giờ "), html.Span("p_to *", className="mono")]),
+                                                        html.Td(dmc.Select(value="INVOICE_DATE", data=["INVOICE_DATE"], size="xs", className="mono")),
+                                                        html.Td(html.Span("<=", className="mono")),
+                                                        html.Td("Ngày giờ"),
+                                                        html.Td("Hôm qua 23:59:59"),
+                                                    ]
+                                                ),
+                                                html.Tr(
+                                                    [
+                                                        html.Td([html.B("Đơn vị "), html.Span("p_org *", className="mono")]),
+                                                        html.Td(dmc.Select(value="ORG_CODE", data=["ORG_CODE"], size="xs", className="mono")),
+                                                        html.Td(html.Span("=", className="mono")),
+                                                        html.Td("—"),
+                                                        html.Td(dmc.TextInput(value="BDP", size="xs", className="mono", style={"width": 80})),
+                                                    ]
+                                                ),
+                                            ]
+                                        ),
+                                    ],
+                                ),
+                                button_subtle("Thêm tham số lọc", id="wizard-add-param-btn", icon="lucide:plus", size="xs", mt="xs"),
+                                dmc.Title("Điều kiện cố định", order=5, mt="md", mb="xs"),
+                                dmc.Group(
+                                    [
+                                        html.Span("INVOICE_STATUS", className="mono"),
+                                        html.Span("="),
+                                        dmc.TextInput(value="ORIGINAL", size="xs", className="mono", style={"width": 160}),
+                                        button_subtle("Thêm điều kiện", id="wizard-add-filter-btn", icon="lucide:plus", size="xs"),
+                                    ],
+                                    gap="sm",
+                                ),
+                            ],
+                        ),
+                    ),
+                ],
+            ),
+            # Card 3: Câu SELECT sinh ra (chỉ đọc)
+            dmc.Paper(
+                withBorder=True,
+                p="md",
+                radius="sm",
+                mb="md",
+                children=[
+                    dmc.Title("Câu SELECT sinh ra (chỉ đọc)", order=4, mb="xs"),
+                    code_block(generated_sql, language="sql"),
+                ],
+            ),
+            # Card 4: Cột DB -> Trường logic & Lọc Excel theo cùng khoảng
+            dmc.Grid(
+                gap="md",
+                children=[
+                    dmc.GridCol(
+                        span=7,
+                        children=dmc.Paper(
+                            withBorder=True,
+                            p="md",
+                            radius="sm",
+                            children=[
+                                dmc.Title("Cột DB → Trường logic", order=4, mb="sm"),
+                                dmc.Table(
+                                    striped=True,
+                                    children=[
+                                        html.Thead(
+                                            html.Tr(
+                                                [
+                                                    html.Th("Trường logic"),
+                                                    html.Th("Cột DB"),
+                                                    html.Th("Kiểu DB"),
+                                                    html.Th("Trạng thái"),
+                                                ],
+                                                style={"background": "var(--bg-subtle, #f8fafc)"},
+                                            )
+                                        ),
+                                        html.Tbody(mapping_rows),
+                                    ],
+                                ),
+                            ],
+                        ),
+                    ),
+                    dmc.GridCol(
+                        span=5,
+                        children=dmc.Paper(
+                            withBorder=True,
+                            p="md",
+                            radius="sm",
+                            children=[
+                                dmc.Title("Lọc dữ liệu Excel theo cùng khoảng", order=4, mb="sm"),
+                                alert_box(
+                                    "Từ/Đến ngày giờ do người dùng nhập khi chạy, không lấy từ file. "
+                                    "Cùng khoảng áp cho DB (cột INVOICE_DATE) và Excel.",
+                                    tone="info",
+                                ),
+                                html.Div(style={"height": 12}),
+                                dmc.Select(
+                                    id="wizard-excel-time-field",
+                                    label="Trường thời gian lọc Excel",
+                                    data=[{"label": "INV_DATETIME", "value": "INV_DATETIME"}, {"label": "Không lọc Excel", "value": "NONE"}],
+                                    value="INV_DATETIME",
+                                    mb="sm",
+                                ),
+                                dmc.Select(
+                                    id="wizard-excel-suggest-range",
+                                    label="Gợi ý khi chạy",
+                                    data=[{"label": "Hôm qua", "value": "yesterday"}, {"label": "Tháng trước", "value": "last_month"}, {"label": "Để trống", "value": "none"}],
+                                    value="yesterday",
+                                ),
+                            ],
+                        ),
+                    ),
+                ],
+            ),
+        ]
+    )
+
 try:
     dash.register_page(  # type: ignore[no-untyped-call]
         f"pages.{__name__.split('.')[-1]}",
@@ -625,7 +922,7 @@ def handle_render_step_content(active_step: int, config_data: dict[str, Any] | N
     elif active_step == 1:
         return render_step_2(cfg)
     elif active_step == 2:
-        return html.Div("Nội dung Bước 3: Nguồn DB (Đang hoàn thiện)")
+        return render_step_3(cfg)
     elif active_step == 3:
         return html.Div("Nội dung Bước 4: Profile so sánh (Đang hoàn thiện)")
     elif active_step == 4:
