@@ -160,3 +160,48 @@ def apply_time_filter(
         out_of_range_count=out_of_range_count,
         out_of_range_row_nos=out_of_range_row_nos,
     )
+
+
+
+def apply_profile_filters(df: pl.DataFrame, filters: list[dict[str, Any]]) -> pl.DataFrame:
+    """Áp dụng bộ lọc riêng của profile (Spec 04 mục 5, Golden G11)."""
+    if df.is_empty() or not filters:
+        return df
+
+    rows = df.to_dicts()
+    kept_rows: list[dict[str, Any]] = []
+
+    for r in rows:
+        match = True
+        for flt in filters:
+            fld = flt.get("field") or flt.get("column") or ""
+            op = flt.get("op", "=")
+            expected = flt.get("value")
+            actual = r.get(fld)
+
+            if op in ("=", "=="):
+                if str(actual) != str(expected):
+                    match = False
+                    break
+            elif op in ("!=", "<>"):
+                if str(actual) == str(expected):
+                    match = False
+                    break
+            elif op.lower() == "in":
+                candidates = [str(x) for x in (expected if isinstance(expected, list) else [expected])]
+                if str(actual) not in candidates:
+                    match = False
+                    break
+            elif op.lower() == "not in":
+                candidates = [str(x) for x in (expected if isinstance(expected, list) else [expected])]
+                if str(actual) in candidates:
+                    match = False
+                    break
+        if match:
+            kept_rows.append(r)
+
+    if not kept_rows:
+        return pl.DataFrame(schema=df.schema)
+    return pl.from_dicts(kept_rows, schema=df.schema)
+
+
