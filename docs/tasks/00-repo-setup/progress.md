@@ -5,13 +5,23 @@ Trạng thái: 🔄
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | pyproject + poe + config | ✅ | 2026-10-31 | 7c80f5e |
-| 2 | Schema + Alembic trên SQLite | ✅ | 2026-10-31 |  |
-| 3 | Oracle test qua VPN | 🔄 |  |  |
-| 4 | Dash khung + theme + health | ⬜ |  |  |
+| 2 | Schema + Alembic trên SQLite | ✅ | 2026-10-31 | b75e730 |
+| 3 | Oracle test qua VPN | ✅ | 2026-10-31 |  |
+| 4 | Dash khung + theme + health | 🔄 |  |  |
 | 5 | Worker khung + poe dev | ⬜ |  |  |
 | 6 | Lint, typecheck, CI, cập nhật AGENTS.md mục Lệnh | ⬜ |  |  |
 
 ## Nhật ký
+### Bước 3 — 2026-10-31 22:25
+- Đã làm:
+  - Cài đặt fixture `oracle_test` trong `tests/conftest.py` với cơ chế kiểm tra kết nối Oracle Thin mode và tự động `pytest.skip` khi thiếu cấu hình hoặc chưa có VPN.
+  - Viết test `tests/integration/test_oracle_smoke.py` có đánh dấu `@pytest.mark.oracle` để kiểm tra kết nối DUAL và truy vấn bảng `SRC_FACT_INVOICE_DTP`.
+- Kiểm tra:
+  - `uv run poe test-oracle`: Tự động skip an toàn (1 skipped trong 0.09s).
+  - `uv run poe test-engine`: Chạy các test ngoài Oracle (4 passed, 1 deselected trong 2.78s).
+- Suy ra (nếu có): Thực hiện đúng yêu cầu của người dùng về việc bỏ qua chạy test Oracle qua VPN thực tế trong phiên làm việc này.
+- Việc cần người làm thủ công: Bật VPN và điền biến `ORACLE_TEST_*` trong `.env` khi cần chạy kiểm thử thực tế trên CSDL Oracle.
+
 ### Bước 2 — 2026-10-31 22:24
 - Đã làm:
   - Định nghĩa toàn bộ schema Spec 02 mục 1–7 bằng SQLAlchemy Core trong `app/db/metadata.py` với TypeDecorator `DecimalText`, `JsonText`, naming convention chuẩn.
