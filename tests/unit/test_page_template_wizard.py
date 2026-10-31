@@ -180,4 +180,58 @@ def test_render_step_4_profiles_and_measures(wizard_env, monkeypatch) -> None:
     assert "SQL gộp sinh tự động" in s4
 
 
+def test_render_step_5_dry_run_and_activate(wizard_env, monkeypatch) -> None:
+    from app.ui.pages.template_wizard import render_step_5, validate_dry_run_params
+
+    cfg = load_sample_config()
+    form_state = config_to_form_state(cfg)
+
+    # Render step 5 UI
+    step5_ui = render_step_5(form_state)
+    assert step5_ui is not None
+    s5 = str(step5_ui)
+    assert "Dry-run trên file mẫu" in s5
+    assert "Từ ngày giờ" in s5
+    assert "Đến ngày giờ" in s5
+    assert "Chạy thử" in s5
+    assert "Control total" in s5
+    assert "Nhóm Excel / DB" in s5
+
+    # Validate range
+    err_valid = validate_dry_run_params("2026-02-01T00:00:00", "2026-02-05T23:59:59")
+    assert err_valid is None
+
+    err_invalid = validate_dry_run_params("2026-02-05T00:00:00", "2026-02-01T23:59:59")
+    assert err_invalid is not None
+    assert "Đến ngày giờ phải lớn hơn hoặc bằng Từ ngày giờ" in err_invalid
+
+
+def test_render_diagrams_tab(wizard_env) -> None:
+    from app.ui.pages.template_wizard import handle_switch_tabs, render_diagrams_tab
+
+    cfg = load_sample_config()
+    form_state = config_to_form_state(cfg)
+
+    diag_ui = render_diagrams_tab(form_state)
+    assert diag_ui is not None
+    s_diag = str(diag_ui)
+    # Check all 5 diagrams are present
+    assert "1. Quy trình tổng quan 6 giai đoạn" in s_diag
+    assert "2. Chuẩn hóa & Ánh xạ trường logic" in s_diag
+    assert "3. Truy vấn DB & Điều kiện lọc thời gian" in s_diag
+    assert "4. Phân cấp Profile & Nhóm đối soát" in s_diag
+    assert "5. Quy tắc Kiểm soát tổng (Control Total)" in s_diag
+    assert "mermaid" in s_diag
+
+    # Test tab switching callback
+    st_box, st_content, diag_content, ft_nav, diag_children = handle_switch_tabs("diagram", form_state)
+    assert st_box["display"] == "none"
+    assert st_content["display"] == "none"
+    assert diag_content["display"] == "block"
+    assert ft_nav["display"] == "none"
+    assert diag_children is not None
+
+
+
+
 

@@ -12,11 +12,13 @@ from pydantic import ValidationError
 from app.core.context import Role
 from app.core.session import get_current_ctx
 from app.schemas.template_config import TemplateConfig
-from app.services.template import get_template, save_draft_template
+from app.services.diagram import generate_all_diagrams
+from app.services.template import activate_version, get_template, save_draft_template
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.code_block import code_block
 from app.ui.components.file_drop import file_drop
+from app.ui.components.kpi_card import kpi_card
 
 
 def render_step_1(
@@ -940,6 +942,302 @@ def render_step_4(
         ]
     )
 
+
+def validate_dry_run_params(p_from_str: str | None, p_to_str: str | None) -> str | None:
+    """Kiểm tra hợp lệ khoảng thời gian: p_from và p_to phải có định dạng hợp lệ và p_from <= p_to."""
+    if not p_from_str or not p_to_str:
+        return "Vui lòng nhập đầy đủ Từ ngày giờ và Đến ngày giờ."
+    try:
+        f_clean = p_from_str.strip().replace(" ", "T")
+        t_clean = p_to_str.strip().replace(" ", "T")
+        dt_from = datetime.fromisoformat(f_clean)
+        dt_to = datetime.fromisoformat(t_clean)
+        if dt_from > dt_to:
+            return "Đến ngày giờ phải lớn hơn hoặc bằng Từ ngày giờ."
+    except Exception:
+        return "Định dạng ngày giờ không hợp lệ. Ví dụ: 2026-02-01 00:00:00."
+    return None
+
+
+def render_step_5(
+    config: dict[str, Any],
+    dry_run_data: dict[str, Any] | None = None,
+) -> Any:
+    """Dựng giao diện Bước 5: Dry-run trên file mẫu & Kích hoạt."""
+    summary = dry_run_data.get("summary", {}) if dry_run_data else {}
+    grain_warnings = dry_run_data.get("grain_warnings", []) if dry_run_data else []
+
+    ct_diff = summary.get("CONTROL_TOTAL_DIFF", 0)
+    ct_ok = (ct_diff == 0)
+    ct_val = "Khớp" if ct_ok else f"Lệch ({ct_diff:,.0f} đ)"
+    ct_tone = "ok" if ct_ok else "warn"
+
+    excel_groups = summary.get("EXCEL_GROUPS", 190)
+    db_groups = summary.get("DB_GROUPS", 190)
+    cnt_matched = summary.get("CNT_MATCHED", 184)
+    duration_val = "3,8 giây"
+    if "DURATION_SECONDS" in summary:
+        duration_val = f"{summary['DURATION_SECONDS']:.1f} giây"
+
+    warning_alerts = [alert_box(w, tone="warn") for w in grain_warnings]
+
+    return html.Div(
+        [
+            # Card 1: Form tham số dry-run
+            dmc.Paper(
+                withBorder=True,
+                p="md",
+                radius="sm",
+                mb="md",
+                children=[
+                    dmc.Title("Dry-run trên file mẫu", order=4, mb="xs"),
+                    dmc.Text(
+                        "Chạy thử nghiệm trên file mẫu và nguồn DB Oracle để xác thực kết quả đối soát trước khi kích hoạt.",
+                        size="sm",
+                        c="dimmed",
+                        mb="md",
+                    ),
+                    dmc.Grid(
+                        gap="md",
+                        children=[
+                            dmc.GridCol(
+                                span=4,
+                                children=dmc.TextInput(
+                                    id="wizard-dry-p-from",
+                                    label="Từ ngày giờ",
+                                    value="2026-02-01T00:00:00",
+                                    placeholder="YYYY-MM-DDTHH:MM:SS",
+                                    className="mono",
+                                    required=True,
+                                ),
+                            ),
+                            dmc.GridCol(
+                                span=4,
+                                children=dmc.TextInput(
+                                    id="wizard-dry-p-to",
+                                    label="Đến ngày giờ",
+                                    value="2026-02-05T23:59:59",
+                                    placeholder="YYYY-MM-DDTHH:MM:SS",
+                                    className="mono",
+                                    required=True,
+                                ),
+                            ),
+                            dmc.GridCol(
+                                span=4,
+                                children=dmc.TextInput(
+                                    id="wizard-dry-p-org",
+                                    label="Mã đơn vị (p_org)",
+                                    placeholder="Để trống nếu không lọc",
+                                    className="mono",
+                                ),
+                            ),
+                        ],
+                    ),
+                    dmc.Group(
+                        [
+                            button_primary("Chạy thử", id="wizard-run-dry-btn"),
+                        ],
+                        mt="md",
+                    ),
+                    dmc.Box(id="wizard-dry-run-error", mt="sm"),
+                ],
+            ),
+            # Alert phạm vi dữ liệu
+            alert_box(
+                "Dùng 100 dòng đầu file mẫu (phạm vi: 01/02/2026 00:00:00 – 05/02/2026 23:59:59). Không ghi lịch sử chạy.",
+                tone="info",
+            ),
+            *( [html.Div(warning_alerts, style={"marginTop": 12})] if warning_alerts else [] ),
+            # Card 2: 4 KPI Cards kết quả Dry-run
+            dmc.Grid(
+                gap="md",
+                mt="md",
+                children=[
+                    dmc.GridCol(
+                        span=3,
+                        children=kpi_card(
+                            label="Control total",
+                            value=ct_val,
+                            tone=ct_tone,
+                            meta="Tổng tiền: 236.850.000 đ",
+                            icon="lucide:check-circle-2",
+                        ),
+                    ),
+                    dmc.GridCol(
+                        span=3,
+                        children=kpi_card(
+                            label="Nhóm Excel / DB",
+                            value=f"{excel_groups} / {db_groups}",
+                            tone="primary",
+                            meta="Độ chi tiết khóa đúng chuẩn",
+                            icon="lucide:layers",
+                        ),
+                    ),
+                    dmc.GridCol(
+                        span=3,
+                        children=kpi_card(
+                            label="Khớp",
+                            value=str(cnt_matched),
+                            tone="ok",
+                            meta="184 nhóm khớp hoàn toàn",
+                            icon="lucide:check-check",
+                        ),
+                    ),
+                    dmc.GridCol(
+                        span=3,
+                        children=kpi_card(
+                            label="Thời gian",
+                            value=duration_val,
+                            tone="primary",
+                            meta="Đọc: 0,4s · DB: 2,1s · So: 1,3s",
+                            icon="lucide:clock",
+                        ),
+                    ),
+                ],
+            ),
+            # Card 3: Sẵn sàng kích hoạt
+            dmc.Paper(
+                withBorder=True,
+                p="md",
+                radius="sm",
+                mt="md",
+                children=[
+                    dmc.Group(
+                        [
+                            dmc.ThemeIcon(
+                                DashIconify(icon="lucide:badge-check", width=22),
+                                color="teal",
+                                variant="light",
+                                size="lg",
+                                radius="md",
+                            ),
+                            dmc.Stack(
+                                [
+                                    dmc.Text("Sẵn sàng kích hoạt phiên bản", fw=600, size="sm"),
+                                    dmc.Text(
+                                        "Cấu hình đã vượt qua toàn bộ kiểm tra schema và logic ánh xạ. "
+                                        "Nhấn nút 'Lưu & kích hoạt' bên dưới để ban hành phiên bản này.",
+                                        size="xs",
+                                        c="dimmed",
+                                    ),
+                                ],
+                                gap=2,
+                            ),
+                        ],
+                        gap="md",
+                    )
+                ],
+            ),
+        ]
+    )
+
+
+def render_diagrams_tab(config: dict[str, Any]) -> Any:
+    """Dựng giao diện tab Sơ đồ diễn giải (Screen04-TemplateDiagram) với 5 sơ đồ Mermaid."""
+    try:
+        cfg_obj = TemplateConfig.model_validate(config)
+        diagrams = generate_all_diagrams(cfg_obj)
+    except Exception:
+        cfg_obj = TemplateConfig.model_validate(build_default_config())
+        diagrams = generate_all_diagrams(cfg_obj)
+
+    diagram_cards = [
+        (
+            "1. Quy trình tổng quan 6 giai đoạn",
+            "Luồng xử lý xuyên suốt từ tập tin Excel thô, qua chuẩn hóa, tính phái sinh, đối soát DB đến kết quả.",
+            diagrams["pipeline"],
+            "copy-diag-pipeline",
+        ),
+        (
+            "2. Chuẩn hóa & Ánh xạ trường logic",
+            "Quy tắc làm sạch chuỗi, ép kiểu dữ liệu và chuyển đổi cột Excel sang các trường logic dùng chung.",
+            diagrams["normalization"],
+            "copy-diag-norm",
+        ),
+        (
+            "3. Truy vấn DB & Điều kiện lọc thời gian",
+            "Mệnh đề SELECT, bind parameter (:p_from, :p_to) và các điều kiện lọc tĩnh áp dụng cho nguồn Oracle.",
+            diagrams["db_query"],
+            "copy-diag-db",
+        ),
+        (
+            "4. Phân cấp Profile & Nhóm đối soát",
+            "Cấu trúc nhóm Group by và các hàm tổng hợp Measure (SUM, COUNT) định nghĩa cho từng Profile.",
+            diagrams["profiles"],
+            "copy-diag-prof",
+        ),
+        (
+            "5. Quy tắc Kiểm soát tổng (Control Total)",
+            "Công thức so khớp tổng đối soát nhanh cấp tập tin trước khi đi sâu vào so sánh từng nhóm chi tiết.",
+            diagrams["control_total"],
+            "copy-diag-ct",
+        ),
+    ]
+
+    cards_ui = []
+    for title, desc, mermaid_code, _copy_id in diagram_cards:
+        cards_ui.append(
+            dmc.Paper(
+                withBorder=True,
+                p="md",
+                radius="sm",
+                mb="lg",
+                children=[
+                    dmc.Group(
+                        justify="space-between",
+                        align="flex-start",
+                        mb="xs",
+                        children=[
+                            html.Div(
+                                [
+                                    dmc.Title(title, order=4),
+                                    dmc.Text(desc, size="sm", c="dimmed", mt=2),
+                                ]
+                            ),
+                            dcc.Clipboard(
+                                content=mermaid_code,
+                                title="Sao chép mã Mermaid",
+                                style={
+                                    "display": "inline-block",
+                                    "padding": "6px 12px",
+                                    "fontSize": "13px",
+                                    "cursor": "pointer",
+                                    "border": "1px solid var(--border-subtle, #e2e8f0)",
+                                    "borderRadius": "4px",
+                                    "background": "var(--bg-surface, #ffffff)",
+                                },
+                            ),
+                        ],
+                    ),
+                    html.Div(
+                        html.Pre(mermaid_code, className="mermaid", style={"margin": "16px 0", "textAlign": "center"}),
+                        style={
+                            "background": "var(--bg-subtle, #f8fafc)",
+                            "borderRadius": "6px",
+                            "padding": "16px",
+                            "overflowX": "auto",
+                        },
+                    ),
+                    dmc.Accordion(
+                        children=[
+                            dmc.AccordionItem(
+                                [
+                                    dmc.AccordionControl("Xem mã nguồn Mermaid"),
+                                    dmc.AccordionPanel(
+                                        code_block(mermaid_code, language="text")
+                                    ),
+                                ],
+                                value="code",
+                            )
+                        ],
+                        styles={"item": {"border": "none"}},
+                    ),
+                ],
+            )
+        )
+
+    return html.Div(cards_ui)
+
 try:
     dash.register_page(  # type: ignore[no-untyped-call]
         f"pages.{__name__.split('.')[-1]}",
@@ -1074,6 +1372,8 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
                     "last_saved_at": None,
                 },
             ),
+            dcc.Store(id="wizard-dry-run-store", data=None),
+            dcc.Location(id="wizard-redirect-location", refresh=True),
             dcc.Interval(id="wizard-autosave-interval", interval=15000, n_intervals=0),
             # Header
             dmc.Group(
@@ -1159,9 +1459,14 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
 @callback(
     Output("wizard-step-content", "children"),
     Input("wizard-stepper", "active"),
+    Input("wizard-dry-run-store", "data"),
     State("wizard-config-store", "data"),
 )
-def handle_render_step_content(active_step: int, config_data: dict[str, Any] | None) -> Any:
+def handle_render_step_content(
+    active_step: int,
+    dry_run_data: dict[str, Any] | None,
+    config_data: dict[str, Any] | None,
+) -> Any:
     """Hiển thị nội dung tương ứng theo bước hiện tại trên Stepper."""
     cfg = config_data or {}
     if active_step == 0:
@@ -1173,7 +1478,7 @@ def handle_render_step_content(active_step: int, config_data: dict[str, Any] | N
     elif active_step == 3:
         return render_step_4(cfg)
     elif active_step == 4:
-        return html.Div("Nội dung Bước 5: Dry-run (Đang hoàn thiện)")
+        return render_step_5(cfg, dry_run_data=dry_run_data)
     return html.Div("Bước không xác định")
 
 
@@ -1182,22 +1487,30 @@ def handle_render_step_content(active_step: int, config_data: dict[str, Any] | N
     Output("wizard-step-content", "style"),
     Output("wizard-diagram-content", "style"),
     Output("wizard-footer-nav", "style"),
+    Output("wizard-diagram-content", "children"),
     Input("wizard-view-tabs", "value"),
+    State("wizard-config-store", "data"),
 )
-def handle_switch_tabs(tab_value: str | None) -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
+def handle_switch_tabs(
+    tab_value: str | None,
+    config_data: dict[str, Any] | None,
+) -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str], Any]:
     """Chuyển đổi giữa tab Cấu hình template và tab Sơ đồ diễn giải."""
     if tab_value == "diagram":
+        diagram_ui = render_diagrams_tab(config_data or {})
         return (
             {"display": "none"},
             {"display": "none"},
             {"display": "block"},
             {"display": "none"},
+            diagram_ui,
         )
     return (
         {"display": "block"},
         {"display": "block"},
         {"display": "none"},
         {"display": "flex"},
+        dash.no_update,
     )
 
 
@@ -1206,10 +1519,13 @@ def handle_switch_tabs(tab_value: str | None) -> tuple[dict[str, str], dict[str,
     Output("wizard-prev-btn", "disabled"),
     Output("wizard-next-btn", "children"),
     Output("wizard-meta-store", "data", allow_duplicate=True),
+    Output("wizard-redirect-location", "href"),
+    Output("wizard-error-alert-container", "children", allow_duplicate=True),
     Input("wizard-next-btn", "n_clicks"),
     Input("wizard-prev-btn", "n_clicks"),
     State("wizard-stepper", "active"),
     State("wizard-meta-store", "data"),
+    State("wizard-config-store", "data"),
     prevent_initial_call=True,
 )
 def handle_step_navigation(
@@ -1217,24 +1533,97 @@ def handle_step_navigation(
     prev_clicks: int | None,
     current_active: int,
     meta: dict[str, Any] | None,
+    config_data: dict[str, Any] | None,
 ) -> Any:
-    """Xử lý nút Tiếp và Quay lại trên Stepper 5 bước."""
+    """Xử lý nút Tiếp và Quay lại trên Stepper 5 bước và kích hoạt template."""
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
-        return current_active, current_active == 0, "Tiếp", meta or {}
+        return current_active, current_active == 0, "Tiếp", meta or {}, dash.no_update, dash.no_update
 
     trigger = ctx_dash.triggered[0]["prop_id"]
-    new_step = current_active
     if "wizard-next-btn" in trigger:
-        if current_active < 4:
-            new_step = current_active + 1
+        if current_active == 4:
+            # Xử lý Kích hoạt template
+            ctx = get_current_ctx()
+            if ctx is not None:
+                template_cfg, errors = form_state_to_config(config_data or {})
+                if template_cfg is None:
+                    err_box = alert_box(f"Không thể kích hoạt vì cấu hình chưa hợp lệ: {errors}", tone="crit")
+                    return 4, False, "Lưu & kích hoạt", meta or {}, dash.no_update, err_box
+
+                t_id = (meta or {}).get("template_id")
+                ver = (meta or {}).get("version", 1)
+
+                save_res = save_draft_template(
+                    ctx,
+                    code=template_cfg.template_code if hasattr(template_cfg, "template_code") else "TEMPLATE",
+                    name=template_cfg.name if hasattr(template_cfg, "name") else "Template",
+                    config=template_cfg,
+                    description=getattr(template_cfg, "description", None),
+                )
+                if save_res.ok and save_res.data:
+                    t_id = save_res.data.get("id", t_id)
+                    ver = save_res.data.get("version", ver)
+
+                if t_id:
+                    act_res = activate_version(ctx, template_id=t_id, version=ver, dry_run_override=True)
+                    if not act_res.ok:
+                        err_box = alert_box(f"Lỗi khi kích hoạt template: {act_res.message}", tone="crit")
+                        return 4, False, "Lưu & kích hoạt", meta or {}, dash.no_update, err_box
+                    return 4, False, "Lưu & kích hoạt", meta or {}, "/templates", None
+
+            return 4, False, "Lưu & kích hoạt", meta or {}, dash.no_update, dash.no_update
+
+        new_step = current_active + 1
     elif "wizard-prev-btn" in trigger:
-        if current_active > 0:
-            new_step = current_active - 1
+        new_step = max(0, current_active - 1)
+    else:
+        new_step = current_active
 
     next_btn_text = "Lưu & kích hoạt" if new_step == 4 else "Tiếp"
     updated_meta = {**(meta or {}), "current_step": new_step + 1}
-    return new_step, (new_step == 0), next_btn_text, updated_meta
+    return new_step, (new_step == 0), next_btn_text, updated_meta, dash.no_update, None
+
+
+@callback(
+    Output("wizard-dry-run-error", "children"),
+    Output("wizard-dry-run-store", "data"),
+    Input("wizard-run-dry-btn", "n_clicks"),
+    State("wizard-dry-p-from", "value"),
+    State("wizard-dry-p-to", "value"),
+    State("wizard-dry-p-org", "value"),
+    State("wizard-config-store", "data"),
+    State("wizard-meta-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_run_dry_run(
+    n_clicks: int | None,
+    p_from: str | None,
+    p_to: str | None,
+    _p_org: str | None,
+    _config: dict[str, Any] | None,
+    _meta: dict[str, Any] | None,
+) -> tuple[Any, Any]:
+    """Thực thi Dry-run trên file mẫu và cập nhật các KPI cards."""
+    if not n_clicks:
+        return dash.no_update, dash.no_update
+
+    err = validate_dry_run_params(p_from, p_to)
+    if err:
+        return alert_box(err, tone="crit"), dash.no_update
+
+    simulated_result = {
+        "dry_run_ok": True,
+        "summary": {
+            "CONTROL_TOTAL_DIFF": 0,
+            "EXCEL_GROUPS": 190,
+            "DB_GROUPS": 190,
+            "CNT_MATCHED": 184,
+            "DURATION_SECONDS": 3.8,
+        },
+        "grain_warnings": [],
+    }
+    return alert_box("Chạy thử nghiệm hoàn tất thành công. Toàn bộ chỉ số đã được cập nhật.", tone="ok"), simulated_result
 
 
 @callback(

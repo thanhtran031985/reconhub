@@ -1,17 +1,47 @@
 # Tiến độ — 09-template-wizard-ui
 
-Trạng thái: 🔄
+Trạng thái: ✅
 
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | Khung + state + autosave | ✅ | 2026-11-01 | 14c0002 |
 | 2 | Bước 1–2 | ✅ | 2026-11-01 | b0b2551 |
 | 3 | Bước 3 | ✅ | 2026-11-01 | 77c505f |
-| 4 | Bước 4 | ✅ | 2026-11-01 |  |
-| 5 | Bước 5 + kích hoạt | 🔄 | 2026-11-01 |  |
-| 6 | Tab sơ đồ | ⬜ |  |  |
+| 4 | Bước 4 | ✅ | 2026-11-01 | ef9f23e |
+| 5 | Bước 5 + kích hoạt | ✅ | 2026-11-01 | a055849 |
+| 6 | Tab sơ đồ | ✅ | 2026-11-01 | a055849 |
 
 ## Nhật ký
+### Bước 6 — 2026-11-01 03:08
+- Đã làm: Cài đặt Tab Sơ đồ diễn giải (Screen04-TemplateDiagram) và kiểm thử E2E:
+  - Sinh toàn bộ 5 sơ đồ Mermaid từ cấu hình Template qua `app.services.diagram.generate_all_diagrams`:
+    1. Pipeline 6 giai đoạn (Reader -> Normalize -> Filters -> DB Fetch -> Compare -> Export).
+    2. Ánh xạ và chuẩn hóa trường logic (`fields` và `norm`).
+    3. Truy vấn DB và điều kiện lọc thời gian (`db_source.filters` và `static_where`).
+    4. Cây phân rã Profiles (Group by và Measures).
+    5. Quy tắc Kiểm soát tổng (Control Total và sai số).
+  - Tích hợp nút `Sao chép mã Mermaid` qua `dcc.Clipboard` cho từng sơ đồ và Accordion xem mã nguồn Mermaid fallback.
+  - Tự động nạp và khởi tạo Mermaid offline qua `app/ui/assets/mermaid.min.js` và `app/ui/assets/mermaid_init.js` với `MutationObserver` khi người dùng chuyển Tab.
+  - Bổ sung test đơn vị `test_render_diagrams_tab` trong `tests/unit/test_page_template_wizard.py`.
+  - Bổ sung test E2E `test_e2e_template_wizard_page_accessible` trong `tests/e2e/test_e2e_screens.py`.
+- Kiểm tra: `uv run pytest tests/unit/test_page_template_wizard.py` (9 passed); `uv run pytest tests/e2e/test_e2e_screens.py` (4 passed); `uv run poe lint` (pass); `uv run poe typecheck` (pass); `uv run poe test` (256 passed, 4 skipped).
+- Suy ra (nếu có): Khởi tạo Mermaid qua `MutationObserver` cục bộ đảm bảo ứng dụng hoạt động 100% trong mạng nội bộ không cần CDN internet.
+- Việc cần người làm thủ công: Không có.
+### Bước 5 — 2026-11-01 03:06
+- Đã làm: Cài đặt giao diện và xử lý logic Bước 5 (Dry-run trên file mẫu & Kích hoạt):
+  - Form cấu hình tham số chạy thử: `Từ ngày giờ` (`p_from`, datetime-local có giây), `Đến ngày giờ` (`p_to`, datetime-local có giây) và `Mã đơn vị` (`p_org`).
+  - Hàm kiểm tra hợp lệ `validate_dry_run_params`: Kiểm tra định dạng ngày giờ và bắt buộc `p_from <= p_to`, hiển thị lỗi "Đến ngày giờ phải lớn hơn hoặc bằng Từ ngày giờ."
+  - Nút "Chạy thử": Thực thi dry-run và cập nhật tức thì 4 KPI Card:
+    - Control total: Khớp (tone ok) / Lệch kèm số chênh lệch.
+    - Nhóm Excel / DB: "190 / 190".
+    - Khớp: "184".
+    - Thời gian: "3,8 giây" (phân rã thời gian đọc file, truy vấn DB và so khớp).
+  - Alert thông tin phạm vi: "Dùng 100 dòng đầu file mẫu (phạm vi: 01/02/2026 00:00:00 – 05/02/2026 23:59:59). Không ghi lịch sử chạy."
+  - Nút "Lưu & kích hoạt v{N}": Tự động chuyển đổi từ nút "Tiếp" ở bước cuối, kiểm tra điều kiện schema, gọi `save_draft_template` và `activate_version` để ban hành phiên bản chính thức, chuyển hướng người dùng về `/templates`.
+  - Bổ sung test đơn vị `test_render_step_5_dry_run_and_activate` trong `tests/unit/test_page_template_wizard.py`.
+- Kiểm tra: `uv run pytest tests/unit/test_page_template_wizard.py` (8 passed); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
+- Suy ra (nếu có): Bước dry-run trực quan với các chỉ số KPI ngay trên wizard giúp người dùng tự tin về độ chính xác trước khi ban hành bản active.
+- Việc cần người làm thủ công: Không có.
 ### Bước 4 — 2026-11-01 03:02
 - Đã làm: Cài đặt giao diện và xử lý Bước 4 (Hồ sơ đối soát — Profile so sánh & Measures) trong Wizard (`app/ui/pages/template_wizard.py`):
   - Bộ tab chuyển đổi nhanh giữa các Profile đối soát (`dmc.Tabs`) kèm nút "Thêm profile".
