@@ -6,12 +6,27 @@ Trạng thái: 🔄
 |---|---|---|---|---|
 | 1 | pyproject + poe + config | ✅ | 2026-10-31 | 7c80f5e |
 | 2 | Schema + Alembic trên SQLite | ✅ | 2026-10-31 | b75e730 |
-| 3 | Oracle test qua VPN | ✅ | 2026-10-31 |  |
-| 4 | Dash khung + theme + health | 🔄 |  |  |
-| 5 | Worker khung + poe dev | ⬜ |  |  |
+| 3 | Oracle test qua VPN | ✅ | 2026-10-31 | b95d2b2 |
+| 4 | Dash khung + theme + health | ✅ | 2026-10-31 |  |
+| 5 | Worker khung + poe dev | 🔄 |  |  |
 | 6 | Lint, typecheck, CI, cập nhật AGENTS.md mục Lệnh | ⬜ |  |  |
 
 ## Nhật ký
+### Bước 4 — 2026-10-31 22:27
+- Đã làm:
+  - Cập nhật `scripts/gen_dmc_theme.py` tự động sao chép `designs/tokens.css` vào `app/ui/assets/tokens.css` và cấu hình UTF-8 stdout trên Windows.
+  - Sinh theme DMC `app/ui/theme.py` chuẩn Mantine v8 từ `designs/tokens.json`.
+  - Khởi tạo Dash app `app/ui/app.py` với `use_pages=True`, bọc `dmc.MantineProvider` với theme và assets.
+  - Cài đặt trang đón ban đầu `app/ui/pages/home.py`.
+  - Cài đặt endpoint `/health` tại `app/routes/health.py` kiểm tra kết nối DB.
+  - Cung cấp entrypoint `app/wsgi.py` (`server = app.server`).
+  - Viết test `tests/test_ui_smoke.py` kiểm tra token theme, khởi tạo Dash app và endpoint `/health`.
+- Kiểm tra:
+  - `uv run poe theme`: Sinh theme và sao chép CSS thành công.
+  - `uv run poe test-engine`: 7 passed, 1 deselected trong 4.29s.
+- Suy ra (nếu có): Thêm `sys.stdout.reconfigure(encoding="utf-8")` vào các script Python để chạy ổn định trên console Windows mà không bị lỗi bảng mã cp1252.
+- Việc cần người làm thủ công: Không có.
+
 ### Bước 3 — 2026-10-31 22:25
 - Đã làm:
   - Cài đặt fixture `oracle_test` trong `tests/conftest.py` với cơ chế kiểm tra kết nối Oracle Thin mode và tự động `pytest.skip` khi thiếu cấu hình hoặc chưa có VPN.

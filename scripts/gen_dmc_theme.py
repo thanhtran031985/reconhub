@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import json
 import pprint
+import sys
 from pathlib import Path
+
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parent.parent
 T = json.loads((ROOT / "designs" / "tokens.json").read_text(encoding="utf-8"))
@@ -49,3 +53,11 @@ OUT.parent.mkdir(parents=True, exist_ok=True)
 OUT.write_text('"""SINH RA bởi scripts/gen_dmc_theme.py từ designs/tokens.json. Không sửa tay."""\n\nTHEME = '
                + pprint.pformat(theme, width=110, sort_dicts=False) + "\n", encoding="utf-8")
 print(f"Đã sinh {OUT.relative_to(ROOT)}")
+
+ASSETS = ROOT / "app" / "ui" / "assets"
+ASSETS.mkdir(parents=True, exist_ok=True)
+tokens_css = ROOT / "designs" / "tokens.css"
+if tokens_css.exists():
+    (ASSETS / "tokens.css").write_text(tokens_css.read_text(encoding="utf-8"), encoding="utf-8")
+    print(f"Đã sao chép tokens.css vào {ASSETS.relative_to(ROOT)}")
+

@@ -7,7 +7,11 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
+
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parent.parent
 t = json.loads((ROOT / "designs" / "tokens.json").read_text(encoding="utf-8"))
