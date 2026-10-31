@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import dash
-from dash import Dash
 import dash_mantine_components as dmc
+from dash import Dash
 
 from app.core.config import get_settings
 from app.routes.health import health_bp
@@ -19,7 +20,7 @@ app = Dash(
     pages_folder=str(UI_DIR / "pages"),
     assets_folder=str(UI_DIR / "assets"),
     title="ReconHub",
-    update_title=None,
+    update_title="",
     suppress_callback_exceptions=True,
 )
 

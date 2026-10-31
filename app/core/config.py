@@ -77,7 +77,7 @@ class Settings(BaseSettings):
         prefix = "sqlite:///"
         if not self.RECON_DB_URL.startswith(prefix):
             return None
-        rel_or_abs = self.RECON_DB_URL[len(prefix):]
+        rel_or_abs = self.RECON_DB_URL[len(prefix) :]
         p = Path(rel_or_abs)
         return p if p.is_absolute() else (PROJECT_ROOT / p).resolve()
 
@@ -95,4 +95,3 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Singleton trả về cấu hình ứng dụng."""
     return Settings()
-

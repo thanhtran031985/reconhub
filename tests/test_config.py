@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import pytest
 
 
@@ -16,7 +17,7 @@ def test_config_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     ]:
         monkeypatch.delenv(key, raising=False)
 
-    from app.core.config import Settings, get_settings
+    from app.core.config import Settings
 
     settings = Settings(_env_file=None)
     assert settings.APP_ENV in ("dev", "test", "uat", "prod")
@@ -38,7 +39,7 @@ def test_config_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
 
 def test_config_from_env_example() -> None:
-    from app.core.config import Settings, get_settings
+    from app.core.config import Settings
 
     root = Path(__file__).resolve().parent.parent
     env_example = root / ".env.example"
@@ -50,4 +51,3 @@ def test_config_from_env_example() -> None:
     assert settings.RUN_MAX_ROWS == 1000000
     assert settings.RUN_DB_CALL_TIMEOUT_SECONDS == 600
     assert settings.TEMP_WARN_GB == 5
-

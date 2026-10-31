@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any
+
 import structlog
 
 from app.core.config import get_settings
 from app.core.logging import setup_logging
-from app.db.engine import get_db_engine
 from app.db.dialect import get_dialect
+from app.db.engine import get_db_engine
 
 logger = structlog.get_logger("worker")
 
@@ -42,7 +42,7 @@ class ReconWorker:
 
         heartbeat_counter = 0
         while stop_event is None or not stop_event.is_set():
-            processed = self.poll_once()
+            self.poll_once()
 
             heartbeat_counter += 1
             if heartbeat_counter >= 5:

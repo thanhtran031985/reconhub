@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 import sys
-from pathlib import Path
+
 import structlog
+
 from app.core.config import get_settings
 
 
@@ -23,7 +24,8 @@ def setup_logging() -> None:
     ]
 
     structlog.configure(
-        processors=shared_processors + [
+        processors=shared_processors
+        + [
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import os
 from typing import Generator
+
 import pytest
 from sqlalchemy import Engine, create_engine, text
+
 from app.core.config import get_settings
 
 
@@ -15,11 +16,7 @@ def oracle_test() -> Generator[Engine, None, None]:
     hoặc không kết nối được qua VPN.
     """
     settings = get_settings()
-    if (
-        not settings.ORACLE_TEST_DSN
-        or not settings.ORACLE_TEST_SRC_USER
-        or not settings.ORACLE_TEST_SRC_PASSWORD
-    ):
+    if not settings.ORACLE_TEST_DSN or not settings.ORACLE_TEST_SRC_USER or not settings.ORACLE_TEST_SRC_PASSWORD:
         pytest.skip("Thiếu cấu hình ORACLE_TEST_* trong môi trường; tự động skip test Oracle.")
 
     # Tạo URL kết nối Oracle Thin mode

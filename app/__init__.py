@@ -1,2 +1,1 @@
 """ReconHub application package."""
-

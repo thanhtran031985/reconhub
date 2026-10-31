@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-import pytest
 from dash import Dash
-import dash_mantine_components as dmc
 
 
 def test_theme_tokens() -> None:

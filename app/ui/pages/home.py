@@ -1,8 +1,7 @@
 import dash
-from dash import html
 import dash_mantine_components as dmc
 
-dash.register_page(__name__, path="/", title="ReconHub")
+dash.register_page(__name__, path="/", title="ReconHub")  # type: ignore[no-untyped-call]
 
 layout = dmc.Container(
     dmc.Stack(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+
 from flask import Blueprint, jsonify
 from sqlalchemy import text
 
@@ -23,8 +24,10 @@ def health() -> Any:
         db_status = f"down: {exc}"
 
     is_healthy = db_status == "up"
-    return jsonify({
-        "status": "ok" if is_healthy else "error",
-        "db": db_status,
-        "env": settings.APP_ENV,
-    }), 200 if is_healthy else 503
+    return jsonify(
+        {
+            "status": "ok" if is_healthy else "error",
+            "db": db_status,
+            "env": settings.APP_ENV,
+        }
+    ), 200 if is_healthy else 503

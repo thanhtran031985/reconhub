@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import Engine, text
+
 from app.core.config import get_settings
 
 

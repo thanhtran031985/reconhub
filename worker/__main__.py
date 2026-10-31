@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import signal
-import sys
 import threading
 from typing import Any
+
 import structlog
 
 from worker.runner import ReconWorker

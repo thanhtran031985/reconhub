@@ -3,6 +3,7 @@
 
 Chạy: python scripts/tasks_dashboard.py  (hoặc uv run poe tasks-dashboard). Chỉ dùng thư viện chuẩn.
 """
+
 from __future__ import annotations
 
 import html
@@ -17,8 +18,15 @@ if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
 ROOT = Path(__file__).resolve().parent.parent
 TASKS = ROOT / "docs" / "tasks"
 KNOWN = {"⬜": "todo", "🔄": "doing", "❓": "review", "⚠️": "diff", "❌": "missing", "✅": "done"}
-LABEL = {"todo": "Chưa làm", "doing": "Đang làm", "review": "Chưa rà soát", "diff": "Khác task.md",
-         "missing": "Thiếu", "done": "Xong", "unknown": "Không rõ"}
+LABEL = {
+    "todo": "Chưa làm",
+    "doing": "Đang làm",
+    "review": "Chưa rà soát",
+    "diff": "Khác task.md",
+    "missing": "Thiếu",
+    "done": "Xong",
+    "unknown": "Không rõ",
+}
 
 
 def status(s: str) -> str:
@@ -38,8 +46,16 @@ for line in (TASKS / "README.md").read_text(encoding="utf-8").splitlines():
     if len(c) < 5 or c[0] == "#":
         continue
     m = re.match(r"\[([^\]]+)\]\(([^)]+)\)\s*—?\s*(.*)", c[1])
-    r = {"nn": c[0], "slug": m.group(1) if m else c[1], "title": m.group(3) if m else "",
-         "status": status(c[2]), "raw": c[2], "deps": c[3], "branch": c[4], "steps": []}
+    r = {
+        "nn": c[0],
+        "slug": m.group(1) if m else c[1],
+        "title": m.group(3) if m else "",
+        "status": status(c[2]),
+        "raw": c[2],
+        "deps": c[3],
+        "branch": c[4],
+        "steps": [],
+    }
     p = TASKS / r["slug"] / "progress.md"
     if p.exists():
         for pl in p.read_text(encoding="utf-8").splitlines():
@@ -58,14 +74,19 @@ def card(r: dict) -> str:
     done = sum(1 for s in r["steps"] if s["status"] == "done")
     pct = round(done * 100 / len(r["steps"])) if r["steps"] else 0
     warn = f'<div class="w">Ký hiệu trạng thái không hợp lệ: {e(r["raw"])}</div>' if r["status"] == "unknown" else ""
-    steps = "".join(f'<tr><td>{e(s["n"])}</td><td>{e(s["name"])}</td><td><span class="chip s-{s["status"]}">{LABEL[s["status"]]}</span></td>'
-                    f'<td>{e(s["date"])}</td><td><code>{e(s["commit"])}</code></td></tr>' for s in r["steps"])
-    return (f'<details class="t s-{r["status"]}"><summary><span class="nn">{e(r["nn"])}</span><span class="nm"><b>{e(r["slug"])}</b>'
-            f'<small>{e(r["title"])}</small></span><span class="chip s-{r["status"]}">{LABEL[r["status"]]}</span>'
-            f'<span class="bar"><i style="width:{pct}%"></i></span><span class="sc">{done}/{len(r["steps"])}</span></summary>{warn}'
-            f'<div class="meta">Phụ thuộc: {e(r["deps"])} · Nhánh: <code>{e(r["branch"])}</code> · <a href="{e(r["slug"])}/task.md">task.md</a> · '
-            f'<a href="{e(r["slug"])}/progress.md">progress.md</a></div><table><tr><th>Bước</th><th>Nội dung</th><th>Trạng thái</th>'
-            f'<th>Ngày</th><th>Commit</th></tr>{steps}</table></details>')
+    steps = "".join(
+        f'<tr><td>{e(s["n"])}</td><td>{e(s["name"])}</td><td><span class="chip s-{s["status"]}">{LABEL[s["status"]]}</span></td>'
+        f"<td>{e(s['date'])}</td><td><code>{e(s['commit'])}</code></td></tr>"
+        for s in r["steps"]
+    )
+    return (
+        f'<details class="t s-{r["status"]}"><summary><span class="nn">{e(r["nn"])}</span><span class="nm"><b>{e(r["slug"])}</b>'
+        f'<small>{e(r["title"])}</small></span><span class="chip s-{r["status"]}">{LABEL[r["status"]]}</span>'
+        f'<span class="bar"><i style="width:{pct}%"></i></span><span class="sc">{done}/{len(r["steps"])}</span></summary>{warn}'
+        f'<div class="meta">Phụ thuộc: {e(r["deps"])} · Nhánh: <code>{e(r["branch"])}</code> · <a href="{e(r["slug"])}/task.md">task.md</a> · '
+        f'<a href="{e(r["slug"])}/progress.md">progress.md</a></div><table><tr><th>Bước</th><th>Nội dung</th><th>Trạng thái</th>'
+        f"<th>Ngày</th><th>Commit</th></tr>{steps}</table></details>"
+    )
 
 
 CSS = """body{font-family:"Segoe UI",Inter,Arial,sans-serif;margin:0;background:#F5F7FB;color:#1D2939;font-size:14px}
@@ -88,9 +109,9 @@ code{font-family:Consolas,monospace;font-size:12px}a{color:#2563EB}"""
 doc = f"""<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ReconHub – Tiến độ task</title><style>{CSS}</style></head><body>
 <header><h1>ReconHub – Tiến độ task</h1><small>Sinh lúc {now} bởi scripts/tasks_dashboard.py. Không sửa tay.</small></header>
-<main><div class="kpis"><div class="k">Hoàn thành<b>{cnt('done')}/{total} ({round(cnt('done')*100/total) if total else 0}%)</b></div>
-<div class="k">Đang làm<b>{cnt('doing')}</b></div><div class="k">Chưa rà soát<b>{cnt('review')}</b></div>
-<div class="k">Khác task / Thiếu<b>{cnt('diff') + cnt('missing')}</b></div><div class="k">Chưa làm<b>{cnt('todo')}</b></div></div>
-{''.join(card(r) for r in rows)}</main></body></html>"""
+<main><div class="kpis"><div class="k">Hoàn thành<b>{cnt("done")}/{total} ({round(cnt("done") * 100 / total) if total else 0}%)</b></div>
+<div class="k">Đang làm<b>{cnt("doing")}</b></div><div class="k">Chưa rà soát<b>{cnt("review")}</b></div>
+<div class="k">Khác task / Thiếu<b>{cnt("diff") + cnt("missing")}</b></div><div class="k">Chưa làm<b>{cnt("todo")}</b></div></div>
+{"".join(card(r) for r in rows)}</main></body></html>"""
 (TASKS / "dashboard.html").write_text(doc, encoding="utf-8")
 print(f"dashboard.html: {total} task, {cnt('done')} xong")

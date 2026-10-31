@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import os
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from datetime import datetime, timezone
+
 import pytest
-from sqlalchemy import create_engine, text, select
-from alembic.config import Config
 from alembic import command
+from alembic.config import Config
+from sqlalchemy import select, text
 
 
 @pytest.fixture
@@ -51,10 +51,10 @@ def test_migration_lifecycle(temp_db_url: str) -> None:
 def test_sqlite_pragmas_and_data_types(temp_db_url: str) -> None:
     from app.db.engine import get_sqlite_engine
     from app.db.metadata import (
-        recon_template,
-        recon_template_version,
         recon_run,
         recon_run_summary,
+        recon_template,
+        recon_template_version,
     )
 
     run_alembic_upgrade(temp_db_url, "head")
@@ -71,6 +71,7 @@ def test_sqlite_pragmas_and_data_types(temp_db_url: str) -> None:
 
         # Tạo Data Source trước để thỏa mãn FK của RECON_RUN
         from app.db.metadata import recon_data_source
+
         now = datetime.now(timezone.utc)
         ins_ds = recon_data_source.insert().values(
             NAME="ORACLE_TEST",
@@ -143,24 +144,22 @@ def test_sqlite_pragmas_and_data_types(temp_db_url: str) -> None:
 
         # Đọc lại và kiểm tra kiểu
         sel_ver = conn.execute(
-            select(recon_template_version.c.CONFIG_JSON).where(
-                recon_template_version.c.TEMPLATE_ID == tmpl_id
-            )
+            select(recon_template_version.c.CONFIG_JSON).where(recon_template_version.c.TEMPLATE_ID == tmpl_id)
         ).scalar_one()
         assert isinstance(sel_ver, dict)
         assert sel_ver["nested"]["active"] is True
 
         sel_sum = conn.execute(
-            select(recon_run_summary.c.CONTROL_TOTAL_FILE).where(
-                recon_run_summary.c.RUN_ID == run_id
-            )
+            select(recon_run_summary.c.CONTROL_TOTAL_FILE).where(recon_run_summary.c.RUN_ID == run_id)
         ).scalar_one()
         assert isinstance(sel_sum, Decimal)
         assert sel_sum == Decimal("0.3")
 
         # Kiểm tra trong SQLite thực tế lưu dạng TEXT
         raw_text = conn.execute(
-            text(f"SELECT typeof(CONTROL_TOTAL_FILE), CONTROL_TOTAL_FILE FROM RECON_RUN_SUMMARY WHERE RUN_ID = {run_id}")
+            text(
+                f"SELECT typeof(CONTROL_TOTAL_FILE), CONTROL_TOTAL_FILE FROM RECON_RUN_SUMMARY WHERE RUN_ID = {run_id}"
+            )
         ).fetchone()
         assert raw_text is not None
         assert raw_text[0] == "text"

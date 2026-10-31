@@ -208,11 +208,18 @@ recon_template = Table(
 recon_template_version = Table(
     "RECON_TEMPLATE_VERSION",
     metadata,
-    Column("TEMPLATE_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_TEMPLATE.ID"), primary_key=True),
+    Column(
+        "TEMPLATE_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_TEMPLATE.ID"), primary_key=True
+    ),
     Column("VERSION", Integer, primary_key=True),
     Column("STATUS", String(10), nullable=False, default="DRAFT"),
     Column("CONFIG_JSON", JsonText, nullable=False),
-    Column("DATA_SOURCE_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_DATA_SOURCE.ID"), nullable=True),
+    Column(
+        "DATA_SOURCE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_DATA_SOURCE.ID"),
+        nullable=True,
+    ),
     Column("SAMPLE_FILE_ID", BigInteger().with_variant(Integer, "sqlite"), nullable=True),
     Column("DRY_RUN_OK", String(1), nullable=True),
     Column("DRY_RUN_JSON", JsonText, nullable=True),
@@ -253,15 +260,16 @@ recon_excel_load = Table(
     Column("LOADED_AT", DateTime, nullable=False),
     Column("PURGED_AT", DateTime, nullable=True),
     UniqueConstraint(
-        "FILE_ID", "SHEET_NAME", "TEMPLATE_ID", "TEMPLATE_VERSION",
-        name="uq_recon_excel_load_file_sheet_tmpl_ver"
+        "FILE_ID", "SHEET_NAME", "TEMPLATE_ID", "TEMPLATE_VERSION", name="uq_recon_excel_load_file_sheet_tmpl_ver"
     ),
 )
 
 recon_excel_row = Table(
     "RECON_EXCEL_ROW",
     metadata,
-    Column("LOAD_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_EXCEL_LOAD.ID"), primary_key=True),
+    Column(
+        "LOAD_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_EXCEL_LOAD.ID"), primary_key=True
+    ),
     Column("EXCEL_ROW_NO", Integer, primary_key=True),
     Column("DATA_JSON", JsonText, nullable=False),
     Column("IS_VALID", String(1), nullable=False, default="Y"),
@@ -276,9 +284,16 @@ recon_run = Table(
     Column("PROFILE_CODE", String(60), nullable=False),
     Column("PROFILE_OVERRIDE", JsonText, nullable=True),
     Column("FILE_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_FILE.ID"), nullable=True),
-    Column("EXCEL_LOAD_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_EXCEL_LOAD.ID"), nullable=True),
+    Column(
+        "EXCEL_LOAD_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_EXCEL_LOAD.ID"), nullable=True
+    ),
     Column("SHEET_NAME", String(200), nullable=True),
-    Column("DATA_SOURCE_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_DATA_SOURCE.ID"), nullable=False),
+    Column(
+        "DATA_SOURCE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_DATA_SOURCE.ID"),
+        nullable=False,
+    ),
     Column("P_FROM", DateTime, nullable=False),
     Column("P_TO", DateTime, nullable=False),
     Column("PARAMS_JSON", JsonText, nullable=True),

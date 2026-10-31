@@ -2,6 +2,7 @@
 
 Các lệnh: create-admin, reset-password, purge-temp, migrate-metadata, seed.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -65,4 +66,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

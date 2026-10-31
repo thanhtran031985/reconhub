@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import threading
 import time
-import pytest
 
 
 def test_worker_starts_and_stops_cleanly() -> None:

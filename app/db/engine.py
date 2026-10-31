@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import sqlite3
 from typing import Any
+
 from sqlalchemy import Engine, create_engine, event
+
 from app.core.config import get_settings
 
 

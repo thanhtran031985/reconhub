@@ -3,6 +3,7 @@
 
 Dừng đồng thời cả hai tiến trình khi nhận Ctrl+C.
 """
+
 from __future__ import annotations
 
 import os
@@ -37,14 +38,14 @@ def main() -> None:
 
     def shutdown(signum: int | None = None, frame: object = None) -> None:
         print("\n=== Đang dừng Dash server và Worker... ===")
-        for proc, name in [(web_proc, "Dash server"), (worker_proc, "Worker")]:
+        for proc, _name in [(web_proc, "Dash server"), (worker_proc, "Worker")]:
             if proc.poll() is None:
                 try:
                     proc.terminate()
                 except Exception:
                     pass
         # Chờ tiến trình kết thúc
-        for proc, name in [(web_proc, "Dash server"), (worker_proc, "Worker")]:
+        for proc, _name in [(web_proc, "Dash server"), (worker_proc, "Worker")]:
             try:
                 proc.wait(timeout=3)
             except subprocess.TimeoutExpired:

@@ -8,10 +8,23 @@ Trạng thái: 🔄
 | 2 | Schema + Alembic trên SQLite | ✅ | 2026-10-31 | b75e730 |
 | 3 | Oracle test qua VPN | ✅ | 2026-10-31 | b95d2b2 |
 | 4 | Dash khung + theme + health | ✅ | 2026-10-31 | 4c3ad27 |
-| 5 | Worker khung + poe dev | ✅ | 2026-10-31 |  |
-| 6 | Lint, typecheck, CI, cập nhật AGENTS.md mục Lệnh | 🔄 |  |  |
+| 5 | Worker khung + poe dev | ✅ | 2026-10-31 | 469bd08 |
+| 6 | Lint, typecheck, CI, cập nhật AGENTS.md mục Lệnh | ✅ | 2026-10-31 |  |
 
 ## Nhật ký
+### Bước 6 — 2026-10-31 22:32
+- Đã làm:
+  - Cấu hình và chuẩn hóa toàn bộ mã nguồn theo Ruff linter và formatter.
+  - Chuẩn hóa kiểu dữ liệu nghiêm ngặt theo Mypy strict (`19 source files checked, no issues`).
+  - Thiết lập workflow CI GitHub Actions tại `.github/workflows/ci.yml` chạy trên cả `windows-latest` và `ubuntu-latest`.
+  - Rà soát mục Lệnh trong `AGENTS.md` khớp hoàn toàn với cấu hình thực tế trong `pyproject.toml`.
+- Kiểm tra:
+  - `uv run poe lint`: All checks passed.
+  - `uv run poe typecheck`: Success, no issues found in 19 source files.
+  - `uv run poe test`: 8 passed, 1 skipped (test-oracle tự skip) trong 5.15s.
+- Suy ra (nếu có): Thêm `disallow_untyped_calls` linh hoạt hoặc ignore tường minh khi gọi các hàm chưa có type stubs từ thư viện `dash`.
+- Việc cần người làm thủ công: Không có.
+
 ### Bước 5 — 2026-10-31 22:30
 - Đã làm:
   - Cấu hình logging chuẩn với structlog trong `app/core/logging.py`, ghi song song console và file `logs/app.log`.
