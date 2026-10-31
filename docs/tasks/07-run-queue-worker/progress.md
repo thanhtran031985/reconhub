@@ -8,10 +8,16 @@ Trạng thái: 🔄
 | 2 | Worker + executor | ✅ | 2026-11-01 | 71d298a |
 | 3 | Đọc kết quả | ✅ | 2026-11-01 | 2ea1b9e |
 | 4 | Dry-run + activate + grain | ✅ | 2026-11-01 | 77ce617 |
-| 5 | Xóa dữ liệu tạm | ⬜ |  |  |
+| 5 | Xóa dữ liệu tạm | ✅ | 2026-11-01 | |
 | 6 | Demo | ⬜ |  |  |
 
 ## Nhật ký
+### Bước 5 — 2026-11-01 01:40
+- Đã làm: Cài đặt dịch vụ `app/services/temp_data.py` (`mark_checked`, `usage`, `preview`, `purge_runs`, `purge_filter`, `purge_results`) tuân thủ nghiêm ngặt nguyên tắc chỉ xóa dữ liệu tạm khi người dùng yêu cầu (ADR-012, Spec 04 mục 12). Cài đặt cơ chế an toàn dữ liệu dùng chung (chỉ xóa file gốc và `RECON_EXCEL_ROW` khi tất cả các run tham chiếu đã được xóa), giữ trọn vẹn kết quả `RECON_RESULT_*` và export Excel, gọi `PRAGMA incremental_vacuum` thu hồi dung lượng SQLite và ghi `RECON_PURGE_LOG` + audit log. Tích hợp lệnh CLI `purge-temp` (`--run`, `--checked-before`, `--dry-run`). Viết bài test `tests/unit/test_temp_data_purge.py` (7 tests) kiểm chứng quyền hạn, chặn xóa run RUNNING, xác nhận từ khóa `XOA` và kiểm tra file dùng chung.
+- Kiểm tra: `uv run pytest tests/unit/test_temp_data_purge.py` (7 passed); `uv run poe test` (225 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
+- Suy ra (nếu có): Quản lý dữ liệu dùng chung theo mức tham chiếu ngăn chặn việc xóa nhầm file khi một file Excel được dùng cho nhiều profile run khác nhau.
+- Việc cần người làm thủ công: Không có.
+
 ### Bước 4 — 2026-11-01 01:34
 - Đã làm: Cài đặt dịch vụ `dry_run` trong `app/services/run_service.py` với cờ `persist=False`, dọn dẹp hàng đợi tạm, cập nhật `DRY_RUN_OK='Y'`, `SAMPLE_FILE_ID` và lưu tóm tắt vào `DRY_RUN_JSON`. Bổ sung kiểm tra và phân tích Grain cảnh báo trùng khóa hoặc grain quá thô. Đồng bộ kiểu `JsonText` với encoder `default=str` để an toàn tuần tự hóa Decimal/datetime. Viết bài test `tests/unit/test_dry_run_activate.py` kiểm chứng vòng đời Dry-run: sửa cấu hình bản nháp tự động reset `DRY_RUN_OK='N'`, chặn kích hoạt với `DRY_RUN_REQUIRED` và kích hoạt thành công sau khi Dry-run lại.
 - Kiểm tra: `uv run pytest tests/unit/test_dry_run_activate.py` (1 passed); `uv run poe test` (218 passed, 4 skipped); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
