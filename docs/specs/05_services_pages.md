@@ -6,8 +6,8 @@ Không có REST API công khai. Page Dash gọi service Python trực tiếp. Se
 class ServiceResult(BaseModel, Generic[T]):
     ok: bool
     data: T | None = None
-    code: str | None = None      # mã lỗi cố định
-    message: str | None = None   # tiếng Việt có dấu
+    code: str | None = None  # mã lỗi cố định
+    message: str | None = None  # tiếng Việt có dấu
     details: dict | None = None  # vd lỗi validate theo path
 ```
 

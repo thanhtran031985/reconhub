@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from logging.config import fileConfig
 import sqlite3
-from sqlalchemy import engine_from_config, pool
+from logging.config import fileConfig
+
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 from app.core.config import get_settings
 from app.db.metadata import metadata
-from app.db.engine import _set_sqlite_pragmas
 
 config = context.config
 
@@ -23,7 +23,8 @@ def get_url() -> str:
         url = get_settings().effective_db_url
     if url.startswith("sqlite:///"):
         from pathlib import Path
-        p = Path(url[len("sqlite:///"):])
+
+        p = Path(url[len("sqlite:///") :])
         p.parent.mkdir(parents=True, exist_ok=True)
     return url
 

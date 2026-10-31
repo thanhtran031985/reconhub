@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from typing import Any
 
 import structlog
 
@@ -51,3 +52,8 @@ def setup_logging() -> None:
     root_logger.handlers.clear()
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
+
+
+def get_logger(name: str | None = None) -> Any:
+    """Lấy structlog logger theo tên."""
+    return structlog.get_logger(name)
