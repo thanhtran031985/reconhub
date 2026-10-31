@@ -6,12 +6,26 @@ Trạng thái: 🔄
 |---|---|---|---|---|
 | 1 | Khung + state + autosave | ✅ | 2026-11-01 | 14c0002 |
 | 2 | Bước 1–2 | ✅ | 2026-11-01 | b0b2551 |
-| 3 | Bước 3 | ✅ | 2026-11-01 |  |
-| 4 | Bước 4 | 🔄 | 2026-11-01 |  |
-| 5 | Bước 5 + kích hoạt | ⬜ |  |  |
+| 3 | Bước 3 | ✅ | 2026-11-01 | 77c505f |
+| 4 | Bước 4 | ✅ | 2026-11-01 |  |
+| 5 | Bước 5 + kích hoạt | 🔄 | 2026-11-01 |  |
 | 6 | Tab sơ đồ | ⬜ |  |  |
 
 ## Nhật ký
+### Bước 4 — 2026-11-01 03:02
+- Đã làm: Cài đặt giao diện và xử lý Bước 4 (Hồ sơ đối soát — Profile so sánh & Measures) trong Wizard (`app/ui/pages/template_wizard.py`):
+  - Bộ tab chuyển đổi nhanh giữa các Profile đối soát (`dmc.Tabs`) kèm nút "Thêm profile".
+  - Cột bên trái (260px) danh sách toàn bộ các trường khả dụng (cả trường Excel và trường dẫn xuất `derived`), tích hợp các nút ActionIcon thao tác nhanh:
+    - Nút `Key` (`lucide:key`): Thêm nhanh trường vào danh sách Group by.
+    - Nút `Sigma` (`lucide:sigma`): Thêm nhanh trường vào bảng Measures.
+  - Khối cấu hình Group by (khóa so sánh): Hiển thị chip khóa màu primary kèm icon key, tự động hiển thị số nhóm đối soát tương ứng từ dữ liệu mẫu.
+  - Bảng Measures và quy tắc so sánh: Tên measure, Nhãn hiển thị, Hàm gộp (`sum`, `count`, `first_distinct`), Trường áp dụng, Kiểu so sánh (`abs_tol`, `exact`, `display_only`), Sai số, Làm tròn và Badge đánh dấu Measure chính (`main_measure`).
+  - Cấu hình bộ lọc riêng cho Profile và ô lựa chọn Drill-down phân rã chênh lệch tới profile chi tiết.
+  - Khối xem trước câu lệnh SQL gộp tự động sinh ra tương ứng (chỉ đọc) qua `code_block`.
+  - Bổ sung test đơn vị `test_render_step_4_profiles_and_measures` trong `tests/unit/test_page_template_wizard.py`.
+- Kiểm tra: `uv run pytest tests/unit/test_page_template_wizard.py` (7 passed); `uv run poe lint` (pass); `uv run poe typecheck` (pass).
+- Suy ra (nếu có): Thao tác gán nhanh trường vào Group by và Measures qua các nút icon Key và Sigma giúp cấu hình profile trực quan, tránh lỗi gõ nhầm tên trường.
+- Việc cần người làm thủ công: Không có.
 ### Bước 3 — 2026-11-01 03:00
 - Đã làm: Cài đặt giao diện và xử lý Bước 3 (Nguồn dữ liệu DB & Điều kiện lọc) trong Wizard (`app/ui/pages/template_wizard.py`):
   - Khối nguồn dữ liệu: Lựa chọn Data Source (nguồn đối soát Oracle), bộ chuyển đổi cách khai báo `Bảng/View` hoặc `SQL tự viết` (`dmc.SegmentedControl`), tùy chọn "Đẩy phép gộp (SUM, COUNT) xuống DB" (`pushdown_aggregate`).

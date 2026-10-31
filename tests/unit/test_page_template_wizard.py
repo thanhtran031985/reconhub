@@ -164,3 +164,20 @@ def test_render_step_3_db_source(wizard_env, monkeypatch) -> None:
     assert "Lọc dữ liệu Excel theo cùng khoảng" in s3
 
 
+def test_render_step_4_profiles_and_measures(wizard_env, monkeypatch) -> None:
+    from app.ui.pages.template_wizard import render_step_4
+
+    cfg = load_sample_config()
+    form_state = config_to_form_state(cfg)
+
+    step4_ui = render_step_4(form_state)
+    assert step4_ui is not None
+    s4 = str(step4_ui)
+    assert "Trường có sẵn" in s4
+    assert "Group by" in s4
+    assert "Measures và quy tắc so sánh" in s4
+    assert "TOTAL_AMOUNT" in s4
+    assert "SQL gộp sinh tự động" in s4
+
+
+

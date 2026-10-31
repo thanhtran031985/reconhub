@@ -6,6 +6,7 @@ from typing import Any
 import dash
 import dash_mantine_components as dmc
 from dash import Input, Output, State, callback, dcc, html
+from dash_iconify import DashIconify
 from pydantic import ValidationError
 
 from app.core.context import Role
@@ -693,6 +694,252 @@ def render_step_3(
         ]
     )
 
+
+def render_step_4(
+    config: dict[str, Any],
+    _selected_profile_code: str | None = None,
+) -> Any:
+    """Dựng giao diện Bước 4: Hồ sơ đối soát (Profile so sánh) & Measures."""
+    profiles = config.get("profiles", [])
+    active_prof = profiles[0] if profiles else {
+        "code": "BY_INVOICE",
+        "name": "Theo số hóa đơn",
+        "group_by": ["INVOICE_NO"],
+        "measures": [],
+    }
+
+    # Danh sách trường có sẵn (cả fields và derived)
+    avail_fields = [f.get("name") for f in config.get("fields", []) if f.get("name")]
+    avail_fields += [d.get("name") for d in config.get("derived", []) if d.get("name")]
+    if not avail_fields:
+        avail_fields = ["INVOICE_NO", "INV_DATE", "POINT", "TXN_ID", "PIN", "SERVICE_CODE", "STATUS", "QTY", "AMOUNT"]
+
+    # Nhóm Group by chips
+    group_by_cols = active_prof.get("group_by", ["INVOICE_NO"])
+    group_by_chips = [
+        dmc.Badge(
+            g,
+            size="sm",
+            variant="filled",
+            color="primary",
+            leftSection=DashIconify(icon="lucide:key", width=14),
+            radius="sm",
+        )
+        for g in group_by_cols
+    ]
+
+    # Bảng Measures
+    measures = active_prof.get("measures", [
+        {"name": "TOTAL_AMOUNT", "label": "Tổng tiền", "agg": "sum", "field": "AMOUNT", "compare": "abs_tol", "tolerance": 1, "round": 0},
+        {"name": "TOTAL_QTY", "label": "Số lượng", "agg": "sum", "field": "QTY", "compare": "exact", "round": 0},
+        {"name": "INV_DATE", "label": "Ngày HĐ", "agg": "first_distinct", "field": "INV_DATE", "compare": "exact"},
+        {"name": "LINE_CNT", "label": "Số dòng", "agg": "count", "field": "*", "compare": "display_only"},
+    ])
+
+    measure_rows = []
+    for m in measures:
+        if not isinstance(m, dict):
+            continue
+        m_name = m.get("name", "")
+        m_label = m.get("label", "")
+        m_agg = m.get("agg", "sum")
+        m_field = m.get("field", "")
+        m_cmp = m.get("compare", "exact")
+        m_tol = str(m.get("tolerance", "—"))
+        m_round = str(m.get("round", "—"))
+        is_main = m_name == active_prof.get("main_measure", "TOTAL_AMOUNT")
+
+        measure_rows.append(
+            html.Tr(
+                [
+                    html.Td(html.Span(m_name, className="mono"), style={"padding": "8px 10px"}),
+                    html.Td(m_label, style={"padding": "8px 10px"}),
+                    html.Td(dmc.Badge(m_agg, size="xs", variant="light", color="blue"), style={"padding": "8px 10px"}),
+                    html.Td(html.Span(m_field, className="mono"), style={"padding": "8px 10px"}),
+                    html.Td(m_cmp, style={"padding": "8px 10px"}),
+                    html.Td(m_tol, style={"padding": "8px 10px", "textAlign": "right"}),
+                    html.Td(m_round, style={"padding": "8px 10px", "textAlign": "right"}),
+                    html.Td(
+                        dmc.Badge("Chính", size="xs", variant="filled", color="info") if is_main else "",
+                        style={"padding": "8px 10px"},
+                    ),
+                ],
+                style={"borderBottom": "1px solid var(--border-subtle, #e2e8f0)"},
+            )
+        )
+
+    # Generated Grouped SQL
+    grouped_sql = (
+        'SELECT UPPER(TRIM(src."INVOICE_NO"))            AS "K__INVOICE_NO",\n'
+        '       SUM(src."AMOUNT")                        AS "M__TOTAL_AMOUNT",\n'
+        '       SUM(src."QUANTITY")                      AS "M__TOTAL_QTY",\n'
+        '       MIN(TRUNC(src."INVOICE_DATE"))           AS "M__INV_DATE",\n'
+        '       COUNT(DISTINCT TRUNC(src."INVOICE_DATE")) AS "N__INV_DATE",\n'
+        '       COUNT(*)                                 AS "M__LINE_CNT"\n'
+        "FROM  ( <Câu SELECT sinh ra ở bước 3> ) src\n"
+        'GROUP BY UPPER(TRIM(src."INVOICE_NO"))'
+    )
+
+    # Tab items cho profile
+    tab_list = [
+        dmc.TabsTab(p.get("name", p.get("code", "Profile")), value=p.get("code", "BY_INVOICE"))
+        for p in profiles
+    ]
+    if not tab_list:
+        tab_list = [dmc.TabsTab("Theo số hóa đơn (mặc định)", value="BY_INVOICE")]
+
+    return html.Div(
+        [
+            # Profile tabs
+            dmc.Tabs(
+                id="wizard-profile-tabs",
+                value=active_prof.get("code", "BY_INVOICE"),
+                mb="md",
+                children=[
+                    dmc.TabsList(
+                        [
+                            *tab_list,
+                            button_subtle("Thêm profile", id="wizard-add-profile-btn", icon="lucide:plus", size="xs"),
+                        ]
+                    )
+                ],
+            ),
+            # Layout 2 cột: Cột trái Trường có sẵn (260px) vs Cột phải Cấu hình profile
+            dmc.Grid(
+                gap="md",
+                children=[
+                    # Cột trái: Trường có sẵn
+                    dmc.GridCol(
+                        span=3,
+                        children=dmc.Paper(
+                            withBorder=True,
+                            p="md",
+                            radius="sm",
+                            children=[
+                                dmc.Title("Trường có sẵn", order=4, mb="sm"),
+                                html.Div(
+                                    [
+                                        dmc.Group(
+                                            justify="space-between",
+                                            py=4,
+                                            children=[
+                                                html.Span(f, className="mono", style={"fontSize": "13px"}),
+                                                dmc.Group(
+                                                    [
+                                                        dmc.ActionIcon(
+                                                            DashIconify(icon="lucide:key", width=14),
+                                                            size="xs",
+                                                            variant="subtle",
+                                                            **{"aria-label": f"Thêm {f} vào Group by"},
+                                                        ),
+                                                        dmc.ActionIcon(
+                                                            DashIconify(icon="lucide:sigma", width=14),
+                                                            size="xs",
+                                                            variant="subtle",
+                                                            **{"aria-label": f"Thêm measure từ {f}"},
+                                                        ),
+                                                    ],
+                                                    gap=2,
+                                                ),
+                                            ],
+                                            style={"borderBottom": "1px solid var(--border-subtle, #f1f5f9)"},
+                                        )
+                                        for f in avail_fields
+                                    ]
+                                ),
+                            ],
+                        ),
+                    ),
+                    # Cột phải: Group by, Measures & SQL gộp
+                    dmc.GridCol(
+                        span=9,
+                        children=html.Div(
+                            [
+                                # Card 1: Group by
+                                dmc.Paper(
+                                    withBorder=True,
+                                    p="md",
+                                    radius="sm",
+                                    mb="md",
+                                    children=[
+                                        dmc.Title("Group by (khóa so sánh)", order=4, mb="xs"),
+                                        dmc.Group(group_by_chips, gap="xs", mb="xs"),
+                                        alert_box("200 dòng Excel → 190 nhóm theo (INVOICE_NO).", tone="info"),
+                                    ],
+                                ),
+                                # Card 2: Measures và quy tắc so sánh
+                                dmc.Paper(
+                                    withBorder=True,
+                                    p="md",
+                                    radius="sm",
+                                    mb="md",
+                                    children=[
+                                        dmc.Title("Measures và quy tắc so sánh", order=4, mb="sm"),
+                                        dmc.Table(
+                                            striped=True,
+                                            children=[
+                                                html.Thead(
+                                                    html.Tr(
+                                                        [
+                                                            html.Th("Tên"),
+                                                            html.Th("Nhãn"),
+                                                            html.Th("Hàm"),
+                                                            html.Th("Trường"),
+                                                            html.Th("So sánh"),
+                                                            html.Th("Sai số", style={"textAlign": "right"}),
+                                                            html.Th("Làm tròn", style={"textAlign": "right"}),
+                                                            html.Th(""),
+                                                        ],
+                                                        style={"background": "var(--bg-subtle, #f8fafc)"},
+                                                    )
+                                                ),
+                                                html.Tbody(measure_rows),
+                                            ],
+                                        ),
+                                        dmc.Grid(
+                                            gap="md",
+                                            mt="md",
+                                            children=[
+                                                dmc.GridCol(
+                                                    span=6,
+                                                    children=dmc.TextInput(
+                                                        id="wizard-profile-filter",
+                                                        label="Bộ lọc profile (áp cả hai phía)",
+                                                        placeholder="Ví dụ STATUS = ORIGINAL",
+                                                        className="mono",
+                                                    ),
+                                                ),
+                                                dmc.GridCol(
+                                                    span=6,
+                                                    children=dmc.Select(
+                                                        id="wizard-drilldown-select",
+                                                        label="Drill-down tới",
+                                                        data=[{"label": "Chi tiết dòng", "value": "BY_LINE"}, {"label": "Không phân rã", "value": "NONE"}],
+                                                        value="BY_LINE",
+                                                    ),
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                ),
+                                # Card 3: SQL gộp sinh tự động (chỉ đọc)
+                                dmc.Paper(
+                                    withBorder=True,
+                                    p="md",
+                                    radius="sm",
+                                    children=[
+                                        dmc.Title("SQL gộp sinh tự động (chỉ đọc)", order=4, mb="xs"),
+                                        code_block(grouped_sql, language="sql"),
+                                    ],
+                                ),
+                            ]
+                        ),
+                    ),
+                ],
+            ),
+        ]
+    )
+
 try:
     dash.register_page(  # type: ignore[no-untyped-call]
         f"pages.{__name__.split('.')[-1]}",
@@ -924,7 +1171,7 @@ def handle_render_step_content(active_step: int, config_data: dict[str, Any] | N
     elif active_step == 2:
         return render_step_3(cfg)
     elif active_step == 3:
-        return html.Div("Nội dung Bước 4: Profile so sánh (Đang hoàn thiện)")
+        return render_step_4(cfg)
     elif active_step == 4:
         return html.Div("Nội dung Bước 5: Dry-run (Đang hoàn thiện)")
     return html.Div("Bước không xác định")
