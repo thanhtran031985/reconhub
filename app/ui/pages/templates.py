@@ -515,7 +515,7 @@ def toggle_clone_modal(clone_clicks: list[Any], cancel_clicks: Any, is_opened: b
         return False, None
 
     trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
-    if "tmpl-clone-cancel" in trigger_id:
+    if "tmpl-clone-cancel" in trigger_id or not any(clone_clicks):
         return False, None
 
     try:
@@ -572,7 +572,7 @@ def toggle_archive_modal(archive_clicks: list[Any], cancel_clicks: Any, is_opene
         return False, None
 
     trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
-    if "tmpl-archive-modal-cancel" in trigger_id:
+    if "tmpl-archive-modal-cancel" in trigger_id or not any(archive_clicks):
         return False, None
 
     try:
@@ -610,7 +610,7 @@ def handle_archive_template(n_clicks: Any, target_id: Any) -> bool:
 )
 def handle_export_template(export_clicks: list[Any]) -> Any:
     ctx_dash = dash.callback_context
-    if not ctx_dash.triggered:
+    if not ctx_dash.triggered or not any(export_clicks):
         return None
 
     trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]

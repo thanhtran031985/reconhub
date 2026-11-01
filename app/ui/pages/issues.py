@@ -591,7 +591,7 @@ def open_issue_edit_drawer(
 ) -> tuple[bool, Any, str, str | None, str | None, str | None, int | None, Any]:
     """Mở Drawer chỉnh sửa chi tiết khi bấm nút 'Xử lý' trên dòng."""
     ctx_dash = dash.callback_context
-    if not ctx_dash.triggered:
+    if not ctx_dash.triggered or not any(clicks):
         return False, dash.no_update, "OPEN", None, None, None, None, None
 
     trigger_prop = ctx_dash.triggered[0]["prop_id"]

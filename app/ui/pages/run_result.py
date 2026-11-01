@@ -1079,7 +1079,7 @@ def handle_row_click_open_drawer(
 ) -> tuple[bool, Any]:
     """Mở Drawer chi tiết dòng khi click vào một hàng bất kỳ trên bảng."""
     ctx_dash = dash.callback_context
-    if not ctx_dash.triggered:
+    if not ctx_dash.triggered or not any(_clicks):
         return False, dash.no_update
 
     prop_id = ctx_dash.triggered[0]["prop_id"]
