@@ -47,10 +47,11 @@ def dashboard_env(tmp_path: Path, monkeypatch):
     )
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    start_of_month = datetime(now.year, now.month, 1, 0, 0, 0)
 
     from datetime import timedelta
-    t1 = now - timedelta(hours=1)
-    t2 = now
+    t1 = start_of_month + timedelta(minutes=5)
+    t2 = start_of_month + timedelta(minutes=10)
 
     with engine.begin() as conn:
         ds_id = conn.execute(

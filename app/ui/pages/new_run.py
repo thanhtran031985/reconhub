@@ -230,6 +230,8 @@ def render_file_section(
             withBorder=True,
             p="md",
             radius="sm",
+            h="100%",
+            style={"display": "flex", "flexDirection": "column"},
             children=[
                 dmc.Title("1. File dữ liệu", order=4, mb="xs"),
                 dmc.Text(
@@ -238,10 +240,15 @@ def render_file_section(
                     c="dimmed",
                     mb="md",
                 ),
-                file_drop(
-                    "new-run-upload",
-                    hint=".xlsx · .xls · .csv · tối đa 50 MB",
-                    max_size=50 * 1024 * 1024,
+                html.Div(
+                    style={"flex": "1", "display": "flex", "flexDirection": "column", "justifyContent": "center"},
+                    children=[
+                        file_drop(
+                            "new-run-upload",
+                            hint=".xlsx · .xls · .csv · tối đa 50 MB",
+                            max_size=50 * 1024 * 1024,
+                        ),
+                    ],
                 ),
                 html.Div(button_subtle("Đổi file", id="new-run-change-file-btn", size="xs"), style={"display": "none"}),
             ],
@@ -336,6 +343,7 @@ def render_file_section(
         withBorder=True,
         p="md",
         radius="sm",
+        h="100%",
         children=[
             dmc.Title("1. File dữ liệu", order=4, mb="xs"),
             dmc.Stack(alerts, gap="xs"),
@@ -388,6 +396,7 @@ def render_params_section(
         withBorder=True,
         p="md",
         radius="sm",
+        h="100%",
         children=[
             dmc.Title("2. Profile và tham số tìm kiếm", order=4, mb="xs"),
             dmc.Grid(
@@ -415,40 +424,38 @@ def render_params_section(
                 ],
             ),
             # Hàng tham số: p_from, p_to, p_org
-            dmc.Grid(
-                gutter="md",
-                mb="xs",
+            html.Div(
+                style={
+                    "display": "grid",
+                    "gridTemplateColumns": "1fr 1fr 130px",
+                    "gap": "12px",
+                    "alignItems": "flex-start",
+                },
                 children=[
-                    dmc.GridCol(
-                        span=5,
-                        children=dmc.TextInput(
-                            id="new-run-p-from",
-                            label="Từ ngày giờ (p_from) *",
-                            value="2026-02-01T00:00:00",
-                            placeholder="YYYY-MM-DDTHH:MM:SS",
-                            className="mono",
-                            required=True,
-                        ),
+                    dmc.DateTimePicker(
+                        id="new-run-p-from",
+                        label="Từ ngày giờ (p_from) *",
+                        value="2026-02-01 00:00:00",
+                        valueFormat="YYYY-MM-DD HH:mm:ss",
+                        withSeconds=True,
+                        clearable=False,
+                        w="100%",
                     ),
-                    dmc.GridCol(
-                        span=5,
-                        children=dmc.TextInput(
-                            id="new-run-p-to",
-                            label="Đến ngày giờ (p_to) *",
-                            value="2026-02-05T23:59:59",
-                            placeholder="YYYY-MM-DDTHH:MM:SS",
-                            className="mono",
-                            required=True,
-                        ),
+                    dmc.DateTimePicker(
+                        id="new-run-p-to",
+                        label="Đến ngày giờ (p_to) *",
+                        value="2026-02-05 23:59:59",
+                        valueFormat="YYYY-MM-DD HH:mm:ss",
+                        withSeconds=True,
+                        clearable=False,
+                        w="100%",
                     ),
-                    dmc.GridCol(
-                        span=2,
-                        children=dmc.TextInput(
-                            id="new-run-p-org",
-                            label="Đơn vị (p_org) *",
-                            value="BDP",
-                            className="mono",
-                        ),
+                    dmc.TextInput(
+                        id="new-run-p-org",
+                        label="Đơn vị (p_org) *",
+                        value="BDP",
+                        className="mono",
+                        w="100%",
                     ),
                 ],
             ),
@@ -636,15 +643,18 @@ def layout() -> Any:
             # Grid 2 cột: Cột 1 File, Cột 2 Params
             dmc.Grid(
                 gutter="md",
+                align="stretch",
                 children=[
                     dmc.GridCol(
                         span=6,
                         id="new-run-file-col",
+                        style={"display": "flex", "flexDirection": "column"},
                         children=render_file_section(None, None, active_templates),
                     ),
                     dmc.GridCol(
                         span=6,
                         id="new-run-params-col",
+                        style={"display": "flex", "flexDirection": "column"},
                         children=render_params_section(None, data_sources),
                     ),
                 ],
