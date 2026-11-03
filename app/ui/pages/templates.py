@@ -9,10 +9,12 @@ import dash_mantine_components as dmc
 from dash import ALL, Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
 
+from app.core.context import Role
 from app.core.session import get_current_ctx
 from app.services.template import (
     archive_template,
     clone_template,
+    delete_template,
     list_templates,
 )
 from app.services.template_export_import import (
@@ -42,8 +44,11 @@ def render_templates_content(
     error: str | None = None,
     search_term: str = "",
     status_filter: str = "",
+    page: int = 1,
+    page_size: int = 10,
+    is_admin: bool = False,
 ) -> Any:
-    """Hàm thuần dựng nội dung danh sách template theo 4 trạng thái."""
+    """Hàm thuần dựng nội dung danh sách template kèm phân trang và kiểm tra quyền Admin."""
     # 1. Trạng thái Loading
     if loading:
         return dmc.Stack(
@@ -73,13 +78,14 @@ def render_templates_content(
     # Lọc theo tìm kiếm và trạng thái
     filtered = items
     if search_term:
-        term = search_term.lower()
+        term = search_term.strip().lower()
         filtered = [
             it
             for it in filtered
-            if term in str(it.get("template_id", "")).lower()
+            if term in str(it.get("code") or it.get("template_id", "")).lower()
             or term in str(it.get("name", "")).lower()
             or term in str(it.get("file_pattern", "")).lower()
+            or term in str(it.get("sheet", "")).lower()
         ]
 
     if status_filter:
@@ -87,14 +93,21 @@ def render_templates_content(
 
     if len(filtered) == 0:
         return empty_state(
-            title="Không có dòng khớp bộ lọc",
+            title="Không có template khớp bộ lọc",
             description="Hãy thử thay đổi từ khóa tìm kiếm hoặc bỏ bộ lọc trạng thái.",
         )
 
-    # 4. Trạng thái có dữ liệu: Dựng bảng
+    # 4. Tính toán phân trang
+    total_items = len(filtered)
+    total_pages = max(1, (total_items + page_size - 1) // page_size)
+    current_page = min(max(1, page), total_pages)
+    start_idx = (current_page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_items)
+    page_items = filtered[start_idx:end_idx]
+
+    # 5. Dựng danh sách hàng
     rows = []
-    for it in filtered:
-        # Chuyển đổi an toàn id sang int
+    for it in page_items:
         try:
             id_val = int(it.get("id") or 0)
         except Exception:
@@ -108,12 +121,13 @@ def render_templates_content(
         version = it.get("current_version") or it.get("version", 1)
         owner = it.get("owner") or it.get("created_by") or "—"
         status = it.get("status", "ACTIVE")
+        last_run = it.get("last_run")
 
         # Profiles badges
         profile_badges = []
         for p in profiles:
-            p_name = p.get("name") or p.get("profile_id", "")
-            is_def = p.get("is_default", False)
+            p_name = p.get("name") or p.get("profile_id") or p.get("code", "")
+            is_def = bool(p.get("is_default", False))
             if is_def:
                 profile_badges.append(
                     dmc.Badge(
@@ -134,36 +148,126 @@ def render_templates_content(
                     )
                 )
 
-        row = html.Tr(
+        prof_cell = (
+            dmc.Group(profile_badges, gap=4, style={"flexWrap": "wrap", "maxWidth": "240px"})
+            if profile_badges
+            else dmc.Text("—", size="xs", c="dimmed")
+        )
+
+        # Last run cell
+        if last_run:
+            lr_id = last_run.get("id", 0)
+            lr_st = last_run.get("status", "")
+            lr_tone = "teal" if lr_st == "DONE" else "red" if lr_st == "FAILED" else "blue"
+            lr_cell = dmc.Stack(
+                [
+                    dcc.Link(
+                        dmc.Badge(f"#{lr_id} · {lr_st}", color=lr_tone, size="xs", variant="light"),
+                        href=f"/runs/{lr_id}",
+                        style={"textDecoration": "none"},
+                    ),
+                    dmc.Text(last_run.get("finished_at", ""), size="xs", c="dimmed"),
+                ],
+                gap=2,
+            )
+        else:
+            lr_cell = dmc.Text("Chưa chạy", size="xs", c="dimmed")
+
+        # Action menu items
+        menu_items = [
+            dmc.MenuItem(
+                "Nhân bản",
+                id={"type": "tmpl-action-clone", "index": action_index},
+                leftSection=DashIconify(icon="lucide:copy", width=14),
+            ),
+            dmc.MenuItem(
+                "Export JSON",
+                id={"type": "tmpl-action-export", "index": action_index},
+                leftSection=DashIconify(icon="lucide:download", width=14),
+            ),
+            dmc.MenuDivider(),
+            dmc.MenuItem(
+                "Lưu trữ",
+                id={"type": "tmpl-action-archive", "index": action_index},
+                color="orange",
+                leftSection=DashIconify(icon="lucide:archive", width=14),
+            ),
+        ]
+
+        # Quyền Admin: Bổ sung hành động Xóa template
+        if is_admin:
+            menu_items.extend(
+                [
+                    dmc.MenuDivider(),
+                    dmc.MenuItem(
+                        "Xóa template",
+                        id={"type": "tmpl-action-delete", "index": action_index},
+                        color="red",
+                        leftSection=DashIconify(icon="lucide:trash-2", width=14),
+                    ),
+                ]
+            )
+
+        row = dmc.TableTr(
             [
-                html.Td(
-                    dmc.Text(tid, ff="monospace", fw=600, size="sm"),
+                dmc.TableTd(
+                    dmc.Text(tid, className="rh-code", fw=700, size="sm"),
+                    style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
                 ),
-                html.Td(
+                dmc.TableTd(
                     dmc.Stack(
                         [
                             dmc.Text(tname, fw=600, size="sm"),
-                            dmc.Text(fpattern, size="xs", c="dimmed", ff="monospace"),
+                            dmc.Group(
+                                [
+                                    DashIconify(icon="lucide:file-spreadsheet", width=14, color="gray"),
+                                    dmc.Text(
+                                        fpattern,
+                                        size="xs",
+                                        c="dimmed",
+                                        className="rh-code",
+                                        style={
+                                            "maxWidth": "320px",
+                                            "overflow": "hidden",
+                                            "textOverflow": "ellipsis",
+                                            "whiteSpace": "nowrap",
+                                        },
+                                    ),
+                                ],
+                                gap=4,
+                            ),
                         ],
                         gap=2,
-                    )
+                    ),
+                    style={"verticalAlign": "middle"},
                 ),
-                html.Td(
-                    dmc.Badge(f"{fcount} trường", variant="light", color="gray", size="sm"),
+                dmc.TableTd(
+                    dmc.Badge(
+                        f"{fcount} trường",
+                        variant="light",
+                        color="blue" if fcount > 0 else "gray",
+                        size="sm",
+                    ),
+                    style={"textAlign": "center", "whiteSpace": "nowrap", "verticalAlign": "middle"},
                 ),
-                html.Td(
-                    dmc.Group(profile_badges, gap=4),
-                ),
-                html.Td(
+                dmc.TableTd(prof_cell, style={"verticalAlign": "middle"}),
+                dmc.TableTd(
                     dmc.Badge(f"v{version}", variant="outline", color="gray", size="xs"),
+                    style={"textAlign": "center", "whiteSpace": "nowrap", "verticalAlign": "middle"},
                 ),
-                html.Td(
+                dmc.TableTd(
                     dmc.Text(f"@{owner}", size="sm", c="dimmed"),
+                    style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
                 ),
-                html.Td(
+                dmc.TableTd(
                     status_chip(status),
+                    style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
                 ),
-                html.Td(
+                dmc.TableTd(
+                    lr_cell,
+                    style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                ),
+                dmc.TableTd(
                     dmc.Group(
                         [
                             dmc.Anchor(
@@ -186,70 +290,86 @@ def render_templates_content(
                                             size="sm",
                                         )
                                     ),
-                                    dmc.MenuDropdown(
-                                        [
-                                            dmc.MenuItem(
-                                                "Nhân bản",
-                                                id={"type": "tmpl-action-clone", "index": action_index},
-                                                leftSection=DashIconify(icon="lucide:copy", width=14),
-                                            ),
-                                            dmc.MenuItem(
-                                                "Export JSON",
-                                                id={"type": "tmpl-action-export", "index": action_index},
-                                                leftSection=DashIconify(icon="lucide:download", width=14),
-                                            ),
-                                            dmc.MenuDivider(),
-                                            dmc.MenuItem(
-                                                "Lưu trữ",
-                                                id={"type": "tmpl-action-archive", "index": action_index},
-                                                color="red",
-                                                leftSection=DashIconify(icon="lucide:archive", width=14),
-                                            ),
-                                        ]
-                                    ),
+                                    dmc.MenuDropdown(menu_items),
                                 ],
                                 position="bottom-end",
                                 withArrow=True,
                             ),
                         ],
                         gap="xs",
-                    )
+                        justify="flex-end",
+                        style={"flexWrap": "nowrap"},
+                    ),
+                    style={"textAlign": "right", "whiteSpace": "nowrap", "verticalAlign": "middle"},
                 ),
             ]
         )
         rows.append(row)
 
-    table = dmc.Table(
-        striped=True,
-        highlightOnHover=True,
-        withTableBorder=True,
-        withColumnBorders=False,
+    headers = [
+        dmc.TableTh("Mã template", style={"minWidth": "160px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Tên & Nhận diện file", style={"minWidth": "240px", "whiteSpace": "nowrap"}),
+        dmc.TableTh(
+            "Số trường", style={"minWidth": "100px", "textAlign": "center", "whiteSpace": "nowrap"}
+        ),
+        dmc.TableTh("Profiles", style={"minWidth": "180px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Phiên bản", style={"minWidth": "85px", "textAlign": "center", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Chủ sở hữu", style={"minWidth": "110px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Trạng thái", style={"minWidth": "140px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Run gần nhất", style={"minWidth": "140px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Thao tác", style={"minWidth": "160px", "textAlign": "right", "whiteSpace": "nowrap"}),
+    ]
+
+    pagination_bar = dmc.Group(
+        justify="space-between",
+        align="center",
+        p="md",
+        style={"borderTop": "1px solid var(--border-subtle, #e2e8f0)"},
         children=[
-            html.Thead(
-                html.Tr(
-                    [
-                        html.Th("Mã template"),
-                        html.Th("Tên & Nhận diện file"),
-                        html.Th("Số trường"),
-                        html.Th("Profiles"),
-                        html.Th("Phiên bản"),
-                        html.Th("Chủ sở hữu"),
-                        html.Th("Trạng thái"),
-                        html.Th("Thao tác"),
-                    ]
-                )
+            dmc.Text(
+                f"Hiển thị {start_idx + 1 if total_items > 0 else 0} – {end_idx} trong tổng số {total_items} template",
+                size="sm",
+                c="dimmed",
+                fw=500,
             ),
-            html.Tbody(rows),
+            dmc.Pagination(
+                id="tmpl-pagination",
+                total=max(total_pages, 1),
+                value=current_page,
+                size="sm",
+            ),
         ],
     )
 
-    return dmc.Paper(table, withBorder=True, radius="md", p=0)
+    return dmc.Card(
+        [
+            dmc.TableScrollContainer(
+                minWidth=1200,
+                children=dmc.Table(
+                    [
+                        dmc.TableThead(dmc.TableTr(headers)),
+                        dmc.TableTbody(rows),
+                    ],
+                    striped=False,
+                    highlightOnHover=True,
+                    withTableBorder=False,
+                    withColumnBorders=False,
+                    verticalSpacing="sm",
+                ),
+            ),
+            pagination_bar,
+        ],
+        withBorder=True,
+        radius="sm",
+        padding=0,
+    )
 
 
 def layout() -> Any:
     return dmc.Container(
         [
             dcc.Store(id="tmpl-store-list"),
+            dcc.Store(id="tmpl-page-store", data=1),
             dcc.Download(id="tmpl-export-download"),
             dmc.Stack(
                 [
@@ -397,6 +517,15 @@ def layout() -> Any:
                 danger=True,
             ),
             dcc.Store(id="tmpl-archive-target-id"),
+            # Modal Xóa vĩnh viễn template (chỉ Admin)
+            modal_confirm(
+                id="tmpl-delete-modal",
+                title="Xác nhận xóa vĩnh viễn template",
+                description="Hành động này sẽ xóa vĩnh viễn cấu hình template và toàn bộ các phiên bản, lịch sử liên quan khỏi hệ thống. Thao tác không thể khôi phục. Bạn có chắc chắn muốn xóa?",
+                confirm_label="Xóa vĩnh viễn template",
+                danger=True,
+            ),
+            dcc.Store(id="tmpl-delete-target-id"),
         ],
         size="xl",
     )
@@ -410,18 +539,42 @@ def layout() -> Any:
     Input("tmpl-import-submit", "n_clicks"),
     Input("tmpl-clone-submit", "n_clicks"),
     Input("tmpl-archive-modal-confirm", "n_clicks"),
+    Input("tmpl-delete-modal-confirm", "n_clicks"),
 )
 def load_templates_data(*args: Any) -> Any:
     ctx = get_current_ctx()
     if ctx is None:
-        return {"items": [], "error": "Chưa đăng nhập"}
+        return {"items": [], "error": "Chưa đăng nhập", "is_admin": False}
 
     res = list_templates(ctx)
     if not res.ok:
-        return {"items": [], "error": res.message}
+        return {"items": [], "error": res.message, "is_admin": ctx.has_role(Role.ADMIN)}
 
     items = res.data or []
-    return {"items": items, "error": None}
+    return {"items": items, "error": None, "is_admin": ctx.has_role(Role.ADMIN)}
+
+
+@callback(
+    Output("tmpl-page-store", "data"),
+    Input("tmpl-pagination", "value"),
+    Input("tmpl-filter-search", "value"),
+    Input("tmpl-filter-status", "value"),
+    State("tmpl-page-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_pagination_or_filter(
+    page_val: int | None,
+    search_val: str | None,
+    status_val: str | None,
+    current_page: int,
+) -> int:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return 1
+    trigger_prop = ctx_dash.triggered[0]["prop_id"]
+    if "tmpl-pagination" in trigger_prop and page_val:
+        return int(page_val)
+    return 1
 
 
 @callback(
@@ -429,13 +582,20 @@ def load_templates_data(*args: Any) -> Any:
     Input("tmpl-store-list", "data"),
     Input("tmpl-filter-search", "value"),
     Input("tmpl-filter-status", "value"),
+    Input("tmpl-page-store", "data"),
 )
-def update_templates_table(store_data: Any, search_val: str | None, status_val: str | None) -> Any:
+def update_templates_table(
+    store_data: Any,
+    search_val: str | None,
+    status_val: str | None,
+    page_val: int | None,
+) -> Any:
     if not store_data:
         return render_templates_content(items=None, loading=True)
 
     items = store_data.get("items")
     error = store_data.get("error")
+    is_admin = bool(store_data.get("is_admin", False))
 
     return render_templates_content(
         items=items,
@@ -443,6 +603,9 @@ def update_templates_table(store_data: Any, search_val: str | None, status_val: 
         error=error,
         search_term=search_val or "",
         status_filter=status_val or "",
+        page=int(page_val or 1),
+        page_size=10,
+        is_admin=is_admin,
     )
 
 
@@ -586,11 +749,12 @@ def toggle_archive_modal(archive_clicks: list[Any], cancel_clicks: Any, is_opene
 # Callback thực hiện Archive
 @callback(
     Output("tmpl-archive-modal", "opened", allow_duplicate=True),
+    Output("tmpl-store-list", "data", allow_duplicate=True),
     Input("tmpl-archive-modal-confirm", "n_clicks"),
     State("tmpl-archive-target-id", "data"),
     prevent_initial_call=True,
 )
-def handle_archive_template(n_clicks: Any, target_id: Any) -> bool:
+def handle_archive_template(n_clicks: Any, target_id: Any) -> tuple[bool, Any]:
     if target_id is not None:
         try:
             tid_int = int(target_id)
@@ -599,7 +763,62 @@ def handle_archive_template(n_clicks: Any, target_id: Any) -> bool:
                 archive_template(ctx, tid_int)
         except Exception:
             pass
-    return False
+
+    ctx = get_current_ctx()
+    res = list_templates(ctx) if ctx else None
+    items = res.data if res and res.ok else []
+    is_adm = ctx.has_role(Role.ADMIN) if ctx else False
+    return False, {"items": items, "error": None, "is_admin": is_adm}
+
+
+# Callback mở modal Delete (chỉ Admin)
+@callback(
+    Output("tmpl-delete-modal", "opened"),
+    Output("tmpl-delete-target-id", "data"),
+    Input({"type": "tmpl-action-delete", "index": ALL}, "n_clicks"),
+    Input("tmpl-delete-modal-cancel", "n_clicks"),
+    State("tmpl-delete-modal", "opened"),
+    prevent_initial_call=True,
+)
+def toggle_delete_modal(delete_clicks: list[Any], cancel_clicks: Any, is_opened: bool) -> tuple[bool, Any]:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False, None
+
+    trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
+    if "tmpl-delete-modal-cancel" in trigger_id or not any(delete_clicks):
+        return False, None
+
+    try:
+        parsed = json.loads(trigger_id)
+        target_id = parsed.get("index")
+        return True, target_id
+    except Exception:
+        return False, None
+
+
+# Callback thực hiện Delete template
+@callback(
+    Output("tmpl-delete-modal", "opened", allow_duplicate=True),
+    Output("tmpl-store-list", "data", allow_duplicate=True),
+    Input("tmpl-delete-modal-confirm", "n_clicks"),
+    State("tmpl-delete-target-id", "data"),
+    prevent_initial_call=True,
+)
+def handle_delete_template(n_clicks: Any, target_id: Any) -> tuple[bool, Any]:
+    if target_id is not None:
+        try:
+            ctx = get_current_ctx()
+            if ctx and ctx.has_role(Role.ADMIN):
+                delete_template(ctx, target_id)
+        except Exception:
+            pass
+
+    ctx = get_current_ctx()
+    res = list_templates(ctx) if ctx else None
+    items = res.data if res and res.ok else []
+    is_adm = ctx.has_role(Role.ADMIN) if ctx else False
+    return False, {"items": items, "error": None, "is_admin": is_adm}
 
 
 # Callback thực hiện Export JSON

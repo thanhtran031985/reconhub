@@ -1,0 +1,20 @@
+/* ReconHub - Custom CSS for Code & SQL Display Blocks */
+.mantine-Code-root,
+pre.mantine-Code-root,
+.mantine-CodeHighlight-root,
+.mantine-CodeHighlight-code,
+.mantine-CodeHighlight-code pre,
+.mantine-CodeHighlight-code code,
+pre[class*="mantine-Code"] {
+  background-color: var(--code-bg, #0F1B33) !important;
+  color: var(--code-ink, #D6E2FF) !important;
+  font-family: var(--font-mono, "JetBrains Mono", Consolas, monospace) !important;
+}
+
+.mantine-Code-root *,
+.mantine-CodeHighlight-root pre,
+.mantine-CodeHighlight-root code,
+.mantine-CodeHighlight-root span:not([class*="token"]) {
+  color: var(--code-ink, #D6E2FF);
+}
+

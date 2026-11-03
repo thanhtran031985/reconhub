@@ -357,6 +357,8 @@ def execute_run(
                         STATUS="DONE",
                         STAGE="DONE",
                         PROGRESS_PCT=100,
+                        ERROR_CODE=None,
+                        ERROR_MSG=None,
                         FINISHED_AT=finished_now,
                     )
                 )
@@ -389,6 +391,8 @@ def execute_run(
                         STATUS="DONE",
                         STAGE="DONE",
                         PROGRESS_PCT=100,
+                        ERROR_CODE=None,
+                        ERROR_MSG=None,
                         FINISHED_AT=finished_now,
                     )
                 )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -261,8 +262,14 @@ def get_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
                 recon_run,
                 recon_template.c.CODE.label("TEMPLATE_CODE"),
                 recon_template.c.NAME.label("TEMPLATE_NAME"),
+                recon_file.c.ORIGINAL_NAME.label("FILENAME"),
+                recon_file.c.SIZE_BYTES.label("FILE_SIZE"),
             )
-            .select_from(recon_run.outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID))
+            .select_from(
+                recon_run.outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID).outerjoin(
+                    recon_file, recon_run.c.FILE_ID == recon_file.c.ID
+                )
+            )
             .where(recon_run.c.ID == run_id)
         )
         row = conn.execute(stmt).mappings().first()
@@ -302,6 +309,9 @@ def get_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
         "temp_purged_by": row["TEMP_PURGED_BY"],
         "error_code": row["ERROR_CODE"],
         "error_msg": row["ERROR_MSG"],
+        "params_json": row["PARAMS_JSON"],
+        "filename": str(row["FILENAME"]) if row["FILENAME"] else None,
+        "file_size": int(row["FILE_SIZE"]) if row["FILE_SIZE"] else None,
         "summary": summary_dict,
     }
 
@@ -453,9 +463,11 @@ def get_run_rows(ctx: Ctx, run_id: int, filter: RunRowsFilter) -> dict[str, Any]
     """Lấy danh sách các dòng kết quả phân trang theo trạng thái, tìm kiếm và sắp xếp, kèm thông tin issue."""
     engine = get_recon_engine()
     with engine.connect() as conn:
-        run_row = conn.execute(
-            select(recon_run.c.TEMPLATE_ID, recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id)
-        ).mappings().first()
+        run_row = (
+            conn.execute(select(recon_run.c.TEMPLATE_ID, recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id))
+            .mappings()
+            .first()
+        )
 
         tmpl_id = int(run_row["TEMPLATE_ID"]) if run_row else None
         prof_code = str(run_row["PROFILE_CODE"]) if run_row else None
@@ -482,7 +494,16 @@ def get_run_rows(ctx: Ctx, run_id: int, filter: RunRowsFilter) -> dict[str, Any]
         )
 
         if filter.status:
-            base_query = base_query.where(recon_result_row.c.STATUS == filter.status)
+            if filter.status in ("ALL", "DIFF_ALL"):
+                base_query = base_query.where(recon_result_row.c.STATUS != "MATCHED")
+            elif filter.status in ("DIFF", "MISMATCH"):
+                base_query = base_query.where(recon_result_row.c.STATUS == "MISMATCH")
+            elif filter.status in ("MISSING_DB", "MISSING_IN_DB"):
+                base_query = base_query.where(recon_result_row.c.STATUS == "MISSING_IN_DB")
+            elif filter.status in ("MISSING_EXCEL", "MISSING_IN_EXCEL"):
+                base_query = base_query.where(recon_result_row.c.STATUS == "MISSING_IN_EXCEL")
+            else:
+                base_query = base_query.where(recon_result_row.c.STATUS == filter.status)
         if filter.issue_status:
             base_query = base_query.where(recon_issue.c.STATUS == filter.issue_status)
         if filter.search:
@@ -747,6 +768,17 @@ def export_run(
 
     from app.engine.export import write_export
 
+    p_json = run_row["PARAMS_JSON"]
+    if isinstance(p_json, str):
+        try:
+            params_dict = json.loads(p_json)
+        except Exception:
+            params_dict = {}
+    elif isinstance(p_json, dict):
+        params_dict = p_json
+    else:
+        params_dict = {}
+
     write_export(
         output_path=file_dest,
         result_df=result_df,
@@ -754,7 +786,7 @@ def export_run(
         summary=summary_dict,
         profile=profile,
         config=cfg,
-        run_params=dict(run_row["PARAMS_JSON"] or {}),
+        run_params=params_dict,
     )
 
     return {

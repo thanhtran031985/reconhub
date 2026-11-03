@@ -78,7 +78,7 @@ def create_app() -> Dash:
             "/_dash-dependencies",
             "/favicon.ico",
         )
-        if path == "/login" or path.startswith(public_prefixes):
+        if path in ("/login", "/logout") or path.startswith(public_prefixes):
             return None
 
         # 3. Với Dash component update khi chưa đăng nhập
@@ -133,4 +133,4 @@ server = app.server
 
 if __name__ == "__main__":
     _settings = get_settings()
-    app.run(port=_settings.DASH_PORT, debug=_settings.DASH_DEBUG)
+    app.run(port=_settings.DASH_PORT, debug=_settings.DASH_DEBUG, dev_tools_ui=False)

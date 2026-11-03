@@ -128,8 +128,111 @@ def generate_control_total_diagram(config: TemplateConfig) -> str:
     return "\n".join(lines)
 
 
+def generate_registration_workflow_diagram() -> str:
+    """Sơ đồ quy trình đăng ký template 5 bước (flowchart LR)."""
+    return (
+        "flowchart LR\n"
+        '    S1["1. File mẫu & Cấu trúc"] --> S2["2. Định nghĩa trường logic"]\n'
+        '    S2 --> S3["3. Nguồn Oracle DB<br/>Bảng & Cột lọc"]\n'
+        '    S3 --> S4["4. Profile đối soát<br/>Group by & Measures"]\n'
+        '    S4 --> S5{"5. Dry-run đạt?"}\n'
+        '    S5 -- "Đạt" --> A["Lưu & Kích hoạt"]\n'
+        '    S5 -- "Chưa đạt" --> S2'
+    )
+
+
+def generate_three_layer_mapping_diagram(config: TemplateConfig) -> str:
+    """Sơ đồ 3 lớp mapping: Excel -> Trường logic -> Oracle DB."""
+    lines = ["flowchart LR"]
+    sheet_name = config.file.sheet or "Excel"
+    db_table = config.db_source.table or "Oracle DB"
+
+    display_fields = config.fields[:10]
+
+    lines.append(f'    subgraph EX["Excel · {sheet_name}"]')
+    for i, f in enumerate(display_fields):
+        lines.append(f'        E{i}["{f.excel or f.name}"]')
+    lines.append("    end")
+
+    lines.append('    subgraph LG["Trường logic"]')
+    for i, f in enumerate(display_fields):
+        lines.append(f'        L{i}(["{f.name}"])')
+    lines.append("    end")
+
+    lines.append(f'    subgraph DB["Oracle · {db_table}"]')
+    for i, f in enumerate(display_fields):
+        if f.db:
+            lines.append(f'        D{i}["{f.db}"]')
+    lines.append("    end")
+
+    for i, f in enumerate(display_fields):
+        lines.append(f"    E{i} --> L{i}")
+        if f.db:
+            lines.append(f"    D{i} --> L{i}")
+
+    return "\n".join(lines)
+
+
+def generate_time_filter_diagram(config: TemplateConfig) -> str:
+    """Sơ đồ tham số thời gian áp dụng đồng thời cho DB và Excel."""
+    flt_parts: list[str] = []
+    for flt in config.db_source.filters:
+        flt_parts.append(f"{flt.column} {flt.op} :{flt.param}")
+
+    where_text = "<br/>AND ".join(flt_parts) if flt_parts else "INVOICE_DATE >= :p_from<br/>AND INVOICE_DATE <= :p_to"
+
+    return (
+        "flowchart TB\n"
+        '    U["Tham số người dùng nhập:<br/>Từ ngày giờ (:p_from) → Đến ngày giờ (:p_to)"] --> V{"Kiểm tra hợp lệ?"}\n'
+        '    V -- "Không" --> ERR["Báo lỗi, khóa nút Chạy"]\n'
+        f'    V -- "Có" --> DBQ["Truy vấn Oracle DB có bind params:<br/>WHERE {where_text}"]\n'
+        '    V -- "Có" --> XF["Lọc dữ liệu Excel:<br/>Chỉ giữ các dòng trong khoảng thời gian"]\n'
+        '    XF --> OUT["Dòng ngoài khoảng: đếm và hiển thị thống kê"]'
+    )
+
+
+def generate_profile_match_diagram(config: TemplateConfig) -> str:
+    """Sơ đồ gộp nhóm, ghép khóa và so khớp chỉ số của Profile."""
+    prof = config.profiles[0] if config.profiles else None
+    group_cols = ", ".join(prof.group_by) if prof and prof.group_by else "INVOICE_NO"
+    measures_str = ", ".join(f"{m.name}({m.agg})" for m in prof.measures) if prof and prof.measures else "TOTAL_AMOUNT"
+
+    return (
+        "flowchart LR\n"
+        f'    XE["Dữ liệu Excel hợp lệ"] --> GX["GROUP BY [{group_cols}]<br/>SUM({measures_str})"]\n'
+        f'    QD["Dữ liệu Oracle DB nguồn"] --> GD["GROUP BY [{group_cols}]<br/>SUM({measures_str})"]\n'
+        '    GX --> J{"Ghép khóa logic"}\n'
+        "    GD --> J\n"
+        '    J -- "Chỉ có ở Excel" --> M1["Thiếu trong DB"]\n'
+        '    J -- "Chỉ có ở DB" --> M2["Thiếu trong Excel"]\n'
+        '    J -- "Có ở cả hai" --> C{"So sai số cho phép"}\n'
+        '    C -- "Trong ngưỡng" --> OK["Khớp (MATCHED)"]\n'
+        '    C -- "Vượt ngưỡng" --> MM["Lệch giá trị (MISMATCH)"]'
+    )
+
+
+def generate_execution_sequence_diagram() -> str:
+    """Sơ đồ tuần tự trình tự thực thi khi chạy đối soát (sequenceDiagram)."""
+    return (
+        "sequenceDiagram\n"
+        "    actor U as Người dùng (Operator)\n"
+        "    participant UI as ReconHub Web\n"
+        "    participant W as Worker Engine\n"
+        "    participant DB as Oracle Database (Thin)\n"
+        "    U->>UI: Upload file Excel, chọn Profile & nhập khoảng ngày giờ\n"
+        "    UI->>W: Gửi lệnh chạy vào hàng đợi (RECON_RUN_QUEUE)\n"
+        "    W->>W: Đọc file Excel, lọc dòng header & chuẩn hóa theo trường logic\n"
+        "    W->>W: Lọc dòng ngoài khoảng thời gian p_from..p_to\n"
+        "    W->>DB: Thực thi truy vấn SQL gộp theo Profile có bind params\n"
+        "    DB-->>W: Trả về kết quả DB đã tổng hợp nhóm\n"
+        "    W->>W: Ghép khóa, so khớp giá trị & tính chỉ số chênh lệch\n"
+        "    W->>UI: Lưu kết quả (DONE) vào DB ứng dụng & cập nhật giao diện\n"
+        "    U->>UI: Xem kết quả, đánh dấu Đã kiểm tra & xử lý chênh lệch"
+    )
+
+
 def generate_all_diagrams(config: TemplateConfig) -> dict[str, str]:
-    """Sinh toàn bộ 5 sơ đồ Mermaid từ cấu hình Template."""
+    """Sinh 5 sơ đồ Mermaid cơ bản từ cấu hình Template."""
     return {
         "pipeline": generate_pipeline_diagram(config),
         "normalization": generate_fields_normalization_diagram(config),
@@ -137,3 +240,18 @@ def generate_all_diagrams(config: TemplateConfig) -> dict[str, str]:
         "profiles": generate_profiles_hierarchy_diagram(config),
         "control_total": generate_control_total_diagram(config),
     }
+
+
+def generate_screen04_diagrams(config: TemplateConfig) -> dict[str, str]:
+    """Sinh toàn bộ các sơ đồ Mermaid theo thiết kế Screen04."""
+    base = generate_all_diagrams(config)
+    base.update(
+        {
+            "workflow": generate_registration_workflow_diagram(),
+            "three_layer": generate_three_layer_mapping_diagram(config),
+            "time_filter": generate_time_filter_diagram(config),
+            "profile_match": generate_profile_match_diagram(config),
+            "sequence": generate_execution_sequence_diagram(),
+        }
+    )
+    return base

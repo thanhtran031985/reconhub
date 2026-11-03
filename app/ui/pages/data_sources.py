@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -20,9 +21,13 @@ from app.db.metadata import (
 )
 from app.schemas.run import PurgeFilter
 from app.services.data_source import (
+    activate_data_source,
     create_data_source,
+    deactivate_data_source,
+    get_active_environment,
     list_data_sources,
     test_data_source,
+    test_data_source_config,
     update_data_source,
 )
 from app.services.metadata_migration import (
@@ -78,18 +83,21 @@ def render_data_sources_table(
     for it in items:
         ds_id = it.get("id")
         name = it.get("name", "")
-        env = it.get("environment", "DEV")
+        env = it.get("env") or it.get("environment", "DEV")
         host = it.get("host", "")
         port = it.get("port", 1521)
         service = it.get("service_name", "")
         user = it.get("username", "")
         schema = it.get("default_schema") or "—"
         check_st = it.get("last_check_status")
-        check_ms = it.get("last_check_ms")
+        check_ok = it.get("last_test_ok")
+        check_ms = it.get("last_test_ms") or it.get("last_check_ms")
+        check_msg = it.get("last_test_msg") or ""
         tmpl_count = it.get("template_count", 0)
+        is_active = bool(it.get("is_active", False))
 
         # Trạng thái kiểm tra kết nối gần nhất
-        if check_st == "RO_OK":
+        if check_st == "RO_OK" or check_ok == "Y":
             check_badge = dmc.Badge(
                 f"Chỉ đọc · {check_ms or 0}ms",
                 color="ok",
@@ -97,17 +105,17 @@ def render_data_sources_table(
                 leftSection=DashIconify(icon="lucide:check-circle-2", width=12),
                 size="xs",
             )
-        elif check_st == "RO_WARN":
+        elif check_st == "RO_WARN" or check_ok == "W" or ("quyền ghi" in check_msg.lower()):
             check_badge = dmc.Badge(
-                "Có quyền ghi",
+                f"Có quyền ghi · {check_ms or 0}ms" if check_ms else "Có quyền ghi",
                 color="warn",
                 variant="light",
                 leftSection=DashIconify(icon="lucide:alert-triangle", width=12),
                 size="xs",
             )
-        elif check_st:
+        elif check_ok == "N" or (check_st and check_st not in ("RO_OK", "RO_WARN")):
             check_badge = dmc.Badge(
-                "Lỗi kết nối",
+                "Không kết nối được",
                 color="crit",
                 variant="light",
                 leftSection=DashIconify(icon="lucide:alert-circle", width=12),
@@ -116,64 +124,99 @@ def render_data_sources_table(
         else:
             check_badge = dmc.Text("—", size="xs", c="dimmed")
 
-        row = html.Tr(
+        row = dmc.TableTr(
             [
-                html.Td(dmc.Text(name, fw=600, size="sm")),
-                html.Td(status_chip(env, size="xs")),
-                html.Td(
-                    dmc.Text(f"{host}:{port}/{service}", ff="monospace", size="xs"),
+                dmc.TableTd(
+                    dmc.Center(
+                        dmc.Switch(
+                            id={"type": "ds-active-switch", "index": ds_id},
+                            checked=is_active,
+                            size="sm",
+                            color="blue",
+                        )
+                    ),
+                    style={"textAlign": "center", "verticalAlign": "middle", "whiteSpace": "nowrap"},
                 ),
-                html.Td(dmc.Text(user, size="sm")),
-                html.Td(dmc.Text(schema, ff="monospace", size="xs")),
-                html.Td(check_badge),
-                html.Td(dmc.Badge(f"{tmpl_count} template", variant="light", color="gray", size="xs")),
-                html.Td(
+                dmc.TableTd(dmc.Text(name, fw=600, size="sm"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                dmc.TableTd(status_chip(env, size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                dmc.TableTd(
+                    dmc.Text(f"{host}:{port}/{service}", className="rh-code", size="xs"),
+                    style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                ),
+                dmc.TableTd(dmc.Text(user, size="sm"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                dmc.TableTd(
+                    dmc.Text(schema, className="rh-code", size="xs"),
+                    style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                ),
+                dmc.TableTd(check_badge, style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                dmc.TableTd(
+                    dmc.Badge(f"{tmpl_count} template", variant="light", color="gray", size="xs"),
+                    style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                ),
+                dmc.TableTd(
                     dmc.Group(
                         [
-                            dmc.ActionIcon(
-                                DashIconify(icon="lucide:activity", width=16),
-                                id={"type": "ds-test-btn", "index": ds_id},
-                                variant="subtle",
-                                color="primary",
+                            dmc.Tooltip(
+                                label="Kiểm tra kết nối",
+                                children=dmc.ActionIcon(
+                                    DashIconify(icon="lucide:activity", width=16),
+                                    id={"type": "ds-test-btn", "index": ds_id},
+                                    variant="subtle",
+                                    color="primary",
+                                ),
                             ),
-                            dmc.ActionIcon(
-                                DashIconify(icon="lucide:edit-3", width=16),
-                                id={"type": "ds-edit-btn", "index": ds_id},
-                                variant="subtle",
-                                color="gray",
+                            dmc.Tooltip(
+                                label="Sửa cấu hình",
+                                children=dmc.ActionIcon(
+                                    DashIconify(icon="lucide:edit-3", width=16),
+                                    id={"type": "ds-edit-btn", "index": ds_id},
+                                    variant="subtle",
+                                    color="gray",
+                                ),
                             ),
                         ],
                         gap="xs",
-                    )
+                        justify="flex-end",
+                    ),
+                    style={"textAlign": "right", "whiteSpace": "nowrap", "verticalAlign": "middle"},
                 ),
             ]
         )
         rows.append(row)
 
-    table = dmc.Table(
-        striped=True,
-        highlightOnHover=True,
-        withTableBorder=True,
-        children=[
-            html.Thead(
-                html.Tr(
-                    [
-                        html.Th("Tên nguồn"),
-                        html.Th("Môi trường"),
-                        html.Th("Máy chủ (Host:Port/Service)"),
-                        html.Th("User"),
-                        html.Th("Schema"),
-                        html.Th("Kiểm tra gần nhất"),
-                        html.Th("Sử dụng"),
-                        html.Th("Thao tác"),
-                    ]
-                )
-            ),
-            html.Tbody(rows),
-        ],
-    )
+    headers = [
+        dmc.TableTh("Kích hoạt", style={"minWidth": "90px", "textAlign": "center", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Tên nguồn", style={"minWidth": "160px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Môi trường", style={"minWidth": "110px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Máy chủ (Host:Port/Service)", style={"minWidth": "240px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("User", style={"minWidth": "120px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Schema", style={"minWidth": "120px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Kiểm tra gần nhất", style={"minWidth": "160px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Sử dụng", style={"minWidth": "110px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Thao tác", style={"minWidth": "100px", "textAlign": "right", "whiteSpace": "nowrap"}),
+    ]
 
-    return dmc.Paper(table, withBorder=True, radius="md", p=0)
+    return dmc.Card(
+        [
+            dmc.TableScrollContainer(
+                minWidth=1180,
+                children=dmc.Table(
+                    [
+                        dmc.TableThead(dmc.TableTr(headers)),
+                        dmc.TableTbody(rows),
+                    ],
+                    striped=False,
+                    highlightOnHover=True,
+                    withTableBorder=False,
+                    withColumnBorders=False,
+                    verticalSpacing="sm",
+                ),
+            ),
+        ],
+        withBorder=True,
+        radius="sm",
+        padding=0,
+    )
 
 
 def render_storage_tab(
@@ -231,36 +274,48 @@ def render_storage_tab(
         purged_by = log.get("PURGED_BY") or log.get("purged_by") or "—"
 
         log_rows.append(
-            html.Tr(
+            dmc.TableTr(
                 [
-                    html.Td(dmc.Text(purged_at, size="xs")),
-                    html.Td(dmc.Badge(scope, variant="light", color="gray", size="xs")),
-                    html.Td(dmc.Text(str(runs_cnt), size="xs")),
-                    html.Td(dmc.Text(f"{rows_cnt:,}".replace(",", "."), size="xs")),
-                    html.Td(dmc.Text(freed, size="xs", fw=600)),
-                    html.Td(dmc.Text(f"@{purged_by}", size="xs", c="dimmed")),
+                    dmc.TableTd(dmc.Text(purged_at, size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                    dmc.TableTd(dmc.Badge(scope, variant="light", color="gray", size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                    dmc.TableTd(dmc.Text(str(runs_cnt), size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                    dmc.TableTd(dmc.Text(f"{rows_cnt:,}".replace(",", "."), size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                    dmc.TableTd(dmc.Text(freed, size="xs", fw=600), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                    dmc.TableTd(dmc.Text(f"@{purged_by}", size="xs", c="dimmed", className="rh-code"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
                 ]
             )
         )
 
+    log_headers = [
+        dmc.TableTh("Thời gian", style={"minWidth": "140px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Phạm vi", style={"minWidth": "110px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Số run", style={"minWidth": "90px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Dòng đã xóa", style={"minWidth": "120px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Giải phóng", style={"minWidth": "120px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Người xóa", style={"minWidth": "120px", "whiteSpace": "nowrap"}),
+    ]
+
     log_table = (
-        dmc.Table(
-            striped=True,
-            children=[
-                html.Thead(
-                    html.Tr(
+        dmc.Card(
+            [
+                dmc.TableScrollContainer(
+                    minWidth=750,
+                    children=dmc.Table(
                         [
-                            html.Th("Thời gian"),
-                            html.Th("Phạm vi"),
-                            html.Th("Số run"),
-                            html.Th("Dòng đã xóa"),
-                            html.Th("Giải phóng"),
-                            html.Th("Người xóa"),
-                        ]
-                    )
+                            dmc.TableThead(dmc.TableTr(log_headers)),
+                            dmc.TableTbody(log_rows),
+                        ],
+                        striped=False,
+                        highlightOnHover=True,
+                        withTableBorder=False,
+                        withColumnBorders=False,
+                        verticalSpacing="sm",
+                    ),
                 ),
-                html.Tbody(log_rows),
             ],
+            withBorder=True,
+            radius="sm",
+            padding=0,
         )
         if log_rows
         else dmc.Text("Chưa có lịch sử xóa dữ liệu tạm nào.", size="sm", c="dimmed", py="md", ta="center")
@@ -296,13 +351,17 @@ def render_storage_tab(
                         tone="info",
                         icon="lucide:hard-drive",
                     ),
-                    button_danger("Xóa bản lưu SQLite cũ", id="ds-mig-delete-sqlite-open-btn", icon="lucide:trash", size="xs"),
+                    button_danger(
+                        "Xóa bản lưu SQLite cũ", id="ds-mig-delete-sqlite-open-btn", icon="lucide:trash", size="xs"
+                    ),
                     html.Div(id="ds-mig-delete-sqlite-alert"),
                 ],
                 gap="sm",
             )
         else:
-            sqlite_status_node = dmc.Text("Không tìm thấy thông tin bản lưu SQLite cũ cần dọn dẹp.", size="sm", c="dimmed")
+            sqlite_status_node = dmc.Text(
+                "Không tìm thấy thông tin bản lưu SQLite cũ cần dọn dẹp.", size="sm", c="dimmed"
+            )
     else:
         sqlite_status_node = alert_box(
             title="Đang chạy trên SQLite",
@@ -414,7 +473,9 @@ def render_storage_tab(
                                 dmc.Select(
                                     id="ds-mig-target-select",
                                     label="Data Source Oracle đích",
-                                    placeholder="Chọn Data Source Oracle..." if target_options else "Chưa có Data Source Oracle nào",
+                                    placeholder="Chọn Data Source Oracle..."
+                                    if target_options
+                                    else "Chưa có Data Source Oracle nào",
                                     data=target_options,
                                     clearable=True,
                                 ),
@@ -422,7 +483,10 @@ def render_storage_tab(
                                     id="ds-mig-mode-select",
                                     label="Chế độ chuyển dữ liệu",
                                     data=[
-                                        {"value": "NO_TEMP", "label": "NO_TEMP — Bỏ qua dữ liệu Excel tạm (Khuyên dùng)"},
+                                        {
+                                            "value": "NO_TEMP",
+                                            "label": "NO_TEMP — Bỏ qua dữ liệu Excel tạm (Khuyên dùng)",
+                                        },
                                         {"value": "FULL", "label": "FULL — Toàn bộ (gồm cả dữ liệu Excel tạm)"},
                                         {"value": "CONFIG_ONLY", "label": "CONFIG_ONLY — Chỉ cấu hình & người dùng"},
                                     ],
@@ -433,7 +497,9 @@ def render_storage_tab(
                         dmc.Group(
                             [
                                 button_primary("Kiểm tra trước", id="ds-mig-precheck-btn", icon="lucide:check-square"),
-                                button_subtle("Xóa schema đích", id="ds-mig-clean-open-btn", color="red", icon="lucide:trash-2"),
+                                button_subtle(
+                                    "Xóa schema đích", id="ds-mig-clean-open-btn", color="red", icon="lucide:trash-2"
+                                ),
                                 button_primary("Chuyển sang Oracle", id="ds-mig-start-btn", icon="lucide:arrow-right"),
                             ],
                             justify="flex-start",
@@ -505,6 +571,7 @@ def layout() -> Any:
         [
             dcc.Store(id="ds-store-list"),
             dcc.Store(id="ds-store-storage"),
+            dcc.Store(id="ds-active-trigger"),
             dmc.Stack(
                 [
                     dmc.Group(
@@ -557,7 +624,10 @@ def layout() -> Any:
                                 ]
                             ),
                             dmc.TabsPanel(
-                                html.Div(id="ds-sources-content", style={"paddingTop": "16px"}),
+                                [
+                                    html.Div(id="ds-active-alert", style={"paddingTop": "12px"}),
+                                    html.Div(id="ds-sources-content", style={"paddingTop": "12px"}),
+                                ],
                                 value="sources",
                             ),
                             dmc.TabsPanel(
@@ -687,6 +757,7 @@ def layout() -> Any:
     Output("ds-store-list", "data"),
     Input("ds-refresh-btn", "n_clicks"),
     Input("ds-drawer-save-btn", "n_clicks"),
+    Input("ds-active-trigger", "data"),
 )
 def load_sources_data(*args: Any) -> Any:
     ctx = get_current_ctx()
@@ -698,12 +769,75 @@ def load_sources_data(*args: Any) -> Any:
         return {"items": [], "error": res.message}
 
     raw_items = []
-    for item in (res.data or []):
+    for item in res.data or []:
         if hasattr(item, "model_dump"):
             raw_items.append(item.model_dump(mode="json"))
         elif isinstance(item, dict):
             raw_items.append(dict(item))
     return {"items": raw_items, "error": None}
+
+
+@callback(
+    Output("app-header-env-badge", "children", allow_duplicate=True),
+    Output("app-header-env-badge", "color", allow_duplicate=True),
+    Output("ds-active-trigger", "data"),
+    Output("ds-active-alert", "children"),
+    Input({"type": "ds-active-switch", "index": ALL}, "checked"),
+    State({"type": "ds-active-switch", "index": ALL}, "id"),
+    prevent_initial_call=True,
+)
+def handle_ds_active_toggle(checked_values: list[bool], id_list: list[dict[str, Any]]) -> Any:
+    """Xử lý bật/tắt switch kích hoạt Data Source đối soát và cập nhật Header Badge."""
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        raise dash.exceptions.PreventUpdate
+
+    triggered_prop = ctx_dash.triggered[0]["prop_id"]
+    if "ds-active-switch" not in triggered_prop:
+        raise dash.exceptions.PreventUpdate
+
+    ctx = get_current_ctx()
+    if ctx is None or Role.ADMIN not in ctx.roles:
+        raise dash.exceptions.PreventUpdate
+
+    triggered_id = dash.ctx.triggered_id
+    if not isinstance(triggered_id, dict) or triggered_id.get("type") != "ds-active-switch":
+        raise dash.exceptions.PreventUpdate
+
+    ds_id = triggered_id.get("index")
+    if ds_id is None:
+        raise dash.exceptions.PreventUpdate
+
+    new_checked = False
+    for item_id, val in zip(id_list, checked_values, strict=False):
+        if item_id.get("index") == ds_id:
+            new_checked = bool(val)
+            break
+
+    if new_checked:
+        res = activate_data_source(ctx, int(ds_id))
+    else:
+        res = deactivate_data_source(ctx, int(ds_id))
+
+    env = get_active_environment()
+    env_badge_color = {
+        "dev": "blue",
+        "test": "gray",
+        "uat": "yellow",
+        "prod": "red",
+    }.get(env.lower(), "blue")
+
+    if not res.ok:
+        alert_node = alert_box("Thao tác thất bại", res.message, tone="crit")
+    else:
+        st_text = "kích hoạt" if new_checked else "vô hiệu hóa"
+        alert_node = alert_box(
+            "Cập nhật môi trường thành công",
+            f"Đã {st_text} nguồn dữ liệu thành công. Môi trường đối soát hiện tại: {env.upper()}.",
+            tone="ok",
+        )
+
+    return env.upper(), env_badge_color, time.time(), alert_node
 
 
 @callback(
@@ -804,7 +938,7 @@ def update_storage_content(store_data: Any) -> Any:
     )
 
 
-# Callback mở Drawer Thêm
+# Callback mở Drawer Thêm/Sửa
 @callback(
     Output("ds-drawer", "opened"),
     Output("ds-drawer-id", "data"),
@@ -814,8 +948,10 @@ def update_storage_content(store_data: Any) -> Any:
     Output("ds-drawer-port", "value"),
     Output("ds-drawer-service", "value"),
     Output("ds-drawer-user", "value"),
+    Output("ds-drawer-pwd", "value"),
     Output("ds-drawer-schema", "value"),
     Output("ds-drawer-timeout", "value"),
+    Output("ds-drawer-alert", "children", allow_duplicate=True),
     Input("ds-add-btn", "n_clicks"),
     Input({"type": "ds-edit-btn", "index": ALL}, "n_clicks"),
     Input("ds-drawer-cancel-btn", "n_clicks"),
@@ -825,17 +961,17 @@ def update_storage_content(store_data: Any) -> Any:
 def handle_drawer_open(*args: Any) -> Any:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
-        return False, None, "", "DEV", "", 1521, "", "", "", 600
+        return False, None, "", "DEV", "", 1521, "", "", "", "", 600, None
 
     trigger = ctx_dash.triggered[0]
     trigger_val = trigger.get("value")
     trigger_id = trigger["prop_id"].split(".")[0]
 
     if "ds-drawer-cancel-btn" in trigger_id or not trigger_val:
-        return False, None, "", "DEV", "", 1521, "", "", "", 600
+        return False, None, "", "DEV", "", 1521, "", "", "", "", 600, None
 
     if trigger_id == "ds-add-btn":
-        return True, None, "", "DEV", "", 1521, "", "", "", 600
+        return True, None, "", "DEV", "", 1521, "", "", "", "", 600, None
 
     try:
         parsed = json.loads(trigger_id)
@@ -858,13 +994,15 @@ def handle_drawer_open(*args: Any) -> Any:
                         row["PORT"] or 1521,
                         row["SERVICE_NAME"] or "",
                         row["USERNAME"] or "",
+                        "",  # Mật khẩu luôn để trống khi hiển thị form sửa
                         row["DEFAULT_SCHEMA"] or "",
                         row["CALL_TIMEOUT_S"] or 600,
+                        None,  # Xóa alert cũ
                     )
     except Exception:
         pass
 
-    return False, None, "", "DEV", "", 1521, "", "", "", 600
+    return False, None, "", "DEV", "", 1521, "", "", "", "", 600, None
 
 
 # Callback Xem trước Xóa dữ liệu tạm
@@ -931,7 +1069,7 @@ def handle_purge_preview(
         icon="lucide:alert-triangle",
     )
 
-    return alert_node, p_filter.model_dump(mode='json')
+    return alert_node, p_filter.model_dump(mode="json")
 
 
 # Callback mở modal xác nhận Xóa
@@ -975,7 +1113,7 @@ def handle_execute_purge(n_clicks: Any, input_val: str | None, filter_data: Any)
 
 # Callback Lưu nguồn đối soát (Thêm mới hoặc Cập nhật)
 @callback(
-    Output("ds-drawer-alert", "children"),
+    Output("ds-drawer-alert", "children", allow_duplicate=True),
     Output("ds-drawer", "opened", allow_duplicate=True),
     Input("ds-drawer-save-btn", "n_clicks"),
     State("ds-drawer-id", "data"),
@@ -1060,26 +1198,128 @@ def handle_save_data_source(
     Output("ds-drawer-alert", "children", allow_duplicate=True),
     Input("ds-drawer-test-btn", "n_clicks"),
     State("ds-drawer-id", "data"),
+    State("ds-drawer-host", "value"),
+    State("ds-drawer-port", "value"),
+    State("ds-drawer-service", "value"),
+    State("ds-drawer-user", "value"),
+    State("ds-drawer-pwd", "value"),
+    State("ds-drawer-timeout", "value"),
     prevent_initial_call=True,
 )
-def handle_test_drawer_connection(n_clicks: Any, ds_id: Any) -> Any:
-    if not ds_id:
-        return alert_box("Lưu ý", "Vui lòng lưu nguồn trước khi thực hiện kiểm tra kết nối", tone="info")
-
+def handle_test_drawer_connection(
+    n_clicks: Any,
+    ds_id: Any,
+    host_val: str | None,
+    port_val: Any,
+    service_val: str | None,
+    user_val: str | None,
+    pwd_val: str | None,
+    timeout_val: Any,
+) -> Any:
     ctx = get_current_ctx()
     if ctx is None or Role.ADMIN not in ctx.roles:
-        return alert_box("Lỗi", "Chưa đăng nhập", tone="crit")
+        return alert_box("Lỗi", "Chưa đăng nhập hoặc không đủ quyền Quản trị viên.", tone="crit")
 
-    res = test_data_source(ctx, int(ds_id))
+    # Nếu chưa nhập host, service hoặc user
+    if not host_val or not service_val or not user_val:
+        if ds_id:
+            res = test_data_source(ctx, int(ds_id))
+        else:
+            return alert_box(
+                "Thiếu thông tin",
+                "Vui lòng nhập Host, Service Name và Username để kiểm tra kết nối.",
+                tone="warn",
+                icon="lucide:alert-triangle",
+            )
+    else:
+        p_val = int(port_val) if port_val else 1521
+        to_val = int(timeout_val) if timeout_val else 600
+        res = test_data_source_config(
+            ctx=ctx,
+            host=host_val.strip(),
+            port=p_val,
+            service_name=service_val.strip(),
+            username=user_val.strip(),
+            password=pwd_val.strip() if pwd_val else None,
+            ds_id=int(ds_id) if ds_id else None,
+            call_timeout_s=to_val,
+            purpose="SOURCE",
+        )
+
     if res.ok and res.data:
         d = res.data
-        if d.get("status") == "RO_OK":
-            return alert_box("Kết nối thành công", f"Chỉ đọc · {d.get('latency_ms', 0)}ms", tone="ok")
-        elif d.get("status") == "RO_WARN":
-            return alert_box("Cảnh báo", f"User có quyền ghi trên schema · {d.get('latency_ms', 0)}ms", tone="warn")
+        st = d.get("status")
+        ms = d.get("latency_ms") or d.get("ms", 0)
+        msg = d.get("message", "")
+        privs = d.get("write_privileges", [])
+
+        if st == "RO_OK" or (d.get("ok") and d.get("read_only") is True):
+            return alert_box(
+                title="Kết nối thành công",
+                message=msg or f"Kết nối Oracle thành công ({ms}ms). Tài khoản chỉ đọc hợp lệ.",
+                tone="ok",
+                icon="lucide:check-circle-2",
+            )
+        elif st == "RO_WARN" or (d.get("ok") and (privs or not d.get("read_only", True))):
+            return alert_box(
+                title="Cảnh báo quyền ghi",
+                message=f"{msg}. Nguồn đối soát nên sử dụng tài khoản chỉ đọc (SELECT) để bảo đảm an toàn dữ liệu. Bạn vẫn có thể lưu cấu hình này để sử dụng.",
+                tone="warn",
+                icon="lucide:alert-triangle",
+            )
+        elif d.get("ok"):
+            return alert_box(
+                title="Kết nối thành công",
+                message=msg or f"Kết nối thành công ({ms}ms).",
+                tone="ok",
+                icon="lucide:check-circle-2",
+            )
         else:
-            return alert_box("Thất bại", d.get("message") or "Không kết nối được đến máy chủ Oracle", tone="crit")
-    return alert_box("Lỗi kết nối", res.message, tone="crit")
+            return alert_box(
+                title="Kết nối thất bại",
+                message=msg
+                or "Không thể kết nối đến máy chủ Oracle. Vui lòng kiểm tra lại kết nối VPN hoặc thông tin máy chủ.",
+                tone="crit",
+                icon="lucide:alert-circle",
+            )
+
+    return alert_box(
+        title="Kết nối thất bại",
+        message=res.message or "Lỗi khi kiểm tra kết nối đến cơ sở dữ liệu.",
+        tone="crit",
+        icon="lucide:alert-circle",
+    )
+
+
+# Callback kiểm tra kết nối nhanh từ bảng danh sách
+@callback(
+    Output("ds-store-list", "data", allow_duplicate=True),
+    Input({"type": "ds-test-btn", "index": ALL}, "n_clicks"),
+    prevent_initial_call=True,
+)
+def handle_table_test_connection(n_clicks: list[Any]) -> Any:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return dash.no_update
+    trigger = ctx_dash.triggered[0]
+    trigger_id = trigger["prop_id"].split(".")[0]
+    trigger_val = trigger.get("value")
+    if not trigger_val:
+        return dash.no_update
+
+    try:
+        parsed = json.loads(trigger_id)
+        ds_id = parsed.get("index")
+        if ds_id is not None:
+            ctx = get_current_ctx()
+            if ctx and Role.ADMIN in ctx.roles:
+                test_data_source(ctx, int(ds_id))
+                refreshed = list_data_sources(ctx, purpose="SOURCE")
+                if refreshed.ok and refreshed.data:
+                    return {"items": [item.model_dump(mode="json") for item in refreshed.data], "error": None}
+    except Exception:
+        pass
+    return dash.no_update
 
 
 # Callbacks chuyển metadata sang Oracle (Task 13)
@@ -1106,28 +1346,30 @@ def handle_migration_precheck(n_clicks: Any, target_ds_id: Any, mode: str | None
     table_rows = []
     for t in d.get("tables", []):
         table_rows.append(
-            html.Tr(
+            dmc.TableTr(
                 [
-                    html.Td(dmc.Text(t["table"], size="xs", ff="monospace")),
-                    html.Td(dmc.Text(f"{t['rows']:,}".replace(",", "."), size="xs")),
-                    html.Td(dmc.Text(format_bytes(t["bytes_est"]), size="xs")),
+                    dmc.TableTd(dmc.Text(t["table"], size="xs", className="rh-code"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                    dmc.TableTd(dmc.Text(f"{t['rows']:,}".replace(",", "."), size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                    dmc.TableTd(dmc.Text(format_bytes(t["bytes_est"]), size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
                 ]
             )
         )
 
     t_node = dmc.Table(
-        striped=True,
+        striped=False,
+        highlightOnHover=True,
+        verticalSpacing="xs",
         children=[
-            html.Thead(
-                html.Tr(
+            dmc.TableThead(
+                dmc.TableTr(
                     [
-                        html.Th("Tên bảng"),
-                        html.Th("Số dòng"),
-                        html.Th("Ước tính"),
+                        dmc.TableTh("Tên bảng", style={"whiteSpace": "nowrap"}),
+                        dmc.TableTh("Số dòng", style={"whiteSpace": "nowrap"}),
+                        dmc.TableTh("Ước tính", style={"whiteSpace": "nowrap"}),
                     ]
                 )
             ),
-            html.Tbody(table_rows),
+            dmc.TableTbody(table_rows),
         ],
     )
 
@@ -1176,34 +1418,37 @@ def handle_migration_start(n_clicks: Any, target_ds_id: Any, mode: str | None) -
     comp_rows = []
     for t_name, info in report.items():
         comp_rows.append(
-            html.Tr(
+            dmc.TableTr(
                 [
-                    html.Td(dmc.Text(t_name, size="xs", ff="monospace")),
-                    html.Td(dmc.Text(f"{info.get('src_rows', 0):,}".replace(",", "."), size="xs")),
-                    html.Td(dmc.Text(f"{info.get('tgt_rows', 0):,}".replace(",", "."), size="xs")),
-                    html.Td(
+                    dmc.TableTd(dmc.Text(t_name, size="xs", className="rh-code"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                    dmc.TableTd(dmc.Text(f"{info.get('src_rows', 0):,}".replace(",", "."), size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                    dmc.TableTd(dmc.Text(f"{info.get('tgt_rows', 0):,}".replace(",", "."), size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                    dmc.TableTd(
                         dmc.Badge("Khớp SHA256", color="ok", variant="light", size="xs")
                         if info.get("checksum_matched")
-                        else dmc.Badge("Chưa kiểm tra", color="gray", variant="light", size="xs")
+                        else dmc.Badge("Chưa kiểm tra", color="gray", variant="light", size="xs"),
+                        style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
                     ),
                 ]
             )
         )
 
     t_report = dmc.Table(
-        striped=True,
+        striped=False,
+        highlightOnHover=True,
+        verticalSpacing="xs",
         children=[
-            html.Thead(
-                html.Tr(
+            dmc.TableThead(
+                dmc.TableTr(
                     [
-                        html.Th("Bảng"),
-                        html.Th("Nguồn (SQLite)"),
-                        html.Th("Đích (Oracle)"),
-                        html.Th("Đối chiếu"),
+                        dmc.TableTh("Bảng", style={"whiteSpace": "nowrap"}),
+                        dmc.TableTh("Nguồn (SQLite)", style={"whiteSpace": "nowrap"}),
+                        dmc.TableTh("Đích (Oracle)", style={"whiteSpace": "nowrap"}),
+                        dmc.TableTh("Đối chiếu", style={"whiteSpace": "nowrap"}),
                     ]
                 )
             ),
-            html.Tbody(comp_rows),
+            dmc.TableTbody(comp_rows),
         ],
     )
 
@@ -1262,9 +1507,11 @@ def handle_clean_schema(n_clicks: Any, input_val: str | None, target_ds_id: Any)
     # Lấy thông tin default schema của target ds
     engine = get_recon_engine()
     with engine.connect() as conn:
-        ds_row = conn.execute(
-            select(recon_data_source).where(recon_data_source.c.ID == int(target_ds_id))
-        ).mappings().first()
+        ds_row = (
+            conn.execute(select(recon_data_source).where(recon_data_source.c.ID == int(target_ds_id)))
+            .mappings()
+            .first()
+        )
 
     if not ds_row:
         return False, alert_box("Lỗi", "Không tìm thấy Data Source đích", tone="crit")
@@ -1316,19 +1563,24 @@ def handle_delete_sqlite(n_clicks: Any, input_val: str | None) -> tuple[bool, An
     # Lấy tên file sqlite từ bản migration gần nhất
     engine = get_recon_engine()
     with engine.connect() as conn:
-        mig_row = conn.execute(
-            select(recon_metadata_migration)
-            .where(
-                recon_metadata_migration.c.STATUS == "DONE",
-                recon_metadata_migration.c.OLD_SQLITE_DELETED_AT.is_(None),
+        mig_row = (
+            conn.execute(
+                select(recon_metadata_migration)
+                .where(
+                    recon_metadata_migration.c.STATUS == "DONE",
+                    recon_metadata_migration.c.OLD_SQLITE_DELETED_AT.is_(None),
+                )
+                .order_by(desc(recon_metadata_migration.c.ID))
             )
-            .order_by(desc(recon_metadata_migration.c.ID))
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
 
     if not mig_row or not mig_row.get("OLD_SQLITE_PATH"):
         return False, alert_box("Lỗi", "Không tìm thấy file SQLite cũ cần xóa.", tone="crit")
 
     from pathlib import Path
+
     f_name = Path(mig_row["OLD_SQLITE_PATH"]).name
     res = delete_old_sqlite(ctx, confirm_filename=f_name)
     if not res.ok or not res.data:

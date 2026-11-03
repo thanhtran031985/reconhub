@@ -55,6 +55,7 @@ class DataSourceResponse(BaseModel):
     last_test_ok: str | None = None
     last_test_msg: str | None = None
     last_test_ms: int | None = None
+    template_count: int = 0
     created_by: str
     created_at: datetime
     updated_at: datetime

@@ -78,9 +78,7 @@ def get_dashboard_summary(ctx: Ctx, month: str | None = None) -> dict[str, Any]:
                 func.sum(recon_run_summary.c.CNT_MISSING_IN_DB).label("TOTAL_MISSING_DB"),
                 func.sum(recon_run_summary.c.CNT_MISSING_IN_EXCEL).label("TOTAL_MISSING_EXCEL"),
             )
-            .select_from(
-                recon_run_summary.join(recon_run, recon_run_summary.c.RUN_ID == recon_run.c.ID)
-            )
+            .select_from(recon_run_summary.join(recon_run, recon_run_summary.c.RUN_ID == recon_run.c.ID))
             .where(
                 recon_run.c.CREATED_AT >= start_date,
                 recon_run.c.CREATED_AT < end_date,
@@ -91,9 +89,7 @@ def get_dashboard_summary(ctx: Ctx, month: str | None = None) -> dict[str, Any]:
         if sums and sums["TOTAL_MATCHED"] is not None:
             tot_matched = sums["TOTAL_MATCHED"] or 0
             tot_diff = (
-                (sums["TOTAL_MISMATCH"] or 0)
-                + (sums["TOTAL_MISSING_DB"] or 0)
-                + (sums["TOTAL_MISSING_EXCEL"] or 0)
+                (sums["TOTAL_MISMATCH"] or 0) + (sums["TOTAL_MISSING_DB"] or 0) + (sums["TOTAL_MISSING_EXCEL"] or 0)
             )
             tot_compared = tot_matched + tot_diff
             if tot_compared > 0:
@@ -119,8 +115,9 @@ def get_dashboard_summary(ctx: Ctx, month: str | None = None) -> dict[str, Any]:
                 recon_run_summary.c.CNT_MISSING_IN_EXCEL,
             )
             .select_from(
-                recon_run.outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID)
-                .outerjoin(recon_run_summary, recon_run.c.ID == recon_run_summary.c.RUN_ID)
+                recon_run.outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID).outerjoin(
+                    recon_run_summary, recon_run.c.ID == recon_run_summary.c.RUN_ID
+                )
             )
             .order_by(desc(recon_run.c.CREATED_AT))
             .limit(10)
@@ -135,9 +132,7 @@ def get_dashboard_summary(ctx: Ctx, month: str | None = None) -> dict[str, Any]:
             cnt_missing_excel = r["CNT_MISSING_IN_EXCEL"] or 0
             tot_comp = cnt_matched + cnt_mismatch + cnt_missing_db + cnt_missing_excel
             m_pct = (
-                round((cnt_matched / tot_comp) * 100, 1)
-                if tot_comp > 0
-                else (100.0 if r["STATUS"] == "DONE" else None)
+                round((cnt_matched / tot_comp) * 100, 1) if tot_comp > 0 else (100.0 if r["STATUS"] == "DONE" else None)
             )
 
             recent_items.append(
@@ -180,8 +175,9 @@ def get_dashboard_summary(ctx: Ctx, month: str | None = None) -> dict[str, Any]:
                 func.sum(recon_run_summary.c.CNT_MISSING_IN_EXCEL).label("TOTAL_MISSING_EXCEL"),
             )
             .select_from(
-                recon_template.join(recon_run, recon_template.c.ID == recon_run.c.TEMPLATE_ID)
-                .join(recon_run_summary, recon_run.c.ID == recon_run_summary.c.RUN_ID)
+                recon_template.join(recon_run, recon_template.c.ID == recon_run.c.TEMPLATE_ID).join(
+                    recon_run_summary, recon_run.c.ID == recon_run_summary.c.RUN_ID
+                )
             )
             .where(
                 recon_run.c.CREATED_AT >= start_date,
@@ -200,11 +196,7 @@ def get_dashboard_summary(ctx: Ctx, month: str | None = None) -> dict[str, Any]:
         diff_by_tmpl: list[dict[str, Any]] = []
         for tr in tmpl_diff_rows:
             t_matched = tr["TOTAL_MATCHED"] or 0
-            t_diff = (
-                (tr["TOTAL_MISMATCH"] or 0)
-                + (tr["TOTAL_MISSING_DB"] or 0)
-                + (tr["TOTAL_MISSING_EXCEL"] or 0)
-            )
+            t_diff = (tr["TOTAL_MISMATCH"] or 0) + (tr["TOTAL_MISSING_DB"] or 0) + (tr["TOTAL_MISSING_EXCEL"] or 0)
             t_total = t_matched + t_diff
             diff_pct = round((t_diff / t_total) * 100, 1) if t_total > 0 else 0.0
 
@@ -261,20 +253,28 @@ def compare_runs(ctx: Ctx, run_id_a: int, run_id_b: int) -> dict[str, Any]:
 
     with engine.connect() as conn:
         # 1. Kiểm tra Run A
-        run_a = conn.execute(
-            select(recon_run, recon_template.c.NAME.label("TEMPLATE_NAME"))
-            .outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID)
-            .where(recon_run.c.ID == run_id_a)
-        ).mappings().first()
+        run_a = (
+            conn.execute(
+                select(recon_run, recon_template.c.NAME.label("TEMPLATE_NAME"))
+                .outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID)
+                .where(recon_run.c.ID == run_id_a)
+            )
+            .mappings()
+            .first()
+        )
         if not run_a:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Run #{run_id_a}.")
 
         # 2. Kiểm tra Run B
-        run_b = conn.execute(
-            select(recon_run, recon_template.c.NAME.label("TEMPLATE_NAME"))
-            .outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID)
-            .where(recon_run.c.ID == run_id_b)
-        ).mappings().first()
+        run_b = (
+            conn.execute(
+                select(recon_run, recon_template.c.NAME.label("TEMPLATE_NAME"))
+                .outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID)
+                .where(recon_run.c.ID == run_id_b)
+            )
+            .mappings()
+            .first()
+        )
         if not run_b:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Run #{run_id_b}.")
 
@@ -291,33 +291,41 @@ def compare_runs(ctx: Ctx, run_id_a: int, run_id_b: int) -> dict[str, Any]:
             )
 
         # 3. Lấy dòng kết quả của Run A và Run B
-        rows_a = conn.execute(
-            select(
-                recon_result_row.c.ROW_NO,
-                recon_result_row.c.KEY_TEXT,
-                recon_result_row.c.KEY_HASH,
-                recon_result_row.c.STATUS,
-                recon_result_row.c.ABS_DIFF_MAIN,
-                recon_result_row.c.KEY_JSON,
-                recon_result_row.c.EXCEL_JSON,
-                recon_result_row.c.DB_JSON,
-                recon_result_row.c.DIFF_JSON,
-            ).where(recon_result_row.c.RUN_ID == run_id_a)
-        ).mappings().fetchall()
+        rows_a = (
+            conn.execute(
+                select(
+                    recon_result_row.c.ROW_NO,
+                    recon_result_row.c.KEY_TEXT,
+                    recon_result_row.c.KEY_HASH,
+                    recon_result_row.c.STATUS,
+                    recon_result_row.c.ABS_DIFF_MAIN,
+                    recon_result_row.c.KEY_JSON,
+                    recon_result_row.c.EXCEL_JSON,
+                    recon_result_row.c.DB_JSON,
+                    recon_result_row.c.DIFF_JSON,
+                ).where(recon_result_row.c.RUN_ID == run_id_a)
+            )
+            .mappings()
+            .fetchall()
+        )
 
-        rows_b = conn.execute(
-            select(
-                recon_result_row.c.ROW_NO,
-                recon_result_row.c.KEY_TEXT,
-                recon_result_row.c.KEY_HASH,
-                recon_result_row.c.STATUS,
-                recon_result_row.c.ABS_DIFF_MAIN,
-                recon_result_row.c.KEY_JSON,
-                recon_result_row.c.EXCEL_JSON,
-                recon_result_row.c.DB_JSON,
-                recon_result_row.c.DIFF_JSON,
-            ).where(recon_result_row.c.RUN_ID == run_id_b)
-        ).mappings().fetchall()
+        rows_b = (
+            conn.execute(
+                select(
+                    recon_result_row.c.ROW_NO,
+                    recon_result_row.c.KEY_TEXT,
+                    recon_result_row.c.KEY_HASH,
+                    recon_result_row.c.STATUS,
+                    recon_result_row.c.ABS_DIFF_MAIN,
+                    recon_result_row.c.KEY_JSON,
+                    recon_result_row.c.EXCEL_JSON,
+                    recon_result_row.c.DB_JSON,
+                    recon_result_row.c.DIFF_JSON,
+                ).where(recon_result_row.c.RUN_ID == run_id_b)
+            )
+            .mappings()
+            .fetchall()
+        )
 
         dict_a = {str(r["KEY_HASH"]): dict(r) for r in rows_a}
         dict_b = {str(r["KEY_HASH"]): dict(r) for r in rows_b}
@@ -427,41 +435,49 @@ def get_previous_run(ctx: Ctx, run_id: int) -> dict[str, Any] | None:
     engine = get_recon_engine()
 
     with engine.connect() as conn:
-        curr = conn.execute(
-            select(
-                recon_run.c.ID,
-                recon_run.c.TEMPLATE_ID,
-                recon_run.c.PROFILE_CODE,
-                recon_run.c.CREATED_AT,
-            ).where(recon_run.c.ID == run_id)
-        ).mappings().first()
+        curr = (
+            conn.execute(
+                select(
+                    recon_run.c.ID,
+                    recon_run.c.TEMPLATE_ID,
+                    recon_run.c.PROFILE_CODE,
+                    recon_run.c.CREATED_AT,
+                ).where(recon_run.c.ID == run_id)
+            )
+            .mappings()
+            .first()
+        )
 
         if not curr:
             return None
 
-        prev = conn.execute(
-            select(
-                recon_run.c.ID,
-                recon_run.c.CREATED_AT,
-                recon_run.c.P_FROM,
-                recon_run.c.P_TO,
-            )
-            .where(
-                recon_run.c.TEMPLATE_ID == curr["TEMPLATE_ID"],
-                recon_run.c.PROFILE_CODE == curr["PROFILE_CODE"],
-                recon_run.c.STATUS == "DONE",
-                recon_run.c.ID != run_id,
-                or_(
-                    recon_run.c.CREATED_AT < curr["CREATED_AT"],
-                    and_(
-                        recon_run.c.CREATED_AT == curr["CREATED_AT"],
-                        recon_run.c.ID < curr["ID"],
+        prev = (
+            conn.execute(
+                select(
+                    recon_run.c.ID,
+                    recon_run.c.CREATED_AT,
+                    recon_run.c.P_FROM,
+                    recon_run.c.P_TO,
+                )
+                .where(
+                    recon_run.c.TEMPLATE_ID == curr["TEMPLATE_ID"],
+                    recon_run.c.PROFILE_CODE == curr["PROFILE_CODE"],
+                    recon_run.c.STATUS == "DONE",
+                    recon_run.c.ID != run_id,
+                    or_(
+                        recon_run.c.CREATED_AT < curr["CREATED_AT"],
+                        and_(
+                            recon_run.c.CREATED_AT == curr["CREATED_AT"],
+                            recon_run.c.ID < curr["ID"],
+                        ),
                     ),
-                ),
+                )
+                .order_by(desc(recon_run.c.CREATED_AT), desc(recon_run.c.ID))
+                .limit(1)
             )
-            .order_by(desc(recon_run.c.CREATED_AT), desc(recon_run.c.ID))
-            .limit(1)
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
 
         if not prev:
             return None
