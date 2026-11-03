@@ -45,9 +45,10 @@ from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.empty_state import empty_state
 from app.ui.components.modal_confirm import modal_confirm
 
-# Màu sắc cho badge DMC
+# Màu sắc cho badge DMC (gồm "warn" là màu theme của app, dùng trong seed
+# cho mã DATA_INPUT; nếu thiếu, sửa mã đó sẽ thấy ô chọn màu trống).
 BADGE_COLORS = [
-    "blue", "teal", "red", "yellow", "gray", "purple", "green", "orange", "cyan", "violet"
+    "blue", "teal", "red", "yellow", "gray", "purple", "green", "orange", "cyan", "violet", "warn"
 ]
 
 # Icon Lucide thường dùng
@@ -62,6 +63,41 @@ COMMON_ICONS = [
 CLOSED_POLICY_TYPES = {"ISSUE_STATUS", "DISCREPANCY_TYPE"}
 
 
+def _service_message(res: Any) -> str | None:
+    """Trả thông báo lỗi từ ServiceResult, hoặc None nếu thành công."""
+    if res is None:
+        return "Không nhận được kết quả từ service."
+    ok = getattr(res, "ok", None)
+    if ok:
+        return None
+    return getattr(res, "message", None) or "Thao tác không thành công."
+
+
+def _error_state(title: str, message: str, retry_id: str) -> Any:
+    """Trạng thái lỗi: giữ thông báo và nút Thử lại, không báo nhầm thành trống.
+
+    Nút Thử lại là link tải lại trang, không phải Input của callback:
+    nút này chỉ xuất hiện khi đã lỗi, mà callback Dash dùng id cố định
+    vắng mặt lúc tải trang sẽ làm hỏng cả callback Master-Detail (đã
+    kiểm chứng bằng Playwright: thêm Input retry cố định khiến bấm chọn
+    loại không gửi request _dash-update-component nữa).
+    """
+    return dmc.Stack(
+        [
+            alert_box(title, message, tone="crit"),
+            dmc.Group(
+                [
+                    # DMC Button ở version này không có prop href, nên dùng
+                    # Anchor tải lại trang cho nút Thử lại.
+                    dmc.Anchor("Thử lại", href="/lookups", id=retry_id, size="sm")
+                ],
+                justify="flex-start",
+            ),
+        ],
+        gap="sm",
+    )
+
+
 # ─── Hàm render thành phần ───────────────────────────────────────────────────
 
 def render_type_list(
@@ -74,7 +110,10 @@ def render_type_list(
     Trả về (component_ui, total_types_count).
     """
     res = list_lookup_types(ctx)
-    types = res.data if res.ok and res.data else []
+    err = _service_message(res)
+    if err:
+        return (_error_state("Không tải được danh sách loại", err, "lookups-type-retry-btn"), 0)
+    types = res.data if res.data else []
     total_count = len(types)
 
     q = (search_query or "").strip().lower()
@@ -101,54 +140,74 @@ def render_type_list(
         lt = t.get("lookup_type", "")
         is_selected = lt == selected_type
         is_sys = (t.get("is_system") or "N") == "Y"
+        is_type_active = (t.get("is_active") or "Y") == "Y"
         code_count = t.get("code_count", 0)
+        code_total = t.get("code_total_count", code_count)
 
+        # Thẻ loại theo thiết kế: Paper có viền làm khung thẻ, nút bên
+        # trong làm vùng bấm. Dùng dmc.Button, không dùng UnstyledButton:
+        # UnstyledButton của Dash Mantine không phát n_clicks nên callback
+        # chọn loại không bao giờ chạy (đã kiểm chứng bằng Playwright).
         items.append(
-            html.Div(
-                id={"type": "lookups-type-item", "index": lt},
-                n_clicks=0,
-                style={
-                    "padding": "10px 14px",
-                    "cursor": "pointer",
-                    "borderRadius": "8px",
-                    "backgroundColor": "var(--primary-soft)" if is_selected else "transparent",
-                    "borderLeft": "3px solid var(--primary)" if is_selected else "3px solid transparent",
-                    "marginBottom": "4px",
-                    "transition": "all 0.15s ease",
-                },
-                children=dmc.Group(
-                    justify="space-between",
-                    align="center",
-                    children=[
-                        dmc.Stack(
-                            gap=2,
-                            children=[
-                                dmc.Group(
-                                    gap="xs",
-                                    children=[
-                                        dmc.Text(
-                                            t.get("type_name") or lt,
-                                            size="sm",
-                                            fw=600 if is_selected else 500,
-                                        ),
-                                        dmc.Badge("Hệ thống", size="xs", color="blue", variant="light") if is_sys else None,
-                                    ],
-                                ),
-                                dmc.Text(
-                                    f"Mã: {lt}",
-                                    size="xs",
-                                    c="dimmed",
-                                    className="rh-code mono",
-                                ),
-                            ],
-                        ),
-                        dmc.Badge(str(code_count), size="sm", color="primary" if is_selected else "gray", variant="light"),
-                    ],
+            dmc.Paper(
+                dmc.Button(
+                    id={"type": "lookups-type-item", "index": lt},
+                    n_clicks=0,
+                    variant="subtle",
+                    color="gray",
+                    fullWidth=True,
+                    justify="flex-start",
+                    **{"aria-label": f"Chọn loại {t.get('type_name') or lt} ({lt}), {code_total} giá trị, {code_count} đang dùng"},
+                    style={
+                        "height": "auto",
+                        "textAlign": "left",
+                        "padding": "0",
+                        "backgroundColor": "transparent",
+                        "transition": "background-color 0.15s ease",
+                    },
+                    children=dmc.Stack(
+                        gap=4,
+                        children=[
+                            dmc.Text(
+                                t.get("type_name") or lt,
+                                size="md",
+                                fw=700,
+                            ),
+                            dmc.Text(
+                                lt,
+                                size="sm",
+                                c="dimmed",
+                                className="rh-code mono",
+                            ),
+                            dmc.Group(
+                                gap="xs",
+                                children=[
+                                    dmc.Badge(
+                                        f"{code_total} giá trị · {code_count} đang dùng",
+                                        size="sm",
+                                        color="gray",
+                                        variant="light",
+                                        tt="none",
+                                    ),
+                                    dmc.Badge("Hệ thống", size="sm", color="blue", variant="light") if is_sys else None,
+                                    dmc.Badge("Ngừng dùng", size="sm", color="gray", variant="light") if not is_type_active else None,
+                                ],
+                            ),
+                        ],
+                    ),
                 ),
+                withBorder=True,
+                radius="md",
+                p="md",
+                style={
+                    "backgroundColor": "var(--primary-soft)" if is_selected else "transparent",
+                    "borderColor": "var(--primary)" if is_selected else None,
+                    "borderWidth": "2px" if is_selected else None,
+                },
             )
         )
 
-    return dmc.Stack(items, gap=0), total_count
+    return dmc.Stack(items, gap="sm"), total_count
 
 
 def render_policy_alert(lookup_type: str | None) -> Any:
@@ -190,7 +249,10 @@ def render_code_table(
         )
 
     res = list_lookup_codes(ctx, lookup_type=lookup_type)
-    codes = res.data if res.ok and res.data else []
+    err = _service_message(res)
+    if err:
+        return _error_state("Không tải được danh sách mã", err, "lookups-code-retry-btn")
+    codes = res.data if res.data else []
 
     # Lọc theo search_query và active_filter
     q = (search_query or "").strip().lower()
@@ -258,33 +320,31 @@ def render_code_table(
             size="sm",
         )
 
+        # Nút thật (ActionIcon) thay cho Div bấm được: tab tới được, có
+        # aria-label, vùng bấm size xl của Mantine (~44px). Mã hệ thống bị
+        # disabled thật nên không mở được modal xóa.
         action_btns = dmc.Group(
-            gap=4,
+            gap=8,
             justify="flex-end",
             children=[
-                dmc.Tooltip(
-                    label="Sửa",
-                    position="top",
-                    children=html.Div(
-                        DashIconify(icon="lucide:pencil", width=16),
-                        id={"type": "lookups-edit-code-btn", "index": f"{lookup_type}|{code}"},
-                        n_clicks=0,
-                        style={"cursor": "pointer", "color": "var(--primary)", "padding": "4px"},
-                    ),
+                dmc.ActionIcon(
+                    DashIconify(icon="lucide:pencil", width=18),
+                    id={"type": "lookups-edit-code-btn", "index": f"{lookup_type}|{code}"},
+                    n_clicks=0,
+                    variant="subtle",
+                    color="primary",
+                    size="xl",
+                    **{"aria-label": f"Sửa mã {code}"},
                 ) if can_edit else None,
-                dmc.Tooltip(
-                    label="Xóa" if not is_sys else "Mã hệ thống, không thể xóa",
-                    position="top",
-                    children=html.Div(
-                        DashIconify(icon="lucide:trash-2", width=16),
-                        id={"type": "lookups-delete-code-btn", "index": f"{lookup_type}|{code}"},
-                        n_clicks=0,
-                        style={
-                            "cursor": "not-allowed" if is_sys else "pointer",
-                            "color": "var(--ink-soft)" if is_sys else "var(--crit)",
-                            "padding": "4px",
-                        },
-                    ),
+                dmc.ActionIcon(
+                    DashIconify(icon="lucide:trash-2", width=18),
+                    id={"type": "lookups-delete-code-btn", "index": f"{lookup_type}|{code}"},
+                    n_clicks=0,
+                    variant="subtle",
+                    color="crit",
+                    size="xl",
+                    disabled=is_sys,
+                    **{"aria-label": f"Mã hệ thống, không thể xóa mã {code}" if is_sys else f"Xóa mã {code}"},
                 ) if can_edit else None,
             ],
         )
@@ -298,7 +358,7 @@ def render_code_table(
                             gap="xs",
                             children=[
                                 dmc.Text(code, size="xs", className="rh-code mono", fw=600),
-                                dmc.Badge("System", size="xs", color="gray", variant="outline") if is_sys else None,
+                                dmc.Badge("Hệ thống", size="xs", color="gray", variant="outline") if is_sys else None,
                             ],
                         )
                     ),
@@ -312,8 +372,9 @@ def render_code_table(
                                 dmc.Switch(
                                     id={"type": "lookups-toggle-code-switch", "index": f"{lookup_type}|{code}"},
                                     checked=is_active,
-                                    size="sm",
+                                    size="md",
                                     disabled=is_sys or not can_edit,
+                                    **{"aria-label": f"Mã hệ thống, không thể tắt mã {code}" if is_sys else f"Bật hoặc tắt mã {code}"},
                                 ),
                                 dmc.Text("Bật" if is_active else "Tắt", size="xs", c="dimmed"),
                             ],
@@ -322,7 +383,6 @@ def render_code_table(
                     ),
                     dmc.TableTd(action_btns),
                 ],
-                style={"opacity": "1" if is_active else "0.5"},
             )
         )
 
@@ -495,12 +555,19 @@ def _modal_code_form(
                     size="sm",
                     minRows=2,
                 ),
-                # Badge preview
+                # Badge preview (được callback preview cập nhật trực tiếp
+                # khi đổi nhãn/màu/icon, giống bảng thật).
                 dmc.Group(
                     [
                         dmc.Text("Xem trước badge:", size="sm", c="dimmed"),
                         dmc.Badge(
-                            meaning_val or "Nhãn mẫu",
+                            dmc.Group(
+                                [
+                                    DashIconify(icon=icon_val, width=13),
+                                    dmc.Text(meaning_val or "Nhãn mẫu", size="xs"),
+                                ],
+                                gap=4,
+                            ),
                             color=color_val,
                             variant="light",
                             size="md",
@@ -585,6 +652,10 @@ def layout(**kwargs: Any) -> Any:
                 ],
             ),
 
+            # Vùng thông báo chung của trang (lỗi xóa, aria-live cho
+            # trình đọc màn hình). Mặc định trống.
+            html.Div(id="lookups-page-alert", **{"aria-live": "polite"}),
+
             # Layout 2 cột
             dmc.Grid(
                 gutter="md",
@@ -603,37 +674,43 @@ def layout(**kwargs: Any) -> Any:
                                         dmc.Group(
                                             gap="xs",
                                             children=[
-                                                dmc.Text("Loại danh mục", fw=700, size="sm"),
+                                                dmc.Text("Loại danh mục", fw=700, size="md"),
                                                 dmc.Badge(
                                                     f"{total_types_count} loại",
                                                     id="lookups-type-count-badge",
                                                     color="gray",
-                                                    size="xs",
+                                                    size="sm",
                                                     variant="light",
                                                 ),
                                             ],
                                         ),
-                                        button_primary(
-                                            "Thêm loại",
-                                            id="lookups-add-type-btn",
-                                            size="xs",
-                                            icon="lucide:plus",
-                                        ),
                                     ],
                                 ),
-                                # Ô tìm kiếm Type
+                                # Ô tìm kiếm Type, có nhãn như thiết kế
                                 dmc.TextInput(
                                     id="lookups-type-search-input",
-                                    placeholder="Tên hoặc mã loại…",
+                                    label="Tìm loại danh mục",
+                                    placeholder="Tên hoặc mã loại...",
                                     leftSection=DashIconify(icon="lucide:search", width=14),
-                                    size="xs",
+                                    size="sm",
                                     mb="sm",
                                 ),
-                                dmc.Divider(mb="xs"),
                                 # Danh sách Type
                                 html.Div(
                                     id="lookups-type-list",
                                     children=type_list_ui,
+                                ),
+                                # Nút thêm loại ở cuối cột trái như thiết kế,
+                                # thay cho nút ở header trước đây. Id giữ
+                                # nguyên để callback mở modal không đổi.
+                                dmc.Button(
+                                    "+ Thêm loại danh mục",
+                                    id="lookups-add-type-btn",
+                                    variant="outline",
+                                    color="gray",
+                                    fullWidth=True,
+                                    size="sm",
+                                    mt="sm",
                                 ),
                             ],
                             withBorder=True,
@@ -812,7 +889,11 @@ def cb_master_detail_sync(
     triggered = ctx_dash.triggered[0]["prop_id"] if ctx_dash.triggered else ""
 
     selected_type = current_selected
-    if "lookups-type-item" in triggered:
+    # Guard: khi danh sách loại được render lại (tìm kiếm/refresh), Dash
+    # có thể kích hoạt callback với n_clicks=0 của nút mới xuất hiện.
+    # Chỉ coi là bấm chọn khi giá trị kích hoạt > 0.
+    _triggered_value = ctx_dash.triggered[0].get("value") if ctx_dash.triggered else None
+    if "lookups-type-item" in triggered and _triggered_value:
         try:
             id_dict = json.loads(triggered.split(".")[0])
             selected_type = id_dict.get("index")
@@ -837,7 +918,18 @@ def cb_master_detail_sync(
     policy_ui = render_policy_alert(selected_type)
 
     if selected_type:
-        header = f"Giá trị: {selected_type}"
+        # Tiêu đề dùng tên hiển thị, badge giữ mã để phân biệt.
+        type_name = selected_type
+        if ctx:
+            _types_res = list_lookup_types(ctx)
+            if _types_res.ok and _types_res.data:
+                _found = next(
+                    (t for t in _types_res.data if t.get("lookup_type") == selected_type),
+                    None,
+                )
+                if _found and _found.get("type_name"):
+                    type_name = _found["type_name"]
+        header = f"{type_name} ({selected_type})"
         badge_text = selected_type
         badge_style = {"display": "inline-flex"}
         is_closed = selected_type in CLOSED_POLICY_TYPES
@@ -870,6 +962,7 @@ def cb_master_detail_sync(
 
 @callback(
     Output("lookups-add-type-modal", "opened"),
+    Output("lookups-add-type-modal-alert", "children"),
     Input("lookups-add-type-btn", "n_clicks"),
     Input("lookups-add-type-modal-cancel-btn", "n_clicks"),
     Input("lookups-add-type-modal-save-btn", "n_clicks"),
@@ -885,19 +978,24 @@ def cb_add_type_modal(
     code_val: str | None,
     name_val: str | None,
     desc_val: str | None,
-) -> bool:
+) -> tuple[bool, Any]:
     ctx_dash = dash.callback_context
     triggered = ctx_dash.triggered[0]["prop_id"] if ctx_dash.triggered else ""
     if "lookups-add-type-btn" in triggered:
-        return True
+        return True, None
     if "cancel" in triggered:
-        return False
+        return False, None
     if "save" in triggered:
         ctx = get_current_ctx()
-        if ctx and code_val and name_val:
-            create_lookup_type(ctx, lookup_type=code_val, type_name=name_val, description=desc_val)
-        return False
-    return False
+        if not ctx or not code_val or not name_val:
+            return True, alert_box("Chưa lưu được", "Vui lòng nhập mã loại và tên hiển thị.", tone="crit")
+        res = create_lookup_type(ctx, lookup_type=code_val, type_name=name_val, description=desc_val)
+        err = _service_message(res)
+        if err:
+            # Giữ modal mở và giữ dữ liệu đã nhập, hiện lỗi gần nút Lưu.
+            return True, alert_box("Chưa lưu được", err, tone="crit")
+        return False, None
+    return False, None
 
 
 # --- Modal Sửa Lookup Type ---
@@ -907,6 +1005,7 @@ def cb_add_type_modal(
     Output("lookups-edit-type-modal-code-input", "value"),
     Output("lookups-edit-type-modal-name-input", "value"),
     Output("lookups-edit-type-modal-desc-input", "value"),
+    Output("lookups-edit-type-modal-alert", "children"),
     Input("lookups-edit-type-btn", "n_clicks"),
     Input("lookups-edit-type-modal-cancel-btn", "n_clicks"),
     Input("lookups-edit-type-modal-save-btn", "n_clicks"),
@@ -922,38 +1021,45 @@ def cb_edit_type_modal(
     selected_type: str | None,
     name_val: str | None,
     desc_val: str | None,
-) -> tuple[bool, str, str, str]:
+) -> tuple[bool, str, str, str, Any]:
     ctx_dash = dash.callback_context
     triggered = ctx_dash.triggered[0]["prop_id"] if ctx_dash.triggered else ""
 
     if "lookups-edit-type-btn" in triggered:
         if not selected_type:
-            return False, "", "", ""
+            return False, "", "", "", None
         ctx = get_current_ctx()
         if not ctx:
-            return False, "", "", ""
+            return False, "", "", "", None
         res = list_lookup_types(ctx)
         types = res.data if res.ok and res.data else []
         found = next((t for t in types if t.get("lookup_type") == selected_type), None)
         if not found:
-            return False, "", "", ""
+            return False, "", "", "", None
         return (
             True,
             found.get("lookup_type", ""),
             found.get("type_name", ""),
             found.get("description") or "",
+            None,
         )
 
     if "cancel" in triggered:
-        return False, "", "", ""
+        return False, "", "", "", None
 
     if "save" in triggered:
         ctx = get_current_ctx()
-        if ctx and selected_type and name_val:
-            update_lookup_type(ctx, lookup_type=selected_type, type_name=name_val, description=desc_val)
-        return False, "", "", ""
+        if not ctx or not selected_type or not name_val:
+            return True, selected_type or "", name_val or "", desc_val or "", alert_box(
+                "Chưa lưu được", "Vui lòng nhập tên hiển thị.", tone="crit"
+            )
+        res = update_lookup_type(ctx, lookup_type=selected_type, type_name=name_val, description=desc_val)
+        err = _service_message(res)
+        if err:
+            return True, selected_type, name_val, desc_val or "", alert_box("Chưa lưu được", err, tone="crit")
+        return False, "", "", "", None
 
-    return False, "", "", ""
+    return False, "", "", "", None
 
 
 # --- Refresh Store Trigger ---
@@ -985,11 +1091,61 @@ def cb_trigger_refresh(
     return dash.no_update
 
 
+# --- Badge preview trực tiếp trong modal code ---
+# Prototype cập nhật preview ngay khi nhập; trước đây preview chỉ dựng
+# một lần với giá trị ban đầu nên đổi màu/icon không thấy gì cho tới khi lưu.
+
+
+def _live_badge_preview(meaning_val: str | None, color_val: str | None, icon_val: str | None) -> Any:
+    return dmc.Group(
+        [
+            dmc.Text("Xem trước badge:", size="sm", c="dimmed"),
+            dmc.Badge(
+                dmc.Group(
+                    [
+                        DashIconify(icon=icon_val or "lucide:circle", width=13),
+                        dmc.Text(meaning_val or "Nhãn mẫu", size="xs"),
+                    ],
+                    gap=4,
+                ),
+                color=color_val or "gray",
+                variant="light",
+                size="md",
+            ),
+        ],
+        gap="xs",
+        align="center",
+    )
+
+
+@callback(
+    Output("lookups-add-code-modal-preview", "children"),
+    Input("lookups-add-code-modal-meaning-input", "value"),
+    Input("lookups-add-code-modal-color-select", "value"),
+    Input("lookups-add-code-modal-icon-input", "value"),
+    prevent_initial_call=True,
+)
+def cb_add_code_preview(meaning_val: str | None, color_val: str | None, icon_val: str | None) -> Any:
+    return _live_badge_preview(meaning_val, color_val, icon_val)
+
+
+@callback(
+    Output("lookups-edit-code-modal-preview", "children"),
+    Input("lookups-edit-code-modal-meaning-input", "value"),
+    Input("lookups-edit-code-modal-color-select", "value"),
+    Input("lookups-edit-code-modal-icon-input", "value"),
+    prevent_initial_call=True,
+)
+def cb_edit_code_preview(meaning_val: str | None, color_val: str | None, icon_val: str | None) -> Any:
+    return _live_badge_preview(meaning_val, color_val, icon_val)
+
+
 # --- Modal Thêm Lookup Code ---
 
 @callback(
     Output("lookups-add-code-modal", "opened"),
     Output("lookups-add-code-modal-context-store", "data"),
+    Output("lookups-add-code-modal-alert", "children"),
     Input("lookups-add-code-btn", "n_clicks"),
     Input("lookups-add-code-modal-cancel-btn", "n_clicks"),
     Input("lookups-add-code-modal-save-btn", "n_clicks"),
@@ -1018,24 +1174,30 @@ def cb_add_code_modal(
     triggered = ctx_dash.triggered[0]["prop_id"] if ctx_dash.triggered else ""
     context = {"lookup_type": lookup_type, "lookup_code": None}
     if "lookups-add-code-btn" in triggered:
-        return True, context
+        return True, context, None
     if "cancel" in triggered:
-        return False, context
+        return False, context, None
     if "save" in triggered:
         ctx = get_current_ctx()
-        if ctx and lookup_type and code_val and meaning_val:
-            create_lookup_code(
-                ctx,
-                lookup_type=lookup_type,
-                lookup_code=code_val,
-                meaning=meaning_val,
-                display_order=int(order_val or 0),
-                color_badge=color_val,
-                icon_name=icon_val,
-                description=desc_val,
+        if not ctx or not lookup_type or not code_val or not meaning_val:
+            return True, context, alert_box(
+                "Chưa lưu được", "Vui lòng nhập mã giá trị và nhãn hiển thị.", tone="crit"
             )
-        return False, context
-    return False, context
+        res = create_lookup_code(
+            ctx,
+            lookup_type=lookup_type,
+            lookup_code=code_val,
+            meaning=meaning_val,
+            display_order=int(order_val or 0),
+            color_badge=color_val,
+            icon_name=icon_val,
+            description=desc_val,
+        )
+        err = _service_message(res)
+        if err:
+            return True, context, alert_box("Chưa lưu được", err, tone="crit")
+        return False, context, None
+    return False, context, None
 
 
 # --- Modal Sửa Lookup Code ---
@@ -1049,6 +1211,7 @@ def cb_add_code_modal(
     Output("lookups-edit-code-modal-icon-input", "value"),
     Output("lookups-edit-code-modal-desc-input", "value"),
     Output("lookups-edit-code-modal-context-store", "data"),
+    Output("lookups-edit-code-modal-alert", "children"),
     Input({"type": "lookups-edit-code-btn", "index": dash.ALL}, "n_clicks"),
     Input("lookups-edit-code-modal-cancel-btn", "n_clicks"),
     Input("lookups-edit-code-modal-save-btn", "n_clicks"),
@@ -1070,29 +1233,34 @@ def cb_edit_code_modal(
     icon_val: str | None,
     desc_val: str | None,
     context: dict[str, Any] | None,
-) -> tuple[bool, str, str, int, str, str, str, dict[str, Any]]:
+) -> tuple[bool, str, str, int, str, str, str, dict[str, Any], Any]:
     ctx_dash = dash.callback_context
     triggered = ctx_dash.triggered[0]["prop_id"] if ctx_dash.triggered else ""
     empty_ctx: dict[str, Any] = {"lookup_type": None, "lookup_code": None}
 
     if "lookups-edit-code-btn" in triggered:
+        _edit_triggered_value = ctx_dash.triggered[0].get("value") if ctx_dash.triggered else None
+        if not _edit_triggered_value:
+            # Bảng vừa render lại, nút Sửa mới xuất hiện với n_clicks=0:
+            # không phải người dùng bấm, không được tự mở modal.
+            return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None
         try:
             id_dict = json.loads(triggered.split(".")[0])
             idx = id_dict.get("index", "")
             parts = idx.split("|", 1)
             lt, code = parts[0], parts[1] if len(parts) > 1 else ""
         except Exception:
-            return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx
+            return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None
 
         user_ctx = get_current_ctx()
         if not user_ctx:
-            return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx
+            return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None
 
         res = list_lookup_codes(user_ctx, lookup_type=lt)
         codes = res.data if res.ok and res.data else []
         found = next((c for c in codes if c.get("lookup_code") == code), None)
         if not found:
-            return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx
+            return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None
 
         return (
             True,
@@ -1103,30 +1271,39 @@ def cb_edit_code_modal(
             found.get("icon_name") or "lucide:circle",
             found.get("description") or "",
             {"lookup_type": lt, "lookup_code": code},
+            None,
         )
 
     if "cancel" in triggered:
-        return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx
+        return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None
 
     if "save" in triggered:
         user_ctx = get_current_ctx()
         ctx_data = context or {}
         lt = ctx_data.get("lookup_type")
         code = ctx_data.get("lookup_code")
-        if user_ctx and lt and code:
-            update_lookup_code(
-                user_ctx,
-                lookup_type=lt,
-                lookup_code=code,
-                meaning=meaning_val,
-                display_order=int(order_val or 0),
-                color_badge=color_val,
-                icon_name=icon_val,
-                description=desc_val,
+        if not user_ctx or not lt or not code:
+            return True, code or "", meaning_val or "", int(order_val or 0), color_val or "gray", icon_val or "lucide:circle", desc_val or "", ctx_data, alert_box(
+                "Chưa lưu được", "Không xác định được mã cần sửa.", tone="crit"
             )
-        return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx
+        res = update_lookup_code(
+            user_ctx,
+            lookup_type=lt,
+            lookup_code=code,
+            meaning=meaning_val,
+            display_order=int(order_val or 0),
+            color_badge=color_val,
+            icon_name=icon_val,
+            description=desc_val,
+        )
+        err = _service_message(res)
+        if err:
+            return True, code, meaning_val or "", int(order_val or 0), color_val or "gray", icon_val or "lucide:circle", desc_val or "", ctx_data, alert_box(
+                "Chưa lưu được", err, tone="crit"
+            )
+        return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None, None
 
-    return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx
+    return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None
 
 
 # --- Switch Toggle Active ---
@@ -1147,7 +1324,9 @@ def cb_toggle_code(checked: bool) -> bool:
         idx = id_dict.get("index", "")
         parts = idx.split("|", 1)
         lt, code = parts[0], parts[1] if len(parts) > 1 else ""
-        toggle_lookup_code_status(user_ctx, lookup_type=lt, lookup_code=code, is_active=checked)
+        res = toggle_lookup_code_status(user_ctx, lookup_type=lt, lookup_code=code, is_active=checked)
+        if _service_message(res):
+            return not checked  # rollback khi service trả fail
     except Exception:
         return not checked  # rollback nếu lỗi
     return checked
@@ -1158,6 +1337,7 @@ def cb_toggle_code(checked: bool) -> bool:
 @callback(
     Output("lookups-delete-code-modal", "opened"),
     Output("lookups-delete-target-store", "data"),
+    Output("lookups-page-alert", "children"),
     Input({"type": "lookups-delete-code-btn", "index": dash.ALL}, "n_clicks"),
     Input("lookups-delete-code-modal-cancel-btn", "n_clicks"),
     Input("lookups-delete-code-modal-confirm-btn", "n_clicks"),
@@ -1169,31 +1349,40 @@ def cb_delete_code_modal(
     _cancel: int | None,
     _confirm: int | None,
     target_store: dict[str, Any] | None,
-) -> tuple[bool, dict[str, Any] | None]:
+) -> tuple[bool, dict[str, Any] | None, Any]:
     ctx_dash = dash.callback_context
     triggered = ctx_dash.triggered[0]["prop_id"] if ctx_dash.triggered else ""
 
     if "lookups-delete-code-btn" in triggered:
+        _del_triggered_value = ctx_dash.triggered[0].get("value") if ctx_dash.triggered else None
+        if not _del_triggered_value:
+            return False, None, None
         try:
             id_dict = json.loads(triggered.split(".")[0])
             idx = id_dict.get("index", "")
             parts = idx.split("|", 1)
             lt, code = parts[0], parts[1] if len(parts) > 1 else ""
-            return True, {"lookup_type": lt, "lookup_code": code}
+            return True, {"lookup_type": lt, "lookup_code": code}, None
         except Exception:
-            return False, None
+            return False, None, None
 
     if "cancel" in triggered:
-        return False, None
+        return False, None, None
 
     if "confirm" in triggered:
         user_ctx = get_current_ctx()
         if user_ctx and target_store:
-            delete_lookup_code(
+            res = delete_lookup_code(
                 user_ctx,
                 lookup_type=target_store.get("lookup_type", ""),
                 lookup_code=target_store.get("lookup_code", ""),
             )
-        return False, None
+            err = _service_message(res)
+            if err:
+                # Giữ modal mở? Modal xác nhận không có ô alert, nên đóng
+                # modal và hiện lỗi ở vùng thông báo chung của trang để
+                # người dùng thấy rõ, dữ liệu không bị xóa.
+                return False, None, alert_box("Chưa xóa được", err, tone="crit")
+        return False, None, None
 
-    return False, None
+    return False, None, None

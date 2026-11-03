@@ -135,3 +135,60 @@ class TestHandleSelectType:
         assert code_table is not None
         assert store == "ISSUE_STATUS"
 
+
+
+class TestUiUxFixes:
+    def test_warn_color_is_selectable(self) -> None:
+        from app.ui.pages.lookups import BADGE_COLORS
+
+        assert "warn" in BADGE_COLORS
+
+    def test_live_badge_preview_uses_new_values(self) -> None:
+        from app.ui.pages.lookups import _live_badge_preview
+
+        result = str(_live_badge_preview("Đang kiểm tra", "teal", "lucide:loader"))
+        assert "Đang kiểm tra" in result
+        assert "teal" in result
+        assert "lucide:loader" in result
+
+    def test_code_table_error_is_not_empty_state(self, lookups_env: Any, monkeypatch: Any) -> None:
+        from app.schemas.errors import ErrorCode, ServiceResult
+        from app.ui.pages.lookups import render_code_table
+
+        monkeypatch.setattr(
+            "app.ui.pages.lookups.list_lookup_codes",
+            lambda ctx, lookup_type: ServiceResult.fail(ErrorCode.INTERNAL_ERROR, "DB lỗi"),
+        )
+        result = str(render_code_table(_admin_ctx(), lookup_type="ISSUE_STATUS"))
+        assert "Không tải được danh sách mã" in result
+        assert "Thử lại" in result
+        assert "Chưa có giá trị nào" not in result
+
+    def test_system_delete_button_is_disabled(self, lookups_env: Any, monkeypatch: Any) -> None:
+        from app.ui.pages.lookups import render_code_table
+
+        result = str(render_code_table(_admin_ctx(), lookup_type="ISSUE_STATUS"))
+        # Mã hệ thống OPEN phải có nút xóa bị disabled, không chỉ đổi con trỏ.
+        assert "Mã hệ thống, không thể xóa mã OPEN" in result
+
+
+class TestLeftColumnDesign:
+    def test_type_card_shows_total_and_active_counts(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.core.session.get_current_ctx", lambda: _admin_ctx())
+        from app.ui.pages.lookups import render_type_list
+
+        ui, _total = render_type_list(_admin_ctx(), selected_type="ISSUE_REASON")
+        text = str(ui)
+        # Seed: ISSUE_REASON có 6 mã, đều đang dùng.
+        assert "6 giá trị" in text
+        assert "6 đang dùng" in text
+        assert "ISSUE_REASON" in text
+
+    def test_add_type_button_is_at_bottom_of_left_column(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.core.session.get_current_ctx", lambda: _admin_ctx())
+        from app.ui.pages.lookups import layout
+
+        text = str(layout())
+        assert "lookups-add-type-btn" in text
+        assert "Thêm loại danh mục" in text
+        assert "Tìm loại danh mục" in text

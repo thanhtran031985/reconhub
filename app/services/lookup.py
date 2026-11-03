@@ -144,11 +144,20 @@ def list_lookup_types(ctx: Ctx) -> list[dict[str, Any]]:
             .where(recon_lookup_code.c.IS_ACTIVE == "Y")
             .group_by(recon_lookup_code.c.LOOKUP_TYPE)
         ).all()
+        totals_rows = conn.execute(
+            select(
+                recon_lookup_code.c.LOOKUP_TYPE,
+                func.count(recon_lookup_code.c.LOOKUP_CODE).label("cnt"),
+            ).group_by(recon_lookup_code.c.LOOKUP_TYPE)
+        ).all()
     counts = {r[0]: r[1] for r in counts_rows}
+    totals = {r[0]: r[1] for r in totals_rows}
     result = []
     for r in rows:
         d = _row_to_type_dict(r)
         d["code_count"] = counts.get(d["lookup_type"], 0)
+        # Tổng số giá trị, để thẻ loại hiển thị "X giá trị · Y đang dùng".
+        d["code_total_count"] = totals.get(d["lookup_type"], 0)
         result.append(d)
     return result
 
