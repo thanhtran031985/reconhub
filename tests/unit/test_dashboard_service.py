@@ -50,6 +50,7 @@ def dashboard_env(tmp_path: Path, monkeypatch):
     start_of_month = datetime(now.year, now.month, 1, 0, 0, 0)
 
     from datetime import timedelta
+
     t1 = start_of_month + timedelta(minutes=5)
     t2 = start_of_month + timedelta(minutes=10)
 

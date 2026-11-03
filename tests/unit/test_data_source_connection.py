@@ -147,3 +147,59 @@ def test_test_data_source_oracle_metadata_target(test_conn_env) -> None:
         assert res_test.data["ok"] is True
         assert res_test.data["recon_tables_count"] == 0
         assert "sẵn sàng" in res_test.data["message"].lower() or "trống" in res_test.data["message"].lower()
+
+
+def test_test_data_source_config_warning_write_privs(test_conn_env) -> None:
+    from app.services.data_source import test_data_source_config
+
+    engine, admin_ctx, _ = test_conn_env
+    mock_conn = MagicMock()
+    mock_conn.version = "19.25.0.0.0"
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = [("CREATE TABLE",)]
+    mock_conn.cursor.return_value = mock_cursor
+
+    with patch("oracledb.connect", return_value=mock_conn):
+        res = test_data_source_config(
+            ctx=admin_ctx,
+            host="10.0.0.1",
+            port=1521,
+            service_name="TESTPDB",
+            username="dataraw",
+            password="pwd",
+        )
+        assert res.ok is True
+        assert res.data["status"] == "RO_WARN"
+        assert res.data["read_only"] is False
+        assert "CREATE TABLE" in res.data["write_privileges"]
+        assert "cảnh báo" in res.data["message"].lower()
+
+
+def test_handle_test_drawer_connection_ui_alert(test_conn_env) -> None:
+    from app.ui.pages.data_sources import handle_test_drawer_connection
+
+    engine, admin_ctx, _ = test_conn_env
+    mock_conn = MagicMock()
+    mock_conn.version = "19.25.0.0.0"
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = [("CREATE TABLE",)]
+    mock_conn.cursor.return_value = mock_cursor
+
+    with (
+        patch("app.ui.pages.data_sources.get_current_ctx", return_value=admin_ctx),
+        patch("oracledb.connect", return_value=mock_conn),
+    ):
+        alert_node = handle_test_drawer_connection(
+            n_clicks=1,
+            ds_id=None,
+            host_val="10.0.0.1",
+            port_val=1521,
+            service_val="TESTPDB",
+            user_val="dataraw",
+            pwd_val="secret",
+            timeout_val=600,
+        )
+        alert_str = str(alert_node)
+        assert "Cảnh báo quyền ghi" in alert_str
+        assert "Thất bại" not in alert_str
+        assert "CREATE TABLE" in alert_str

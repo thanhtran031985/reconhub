@@ -390,10 +390,111 @@ def test_handle_compare_runs_callback(monkeypatch) -> None:
         "summary": {},
         "rows": [],
     }
-    opened, ui, data, current_filter = handle_compare_runs(
-        1, [], data_store, None, None
-    )
+    opened, ui, data, current_filter = handle_compare_runs(1, [], data_store, None, None)
     assert opened is True
     assert ui is not None
     assert current_filter == "ALL"
     assert data is not None
+
+
+def test_handle_save_issue_from_drawer(run_result_env, monkeypatch) -> None:
+    from app.schemas.errors import ServiceResult
+    from app.ui.pages.run_result import handle_save_issue_from_drawer
+
+    ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+    monkeypatch.setattr("app.ui.pages.run_result.get_current_ctx", lambda: ctx)
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.upsert_issue_for_row", lambda *a, **kw: ServiceResult(ok=True, data={"issue_id": 1})
+    )
+
+    # 1. Test when no click or no meta
+    fb, trig = handle_save_issue_from_drawer(None, "OPEN", None, None, None)
+    assert trig == 0
+
+    # 2. Test saving with valid meta
+    meta = {"run_id": 1042, "row_no": 1}
+    fb, trig = handle_save_issue_from_drawer(
+        n_clicks=1,
+        status_val="IN_PROGRESS",
+        reason_code=None,
+        note_val="Dang kiem tra chenh lech",
+        meta=meta,
+    )
+    assert trig == 1
+    assert "Đã lưu trạng thái đối soát" in str(fb)
+
+    # 3. Test saving with meta as json string
+    import json
+
+    meta_str = json.dumps(meta)
+    fb, trig = handle_save_issue_from_drawer(
+        n_clicks=2,
+        status_val="ACCEPTED",
+        reason_code=None,
+        note_val="Chap nhan lech",
+        meta=meta_str,
+    )
+    assert trig == 2
+    assert "Đã lưu trạng thái đối soát" in str(fb)
+
+
+def test_handle_export_excel(run_result_env, monkeypatch, tmp_path) -> None:
+    from app.schemas.errors import ServiceResult
+    from app.ui.pages.run_result import handle_export_excel
+
+    dummy_export = tmp_path / "export.xlsx"
+    dummy_export.write_text("dummy")
+
+    ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+    monkeypatch.setattr("app.ui.pages.run_result.get_current_ctx", lambda: ctx)
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.export_run",
+        lambda *a, **kw: ServiceResult(ok=True, data={"export_path": str(dummy_export)}),
+    )
+
+    data_store = {"run": {"id": 1042}}
+    res = handle_export_excel(1, data_store)
+    assert res is not None
+    assert "filename" in res
+    assert "ReconHub_Run_1042.xlsx" in res["filename"]
+
+
+def test_handle_row_click_open_drawer(run_result_env: Any, monkeypatch: Any) -> None:
+    from app.schemas.errors import ServiceResult
+    from app.ui.pages.run_result import handle_row_click_open_drawer
+
+    ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+    monkeypatch.setattr("app.ui.pages.run_result.get_current_ctx", lambda: ctx)
+
+    mock_row_detail = {
+        "run_id": 1042,
+        "row_no": 2,
+        "key_text": "C26TBD0031312 | 2026-02-01",
+        "status": "MATCHED",
+        "issue": {"STATUS": "OPEN"},
+        "excel": {"TOTAL_AMOUNT": 1390000},
+        "db": {"TOTAL_AMOUNT": 1390000},
+        "diff": {"TOTAL_AMOUNT": 0},
+    }
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.get_row_detail",
+        lambda *a, **kw: ServiceResult(ok=True, data=mock_row_detail),
+    )
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.list_reasons",
+        lambda *a, **kw: ServiceResult(ok=True, data=[]),
+    )
+
+    data_store = {"run": {"id": 1042}}
+
+    import dash
+    monkeypatch.setattr(
+        dash,
+        "callback_context",
+        type("Obj", (), {"triggered": [{"prop_id": '{"index":2,"type":"run-res-row"}.n_clicks', "value": 1}]}),
+    )
+
+    opened, drawer_ui = handle_row_click_open_drawer([1], data_store)
+    assert opened is True
+    assert drawer_ui is not None
+    assert "C26TBD0031312" in str(drawer_ui)

@@ -191,3 +191,12 @@ def test_authenticate_nonexistent_user_generic_message(test_db) -> None:
     assert res.code == ErrorCode.LOGIN_FAILED
     # Thông báo giống hệt khi sai mật khẩu
     assert "Tên đăng nhập hoặc mật khẩu không đúng" in res.message
+
+
+def test_logout_flask_endpoint() -> None:
+    from app.ui.app import server
+
+    client = server.test_client()
+    res = client.get("/logout")
+    assert res.status_code == 302
+    assert "/login" in res.headers.get("Location", "")

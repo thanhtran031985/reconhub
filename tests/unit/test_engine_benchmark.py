@@ -87,7 +87,6 @@ def test_engine_benchmark_200k_rows() -> None:
     assert total_time < 30.0
 
 
-
 @pytest.mark.bench
 def test_engine_benchmark_1m_rows() -> None:
     n_rows = 1_000_000

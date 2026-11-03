@@ -16,7 +16,10 @@ from app.ui.pages.new_run import (
     compute_quick_range,
     layout,
     process_uploaded_file,
+    render_execution_section,
     render_file_section,
+    render_params_section,
+    render_sql_preview_section,
     validate_run_params,
 )
 
@@ -126,6 +129,7 @@ def test_render_file_section_empty() -> None:
     s = str(empty_ui)
     assert "1. File dữ liệu" in s
     assert "new-run-upload" in s
+    assert "new-run-manual-template-select" not in s
 
 
 def test_process_uploaded_file_and_render(new_run_env) -> None:
@@ -149,11 +153,10 @@ def test_process_uploaded_file_and_render(new_run_env) -> None:
     assert "200 dòng hợp lệ" in s
     assert "1 dòng tổng đã loại" in s
     assert "Control total khớp" in s
+    assert "new-run-manual-template-select" not in s
 
 
 def test_render_params_and_execution_section(new_run_env) -> None:
-    from app.ui.pages.new_run import render_execution_section, render_params_section
-
     # 1. Render params section
     ds_list = [
         {"id": 1, "name": "ORACLE_TEST", "env": "DEV", "label": "ORACLE_TEST (DEV)"},
@@ -175,6 +178,8 @@ def test_render_params_and_execution_section(new_run_env) -> None:
     )
     s_params = str(params_ui)
     assert "2. Profile và tham số tìm kiếm" in s_params
+    assert "new-run-manual-template-select" in s_params
+    assert "Chỉ định template đối soát" in s_params
     assert "new-run-p-from" in s_params
     assert "new-run-p-to" in s_params
     assert "new-run-p-org" in s_params
@@ -198,6 +203,30 @@ def test_render_params_and_execution_section(new_run_env) -> None:
     )
     s_running = str(exec_ui_running)
     assert "3/5 Truy vấn Oracle (qua VPN)" in s_running
+
+
+def test_render_sql_preview_section() -> None:
+    import json
+
+    # 1. Khi chưa có template
+    empty_sql_ui = render_sql_preview_section(None)
+    assert "Câu lệnh SQL đối soát DB" in str(empty_sql_ui)
+    assert "Vui lòng tải lên file hoặc chọn template" in str(empty_sql_ui)
+
+    # 2. Khi có cấu hình template
+    tmpl_cfg = json.loads(Path("samples/templates/DTP_HOA_DON_TAC_NGHIEP.json").read_text(encoding="utf-8"))
+    template_info = {"code": "DTP_HOA_DON_TAC_NGHIEP", "config": tmpl_cfg}
+    params = {"p_from": "2026-02-01 00:00:00", "p_to": "2026-02-05 23:59:59", "p_org": "BDP"}
+
+    sql_ui = render_sql_preview_section(template_info, profile_code="BY_INVOICE", params=params)
+    s_sql = str(sql_ui)
+    assert "Câu lệnh SQL đối soát DB" in s_sql
+    assert "Đẩy phép gộp xuống DB" in s_sql
+    assert "INVOICE_NO" in s_sql
+    assert "SRC_FACT_INVOICE_DTP" in s_sql
+    assert ":p_from" in s_sql
+    assert ":p_to" in s_sql
+    assert ":p_org" in s_sql
 
 
 def test_handle_progress_tick_stages_and_redirect() -> None:
@@ -227,3 +256,4 @@ def test_layout_renders_with_active_templates(new_run_env, monkeypatch) -> None:
     assert "new-run-root" in s
     assert "Chạy đối soát" in s
     assert "new-run-upload" in s
+    assert "Câu lệnh SQL đối soát DB" in s

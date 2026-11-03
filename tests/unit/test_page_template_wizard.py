@@ -230,3 +230,313 @@ def test_render_diagrams_tab(wizard_env) -> None:
     assert diag_content["display"] == "block"
     assert ft_nav["display"] == "none"
     assert diag_children is not None
+
+
+def test_handle_wizard_file_upload(wizard_env, monkeypatch) -> None:
+    import base64
+
+    from app.ui.pages.template_wizard import handle_wizard_file_upload, render_step_1, render_step_2
+
+    owner_ctx = Ctx(user_id=1, username="owner", full_name="Owner", roles=[Role.TEMPLATE_OWNER])
+    monkeypatch.setattr("app.ui.pages.template_wizard.get_current_ctx", lambda: owner_ctx)
+
+    sample_bytes = Path("samples/dtp_sample_200.xlsx").read_bytes()
+    b64_content = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64," + base64.b64encode(
+        sample_bytes
+    ).decode("ascii")
+
+    sample_file_data, cfg, err, notif = handle_wizard_file_upload(
+        b64_content,
+        "dtp_sample_200.xlsx",
+        {},
+    )
+
+    assert err is None
+    assert notif is not None
+    assert sample_file_data is not None
+    assert sample_file_data["filename"] == "dtp_sample_200.xlsx"
+    assert sample_file_data["sheet"] == "BÁO CÁO DTP"
+    assert sample_file_data["total_rows"] >= 200
+    assert sample_file_data["total_cols"] >= 18
+    assert len(sample_file_data["preview_rows"]) == 5
+    assert len(sample_file_data["candidate_total_rows"]) >= 1
+
+    assert cfg["file"]["sheet"] == "BÁO CÁO DTP"
+    assert len(cfg["fields"]) >= 18
+
+    # Render Step 1 with uploaded sample file data
+    step1_ui = render_step_1(cfg, sample_data=sample_file_data)
+    assert step1_ui is not None
+    s1 = str(step1_ui)
+    assert "dtp_sample_200.xlsx" in s1
+    assert "BÁO CÁO DTP" in s1
+    assert "Xem trước 5 dòng" in s1
+
+    # Render Step 2 with populated fields
+    step2_ui = render_step_2(cfg)
+    assert step2_ui is not None
+    s2 = str(step2_ui)
+    assert "Cột Excel → Trường logic" in s2
+    assert "SO_HOA_DON" in s2
+
+
+def test_step_3_switch_db_mode() -> None:
+    from app.ui.pages.template_wizard import handle_switch_db_mode
+
+    # Switch to SQL mode
+    t_style, s_style, gen_style, cfg = handle_switch_db_mode("sql", {"db_source": {}})
+    assert t_style == {"display": "none"}
+    assert s_style == {"display": "block"}
+    assert gen_style == {"display": "none"}
+    assert cfg["db_source"]["kind"] == "sql"
+
+    # Switch back to Table mode
+    t_style, s_style, gen_style, cfg = handle_switch_db_mode("table", cfg)
+    assert t_style == {"display": "block"}
+    assert s_style == {"display": "none"}
+    assert gen_style == {"display": "block"}
+    assert cfg["db_source"]["kind"] == "table"
+
+
+def test_step_3_auto_match_db_columns() -> None:
+    from app.ui.pages.template_wizard import _auto_match_db_columns
+
+    fields = [
+        {"name": "INVOICE_NO", "label": "Số hóa đơn", "excel": "Số hóa đơn", "db": None},
+        {"name": "INV_DATETIME", "label": "Ngày lập", "excel": "Ngày lập hóa đơn", "db": None},
+        {"name": "AMOUNT", "label": "Thành tiền", "excel": "Thành tiền", "db": None},
+        {"name": "UNKNOWN_FIELD", "label": "Trường lạ", "excel": "Trường lạ", "db": None},
+    ]
+
+    db_cols = [
+        ("INVOICE_NO", "VARCHAR2(30)"),
+        ("INVOICE_DATE", "DATE"),
+        ("AMOUNT", "NUMBER(18,2)"),
+        ("CUSTOMER_ID", "NUMBER(10)"),
+    ]
+
+    updated = _auto_match_db_columns(fields, db_cols)
+    matched_map = {f["name"]: f.get("db") for f in updated}
+    assert matched_map["INVOICE_NO"] == "INVOICE_NO"
+    assert matched_map["INV_DATETIME"] == "INVOICE_DATE"
+    assert matched_map["AMOUNT"] == "AMOUNT"
+    assert matched_map["UNKNOWN_FIELD"] is None
+
+
+def test_step_3_handle_check_custom_sql(monkeypatch) -> None:
+    from app.core.context import Ctx, Role
+    from app.ui.pages.template_wizard import handle_check_custom_sql
+
+    owner_ctx = Ctx(user_id=1, username="owner", full_name="Owner", roles=[Role.TEMPLATE_OWNER])
+    monkeypatch.setattr("app.ui.pages.template_wizard.get_current_ctx", lambda: owner_ctx)
+
+    # 1. Invalid SQL (disallowed command: DELETE)
+    alert, chips, mapping, filters, cfg = handle_check_custom_sql(
+        1,
+        "DELETE FROM DATARAW.FACT_BILL",
+        "GMD_DEV",
+        {"fields": []},
+    )
+    assert alert is not None
+    assert "không hợp lệ" in str(alert) or "Chỉ chấp nhận lệnh SELECT" in str(alert)
+
+    # 2. Empty SQL
+    alert, _, _, _, _ = handle_check_custom_sql(
+        1,
+        "   ",
+        "GMD_DEV",
+        {"fields": []},
+    )
+    assert alert is not None
+    assert "Vui lòng nhập câu lệnh SQL" in str(alert)
+
+
+def test_step_4_grain_and_sql_helpers() -> None:
+    from app.ui.pages.template_wizard import _calculate_grain_info, _render_profile_grouped_sql
+
+    tot, grp, desc = _calculate_grain_info(["INVOICE_NO"], {"total_rows": 200})
+    assert tot == 200
+    assert grp > 0
+    assert "cân bằng" in desc or "nhóm" in desc
+
+    config = {
+        "db_source": {
+            "source_id": "GMD_DEV",
+            "table": "DATARAW.FACT_BILL",
+            "params": [
+                {"name": "p_from", "db_col": "INVOICE_DATE", "op": ">=", "type": "datetime"},
+                {"name": "p_to", "db_col": "INVOICE_DATE", "op": "<=", "type": "datetime"},
+            ],
+        }
+    }
+    sql = _render_profile_grouped_sql(
+        config,
+        ["INVOICE_NO"],
+        [{"name": "TOTAL_AMOUNT", "agg": "sum", "field": "AMOUNT"}],
+    )
+    assert "GROUP BY" in sql
+    assert 'UPPER(TRIM(src."INVOICE_NO"))' in sql
+    assert 'SUM(src."AMOUNT")' in sql
+    assert "FROM" in sql and ") src" in sql
+
+
+def test_step_4_callbacks(monkeypatch) -> None:
+    import json
+    from types import SimpleNamespace
+
+    from app.ui.pages.template_wizard import handle_step4_interaction, handle_step4_measure_edits
+
+    cfg = {
+        "fields": [
+            {"name": "INVOICE_NO", "label": "Số HĐ", "type": "text"},
+            {"name": "AMOUNT", "label": "Tiền", "type": "number"},
+            {"name": "LINE_NO", "label": "Dòng", "type": "integer"},
+        ],
+        "profiles": [
+            {
+                "code": "BY_INVOICE",
+                "name": "Theo số hóa đơn",
+                "group_by": ["INVOICE_NO"],
+                "measures": [
+                    {
+                        "name": "TOTAL_AMOUNT",
+                        "label": "Tổng tiền",
+                        "agg": "sum",
+                        "field": "AMOUNT",
+                        "compare": "abs_tol",
+                        "tolerance": 1,
+                    }
+                ],
+                "main_measure": "TOTAL_AMOUNT",
+            }
+        ],
+    }
+
+    # 1. Test adding a profile
+    mock_ctx = SimpleNamespace(triggered=[{"prop_id": "wizard-add-profile-btn.n_clicks", "value": 1}])
+    monkeypatch.setattr("dash.callback_context", mock_ctx)
+    right_ui, cfg_out, active_store, left_ui, tabs_ui, tab_val = handle_step4_interaction(
+        None, 1, None, None, None, None, None, [], [], [], [], cfg, "BY_INVOICE", None
+    )
+    assert len(cfg_out["profiles"]) == 2
+    assert active_store == cfg_out["profiles"][1]["code"]
+
+    # 2. Test toggling group_by key
+    key_prop = json.dumps({"type": "wizard-field-key-btn", "index": "AMOUNT"}) + ".n_clicks"
+    mock_ctx = SimpleNamespace(triggered=[{"prop_id": key_prop, "value": 1}])
+    monkeypatch.setattr("dash.callback_context", mock_ctx)
+    right_ui2, cfg_out2, _, _, _, _ = handle_step4_interaction(
+        None, None, None, None, None, None, None, [1], [], [], [], cfg, "BY_INVOICE", None
+    )
+    assert "AMOUNT" in cfg_out2["profiles"][0]["group_by"]
+
+    # 3. Test renaming profile name
+    mock_ctx = SimpleNamespace(triggered=[{"prop_id": "wizard-profile-name-input.value", "value": "Theo đơn hàng"}])
+    monkeypatch.setattr("dash.callback_context", mock_ctx)
+    _, cfg_out3, _, _, tabs_ui3, _ = handle_step4_interaction(
+        None, None, None, "Theo đơn hàng", None, None, None, [], [], [], [], cfg_out2, "BY_INVOICE", None
+    )
+    assert cfg_out3["profiles"][0]["name"] == "Theo đơn hàng"
+    assert "Theo đơn hàng" in str(tabs_ui3)
+
+    # 4. Test renaming profile code
+    mock_ctx = SimpleNamespace(triggered=[{"prop_id": "wizard-profile-code-input.value", "value": "BY_ORDER"}])
+    monkeypatch.setattr("dash.callback_context", mock_ctx)
+    _, cfg_out4, act_store4, _, _, tab_v4 = handle_step4_interaction(
+        None, None, None, None, "BY_ORDER", None, None, [], [], [], [], cfg_out3, "BY_INVOICE", None
+    )
+    assert cfg_out4["profiles"][0]["code"] == "BY_ORDER"
+    assert act_store4 == "BY_ORDER"
+    assert tab_v4 == "BY_ORDER"
+
+    # 5. Test deleting profile (when 2 profiles exist)
+    cfg_2profs = {
+        **cfg_out4,
+        "profiles": [
+            *cfg_out4["profiles"],
+            {"code": "BY_DATE", "name": "Theo ngày", "group_by": ["INV_DATE"], "measures": []},
+        ],
+    }
+    mock_ctx = SimpleNamespace(triggered=[{"prop_id": "wizard-delete-profile-btn.n_clicks", "value": 1}])
+    monkeypatch.setattr("dash.callback_context", mock_ctx)
+    right_ui5, cfg_out5, act_store5, _, _, tab_v5 = handle_step4_interaction(
+        None, None, 1, None, None, None, None, [], [], [], [], cfg_2profs, "BY_DATE", None
+    )
+    assert len(cfg_out5["profiles"]) == 1
+    assert cfg_out5["profiles"][0]["code"] == "BY_ORDER"
+    assert act_store5 == "BY_ORDER"
+    assert tab_v5 == "BY_ORDER"
+
+    # 6. Test measure edits
+    edit_prop = json.dumps({"type": "wizard-m-tol", "index": 0}) + ".value"
+    mock_ctx = SimpleNamespace(triggered=[{"prop_id": edit_prop, "value": 5}])
+    monkeypatch.setattr("dash.callback_context", mock_ctx)
+    cfg_edit, sql_code = handle_step4_measure_edits(
+        ["TOTAL_AMOUNT"],
+        ["Tổng tiền"],
+        ["sum"],
+        ["AMOUNT"],
+        ["abs_tol"],
+        [5],
+        [0],
+        None,
+        None,
+        cfg,
+        "BY_INVOICE",
+    )
+    assert cfg_edit["profiles"][0]["measures"][0]["tolerance"] == 5
+    assert 'SUM(src."AMOUNT")' in str(sql_code)
+
+
+def test_step_1_clean_state_when_no_sample_file() -> None:
+    from app.ui.pages.template_wizard import build_default_config, render_step_1
+
+    default_cfg = build_default_config()
+    assert default_cfg["file"]["sheet"] == ""
+    assert default_cfg["fields"] == []
+    assert default_cfg["profiles"][0]["code"] == "PROFILE_1"
+
+    # Render Step 1 with empty config and no sample_data
+    step1_ui = render_step_1(default_cfg, sample_data=None)
+    assert step1_ui is not None
+    s1 = str(step1_ui)
+    assert "Kéo thả file Excel hoặc CSV vào đây" in s1
+    assert "Chưa có dữ liệu xem trước" in s1
+    assert "dtp_sample_200.xlsx" not in s1
+
+
+def test_wizard_layout_edit_existing_template_by_code(wizard_env: object, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.context import Ctx, Role
+    from app.services.template import save_draft_template
+    from app.ui.pages.template_wizard import layout
+
+    admin_ctx = Ctx(user_id=1, username="admin", full_name="Admin", roles=[Role.ADMIN])
+    monkeypatch.setattr("app.ui.pages.template_wizard.get_current_ctx", lambda: admin_ctx)
+
+    cfg = load_sample_config()
+    res = save_draft_template(admin_ctx, code="BILL_SMART_PORT_BDP", name="Doanh thu smartport BDP", config=cfg)
+    assert res.ok
+
+    page = layout(template_id="BILL_SMART_PORT_BDP")
+    assert page is not None
+    page_str = str(page)
+
+    assert "Sửa template: BILL_SMART_PORT_BDP" in page_str
+
+
+def test_code_block_contrast() -> None:
+    from app.ui.components.code_block import code_block
+
+    cb = code_block("SELECT * FROM FACT_BILL", language="sql")
+    assert cb is not None
+    style = getattr(cb, "style", {})
+    assert style.get("backgroundColor") == "var(--code-bg, #0F1B33)"
+    assert style.get("color") == "var(--code-ink, #D6E2FF)"
+
+
+def test_step3_sql_input_change() -> None:
+    from app.ui.pages.template_wizard import handle_sql_input_change
+
+    cfg = {"db_source": {"kind": "sql", "sql": "SELECT 1"}}
+    updated = handle_sql_input_change("SELECT 2 FROM DUAL", cfg)
+    assert updated["db_source"]["sql"] == "SELECT 2 FROM DUAL"

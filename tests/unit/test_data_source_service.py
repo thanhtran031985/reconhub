@@ -11,8 +11,10 @@ from app.db.metadata import metadata, recon_data_source
 from app.schemas.data_source import DataSourceCreateDTO, DataSourceUpdateDTO
 from app.schemas.errors import ErrorCode
 from app.services.data_source import (
+    activate_data_source,
     create_data_source,
     deactivate_data_source,
+    get_active_environment,
     list_data_sources,
     options_data_sources,
     update_data_source,
@@ -172,3 +174,57 @@ def test_cannot_deactivate_current_metadata_source(ds_service_env) -> None:
     res_deact = deactivate_data_source(admin_ctx, curr_id)
     assert res_deact.ok is False
     assert res_deact.code == ErrorCode.DS_CURRENT_METADATA_LOCKED
+
+
+def test_activate_and_get_active_environment(ds_service_env) -> None:
+    engine, admin_ctx, _ = ds_service_env
+
+    # 1. Tạo 2 nguồn SOURCE: DEV và UAT
+    res_dev = create_data_source(
+        admin_ctx,
+        DataSourceCreateDTO(
+            name="DS_DEV",
+            env="DEV",
+            purpose="SOURCE",
+            host="10.0.0.1",
+            username="dev_user",
+            password="pwd",
+        ),
+    )
+    res_uat = create_data_source(
+        admin_ctx,
+        DataSourceCreateDTO(
+            name="DS_UAT",
+            env="UAT",
+            purpose="SOURCE",
+            host="10.0.0.2",
+            username="uat_user",
+            password="pwd",
+        ),
+    )
+    assert res_dev.ok and res_uat.ok
+    dev_id = res_dev.data.id
+    uat_id = res_uat.data.id
+
+    # 2. Kích hoạt UAT -> UAT active, DEV bị deactivate
+    act_uat = activate_data_source(admin_ctx, uat_id)
+    assert act_uat.ok is True
+    assert get_active_environment() == "UAT"
+
+    with engine.connect() as conn:
+        row_dev = conn.execute(select(recon_data_source).where(recon_data_source.c.ID == dev_id)).mappings().one()
+        assert row_dev["IS_ACTIVE"] == "N"
+        row_uat = conn.execute(select(recon_data_source).where(recon_data_source.c.ID == uat_id)).mappings().one()
+        assert row_uat["IS_ACTIVE"] == "Y"
+
+    # 3. Kích hoạt lại DEV -> DEV active, UAT bị deactivate
+    act_dev = activate_data_source(admin_ctx, dev_id)
+    assert act_dev.ok is True
+    assert get_active_environment() == "DEV"
+
+    with engine.connect() as conn:
+        row_dev = conn.execute(select(recon_data_source).where(recon_data_source.c.ID == dev_id)).mappings().one()
+        assert row_dev["IS_ACTIVE"] == "Y"
+        row_uat = conn.execute(select(recon_data_source).where(recon_data_source.c.ID == uat_id)).mappings().one()
+        assert row_uat["IS_ACTIVE"] == "N"
+

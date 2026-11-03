@@ -48,3 +48,52 @@ def test_render_templates_error_state() -> None:
     content_str = str(content)
     assert "Lỗi kết nối cơ sở dữ liệu" in content_str
     assert "Thử lại" in content_str
+
+
+def test_render_templates_pagination_and_admin_delete() -> None:
+    # Tạo 25 mock items
+    mock_items = [
+        {
+            "id": i,
+            "template_id": f"TMPL_{i:02d}",
+            "code": f"TMPL_{i:02d}",
+            "name": f"Template {i}",
+            "file_pattern": f"file_{i}.xlsx",
+            "sheet": "Sheet1",
+            "field_count": 10 + i,
+            "profiles": [{"code": "P1", "name": "Profile 1", "is_default": True}],
+            "version": 1,
+            "owner": "admin",
+            "status": "ACTIVE",
+            "last_run": {"id": 100 + i, "status": "DONE", "finished_at": "2026-11-02 12:00:00"},
+        }
+        for i in range(1, 26)
+    ]
+
+    # Render cho Admin ở trang 1
+    content_admin = render_templates_content(
+        items=mock_items, loading=False, error=None, page=1, page_size=10, is_admin=True
+    )
+    content_str_admin = str(content_admin)
+    assert "TMPL_01" in content_str_admin
+    assert "TMPL_10" in content_str_admin
+    assert "TMPL_11" not in content_str_admin  # Trang 1 chỉ có 10 items
+    assert "Xóa template" in content_str_admin  # Admin thấy nút xóa
+    assert "Hiển thị 1 – 10 trong tổng số 25" in content_str_admin
+
+    # Render cho User thường (không phải admin)
+    content_user = render_templates_content(
+        items=mock_items, loading=False, error=None, page=1, page_size=10, is_admin=False
+    )
+    content_str_user = str(content_user)
+    assert "TMPL_01" in content_str_user
+    assert "Xóa template" not in content_str_user  # User không thấy nút xóa
+
+    # Render trang 2
+    content_p2 = render_templates_content(
+        items=mock_items, loading=False, error=None, page=2, page_size=10, is_admin=False
+    )
+    content_str_p2 = str(content_p2)
+    assert "TMPL_11" in content_str_p2
+    assert "TMPL_01" not in content_str_p2
+    assert "Hiển thị 11 – 20 trong tổng số 25" in content_str_p2

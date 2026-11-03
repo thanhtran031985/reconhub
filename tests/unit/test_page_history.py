@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
@@ -23,11 +24,13 @@ from app.ui.pages.history import (
     format_date_range,
     format_short_dt,
     handle_confirm_bulk_purge,
+    handle_history_page,
     render_bulk_alert,
     render_bulk_purge_modal,
     render_filter_bar,
     render_header,
     render_runs_table,
+    toggle_bulk_purge_modal,
     update_history_table,
 )
 
@@ -386,3 +389,78 @@ def test_bulk_purge_confirm_flow(history_env, monkeypatch):
     assert new_refresh == 1
     assert notif is not None
     assert "Thành công" in str(notif)
+
+
+def test_history_pagination(history_env, monkeypatch):
+    monkeypatch.setattr("app.ui.pages.history.get_current_ctx", lambda: history_env["admin_ctx"])
+
+    # Kiểm tra render_runs_table có thanh phân trang
+    items = [{"id": 101, "template_id": 1, "created_at": "2026-02-01T10:00:00", "status": "DONE"}]
+    table = render_runs_table(
+        items, is_admin=True, selected_ids=set(), total=25, current_page=1, page_size=20, total_pages=2
+    )
+    table_str = str(table)
+    assert "history-pagination" in table_str
+    assert "Hiển thị 1 – 20 trong tổng số 25 run" in table_str
+
+    # Kiểm tra callback handle_history_page
+    # Khi đổi trang trên pagination
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "history-pagination.value", "value": 2}]),
+    )
+    res_page = handle_history_page(2, None, "ALL", "ALL", "ALL", "ALL", "", 1)
+    assert res_page == 2
+
+    # Khi đổi bộ lọc -> reset về trang 1
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "history-filter-template.value", "value": "2"}]),
+    )
+    res_reset = handle_history_page(None, None, "2", "ALL", "ALL", "ALL", "", 2)
+    assert res_reset == 1
+
+
+def test_history_date_range_filter(history_env, monkeypatch):
+    monkeypatch.setattr("app.ui.pages.history.get_current_ctx", lambda: history_env["admin_ctx"])
+    now_dt = datetime.now()
+    first_day = now_dt.replace(day=1).strftime("%Y-%m-%d")
+    last_day = now_dt.strftime("%Y-%m-%d")
+
+    # Lọc trong khoảng tháng hiện tại (chứa run 101 và 102 được tạo lúc now)
+    node, title = update_history_table("ALL", "ALL", "ALL", "ALL", "", [first_day, last_day], 1, 0, [])
+    assert "#101" in str(node)
+    assert "#102" in str(node)
+
+    # Lọc khoảng ngày trong quá khứ không có run -> rỗng
+    node_empty, title_empty = update_history_table(
+        "ALL", "ALL", "ALL", "ALL", "", ["2020-01-01", "2020-01-02"], 1, 0, []
+    )
+    assert "Chưa có run nào" in str(node_empty)
+
+
+def test_toggle_bulk_purge_modal_open_and_cancel(monkeypatch):
+    # 1. Khi chưa click (open_clicks=0 hoặc None) -> False (không tự động mở khi check checkbox)
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "history-open-bulk-modal-btn.n_clicks", "value": 0}]),
+    )
+    opened, summary, val, err_st, err_msg = toggle_bulk_purge_modal(0, None, False, [101])
+    assert opened is False
+
+    # 2. Khi click thật sự nút Xóa dữ liệu tạm -> mở modal
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "history-open-bulk-modal-btn.n_clicks", "value": 1}]),
+    )
+    opened, summary, val, err_st, err_msg = toggle_bulk_purge_modal(1, None, False, [101])
+    assert opened is True
+    assert "Đã chọn 1 run" in summary
+
+    # 3. Khi bấm Hủy -> đóng modal
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "history-bulk-cancel-btn.n_clicks", "value": 1}]),
+    )
+    opened, summary, val, err_st, err_msg = toggle_bulk_purge_modal(None, 1, True, [101])
+    assert opened is False

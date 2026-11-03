@@ -14,7 +14,9 @@ from app.services.template import (
     activate_version,
     archive_template,
     clone_template,
+    delete_template,
     get_template,
+    list_templates,
     preview_source_sql,
     save_draft_template,
 )
@@ -237,3 +239,47 @@ def test_preview_source_sql(test_db, owner_ctx) -> None:
     assert "GROUP BY" in data["sql"]
     assert data["profile_code"] == "BY_INVOICE"
     assert '"INVOICE_NO"' in data["sql"]
+
+
+def test_delete_template_admin_and_non_admin(test_db, admin_ctx, owner_ctx, viewer_ctx) -> None:
+    cfg = get_sample_config()
+    res = save_draft_template(owner_ctx, code="DTP_DEL", name="Template to delete", config=cfg)
+    assert res.ok is True
+    tmpl_id = res.data["id"]
+
+    # Non-admin (viewer / owner) khong co quyen xoa
+    fail_res = delete_template(viewer_ctx, template_id=tmpl_id)
+    assert fail_res.ok is False
+    assert fail_res.code == ErrorCode.FORBIDDEN
+
+    fail_res2 = delete_template(owner_ctx, template_id=tmpl_id)
+    assert fail_res2.ok is False
+    assert fail_res2.code == ErrorCode.FORBIDDEN
+
+    # Admin xoa thanh cong
+    ok_res = delete_template(admin_ctx, template_id=tmpl_id)
+    assert ok_res.ok is True
+    assert ok_res.data["template_id"] == tmpl_id
+    assert ok_res.data["deleted"] is True
+
+    # Doc lai -> TEMPLATE_NOT_FOUND
+    get_res = get_template(admin_ctx, template_id=tmpl_id)
+    assert get_res.ok is False
+    assert get_res.code == ErrorCode.NOT_FOUND
+
+
+def test_list_templates_enriched_data(test_db, admin_ctx, owner_ctx) -> None:
+    cfg = get_sample_config()
+    res = save_draft_template(owner_ctx, code="DTP_ENRICH", name="Enriched Template", config=cfg)
+    assert res.ok is True
+    tmpl_id = res.data["id"]
+    activate_version(admin_ctx, template_id=tmpl_id, version=1, dry_run_override=True)
+
+    list_res = list_templates(admin_ctx)
+    assert list_res.ok is True
+    items = list_res.data
+    match = next((item for item in items if item["code"] == "DTP_ENRICH"), None)
+    assert match is not None
+    assert match["field_count"] == len(cfg.fields)
+    assert len(match["profiles"]) == len(cfg.profiles)
+    assert match["profiles"][0]["code"] == "BY_INVOICE"
