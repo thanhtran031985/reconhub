@@ -4,15 +4,15 @@ from typing import Any
 
 import dash
 import dash_mantine_components as dmc
-from dash import Input, Output, callback, dcc, html
+from dash import Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
 from sqlalchemy import select
 
-from app.core.config import get_settings
 from app.core.context import Ctx, Role
 from app.core.session import get_current_ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_app_setting
+from app.services.data_source import get_active_environment
 from app.services.temp_data import usage
 from app.ui.components.alert_box import alert_box
 from app.ui.formatters import format_bytes
@@ -81,6 +81,13 @@ def build_breadcrumbs(pathname: str | None) -> list[dict[str, str]]:
                 {"label": "Data Sources & Lưu trữ"},
             ]
         )
+    elif pathname == "/lookups":
+        items.extend(
+            [
+                {"label": "Cấu hình"},
+                {"label": "Danh mục Lookups"},
+            ]
+        )
     elif pathname == "/users":
         items.extend(
             [
@@ -136,6 +143,7 @@ def get_nav_items_for_roles(roles: set[Role] | set[str]) -> list[dict[str, Any]]
     if is_admin:
         config_items.append({"label": "Data Sources", "href": "/data-sources", "icon": "lucide:database"})
         config_items.append({"label": "Người dùng", "href": "/users", "icon": "lucide:users"})
+        config_items.append({"label": "Danh mục Lookups", "href": "/lookups", "icon": "lucide:list"})
 
     if config_items:
         groups.append({"title": "CẤU HÌNH", "items": config_items})
@@ -189,8 +197,8 @@ def render_banners(
     return banners
 
 
-def create_header(ctx: Ctx | None, env: str, pathname: str | None) -> Any:
-    """Tạo thanh header 56px với breadcrumb, nhãn ENV và User Menu."""
+def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool = False) -> Any:
+    """Tạo thanh header 56px với nút toggle sidebar, breadcrumb, nhãn ENV và User Menu."""
     env_badge_color = {
         "dev": "blue",
         "test": "gray",
@@ -236,6 +244,7 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None) -> Any:
                             href="/logout",
                             color="red",
                             leftSection=DashIconify(icon="lucide:log-out", width=16),
+                            refresh=True,
                         ),
                     ]
                 ),
@@ -252,15 +261,54 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None) -> Any:
         else:
             bc_elements.append(dmc.Text(b["label"], size="sm", fw=600, c="dark"))
 
+    toggle_button = dmc.Tooltip(
+        dmc.ActionIcon(
+            DashIconify(
+                icon="lucide:panel-left-open" if is_mini else "lucide:panel-left-close",
+                width=18,
+            ),
+            id="app-sidebar-toggle-btn",
+            variant="subtle",
+            color="gray",
+            size="md",
+        ),
+        id="app-sidebar-toggle-tooltip",
+        label="Mở rộng menu" if is_mini else "Thu nhỏ menu",
+        position="bottom",
+        withArrow=True,
+    )
+
     return dmc.Group(
         [
-            dmc.Breadcrumbs(children=bc_elements, separator="/"),
             dmc.Group(
                 [
-                    dmc.Badge(env.upper(), color=env_badge_color, variant="light", size="sm"),
-                    user_menu if user_menu is not None else html.Div(),
+                    toggle_button,
+                    dmc.Breadcrumbs(children=bc_elements, separator="/"),
                 ],
                 gap="md",
+                align="center",
+            ),
+            dmc.Group(
+                [
+                    dmc.Badge(
+                        env.upper(),
+                        id="app-header-env-badge",
+                        color=env_badge_color,
+                        variant="light",
+                        size="sm",
+                    ),
+                    dmc.ColorSchemeToggle(
+                        id="app-color-scheme-toggle",
+                        lightIcon=DashIconify(icon="lucide:sun", width=16),
+                        darkIcon=DashIconify(icon="lucide:moon", width=16),
+                        variant="subtle",
+                        color="gray",
+                        size="sm",
+                    ),
+                    user_menu if user_menu is not None else html.Div(),
+                ],
+                gap="sm",
+                align="center",
             ),
         ],
         justify="space-between",
@@ -270,17 +318,106 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None) -> Any:
     )
 
 
-def create_navbar(ctx: Ctx | None, pathname: str | None) -> Any:
-    """Tạo thanh navbar 232px nền nav-bg với các nhóm menu phân quyền."""
+def get_active_nav_href(nav_groups: list[dict[str, Any]], pathname: str | None) -> str | None:
+    """Xác định href của mục menu đang active phù hợp nhất với pathname."""
+    if not pathname:
+        return "/"
+
+    all_hrefs = [item["href"] for group in nav_groups for item in group["items"] if "href" in item]
+
+    # 1. So khớp chính xác tuyệt đối
+    if pathname in all_hrefs:
+        return pathname
+
+    # 2. So khớp tiền tố dài nhất (loại trừ root "/" để không kích hoạt nhầm)
+    matched_href: str | None = None
+    for h in all_hrefs:
+        if h == "/":
+            continue
+        if pathname.startswith(f"{h}/") or pathname.startswith(f"{h}?"):
+            if matched_href is None or len(h) > len(matched_href):
+                matched_href = h
+
+    return matched_href
+
+
+def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) -> Any:
+    """Tạo thanh navbar 232px (hoặc 60px mini) với các nhóm menu phân quyền."""
     roles = set(ctx.roles) if ctx else set()
     nav_groups = get_nav_items_for_roles(roles)
+    active_href = get_active_nav_href(nav_groups, pathname)
 
-    content_children: list[Any] = [
-        # Logo ReconHub
-        dmc.Box(
-            dmc.Anchor(
-                dmc.Group(
-                    [
+    content_children: list[Any] = []
+
+    if not is_mini:
+        # 1. Logo ReconHub Full
+        content_children.append(
+            dmc.Box(
+                dmc.Anchor(
+                    dmc.Group(
+                        [
+                            dmc.ThemeIcon(
+                                DashIconify(icon="lucide:layers", width=22),
+                                size="lg",
+                                radius="md",
+                                color="primary",
+                                variant="filled",
+                            ),
+                            dmc.Text("ReconHub", fw=700, size="lg", c="dark"),
+                        ],
+                        gap="xs",
+                        align="center",
+                        h="100%",
+                    ),
+                    href="/",
+                    underline=False,
+                ),
+                px="md",
+                h="56px",
+                style={
+                    "borderBottom": "1px solid var(--mantine-color-gray-2)",
+                    "display": "flex",
+                    "alignItems": "center",
+                },
+            )
+        )
+
+        # 2. Các nhóm menu
+        for group in nav_groups:
+            content_children.append(
+                dmc.Text(
+                    group["title"],
+                    size="xs",
+                    fw=700,
+                    c="dimmed",
+                    px="md",
+                    pt="md",
+                    pb="xs",
+                    style={"letterSpacing": "0.5px"},
+                )
+            )
+            for item in group["items"]:
+                is_active = item["href"] == active_href
+                content_children.append(
+                    dmc.NavLink(
+                        label=item["label"],
+                        leftSection=DashIconify(icon=item["icon"], width=18),
+                        href=item["href"],
+                        active=is_active,
+                        variant="filled",
+                        color="primary",
+                        px="md",
+                        py="xs",
+                        styles={"label": {"fontWeight": 500}},
+                    )
+                )
+    else:
+        # Mini mode (Rail 60px)
+        # 1. Logo Icon centered kèm Tooltip
+        content_children.append(
+            dmc.Box(
+                dmc.Anchor(
+                    dmc.Tooltip(
                         dmc.ThemeIcon(
                             DashIconify(icon="lucide:layers", width=22),
                             size="lg",
@@ -288,62 +425,86 @@ def create_navbar(ctx: Ctx | None, pathname: str | None) -> Any:
                             color="primary",
                             variant="filled",
                         ),
-                        dmc.Text("ReconHub", fw=700, size="lg", c="white"),
-                    ],
-                    gap="xs",
+                        label="ReconHub Trang chủ",
+                        position="right",
+                        withArrow=True,
+                        offset=12,
+                    ),
+                    href="/",
+                    underline=False,
+                    style={"display": "flex", "justifyContent": "center", "alignItems": "center"},
                 ),
-                href="/",
-                underline=False,
-            ),
-            p="md",
-            style={"borderBottom": "1px solid rgba(255, 255, 255, 0.1)"},
+                h="56px",
+                w="100%",
+                style={
+                    "borderBottom": "1px solid var(--mantine-color-gray-2)",
+                    "display": "flex",
+                    "justifyContent": "center",
+                    "alignItems": "center",
+                },
+            )
         )
-    ]
 
-    for group in nav_groups:
-        content_children.append(
-            dmc.Text(
-                group["title"],
-                size="xs",
-                fw=700,
-                c="dimmed",
-                px="md",
-                pt="md",
-                pb="xs",
-                style={"letterSpacing": "0.5px"},
-            )
-        )
-        for item in group["items"]:
-            is_active = (pathname == item["href"]) or (
-                item["href"] != "/" and pathname is not None and pathname.startswith(item["href"])
-            )
-            content_children.append(
-                dmc.NavLink(
-                    label=item["label"],
-                    leftSection=DashIconify(icon=item["icon"], width=18),
-                    href=item["href"],
-                    active=is_active,
-                    variant="filled",
-                    color="primary",
-                    px="md",
-                    py="xs",
-                    styles={"label": {"fontWeight": 500}},
+        # 2. Icon các mục menu dạng ActionIcon giống icon trang chủ kèm Tooltip
+        for idx, group in enumerate(nav_groups):
+            if idx > 0:
+                content_children.append(
+                    dmc.Box(
+                        dmc.Divider(color="var(--mantine-color-gray-2)"),
+                        px="sm",
+                        py="xs",
+                        w="100%",
+                    )
                 )
-            )
+            for item in group["items"]:
+                is_active = item["href"] == active_href
+                content_children.append(
+                    dmc.Box(
+                        dmc.Anchor(
+                            dmc.Tooltip(
+                                dmc.ActionIcon(
+                                    DashIconify(icon=item["icon"], width=20),
+                                    size="lg",
+                                    radius="md",
+                                    variant="filled" if is_active else "subtle",
+                                    color="primary" if is_active else "gray",
+                                    styles={
+                                        "root": {
+                                            "color": "#ffffff" if is_active else "var(--mantine-color-gray-7)",
+                                        }
+                                    },
+                                ),
+                                label=item["label"],
+                                position="right",
+                                withArrow=True,
+                                offset=12,
+                                transitionProps={"transition": "fade", "duration": 150},
+                            ),
+                            href=item["href"],
+                            underline=False,
+                            style={"display": "flex", "justifyContent": "center", "alignItems": "center"},
+                        ),
+                        py=4,
+                        w="100%",
+                        style={"display": "flex", "justifyContent": "center", "alignItems": "center"},
+                    )
+                )
 
     return dmc.Stack(
         content_children,
         gap=0,
         h="100%",
-        bg="nav-bg",
+        align="center" if is_mini else "stretch",
+        style={"overflowX": "hidden"},
     )
 
 
 def create_shell_layout() -> Any:
-    """Layout gốc kết hợp Location và container AppShell."""
+    """Layout gốc kết hợp Location, Store trạng thái sidebar và container AppShell."""
     return html.Div(
         [
             dcc.Location(id="app-location", refresh=False),
+            dcc.Store(id="app-sidebar-collapsed", storage_type="local", data=False),
             html.Div(id="app-shell-container"),
         ]
     )
@@ -352,13 +513,15 @@ def create_shell_layout() -> Any:
 @callback(
     Output("app-shell-container", "children"),
     Input("app-location", "pathname"),
+    State("app-sidebar-collapsed", "data"),
 )
-def render_app_shell(pathname: str | None) -> Any:
-    settings = get_settings()
+def render_app_shell(pathname: str | None, is_collapsed_data: Any) -> Any:
     ctx = get_current_ctx()
 
     if pathname == "/login":
         return dash.page_container
+
+    is_mini = bool(is_collapsed_data)
 
     # Lấy thông tin bảo trì và dung lượng tạm
     is_maintenance = False
@@ -385,8 +548,9 @@ def render_app_shell(pathname: str | None) -> Any:
     except Exception:
         pass
 
-    header_content = create_header(ctx, settings.APP_ENV, pathname)
-    navbar_content = create_navbar(ctx, pathname)
+    active_env = get_active_environment()
+    header_content = create_header(ctx, active_env, pathname, is_mini=is_mini)
+    navbar_content = create_navbar(ctx, pathname, is_mini=is_mini)
     user_roles = set(ctx.roles) if ctx else set()
     banners = render_banners(is_maintenance, storage_warn, user_roles, temp_bytes, warning_gb)
 
@@ -396,11 +560,51 @@ def render_app_shell(pathname: str | None) -> Any:
     main_content.append(dash.page_container)
 
     return dmc.AppShell(
+        id="app-shell",
         header={"height": 56},
-        navbar={"width": 232, "breakpoint": "sm"},
+        navbar={"width": 60 if is_mini else 232, "breakpoint": "sm"},
         children=[
             dmc.AppShellHeader(header_content),
-            dmc.AppShellNavbar(navbar_content),
+            dmc.AppShellNavbar(id="app-shell-navbar", children=navbar_content),
             dmc.AppShellMain(main_content),
         ],
     )
+
+
+@callback(
+    Output("app-sidebar-collapsed", "data"),
+    Input("app-sidebar-toggle-btn", "n_clicks"),
+    State("app-sidebar-collapsed", "data"),
+    prevent_initial_call=True,
+)
+def handle_sidebar_toggle(n_clicks: Any, current: Any) -> bool:
+    """Đổi trạng thái thu nhỏ / mở rộng của sidebar khi người dùng click nút."""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    return not bool(current)
+
+
+@callback(
+    Output("app-shell", "navbar"),
+    Output("app-shell-navbar", "children"),
+    Output("app-sidebar-toggle-btn", "children"),
+    Output("app-sidebar-toggle-tooltip", "label"),
+    Input("app-sidebar-collapsed", "data"),
+    State("app-location", "pathname"),
+    prevent_initial_call=True,
+)
+def sync_sidebar_ui(is_collapsed: Any, pathname: str | None) -> tuple[Any, ...]:
+    """Cập nhật giao diện navbar (width, icons, tooltips) theo trạng thái collapsed."""
+    if pathname == "/login":
+        raise dash.exceptions.PreventUpdate
+
+    is_mini = bool(is_collapsed)
+    ctx = get_current_ctx()
+    navbar_config = {"width": 60 if is_mini else 232, "breakpoint": "sm"}
+    navbar_children = create_navbar(ctx, pathname, is_mini=is_mini)
+    toggle_icon = DashIconify(
+        icon="lucide:panel-left-open" if is_mini else "lucide:panel-left-close",
+        width=18,
+    )
+    toggle_label = "Mở rộng menu" if is_mini else "Thu nhỏ menu"
+    return navbar_config, navbar_children, toggle_icon, toggle_label
