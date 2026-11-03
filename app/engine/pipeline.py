@@ -128,6 +128,7 @@ def run_pipeline(
     excel_groups = len(excel_agg)
 
     # 10. Lấy dữ liệu DB
+    source_sql: str | None = None
     if isinstance(fetcher, pl.DataFrame):
         db_raw = fetcher
     elif callable(fetcher):
@@ -137,9 +138,16 @@ def run_pipeline(
         ok, err_msg = check_sql(sql, list(binds.keys()))
         if not ok:
             raise ServiceError(ErrorCode.SQL_NOT_ALLOWED, err_msg or "SQL không hợp lệ.")
+        source_sql = sql
         db_raw = fetcher.fetch_df(None, sql, binds)
     else:
         db_raw = pl.DataFrame()
+
+    if source_sql is None:
+        try:
+            source_sql, _ = build_source_sql(config, profile, params_dict)
+        except Exception:
+            pass
 
     db_rows = len(db_raw)
 
@@ -189,6 +197,7 @@ def run_pipeline(
         control_total_res=ct_res,
         duration_ms=duration_ms,
         config=config,
+        source_sql=source_sql,
     )
 
     return PipelineResult(

@@ -275,4 +275,16 @@ def compare(
         )
     )
 
-    return pl.from_dicts(result_rows)
+    try:
+        return pl.from_dicts(result_rows, infer_schema_length=None)
+    except Exception:
+        sanitized_rows: list[dict[str, Any]] = []
+        for r in result_rows:
+            new_r: dict[str, Any] = {}
+            for k, v in r.items():
+                if isinstance(v, Decimal):
+                    new_r[k] = float(v)
+                else:
+                    new_r[k] = v
+            sanitized_rows.append(new_r)
+        return pl.from_dicts(sanitized_rows, infer_schema_length=None)

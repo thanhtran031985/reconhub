@@ -96,7 +96,7 @@ def fetch_df(
         return pl.DataFrame(schema=col_names)
 
     col_dict = {col: [r[idx] for r in all_rows] for idx, col in enumerate(col_names)}
-    return pl.DataFrame(col_dict)
+    return pl.DataFrame(col_dict, strict=False)
 
 
 class MockFetcher:

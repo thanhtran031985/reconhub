@@ -493,7 +493,6 @@ def seed_cmd(args: argparse.Namespace) -> None:
                     print(f"Hoàn tất: Đã nạp template mẫu '{tmpl_code}'.")
 
 
-
 def backup_cmd(args: argparse.Namespace) -> None:
     """Tạo bản sao lưu SQLite database (VACUUM INTO) và xoay vòng giữ tối đa 14 bản."""
     settings = get_settings()
@@ -574,7 +573,7 @@ def restore_cmd(args: argparse.Namespace) -> None:
 
     prefix = "sqlite:///"
     if db_url.startswith(prefix):
-        raw_db_path = db_url[len(prefix):]
+        raw_db_path = db_url[len(prefix) :]
     else:
         raw_db_path = "data/recon_app.db"
 
@@ -597,15 +596,18 @@ def restore_cmd(args: argparse.Namespace) -> None:
         engine.dispose()
 
     import gc
+
     gc.collect()
 
     if target_db.exists():
         safety_bak = target_db.with_suffix(".db.pre_restore_bak")
         import shutil
+
         shutil.copy2(target_db, safety_bak)
         print(f"Đã tạo bản lưu dự phòng cơ sở dữ liệu hiện tại tại '{safety_bak.name}'.")
 
     import shutil
+
     shutil.copy2(backup_path, target_db)
 
     # Xóa file WAL và SHM cũ nếu có để tránh phục hồi trạng thái cũ

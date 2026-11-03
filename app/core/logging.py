@@ -12,9 +12,9 @@ from app.core.config import get_settings
 
 def setup_logging() -> None:
     """Khởi tạo cấu hình structlog ghi ra console và file logs/app.log."""
-    if hasattr(sys.stdout, 'reconfigure'):
+    if hasattr(sys.stdout, "reconfigure"):
         try:
-            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
 

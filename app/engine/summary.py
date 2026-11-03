@@ -112,6 +112,7 @@ def build_summary(
     control_total_res: ControlTotalResult | None = None,
     duration_ms: int = 0,
     config: TemplateConfig | None = None,
+    source_sql: str | None = None,
 ) -> dict[str, Any]:
     """Tổng hợp số liệu thống kê cho lần chạy (RECON_RUN_SUMMARY theo Spec 04 mục 10)."""
     rows = result_df.to_dicts() if not result_df.is_empty() else []
@@ -200,5 +201,6 @@ def build_summary(
         "MEASURE_TOTALS_JSON": measure_totals,
         "STATUS_AMOUNTS_JSON": status_amounts,
         "COLUMNS_JSON": columns_json,
+        "SOURCE_SQL": source_sql,
         "DURATION_MS": duration_ms,
     }

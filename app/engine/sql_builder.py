@@ -20,7 +20,7 @@ def _render_field_db_expr(f_name: str, config: TemplateConfig) -> str:
                 ErrorCode.COLUMN_NOT_FOUND,
                 f"Trường '{f_name}' không có ánh xạ cột cơ sở dữ liệu.",
             )
-        base = f'"src".{quote_identifier(f.db)}'
+        base = f"src.{quote_identifier(f.db)}"
 
         # Áp dụng các phép chuẩn hóa text (trim, upper, lower, value_map)
         for op in f.norm:

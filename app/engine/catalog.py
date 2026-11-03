@@ -163,15 +163,20 @@ def describe_sql(conn: Any, sql: str) -> list[dict[str, Any]]:
     """Phân tích cấu trúc cột của câu lệnh SQL tùy biến qua SELECT * FROM (...) WHERE 1=0."""
     cursor = conn.cursor()
     try:
-        wrapped_sql = f"SELECT * FROM (\n{sql}\n) WHERE 1=0"
-        cursor.execute(wrapped_sql)
+        clean_sql = sql.strip().rstrip(";")
+        wrapped_sql = f"SELECT * FROM (\n{clean_sql}\n) WHERE 1=0"
+        if hasattr(cursor, "parse"):
+            cursor.parse(wrapped_sql)
+        else:
+            cursor.execute(wrapped_sql)
         desc = cursor.description or []
         res = []
         for d in desc:
+            type_name = getattr(d[1], "name", str(d[1])).replace("DB_TYPE_", "")
             res.append(
                 {
                     "name": str(d[0]),
-                    "data_type": str(d[1]) if len(d) > 1 else "UNKNOWN",
+                    "data_type": type_name,
                     "nullable": bool(d[6]) if len(d) > 6 else True,
                     "precision": int(d[4]) if len(d) > 4 and d[4] is not None else None,
                     "scale": int(d[5]) if len(d) > 5 and d[5] is not None else None,
