@@ -243,6 +243,26 @@ def test_precheck_maintenance_mode(seed_data, test_db, operator_ctx, admin_ctx):
     assert res_admin.ok
 
 
+def test_create_run_blocks_duplicate_queued_run(seed_data, test_db, operator_ctx):
+    p_from = datetime(2026, 1, 1, 0, 0, 0)
+    p_to = datetime(2026, 1, 5, 0, 0, 0)
+    params = CreateRunParams(
+        template_id=seed_data["template_id"],
+        file_id=seed_data["file_id"],
+        profile_code="BY_INVOICE",
+        sheet_name="Sheet1",
+        p_from=p_from,
+        p_to=p_to,
+    )
+    first = create_run(operator_ctx, params)
+    assert first.ok
+
+    second = create_run(operator_ctx, params)
+    assert not second.ok
+    assert second.code == ErrorCode.VALIDATION_ERROR
+    assert second.details and second.details.get("existing_run_id") == first.data["run_id"]
+
+
 def test_create_run_forbidden_for_viewer(seed_data, viewer_ctx):
     p_from = datetime(2026, 1, 1, 0, 0, 0)
     p_to = datetime(2026, 1, 5, 0, 0, 0)

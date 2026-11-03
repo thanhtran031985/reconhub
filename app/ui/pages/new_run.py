@@ -1113,6 +1113,7 @@ def validate_inputs_and_enable_run(
     State("new-run-profile-select", "value"),
     State("new-run-p-org", "value"),
     State("new-run-apply-excel-time", "checked"),
+    State("new-run-state-store", "data"),
     prevent_initial_call=True,
 )
 def handle_execute_run(
@@ -1127,6 +1128,7 @@ def handle_execute_run(
     profile_code: str | None,
     p_org_val: str | None,
     apply_excel_time: bool | None,
+    state_data: dict[str, Any] | None = None,
 ) -> Any:
     """Xử lý khi người dùng nhấn nút 'Chạy đối soát' hoặc xác nhận Modal PROD."""
     ctx_dash = dash.callback_context
@@ -1136,6 +1138,18 @@ def handle_execute_run(
     trigger_id = ctx_dash.triggered[0]["prop_id"]
     if "new-run-prod-modal-cancel" in trigger_id:
         return False, dash.no_update, dash.no_update, dash.no_update
+
+    # Chặn vòng lặp tạo run: nút Chạy nằm trong Card thực thi mà callback
+    # tiến độ thay mỗi giây, nên Dash có thể kích hoạt lại callback này khi
+    # nút được dựng lại với n_clicks=0 (giống lỗi modal /lookups trước đây).
+    # Chỉ xử lý khi giá trị kích hoạt thật sự là một lần bấm (> 0).
+    triggered_value = ctx_dash.triggered[0].get("value")
+    if not triggered_value:
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    # Đang chạy thì không tạo run mới, dù callback bị kích hoạt lại.
+    if state_data and state_data.get("is_running"):
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     # Kiểm tra Data Source có phải PROD không
     is_confirm_click = "new-run-prod-modal-confirm" in trigger_id
@@ -1284,6 +1298,11 @@ def handle_progress_tick(
                 pass
 
         updated_state = {**state, "stage": stg_num, "pct": pct}
+        # Tiến độ không đổi thì không dựng lại Card thực thi: dựng lại mỗi
+        # giây là nguyên nhân layout giật (thanh progress bị remount, vạch
+        # sọc động chạy lại từ đầu) và nút Chạy bị dựng lại với n_clicks=0.
+        if state.get("stage") == stg_num and state.get("pct") == pct:
+            return dash.no_update, dash.no_update, dash.no_update
         exec_ui = render_execution_section(
             is_ready=False,
             lock_reason="",

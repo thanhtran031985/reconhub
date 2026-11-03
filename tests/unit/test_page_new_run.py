@@ -246,6 +246,88 @@ def test_handle_progress_tick_stages_and_redirect() -> None:
     assert redirect_done == "/runs/999"
 
 
+def test_handle_execute_run_ignores_remount_with_n_clicks_zero(monkeypatch) -> None:
+    """Nút dựng lại với n_clicks=0 (sau khi Card bị thay) không được tạo run mới."""
+    from types import SimpleNamespace
+
+    import app.ui.pages.new_run as new_run_page
+    from app.ui.pages.new_run import handle_execute_run
+
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "new-run-execute-btn.n_clicks", "value": 0}]),
+    )
+    monkeypatch.setattr(
+        new_run_page,
+        "create_run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_run must not be called on remount")),
+    )
+    result = handle_execute_run(
+        0, None, None, None, None, None, None, None, None, None, None, None
+    )
+    assert result == (dash.no_update, dash.no_update, dash.no_update, dash.no_update)
+
+
+def test_handle_execute_run_ignores_click_while_running(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import app.ui.pages.new_run as new_run_page
+    from app.ui.pages.new_run import handle_execute_run
+
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "new-run-execute-btn.n_clicks", "value": 2}]),
+    )
+    monkeypatch.setattr(
+        new_run_page,
+        "create_run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_run must not be called while running")),
+    )
+    result = handle_execute_run(
+        2, None, None, None, None, None, None, None, None, None, None,
+        {"is_running": True, "run_id": 123},
+    )
+    assert result == (dash.no_update, dash.no_update, dash.no_update, dash.no_update)
+
+
+def test_handle_progress_tick_unchanged_returns_no_update(monkeypatch) -> None:
+    """Tiến độ không đổi thì không dựng lại Card, tránh giật và remount nút."""
+    import app.ui.pages.new_run as new_run_page
+    from app.ui.pages.new_run import handle_progress_tick
+
+    row = {"STATUS": "QUEUED", "STAGE": "READ", "PROGRESS_PCT": 10, "ERROR_MSG": None}
+
+    class _Mappings:
+        def first(self):
+            return row
+
+    class _Result:
+        def mappings(self):
+            return _Mappings()
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, *args, **kwargs):
+            return _Result()
+
+    class _Engine:
+        def connect(self):
+            return _Conn()
+
+    monkeypatch.setattr(new_run_page, "get_recon_engine", lambda: _Engine())
+    ui, state, redirect = handle_progress_tick(
+        5, {"is_running": True, "run_id": 999, "stage": 1, "pct": 10}
+    )
+    assert ui is dash.no_update
+    assert state is dash.no_update
+    assert redirect is dash.no_update
+
+
 def test_layout_renders_with_active_templates(new_run_env, monkeypatch) -> None:
     ctx = Ctx(user_id=3, username="operator", full_name="Operator", roles=[Role.OPERATOR])
     monkeypatch.setattr("app.ui.pages.new_run.get_current_ctx", lambda: ctx)

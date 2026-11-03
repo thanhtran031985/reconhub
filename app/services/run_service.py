@@ -190,6 +190,29 @@ def create_run(
         if f_row["PURGED_AT"] is not None:
             raise ServiceError(ErrorCode.TEMP_DATA_PURGED, "File Excel đã bị xóa theo yêu cầu.")
 
+        # 3b. Chặn trùng: cùng người dùng, cùng template/file/khoảng thời gian
+        # mà đã có run đang chờ hoặc đang chạy thì không tạo run mới. Chỉ
+        # chặn QUEUED/RUNNING, run DONE/FAILED vẫn chạy lại được bình thường.
+        dup = conn.execute(
+            select(recon_run.c.ID)
+            .where(
+                recon_run.c.TEMPLATE_ID == params.template_id,
+                recon_run.c.FILE_ID == params.file_id,
+                recon_run.c.PROFILE_CODE == profile_code,
+                recon_run.c.P_FROM == params.p_from,
+                recon_run.c.P_TO == params.p_to,
+                recon_run.c.CREATED_BY == ctx.username,
+                recon_run.c.STATUS.in_(["QUEUED", "RUNNING"]),
+            )
+            .limit(1)
+        ).first()
+        if dup:
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                f"Đã có run #{dup[0]} đang chờ hoặc đang chạy với cùng template, file và khoảng thời gian. Vui lòng chờ run đó xong hoặc chạy lại sau khi nó kết thúc.",
+                {"existing_run_id": int(dup[0])},
+            )
+
         # 4. Thêm bản ghi RECON_RUN
         run_stmt = recon_run.insert().values(
             TEMPLATE_ID=params.template_id,
