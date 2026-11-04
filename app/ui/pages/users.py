@@ -386,13 +386,26 @@ def layout() -> Any:
                             ],
                         ),
                         dmc.Box(id="users-form-error-alert", mt="md"),
+                        # Chân drawer dính đáy: cuộn nội dung drawer bao nhiêu
+                        # thì nút Hủy/Lưu vẫn hiện, không phải cuộn xuống
+                        # cuối mới thấy (đặc biệt khi drawer Sửa còn thêm
+                        # cả bảng lịch sử đăng nhập phía trên).
                         dmc.Group(
                             [
                                 button_subtle("Hủy", id="users-drawer-cancel-btn"),
                                 button_primary("Lưu", id="users-drawer-save-btn"),
                             ],
                             justify="flex-end",
-                            mt="xl",
+                            mt="md",
+                            pt="md",
+                            pb="xs",
+                            style={
+                                "position": "sticky",
+                                "bottom": 0,
+                                "background": "var(--mantine-color-body)",
+                                "borderTop": "1px solid var(--border-subtle, #e2e8f0)",
+                                "zIndex": 1,
+                            },
                         ),
                     ]
                 ),
@@ -444,6 +457,49 @@ def layout() -> Any:
             html.Div(id="users-notification-container"),
         ],
         style={"padding": "24px"},
+    )
+
+
+def _render_login_history_table(history_logs: Any) -> Any:
+    """Bảng lịch sử đăng nhập trong drawer Sửa, cùng kiểu bảng danh sách
+    người dùng: nền header + kẻ dòng. Không có 2 thứ này bảng nhìn như
+    mấy dòng chữ rời, không ra bảng."""
+    if not (history_logs.ok and history_logs.data):
+        return dmc.Text("Chưa có lịch sử đăng nhập.", size="xs", c="dimmed")
+    h_rows = []
+    for log in history_logs.data:
+        time_val = format_datetime(log.get("CREATED_AT"))
+        success = log.get("SUCCESS") == "Y"
+        res_chip = (
+            status_chip("ACTIVE", label="Thành công") if success else status_chip("INVALID", label="Sai mật khẩu")
+        )
+        ip_val = log.get("IP") or "—"
+        h_rows.append(
+            html.Tr(
+                [
+                    html.Td(time_val, style={"padding": "10px 14px"}),
+                    html.Td(res_chip, style={"padding": "10px 14px"}),
+                    html.Td(html.Span(ip_val, className="mono"), style={"padding": "10px 14px"}),
+                ],
+                style={"borderBottom": "1px solid var(--border-subtle, #e2e8f0)"},
+            )
+        )
+    return dmc.Table(
+        striped=True,
+        highlightOnHover=True,
+        children=[
+            html.Thead(
+                html.Tr(
+                    [
+                        html.Th("Thời gian", style={"padding": "10px 14px"}),
+                        html.Th("Kết quả", style={"padding": "10px 14px"}),
+                        html.Th("IP", style={"padding": "10px 14px"}),
+                    ],
+                    style={"background": "var(--bg-subtle, #f8fafc)"},
+                )
+            ),
+            html.Tbody(h_rows),
+        ],
     )
 
 
@@ -564,34 +620,7 @@ def handle_open_edit_drawer(n_clicks_list: list[int | None]) -> Any:
 
     # Lịch sử đăng nhập
     history_logs = get_login_log(ctx, user_id=target_id, limit=10)
-    history_table: Any = None
-    if history_logs.ok and history_logs.data:
-        h_rows = []
-        for log in history_logs.data:
-            time_val = format_datetime(log.get("CREATED_AT"))
-            success = log.get("SUCCESS") == "Y"
-            res_chip = (
-                status_chip("ACTIVE", label="Thành công") if success else status_chip("INVALID", label="Sai mật khẩu")
-            )
-            ip_val = log.get("IP") or "—"
-            h_rows.append(
-                html.Tr(
-                    [
-                        html.Td(time_val, style={"padding": "6px 10px"}),
-                        html.Td(res_chip, style={"padding": "6px 10px"}),
-                        html.Td(html.Span(ip_val, className="mono"), style={"padding": "6px 10px"}),
-                    ]
-                )
-            )
-        history_table = dmc.Table(
-            striped=True,
-            children=[
-                html.Thead(html.Tr([html.Th("Thời gian"), html.Th("Kết quả"), html.Th("IP")])),
-                html.Tbody(h_rows),
-            ],
-        )
-    else:
-        history_table = dmc.Text("Chưa có lịch sử đăng nhập.", size="xs", c="dimmed")
+    history_table = _render_login_history_table(history_logs)
 
     return (
         True,

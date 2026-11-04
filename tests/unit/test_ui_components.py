@@ -48,6 +48,38 @@ def test_status_chip_has_icon_and_label() -> None:
         assert len(chip.children) > 0
 
 
+def test_form_field_sets_label_description_asterisk_and_error() -> None:
+    # Lỗi từng gặp thật ở drawer /users: label truyền qua form_field bị
+    # rớt vì hasattr(prop chưa set) trả False. Sau sửa, label, hint,
+    # dấu * và error đều phải gắn lên input.
+    input_elem = dmc.TextInput(id="test-username", placeholder="vd nguyenvana")
+    field = form_field(input_elem, label="Tên đăng nhập", hint="Chữ thường, số.", required=True)
+    inner = field.children[0]
+    assert inner.to_plotly_json()["props"].get("label") == "Tên đăng nhập"
+    assert inner.to_plotly_json()["props"].get("description") == "Chữ thường, số."
+    assert inner.to_plotly_json()["props"].get("withAsterisk") is True
+
+    pw_elem = dmc.PasswordInput(id="test-pw")
+    field_pw = form_field(pw_elem, label="Mật khẩu ban đầu", required=True, error="Không được để trống.")
+    inner_pw = field_pw.children[0]
+    assert inner_pw.to_plotly_json()["props"].get("label") == "Mật khẩu ban đầu"
+    assert inner_pw.to_plotly_json()["props"].get("error") == "Không được để trống."
+
+    roles_elem = dmc.CheckboxGroup(
+        id="test-roles",
+        value=["VIEWER"],
+        children=[dmc.Checkbox(label="Viewer", value="VIEWER")],
+    )
+    field_roles = form_field(roles_elem, label="Vai trò", required=True)
+    inner_roles = field_roles.children[0]
+    assert inner_roles.to_plotly_json()["props"].get("label") == "Vai trò"
+
+    # Trường không bắt buộc thì không có dấu *.
+    opt_elem = dmc.TextInput(id="test-email")
+    field_opt = form_field(opt_elem, label="Email")
+    assert field_opt.children[0].to_plotly_json()["props"].get("withAsterisk") is False
+
+
 def test_form_field_error_has_aria_describedby() -> None:
     # Trường không có lỗi
     input_elem = dmc.TextInput(id="test-username")

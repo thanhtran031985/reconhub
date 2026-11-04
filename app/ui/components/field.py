@@ -22,16 +22,21 @@ def form_field(
     error_id = f"{fid}-error" if fid else None
     hint_id = f"{fid}-hint" if fid else None
 
-    # Áp dụng các thuộc tính lên input component nếu hỗ trợ
-    if hasattr(input_component, "label") and label is not None:
+    # Áp dụng các thuộc tính lên input component nếu hỗ trợ. Không dùng
+    # hasattr để kiểm tra: với component Dash, một prop chưa được set thì
+    # hasattr trả False dù prop đó hoàn toàn hợp lệ, nên label, hint và
+    # dấu * bắt buộc từng bị rớt mất (drawer /users là nạn nhân). Kiểm tra
+    # thẳng trong available_properties mới đúng.
+    supported = set(getattr(input_component, "available_properties", []) or [])
+    if label is not None and "label" in supported:
         input_component.label = label
-    if hasattr(input_component, "description") and hint is not None:
+    if hint is not None and "description" in supported:
         input_component.description = hint
-    if hasattr(input_component, "withAsterisk"):
+    if "withAsterisk" in supported:
         input_component.withAsterisk = required
 
     if error:
-        if hasattr(input_component, "error"):
+        if "error" in supported:
             input_component.error = error
         if error_id:
             input_component.aria_describedby = error_id

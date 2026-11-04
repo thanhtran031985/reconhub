@@ -133,6 +133,60 @@ def test_users_layout_renders_for_admin(users_env, monkeypatch):
     assert "users-add-btn" in s
 
 
+def test_login_history_table_looks_like_a_table() -> None:
+    from types import SimpleNamespace
+
+    from app.ui.pages.users import _render_login_history_table
+
+    logs = SimpleNamespace(
+        ok=True,
+        data=[
+            {"CREATED_AT": "2026-11-04 08:00:00", "SUCCESS": "Y", "IP": "127.0.0.1"},
+            {"CREATED_AT": "2026-11-04 07:00:00", "SUCCESS": "N", "IP": None},
+        ],
+    )
+    table = _render_login_history_table(logs)
+    text = str(table)
+    assert "Thời gian" in text and "Kết quả" in text and "IP" in text
+    assert "Thành công" in text and "Sai mật khẩu" in text
+    # Nền header + kẻ dòng: 2 thứ khiến bảng nhìn ra bảng.
+    assert "var(--bg-subtle" in text
+    assert "borderBottom" in text
+
+    empty = _render_login_history_table(SimpleNamespace(ok=True, data=[]))
+    assert "Chưa có lịch sử đăng nhập" in str(empty)
+
+
+def _find_parent_of(node: object, target_id: str) -> object | None:
+    children = getattr(node, "children", None)
+    if isinstance(children, list):
+        for child in children:
+            if getattr(child, "id", None) == target_id:
+                return node
+            found = _find_parent_of(child, target_id)
+            if found is not None:
+                return found
+    elif children is not None and not isinstance(children, str):
+        if getattr(children, "id", None) == target_id:
+            return node
+        return _find_parent_of(children, target_id)
+    return None
+
+
+def test_users_drawer_save_cancel_buttons_are_sticky(users_env, monkeypatch):
+    admin_ctx = Ctx(user_id=1, username="admin", full_name="Quản trị viên", roles=[Role.ADMIN])
+    monkeypatch.setattr("app.ui.pages.users.get_current_ctx", lambda: admin_ctx)
+
+    from app.ui.pages.users import layout
+
+    content = layout()
+    footer = _find_parent_of(content, "users-drawer-save-btn")
+    assert footer is not None
+    style = getattr(footer, "style", None) or {}
+    assert style.get("position") == "sticky"
+    assert style.get("bottom") == 0
+
+
 def test_users_forbidden_for_non_admin(users_env, monkeypatch):
     viewer_ctx = Ctx(user_id=2, username="operator_locked", full_name="Nguyễn Văn Khóa", roles=[Role.OPERATOR])
     monkeypatch.setattr("app.ui.pages.users.get_current_ctx", lambda: viewer_ctx)
