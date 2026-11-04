@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime
+from pathlib import Path
 
 import openpyxl
 import pytest
 
-from app.engine.template_sample import build_template_sample_excel
-from app.schemas.template_config import FieldSpec, TemplateConfig
+from app.engine.template_sample import build_template_preview_excel
+from app.schemas.errors import ServiceError
+from app.schemas.template_config import FileSpec
 from app.ui.pages.templates import (
     layout,
     render_templates_content,
@@ -107,63 +108,55 @@ def test_render_templates_pagination_and_admin_delete() -> None:
     assert "Hiển thị 11 – 20 trong tổng số 25" in content_str_p2
 
 
-def _sample_config() -> TemplateConfig:
-    return TemplateConfig.model_validate(
-        {
-            "file": {"sheet": "Sheet1", "header_row": 1, "data_start_row": 2},
-            "fields": [
-                {"name": "INVOICE_NO", "label": "Số HĐ", "excel": "Số hóa đơn", "db": "INV_NO", "type": "text"},
-                {"name": "AMOUNT", "label": "Tiền", "excel": "Thành tiền", "db": "AMT", "type": "number"},
-                {"name": "INV_DATE", "label": "Ngày", "excel": "Ngày HĐ", "type": "date"},
-                {"name": "CREATED_AT", "label": "Giờ", "excel": "Giờ tạo", "type": "datetime"},
-                {"name": "DB_ONLY", "label": "Chỉ DB", "db": "COL_X", "type": "text"},
-                {"name": "ALIAS_ONLY", "label": "Alias", "excel_aliases": ["Cột phụ"], "type": "text"},
-            ],
-            "db_source": {
-                "kind": "table",
-                "table": "T",
-                "filters": [
-                    {"param": "p_from", "column": "D", "op": ">="},
-                    {"param": "p_to", "column": "D", "op": "<="},
-                ],
-                "params": [
-                    {"name": "p_from", "type": "datetime", "source": "user", "label": "Từ"},
-                    {"name": "p_to", "type": "datetime", "source": "user", "label": "Đến"},
-                ],
-            },
-            "profiles": [
-                {
-                    "code": "P1",
-                    "name": "P1",
-                    "is_default": True,
-                    "group_by": ["INVOICE_NO"],
-                    "measures": [{"name": "M1", "label": "M1", "agg": "sum", "field": "AMOUNT"}],
-                }
-            ],
-        }
-    )
+def _write_uploaded_sample_file(path: Path) -> Path:
+    """File mẫu đã tải lên: header + 7 dòng thật, gồm mã có số 0 ở đầu."""
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.title = "Sheet1"
+    sheet.append(["Số hóa đơn", "Thành tiền", "Ngày HĐ"])
+    for i in range(1, 8):
+        sheet.append([f"0012{i}", str(1000 * i), f"2026-02-0{i}"])
+    workbook.save(path)
+    return path
 
 
-def test_template_sample_excel_header_and_five_example_rows() -> None:
-    content = build_template_sample_excel(_sample_config())
+def test_template_preview_excel_uses_uploaded_data_not_examples(tmp_path: Path) -> None:
+    source = _write_uploaded_sample_file(tmp_path / "uploaded.xlsx")
+    content = build_template_preview_excel(source, FileSpec(sheet="Sheet1", header_row=1, data_start_row=2))
     workbook = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
     sheet = workbook.active
     assert sheet is not None
     assert sheet.title == "Sheet1"
     rows = list(sheet.iter_rows(values_only=True))
-    assert len(rows) == 6  # 1 header + 5 dòng ví dụ
-    assert rows[0] == ("Số hóa đơn", "Thành tiền", "Ngày HĐ", "Giờ tạo", "Cột phụ")
-    assert "COL_X" not in rows[0]
-    assert rows[1] == ("Ví dụ 1", 1000, datetime(2026, 2, 1), datetime(2026, 2, 1, 9, 0), "Ví dụ 1")
-    assert rows[5] == ("Ví dụ 5", 5000, datetime(2026, 2, 5), datetime(2026, 2, 5, 9, 0), "Ví dụ 5")
+    assert len(rows) == 6  # 1 header + đúng 5 dòng đầu của file đã tải lên
+    assert rows[0] == ("Số hóa đơn", "Thành tiền", "Ngày HĐ")
+    assert rows[1] == ("00121", "1000", "2026-02-01")
+    assert rows[5] == ("00125", "5000", "2026-02-05")
+    assert "Ví dụ 1" not in str(rows)
+    assert "00126" not in str(rows)  # Dòng thứ 6 của file gốc không nằm trong file tải về
 
 
-def test_template_sample_excel_without_excel_columns_raises() -> None:
-    config = _sample_config().model_copy(
-        update={"fields": [FieldSpec(name="DB_ONLY", label="Chỉ DB", db="COL_X", type="text")]}
-    )
-    with pytest.raises(ValueError, match="không có cột Excel"):
-        build_template_sample_excel(config)
+def test_template_preview_excel_respects_header_and_data_rows(tmp_path: Path) -> None:
+    source = tmp_path / "titled.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.title = "Sheet1"
+    sheet.append(["Tiêu đề file"])
+    sheet.append(["Mã", "Tiền"])
+    sheet.append(["A1", "10"])
+    sheet.append(["A2", "20"])
+    workbook.save(source)
+    content = build_template_preview_excel(source, FileSpec(sheet="Sheet1", header_row=2, data_start_row=3))
+    rows = list(openpyxl.load_workbook(io.BytesIO(content), data_only=True).active.iter_rows(values_only=True))
+    assert rows == [("Mã", "Tiền"), ("A1", "10"), ("A2", "20")]
+
+
+def test_template_preview_excel_missing_sheet_raises(tmp_path: Path) -> None:
+    source = _write_uploaded_sample_file(tmp_path / "uploaded.xlsx")
+    with pytest.raises(ServiceError):
+        build_template_preview_excel(source, FileSpec(sheet="Không có", header_row=1, data_start_row=2))
 
 
 def test_render_templates_actions_first_and_headers_centered() -> None:

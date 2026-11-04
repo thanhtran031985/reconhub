@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime
-from typing import Any
+from pathlib import Path
 
 import xlsxwriter
 
-from app.schemas.template_config import FieldSpec, TemplateConfig
+from app.engine.reader import list_sheets, read_sheet
+from app.schemas.template_config import FileSpec
 
-SAMPLE_ROW_COUNT = 5
+PREVIEW_ROW_COUNT = 5
 
 
 def _sanitize_sheet_name(name: str | None) -> str:
@@ -17,64 +17,46 @@ def _sanitize_sheet_name(name: str | None) -> str:
     return cleaned[:31] or "Sheet1"
 
 
-def _excel_columns(config: TemplateConfig) -> list[tuple[str, FieldSpec]]:
-    """Chỉ lấy các trường có nguồn Excel, theo đúng thứ tự khai báo trong template."""
-    columns: list[tuple[str, FieldSpec]] = []
-    for field in config.fields:
-        header = field.excel or (field.excel_aliases[0] if field.excel_aliases else None)
-        if header:
-            columns.append((header, field))
-    return columns
+def build_template_preview_excel(file_path: Path | str, file_spec: FileSpec) -> bytes:
+    """Sinh file Excel từ đúng file mẫu đã tải lên của template.
 
-
-def _sample_value(field: FieldSpec, row_number: int) -> Any:
-    """Giá trị ví dụ cho một dòng, chỉ để minh họa định dạng, không phải dữ liệu thật."""
-    if field.type == "number":
-        return 1000 * row_number
-    if field.type == "date":
-        return datetime(2026, 2, row_number)
-    if field.type == "datetime":
-        return datetime(2026, 2, row_number, 9, 0, 0)
-    return f"Ví dụ {row_number}"
-
-
-def build_template_sample_excel(config: TemplateConfig) -> bytes:
-    """Sinh file Excel mẫu: header cột Excel + 5 dòng ví dụ theo kiểu trường.
-
-    Vị trí header và dòng dữ liệu tuân theo file.header_row / file.data_start_row
-    của template, để file mẫu đọc được đúng bằng cùng cấu hình đó.
+    Lấy đúng header và 5 dòng dữ liệu đầu tiên như bảng "Xem trước 5 dòng"
+    ở trang sửa template, giữ nguyên thứ tự cột và giá trị gốc dạng chuỗi
+    (kể cả số 0 ở đầu mã), không tự sinh giá trị ví dụ.
     """
-    columns = _excel_columns(config)
+    path = Path(file_path)
+    effective_spec = file_spec
+    if not file_spec.sheet:
+        sheets = list_sheets(path)
+        if sheets:
+            effective_spec = file_spec.model_copy(update={"sheet": sheets[0]})
+
+    df, _warnings = read_sheet(path, effective_spec)
+    columns = [c for c in df.columns if c != "__row_no"]
     if not columns:
-        raise ValueError("Template không có cột Excel nào để tạo file mẫu")
+        raise ValueError("File mẫu không có cột nào để tạo file tải về")
+
+    rows = df.head(PREVIEW_ROW_COUNT).select(columns).to_dicts()
 
     output = io.BytesIO()
     workbook = xlsxwriter.Workbook(output, {"in_memory": True})
-    worksheet = workbook.add_worksheet(_sanitize_sheet_name(config.file.sheet))
+    worksheet = workbook.add_worksheet(_sanitize_sheet_name(effective_spec.sheet))
     header_format = workbook.add_format({"bold": True})
-    date_format = workbook.add_format({"num_format": "yyyy-mm-dd"})
-    datetime_format = workbook.add_format({"num_format": "yyyy-mm-dd hh:mm:ss"})
 
-    header_row_idx = config.file.header_row - 1
-    data_start_idx = config.file.data_start_row - 1
+    for col_idx, header in enumerate(columns):
+        worksheet.write(0, col_idx, header, header_format)
+        max_len = len(header)
+        for row in rows:
+            value = row.get(header)
+            if value is not None:
+                max_len = max(max_len, len(str(value)))
+        worksheet.set_column(col_idx, col_idx, min(max(max_len + 2, 14), 40))
 
-    for col_idx, (header, _field) in enumerate(columns):
-        worksheet.write(header_row_idx, col_idx, header, header_format)
-        width = max(len(header) + 2, 14)
-        worksheet.set_column(col_idx, col_idx, min(width, 40))
+    for row_idx, row in enumerate(rows, start=1):
+        for col_idx, header in enumerate(columns):
+            value = row.get(header)
+            worksheet.write(row_idx, col_idx, "" if value is None else str(value))
 
-    for offset in range(SAMPLE_ROW_COUNT):
-        row_number = offset + 1
-        row_idx = data_start_idx + offset
-        for col_idx, (_header, field) in enumerate(columns):
-            value = _sample_value(field, row_number)
-            if field.type == "date":
-                worksheet.write_datetime(row_idx, col_idx, value, date_format)
-            elif field.type == "datetime":
-                worksheet.write_datetime(row_idx, col_idx, value, datetime_format)
-            else:
-                worksheet.write(row_idx, col_idx, value)
-
-    worksheet.freeze_panes(header_row_idx + 1, 0)
+    worksheet.freeze_panes(1, 0)
     workbook.close()
     return output.getvalue()

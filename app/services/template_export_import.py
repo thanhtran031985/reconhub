@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
 
 from app.core.context import Ctx, Role, require_role
 from app.db.engine import get_recon_engine
-from app.db.metadata import recon_template
-from app.engine.template_sample import build_template_sample_excel
+from app.db.metadata import recon_file, recon_template
+from app.engine.template_sample import build_template_preview_excel
 from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.template_config import TemplateConfig
 from app.services import service
@@ -45,7 +46,12 @@ def export_template_sample_excel(
     template_id: int,
     version: int | None = None,
 ) -> dict[str, Any]:
-    """Xuất file Excel mẫu của template: header cột Excel + 5 dòng ví dụ theo kiểu trường."""
+    """Xuất file Excel mẫu của template từ đúng file mẫu đã tải lên.
+
+    Nội dung là header và 5 dòng dữ liệu đầu tiên như bảng "Xem trước 5 dòng"
+    ở trang sửa template, không tự sinh giá trị ví dụ. Template chưa có file
+    mẫu hoặc file mẫu đã mất thì báo lỗi rõ, không trả file ví dụ thay thế.
+    """
     require_role(ctx)
     tmpl_res = get_template(ctx, template_id=template_id, version=version)
     if not tmpl_res.ok or tmpl_res.data is None:
@@ -57,8 +63,31 @@ def export_template_sample_excel(
     except Exception as exc:
         raise ServiceError(ErrorCode.TEMPLATE_INVALID, f"Cấu hình template không hợp lệ: {exc}") from exc
 
+    sample_file_id = tmpl_data.get("sample_file_id")
+    if not sample_file_id:
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR,
+            "Template chưa có file mẫu tải lên. Hãy mở trang sửa template và tải file mẫu ở bước 1.",
+        )
+
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        file_row = conn.execute(select(recon_file).where(recon_file.c.ID == int(sample_file_id))).mappings().first()
+    storage_path_str = str(file_row["STORAGE_PATH"]) if file_row else ""
+    if (
+        not file_row
+        or file_row.get("PURGED_AT") is not None
+        or not storage_path_str
+        or not Path(storage_path_str).exists()
+    ):
+        raise ServiceError(
+            ErrorCode.NOT_FOUND,
+            "Không tìm thấy file mẫu đã tải lên của template (file có thể đã bị xóa). "
+            "Hãy tải lại file mẫu ở trang sửa template.",
+        )
+
     try:
-        content = build_template_sample_excel(config)
+        content = build_template_preview_excel(Path(storage_path_str), config.file)
     except ValueError as exc:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, str(exc)) from exc
 
