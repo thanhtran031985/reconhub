@@ -373,3 +373,6 @@ def test_layout_renders_with_active_templates(new_run_env, monkeypatch) -> None:
     assert "Chạy đối soát" in s
     assert "new-run-upload" in s
     assert "Câu lệnh SQL đối soát DB" in s
+    # Card Thực thi phải đứng trên Card SQL để không phải kéo xuống
+    # mỗi lần chạy.
+    assert s.index("new-run-exec-container") < s.index("new-run-sql-container")

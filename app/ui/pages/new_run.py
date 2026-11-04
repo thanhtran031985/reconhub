@@ -883,15 +883,17 @@ def layout() -> Any:
                     ),
                 ],
             ),
-            # Card 3: Câu lệnh SQL hệ thống sẽ chạy
-            html.Div(
-                id="new-run-sql-container",
-                children=render_sql_preview_section(initial_template, None, init_sql_params),
-            ),
-            # Card 4: Thực thi
+            # 3. Thực thi, đặt trên Câu lệnh SQL để không phải kéo
+            # xuống mỗi lần chạy. Id các container giữ nguyên nên các
+            # callback cập nhật SQL / thực thi không đổi.
             html.Div(
                 id="new-run-exec-container",
                 children=render_execution_section(is_ready=False, lock_reason="Chọn file dữ liệu để bật nút chạy."),
+            ),
+            # Câu lệnh SQL hệ thống sẽ chạy (chỉ đọc, xem sau khi chạy)
+            html.Div(
+                id="new-run-sql-container",
+                children=render_sql_preview_section(initial_template, None, init_sql_params),
             ),
             # Modal xác nhận PROD
             modal_confirm(
