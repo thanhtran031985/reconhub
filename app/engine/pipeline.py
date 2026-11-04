@@ -165,15 +165,24 @@ def run_pipeline(
 
     db_rows = len(db_raw)
 
-    # Đổi tên cột từ DB sang tên trường logic
-    db_col_to_field: dict[str, str] = {}
-    for f in config.fields:
-        if f.db:
-            db_col_to_field[f.db] = f.name
-            db_col_to_field[f.db.upper()] = f.name
-    rename_db = {c: db_col_to_field[c] for c in db_raw.columns if c in db_col_to_field and c != db_col_to_field[c]}
-    if rename_db:
-        db_raw = db_raw.rename(rename_db)
+    # Đổi tên cột từ DB sang tên trường logic — CHỈ khi dữ liệu là chi tiết.
+    # Khi pushdown, các cột Oracle trả về ĐÃ là tên logic (tên group_by và
+    # tên measure), không phải tên cột vật lý, nên không được đổi tên nữa.
+    # Ví dụ profile BY_INVOICE_VTOS: measure TOTAL_AMOUNT có trường nguồn
+    # tên khác (ví dụ SO_TIEN) với cột DB là TOTAL_AMOUNT. Đổi tên lúc này
+    # sẽ đổi cột measure TOTAL_AMOUNT thành SO_TIEN, làm nhánh pushdown
+    # của aggregate không tìm thấy cột TOTAL_AMOUNT nữa, giá trị DB thành
+    # None cho mọi nhóm và KPI "Tổng tiền DB" ra 0 dù Oracle đọc được
+    # hàng nghìn bản ghi.
+    if not db_pushdown_applied:
+        db_col_to_field: dict[str, str] = {}
+        for f in config.fields:
+            if f.db:
+                db_col_to_field[f.db] = f.name
+                db_col_to_field[f.db.upper()] = f.name
+        rename_db = {c: db_col_to_field[c] for c in db_raw.columns if c in db_col_to_field and c != db_col_to_field[c]}
+        if rename_db:
+            db_raw = db_raw.rename(rename_db)
 
     # Lọc thời gian phía DB nếu dữ liệu DB chưa lọc (ví dụ DataFrame thô)
     if config.time_filter and p_from and p_to:

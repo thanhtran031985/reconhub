@@ -88,3 +88,61 @@ def test_pipeline_pushdown_db_amounts_are_not_zero() -> None:
     assert rows["DB-ONLY-001"]["d__TOTAL_AMOUNT"] == Decimal("900000")
     assert rows["DB-ONLY-002"]["STATUS"] == "MISSING_IN_EXCEL"
     assert rows["DB-ONLY-002"]["d__TOTAL_AMOUNT"] == Decimal("1425000")
+
+
+def test_pipeline_pushdown_measure_name_collides_with_db_column() -> None:
+    """Trường hợp profile BY_INVOICE_VTOS: tên measure trùng tên cột DB.
+
+    Measure TOTAL_AMOUNT có trường nguồn tên khác (ở đây là SO_TIEN) với
+    cột DB là TOTAL_AMOUNT, đúng như SQL người dùng gửi: SUM(src."TOTAL_AMOUNT")
+    AS "TOTAL_AMOUNT". Nếu pipeline đổi tên cột DB sang tên trường logic
+    như với dữ liệu chi tiết, cột measure TOTAL_AMOUNT sẽ bị đổi thành
+    SO_TIEN, nhánh pushdown không tìm thấy cột measure nữa, giá trị DB
+    thành None cho mọi nhóm và KPI "Tổng tiền DB" ra 0 dù Oracle đọc
+    được hàng nghìn bản ghi. Sau sửa, dữ liệu pushdown không bị đổi tên
+    (và nhánh pushdown còn dự phòng đọc theo tên trường), nên số DB đúng.
+    """
+    raw = json.loads(Path("samples/templates/DTP_HOA_DON_TAC_NGHIEP.json").read_text(encoding="utf-8"))
+    for f in raw["fields"]:
+        if f["name"] == "AMOUNT":
+            f["name"] = "SO_TIEN"
+            f["db"] = "TOTAL_AMOUNT"
+    for p in raw["profiles"]:
+        for m in p["measures"]:
+            if m.get("field") == "AMOUNT":
+                m["field"] = "SO_TIEN"
+    cfg = TemplateConfig.model_validate(raw)
+    assert cfg.db_source.pushdown_aggregate is True
+
+    pushdown_db = pl.DataFrame(
+        [
+            {
+                "INVOICE_NO": "DB-ONLY-001",
+                "TOTAL_AMOUNT": Decimal("900000"),
+                "TOTAL_QTY": Decimal("1"),
+                "INV_DATE": "2026-02-01",
+                "INV_DATE__CNT_DIST": 1,
+                "LINE_CNT": 1,
+            },
+        ]
+    )
+    fetcher = _PushdownFetcher(pushdown_db)
+
+    res = run_pipeline(
+        excel_path=Path("samples/dtp_sample_200.xlsx"),
+        config=cfg,
+        profile_code="BY_INVOICE",
+        params={
+            "p_from": "2026-02-01 00:00:00",
+            "p_to": "2026-02-02 23:59:59",
+            "apply_range_excel": True,
+        },
+        fetcher=fetcher,
+    )
+
+    assert fetcher.seen_sql is not None
+    assert 'SUM(src."TOTAL_AMOUNT") AS "TOTAL_AMOUNT"' in fetcher.seen_sql
+    rows = {r["KEY_TEXT"]: r for r in res.result_df.to_dicts()}
+    assert rows["DB-ONLY-001"]["STATUS"] == "MISSING_IN_EXCEL"
+    assert rows["DB-ONLY-001"]["d__TOTAL_AMOUNT"] == Decimal("900000")
+    assert res.summary["MEASURE_TOTALS_JSON"]["TOTAL_AMOUNT"]["db"] == "900000"
