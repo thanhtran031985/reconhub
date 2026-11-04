@@ -2151,6 +2151,67 @@ def validate_dry_run_params(p_from_str: Any, p_to_str: Any) -> str | None:
     return None
 
 
+def _dry_extra_params(config: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Các tham số lọc phụ của Bước 5 Dry-run, ngoài p_from/p_to/p_org.
+
+    Lấy thẳng từ db_source.params đã lưu (không phụ thuộc extra_filters),
+    theo đúng thứ tự khai báo, để Dry-run thấy đủ tham số như /runs/new.
+    """
+    fixed = {"p_from", "p_to", "p_org"}
+    out: list[dict[str, Any]] = []
+    for p in (config or {}).get("db_source", {}).get("params", []) or []:
+        if isinstance(p, dict) and p.get("name") and p.get("name") not in fixed:
+            out.append(p)
+    return out
+
+
+def _render_dry_extra_param_input(p: dict[str, Any], value: Any = None) -> Any:
+    """Một ô nhập tham số phụ ở Bước 5, nhãn lấy theo tên parameter."""
+    name = str(p.get("name"))
+    label = name + (" *" if p.get("required") else "")
+    comp_id = {"type": "wizard-dry-extra-param", "name": name}
+    default = p.get("default")
+    val = value if value is not None else ("" if default is None else str(default))
+    p_type = str(p.get("type") or "text")
+    if p_type == "number":
+        try:
+            num = float(val) if str(val).strip() else None
+        except ValueError:
+            num = None
+        return dmc.NumberInput(id=comp_id, label=label, value=num, w="100%")
+    if p_type == "datetime":
+        return dmc.DateTimePicker(
+            id=comp_id,
+            label=label,
+            value=val or None,
+            valueFormat="YYYY-MM-DD HH:mm:ss",
+            withSeconds=True,
+            clearable=False,
+            w="100%",
+        )
+    if p_type == "date":
+        return dmc.DateInput(id=comp_id, label=label, value=val or None, w="100%")
+    return dmc.TextInput(id=comp_id, label=label, value=val, placeholder=label, className="mono", w="100%")
+
+
+def _build_dry_extra_params_dict(
+    config: dict[str, Any] | None,
+    extra_values: list[Any] | None,
+) -> dict[str, Any]:
+    """Ghép giá trị ô phụ theo thứ tự template; ô trống bỏ qua để engine
+    dùng Mặc định, giống /runs/new."""
+    out: dict[str, Any] = {}
+    if not config or not extra_values:
+        return out
+    for p, val in zip(_dry_extra_params(config), extra_values, strict=False):
+        if val is None:
+            continue
+        if isinstance(val, str) and not val.strip():
+            continue
+        out[str(p.get("name"))] = val
+    return out
+
+
 def render_step_5(
     config: dict[str, Any],
     dry_run_data: dict[str, Any] | None = None,
@@ -2227,6 +2288,17 @@ def render_step_5(
             break
     p_org_val = (dry_run_data.get("p_org") if dry_run_data else None) or p_org_default_val
     p_org_required_val = _p_org_required(config)
+    # Tham số phụ (ví dụ p_application): ưu tiên giá trị vừa chạy dry-run
+    # (để render lại sau khi chạy không làm mất giá trị đã nhập), nếu chưa
+    # có thì dùng Mặc định khai báo ở Bước 3.
+    _dry_extra_saved = (dry_run_data or {}).get("extra_params") or {}
+    dry_extra_inputs = [
+        dmc.GridCol(
+            span=4,
+            children=_render_dry_extra_param_input(p, _dry_extra_saved.get(str(p.get("name")))),
+        )
+        for p in _dry_extra_params(config)
+    ]
 
     return html.Div(
         [
@@ -2287,6 +2359,16 @@ def render_step_5(
                                 ),
                             ),
                         ],
+                    ),
+                    html.Div(
+                        id="wizard-dry-extra-params",
+                        children=dmc.Grid(
+                            gutter="md",
+                            mt="md",
+                            children=dry_extra_inputs,
+                        )
+                        if dry_extra_inputs
+                        else None,
                     ),
                     dmc.Group(
                         [
@@ -3957,6 +4039,7 @@ def _dry_run_store(
     config: dict[str, Any] | None,
     summary: dict[str, Any] | None = None,
     grain_warnings: list[str] | None = None,
+    extra_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Gói kết quả Dry-run vào store, kèm bước đã dừng và lỗi đầy đủ.
 
@@ -3977,6 +4060,7 @@ def _dry_run_store(
         "p_from": str(p_from) if p_from else None,
         "p_to": str(p_to) if p_to else None,
         "p_org": p_org or "",
+        "extra_params": extra_params or {},
         "summary": summary or {},
         "grain_warnings": grain_warnings or [],
         "config_hash": _config_hash(config),
@@ -3994,6 +4078,7 @@ def _dry_run_store(
     State("wizard-config-store", "data"),
     State("wizard-meta-store", "data"),
     State("wizard-sample-file-store", "data"),
+    State({"type": "wizard-dry-extra-param", "name": dash.ALL}, "value"),
     prevent_initial_call=True,
 )
 def handle_run_dry_run(
@@ -4004,21 +4089,26 @@ def handle_run_dry_run(
     _config: dict[str, Any] | None,
     _meta: dict[str, Any] | None,
     _sample: dict[str, Any] | None = None,
+    extra_values: list[Any] | None = None,
 ) -> tuple[Any, Any, Any]:
     """Chạy Dry-run thật trên file mẫu qua service, không dùng số mẫu."""
     if not n_clicks:
         return dash.no_update, dash.no_update, dash.no_update
 
+    # Tham số phụ (ví dụ p_application): ghép theo thứ tự template, ô
+    # trống bỏ qua để engine dùng Mặc định ở Bước 3, giống /runs/new.
+    extra_dict = _build_dry_extra_params_dict(_config, extra_values)
+
     err = validate_dry_run_params(p_from, p_to)
     if err:
-        store = _dry_run_store("validate", err, p_from, p_to, _p_org, _config)
+        store = _dry_run_store("validate", err, p_from, p_to, _p_org, _config, extra_params=extra_dict)
         return alert_box(f"Lỗi ở 1. Kiểm tra cấu hình: {err}", tone="crit"), store, dash.no_update
     step_errors: list[str] = []
     for step_idx in range(4):
         step_errors.extend(validate_wizard_step(_config, step_idx, _sample))
     if step_errors:
         msg = " · ".join(step_errors)
-        store = _dry_run_store("validate", msg, p_from, p_to, _p_org, _config)
+        store = _dry_run_store("validate", msg, p_from, p_to, _p_org, _config, extra_params=extra_dict)
         return alert_box(f"Lỗi ở 1. Kiểm tra cấu hình: {msg}", tone="crit"), store, dash.no_update
 
     # p_org: ưu tiên giá trị nhập ở Bước 5, sau đó là Mặc định ở Bước 3.
@@ -4037,18 +4127,18 @@ def handle_run_dry_run(
             "(ví dụ BDP), hoặc đặt Mặc định cho p_org ở Bước 3, rồi bấm Chạy thử lại. "
             "Để trống ở Bước 5 chỉ được khi SQL không dùng :p_org."
         )
-        store = _dry_run_store("validate", msg, p_from, p_to, _p_org, _config)
+        store = _dry_run_store("validate", msg, p_from, p_to, _p_org, _config, extra_params=extra_dict)
         return alert_box(f"Lỗi ở 1. Kiểm tra cấu hình: {msg}", tone="crit"), store, dash.no_update
 
     ctx = get_current_ctx()
     if ctx is None:
         msg = "Phiên làm việc đã hết hạn hoặc bạn chưa đăng nhập."
-        store = _dry_run_store("validate", msg, p_from, p_to, _p_org, _config)
+        store = _dry_run_store("validate", msg, p_from, p_to, _p_org, _config, extra_params=extra_dict)
         return alert_box(f"Lỗi ở 1. Kiểm tra cấu hình: {msg}", tone="crit"), store, dash.no_update
     template_cfg, cfg_errors = form_state_to_config(_config or {})
     if template_cfg is None:
         msg = f"Cấu hình chưa hợp lệ để chạy thử: {cfg_errors}"
-        store = _dry_run_store("save", msg, p_from, p_to, _p_org, _config)
+        store = _dry_run_store("save", msg, p_from, p_to, _p_org, _config, extra_params=extra_dict)
         return alert_box(f"Lỗi ở 2. Lưu bản nháp: {msg}", tone="crit"), store, dash.no_update
     code_to_save = (
         ((_meta or {}).get("template_code") or (_config or {}).get("template_code") or "NEW_TEMPLATE").strip().upper()
@@ -4061,7 +4151,7 @@ def handle_run_dry_run(
     s_file_id = (_sample or {}).get("file_id") or (_meta or {}).get("sample_file_id")
     if not s_file_id:
         msg = "Chưa có file mẫu để chạy thử. Tải file mẫu ở Bước 1 trước."
-        store = _dry_run_store("save", msg, p_from, p_to, _p_org, _config)
+        store = _dry_run_store("save", msg, p_from, p_to, _p_org, _config, extra_params=extra_dict)
         return alert_box(f"Lỗi ở 2. Lưu bản nháp: {msg}", tone="crit"), store, dash.no_update
     save_res = save_draft_template(
         ctx,
@@ -4096,7 +4186,7 @@ def handle_run_dry_run(
         msg = f"Lỗi khi lưu bản nháp trước khi chạy thử: {save_res.message or save_res.code}"
         if save_res.code:
             msg += f" (mã: {save_res.code})"
-        store = _dry_run_store("save", msg, p_from, p_to, _p_org, _config)
+        store = _dry_run_store("save", msg, p_from, p_to, _p_org, _config, extra_params=extra_dict)
         return alert_box(f"Lỗi ở 2. Lưu bản nháp: {msg}", tone="crit"), store, dash.no_update
     t_id = save_res.data.get("id", (_meta or {}).get("template_id"))
     ver = save_res.data.get("current_version", save_res.data.get("version", 1))
@@ -4113,6 +4203,7 @@ def handle_run_dry_run(
         p_to=dt_to,
         profile_code=default_profile.get("code"),
         p_org=_p_org,
+        params=extra_dict or None,
     )
     if not dry_res.ok or not dry_res.data:
         msg = f"Dry-run thất bại: {dry_res.message or dry_res.code}"
@@ -4120,7 +4211,7 @@ def handle_run_dry_run(
             msg += f" (mã: {dry_res.code})"
         if dry_res.details:
             msg += f" Chi tiết: {dry_res.details}"
-        store = _dry_run_store("dry_run", msg, p_from, p_to, _p_org, _config)
+        store = _dry_run_store("dry_run", msg, p_from, p_to, _p_org, _config, extra_params=extra_dict)
         return alert_box(f"Lỗi ở 3. Chạy đối soát thật: {msg}", tone="crit"), store, dash.no_update
     dry_data = dry_res.data
     result = _dry_run_store(
@@ -4132,6 +4223,7 @@ def handle_run_dry_run(
         _config,
         summary=dry_data.get("summary", {}),
         grain_warnings=dry_data.get("grain_warnings", []),
+        extra_params=extra_dict,
     )
     saved_meta = {
         **(_meta or {}),
