@@ -19,6 +19,7 @@ from app.services.template import (
 )
 from app.services.template_export_import import (
     export_template,
+    export_template_sample_excel,
     import_template,
 )
 from app.ui.components.alert_box import alert_box
@@ -185,6 +186,11 @@ def render_templates_content(
                 id={"type": "tmpl-action-export", "index": action_index},
                 leftSection=DashIconify(icon="lucide:download", width=14),
             ),
+            dmc.MenuItem(
+                "Tải file mẫu Excel",
+                id={"type": "tmpl-action-sample", "index": action_index},
+                leftSection=DashIconify(icon="lucide:file-spreadsheet", width=14),
+            ),
             dmc.MenuDivider(),
             dmc.MenuItem(
                 "Lưu trữ",
@@ -208,8 +214,45 @@ def render_templates_content(
                 ]
             )
 
+        actions_td = dmc.TableTd(
+            dmc.Group(
+                [
+                    dmc.Anchor(
+                        button_subtle("Sửa", icon="lucide:edit-3", size="xs"),
+                        href=f"/templates/{tid}/edit",
+                        underline=False,
+                    ),
+                    dmc.Anchor(
+                        button_subtle("Sơ đồ", icon="lucide:workflow", size="xs"),
+                        href=f"/templates/{tid}/diagram",
+                        underline=False,
+                    ),
+                    dmc.Menu(
+                        [
+                            dmc.MenuTarget(
+                                dmc.ActionIcon(
+                                    DashIconify(icon="lucide:more-vertical", width=16),
+                                    variant="subtle",
+                                    color="gray",
+                                    size="sm",
+                                )
+                            ),
+                            dmc.MenuDropdown(menu_items),
+                        ],
+                        position="bottom-start",
+                        withArrow=True,
+                    ),
+                ],
+                gap="xs",
+                justify="flex-start",
+                style={"flexWrap": "nowrap"},
+            ),
+            style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+        )
+
         row = dmc.TableTr(
             [
+                actions_td,
                 dmc.TableTd(
                     dmc.Text(tid, className="rh-code", fw=700, size="sm"),
                     style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
@@ -267,57 +310,23 @@ def render_templates_content(
                     lr_cell,
                     style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
                 ),
-                dmc.TableTd(
-                    dmc.Group(
-                        [
-                            dmc.Anchor(
-                                button_subtle("Sửa", icon="lucide:edit-3", size="xs"),
-                                href=f"/templates/{tid}/edit",
-                                underline=False,
-                            ),
-                            dmc.Anchor(
-                                button_subtle("Sơ đồ", icon="lucide:workflow", size="xs"),
-                                href=f"/templates/{tid}/diagram",
-                                underline=False,
-                            ),
-                            dmc.Menu(
-                                [
-                                    dmc.MenuTarget(
-                                        dmc.ActionIcon(
-                                            DashIconify(icon="lucide:more-vertical", width=16),
-                                            variant="subtle",
-                                            color="gray",
-                                            size="sm",
-                                        )
-                                    ),
-                                    dmc.MenuDropdown(menu_items),
-                                ],
-                                position="bottom-end",
-                                withArrow=True,
-                            ),
-                        ],
-                        gap="xs",
-                        justify="flex-end",
-                        style={"flexWrap": "nowrap"},
-                    ),
-                    style={"textAlign": "right", "whiteSpace": "nowrap", "verticalAlign": "middle"},
-                ),
             ]
         )
         rows.append(row)
 
     headers = [
-        dmc.TableTh("Mã template", style={"minWidth": "160px", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Tên & Nhận diện file", style={"minWidth": "240px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Thao tác", style={"minWidth": "160px", "textAlign": "center", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Mã template", style={"minWidth": "160px", "textAlign": "center", "whiteSpace": "nowrap"}),
         dmc.TableTh(
-            "Số trường", style={"minWidth": "100px", "textAlign": "center", "whiteSpace": "nowrap"}
+            "Tên & Nhận diện file",
+            style={"minWidth": "240px", "textAlign": "center", "whiteSpace": "nowrap"},
         ),
-        dmc.TableTh("Profiles", style={"minWidth": "180px", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Số trường", style={"minWidth": "100px", "textAlign": "center", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Profiles", style={"minWidth": "180px", "textAlign": "center", "whiteSpace": "nowrap"}),
         dmc.TableTh("Phiên bản", style={"minWidth": "85px", "textAlign": "center", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Chủ sở hữu", style={"minWidth": "110px", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Trạng thái", style={"minWidth": "140px", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Run gần nhất", style={"minWidth": "140px", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Thao tác", style={"minWidth": "160px", "textAlign": "right", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Chủ sở hữu", style={"minWidth": "110px", "textAlign": "center", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Trạng thái", style={"minWidth": "140px", "textAlign": "center", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Run gần nhất", style={"minWidth": "140px", "textAlign": "center", "whiteSpace": "nowrap"}),
     ]
 
     pagination_bar = dmc.Group(
@@ -371,6 +380,7 @@ def layout() -> Any:
             dcc.Store(id="tmpl-store-list"),
             dcc.Store(id="tmpl-page-store", data=1),
             dcc.Download(id="tmpl-export-download"),
+            dcc.Download(id="tmpl-sample-download"),
             dmc.Stack(
                 [
                     # Thanh tiêu đề và nút hành động trên cùng
@@ -848,6 +858,36 @@ def handle_export_template(export_clicks: list[Any]) -> Any:
                         "filename": f"{code_val}.json",
                         "type": "application/json",
                     }
+    except Exception:
+        pass
+    return None
+
+
+# Callback tải file mẫu Excel của template
+@callback(
+    Output("tmpl-sample-download", "data"),
+    Input({"type": "tmpl-action-sample", "index": ALL}, "n_clicks"),
+    prevent_initial_call=True,
+)
+def handle_sample_excel_template(sample_clicks: list[Any]) -> Any:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered or not any(sample_clicks):
+        return None
+
+    trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
+    try:
+        parsed = json.loads(trigger_id)
+        target_id = parsed.get("index")
+        if target_id is not None:
+            tid_int = int(target_id)
+            ctx = get_current_ctx()
+            if ctx:
+                res = export_template_sample_excel(ctx, tid_int)
+                if res.ok and res.data:
+                    return dcc.send_bytes(
+                        res.data["content"],
+                        filename=str(res.data.get("filename") or "template_mau.xlsx"),
+                    )
     except Exception:
         pass
     return None

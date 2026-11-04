@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import io
+from datetime import datetime
+
+import openpyxl
+import pytest
+
+from app.engine.template_sample import build_template_sample_excel
+from app.schemas.template_config import FieldSpec, TemplateConfig
 from app.ui.pages.templates import (
     layout,
     render_templates_content,
@@ -97,3 +105,105 @@ def test_render_templates_pagination_and_admin_delete() -> None:
     assert "TMPL_11" in content_str_p2
     assert "TMPL_01" not in content_str_p2
     assert "Hiển thị 11 – 20 trong tổng số 25" in content_str_p2
+
+
+def _sample_config() -> TemplateConfig:
+    return TemplateConfig.model_validate(
+        {
+            "file": {"sheet": "Sheet1", "header_row": 1, "data_start_row": 2},
+            "fields": [
+                {"name": "INVOICE_NO", "label": "Số HĐ", "excel": "Số hóa đơn", "db": "INV_NO", "type": "text"},
+                {"name": "AMOUNT", "label": "Tiền", "excel": "Thành tiền", "db": "AMT", "type": "number"},
+                {"name": "INV_DATE", "label": "Ngày", "excel": "Ngày HĐ", "type": "date"},
+                {"name": "CREATED_AT", "label": "Giờ", "excel": "Giờ tạo", "type": "datetime"},
+                {"name": "DB_ONLY", "label": "Chỉ DB", "db": "COL_X", "type": "text"},
+                {"name": "ALIAS_ONLY", "label": "Alias", "excel_aliases": ["Cột phụ"], "type": "text"},
+            ],
+            "db_source": {
+                "kind": "table",
+                "table": "T",
+                "filters": [
+                    {"param": "p_from", "column": "D", "op": ">="},
+                    {"param": "p_to", "column": "D", "op": "<="},
+                ],
+                "params": [
+                    {"name": "p_from", "type": "datetime", "source": "user", "label": "Từ"},
+                    {"name": "p_to", "type": "datetime", "source": "user", "label": "Đến"},
+                ],
+            },
+            "profiles": [
+                {
+                    "code": "P1",
+                    "name": "P1",
+                    "is_default": True,
+                    "group_by": ["INVOICE_NO"],
+                    "measures": [{"name": "M1", "label": "M1", "agg": "sum", "field": "AMOUNT"}],
+                }
+            ],
+        }
+    )
+
+
+def test_template_sample_excel_header_and_five_example_rows() -> None:
+    content = build_template_sample_excel(_sample_config())
+    workbook = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+    sheet = workbook.active
+    assert sheet is not None
+    assert sheet.title == "Sheet1"
+    rows = list(sheet.iter_rows(values_only=True))
+    assert len(rows) == 6  # 1 header + 5 dòng ví dụ
+    assert rows[0] == ("Số hóa đơn", "Thành tiền", "Ngày HĐ", "Giờ tạo", "Cột phụ")
+    assert "COL_X" not in rows[0]
+    assert rows[1] == ("Ví dụ 1", 1000, datetime(2026, 2, 1), datetime(2026, 2, 1, 9, 0), "Ví dụ 1")
+    assert rows[5] == ("Ví dụ 5", 5000, datetime(2026, 2, 5), datetime(2026, 2, 5, 9, 0), "Ví dụ 5")
+
+
+def test_template_sample_excel_without_excel_columns_raises() -> None:
+    config = _sample_config().model_copy(
+        update={"fields": [FieldSpec(name="DB_ONLY", label="Chỉ DB", db="COL_X", type="text")]}
+    )
+    with pytest.raises(ValueError, match="không có cột Excel"):
+        build_template_sample_excel(config)
+
+
+def test_render_templates_actions_first_and_headers_centered() -> None:
+    content = render_templates_content(
+        items=[
+            {
+                "id": 1,
+                "code": "TMPL_01",
+                "name": "Template 1",
+                "file_pattern": "f.xlsx",
+                "field_count": 3,
+                "profiles": [],
+                "version": 1,
+                "owner": "admin",
+                "status": "ACTIVE",
+                "last_run": None,
+            }
+        ],
+        loading=False,
+        error=None,
+    )
+    table = content.children[0].children
+    thead_tr = table.children[0].children
+    headers = thead_tr.children
+    assert [h.children for h in headers] == [
+        "Thao tác",
+        "Mã template",
+        "Tên & Nhận diện file",
+        "Số trường",
+        "Profiles",
+        "Phiên bản",
+        "Chủ sở hữu",
+        "Trạng thái",
+        "Run gần nhất",
+    ]
+    assert all(h.style.get("textAlign") == "center" for h in headers)
+
+    first_row = table.children[1].children[0]
+    first_cell_str = str(first_row.children[0])
+    assert "Sửa" in first_cell_str
+    assert "Sơ đồ" in first_cell_str
+    assert "Tải file mẫu Excel" in first_cell_str
+    assert "TMPL_01" in str(first_row.children[1])

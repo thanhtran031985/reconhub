@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.core.context import Ctx, Role, require_role
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_template
+from app.engine.template_sample import build_template_sample_excel
 from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.template_config import TemplateConfig
 from app.services import service
@@ -35,6 +36,37 @@ def export_template(
         "config": tmpl_data["config"],
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "exported_by": ctx.username,
+    }
+
+
+@service
+def export_template_sample_excel(
+    ctx: Ctx,
+    template_id: int,
+    version: int | None = None,
+) -> dict[str, Any]:
+    """Xuất file Excel mẫu của template: header cột Excel + 5 dòng ví dụ theo kiểu trường."""
+    require_role(ctx)
+    tmpl_res = get_template(ctx, template_id=template_id, version=version)
+    if not tmpl_res.ok or tmpl_res.data is None:
+        raise ServiceError(tmpl_res.code or ErrorCode.NOT_FOUND, tmpl_res.message or "Không tìm thấy template")
+
+    tmpl_data = dict(tmpl_res.data)
+    try:
+        config = TemplateConfig.model_validate(tmpl_data["config"])
+    except Exception as exc:
+        raise ServiceError(ErrorCode.TEMPLATE_INVALID, f"Cấu hình template không hợp lệ: {exc}") from exc
+
+    try:
+        content = build_template_sample_excel(config)
+    except ValueError as exc:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, str(exc)) from exc
+
+    code_val = str(tmpl_data["code"] or "template")
+    return {
+        "code": code_val,
+        "filename": f"{code_val}_mau.xlsx",
+        "content": content,
     }
 
 
