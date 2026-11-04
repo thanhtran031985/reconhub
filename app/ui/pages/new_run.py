@@ -6,7 +6,7 @@ from typing import Any
 
 import dash
 import dash_mantine_components as dmc
-from dash import Input, Output, State, callback, dcc, html
+from dash import ALL, Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
 from sqlalchemy import desc, select
 
@@ -394,6 +394,103 @@ def render_file_section(
     )
 
 
+# Tham số đã có ô nhập riêng trong layout, không render lại ở khối phụ.
+FIXED_RUN_PARAM_NAMES = {"p_from", "p_to", "p_org"}
+
+
+def extra_run_params(cfg_dict: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Các tham số DB của template ngoài 3 ô cố định, giữ đúng thứ tự khai báo.
+
+    Trước đây /runs/new chỉ hardcode p_from/p_to/p_org, nên template thêm
+    tham số mới (ví dụ p_application) thì layout không có ô nhập, SQL
+    preview vẫn hiện bind nhưng lần chạy không truyền được giá trị đó.
+    """
+    if not cfg_dict:
+        return []
+    return [
+        p
+        for p in cfg_dict.get("db_source", {}).get("params", [])
+        if p.get("name") and p.get("name") not in FIXED_RUN_PARAM_NAMES
+    ]
+
+
+def _param_default_str(p: dict[str, Any]) -> str:
+    default = p.get("default")
+    return "" if default is None else str(default)
+
+
+def render_extra_param_input(p: dict[str, Any]) -> Any:
+    """Một ô nhập cho tham số phụ, dùng id pattern-matching để callback đọc chung."""
+    name = str(p.get("name"))
+    label = str(p.get("label") or name)
+    if p.get("required"):
+        label = f"{label} *"
+    comp_id = {"type": "new-run-extra-param", "name": name}
+    p_type = p.get("type") or "text"
+    default = _param_default_str(p)
+    if p_type == "number":
+        try:
+            num_val = float(default) if default.strip() else None
+        except (TypeError, ValueError):
+            num_val = None
+        return dmc.NumberInput(id=comp_id, label=label, value=num_val, w="100%")
+    if p_type == "datetime":
+        return dmc.DateTimePicker(
+            id=comp_id,
+            label=label,
+            value=default or None,
+            valueFormat="YYYY-MM-DD HH:mm:ss",
+            withSeconds=True,
+            clearable=False,
+            w="100%",
+        )
+    if p_type == "date":
+        return dmc.DateInput(id=comp_id, label=label, value=default or None, w="100%")
+    return dmc.TextInput(id=comp_id, label=label, value=default, placeholder=label, w="100%")
+
+
+def build_extra_params_dict(
+    template_data: dict[str, Any] | None,
+    extra_values: list[Any] | None,
+) -> dict[str, Any]:
+    """Ghép giá trị ô phụ (theo đúng thứ tự render) thành dict tham số chạy.
+
+    Dash trả giá trị pattern-matching ALL theo thứ tự xuất hiện trong
+    layout, mà layout render đúng theo thứ tự db_source.params nên zip
+    theo thứ tự này là khớp tên. Ô trống thì bỏ qua để engine dùng
+    default của template (nếu có), giống cách p_org đang làm.
+    """
+    if not template_data or not extra_values:
+        return {}
+    cfg_dict = template_data.get("config", {})
+    out: dict[str, Any] = {}
+    for p, val in zip(extra_run_params(cfg_dict), extra_values, strict=False):
+        if val is None:
+            continue
+        if isinstance(val, str) and not val.strip():
+            continue
+        out[str(p.get("name"))] = val
+    return out
+
+
+def missing_required_extra_params(
+    template_data: dict[str, Any] | None,
+    extra_values: list[Any] | None,
+) -> list[str]:
+    """Tên các tham số phụ bắt buộc mà người dùng bỏ trống và không có default."""
+    if not template_data:
+        return []
+    cfg_dict = template_data.get("config", {})
+    values = extra_values or []
+    missing: list[str] = []
+    for idx, p in enumerate(extra_run_params(cfg_dict)):
+        val = values[idx] if idx < len(values) else None
+        if p.get("required") and not _param_default_str(p).strip():
+            if val is None or (isinstance(val, str) and not val.strip()):
+                missing.append(str(p.get("name")))
+    return missing
+
+
 def render_params_section(
     template_info: dict[str, Any] | None,
     data_sources: list[dict[str, Any]],
@@ -416,6 +513,7 @@ def render_params_section(
     profiles_data: list[dict[str, Any]] = []
     default_profile: str | None = None
     p_org_default = ""
+    extra_params: list[dict[str, Any]] = []
 
     if template_info:
         cfg_dict = template_info.get("config", {})
@@ -430,6 +528,9 @@ def render_params_section(
             if p.get("name") == "p_org" and p.get("default"):
                 p_org_default = str(p.get("default"))
                 break
+        # Tham số phụ của template (ví dụ p_application), render động thay
+        # vì hardcode, để thêm tham số mới ở wizard là /runs/new có ô nhập.
+        extra_params = extra_run_params(cfg_dict)
 
     if not profiles_data:
         profiles_data = [{"label": "Theo số hóa đơn", "value": "BY_INVOICE"}]
@@ -547,6 +648,18 @@ def render_params_section(
                         w="100%",
                     ),
                 ],
+            ),
+            # Tham số phụ của template (đổi template thì callback riêng
+            # dưới đây dựng lại khối này, không cần sửa layout cứng).
+            html.Div(
+                id="new-run-extra-params",
+                style={
+                    "display": "grid",
+                    "gridTemplateColumns": "repeat(auto-fill, minmax(200px, 1fr))",
+                    "gap": "12px",
+                    "marginTop": "12px",
+                },
+                children=[render_extra_param_input(p) for p in extra_params],
             ),
             # Thông báo lỗi dưới hai ô ngày giờ
             html.Div(
@@ -834,6 +947,13 @@ def layout() -> Any:
         "p_to": def_p_to.replace("T", " "),
         "p_org": p_org_init,
     }
+    # Tham số phụ của template ban đầu (để SQL preview lúc mới vào trang
+    # đã đúng binds; build_source_sql vốn đã dùng default nếu thiếu, đây
+    # chỉ để preview và lần chạy đầu nhất quán với ô nhập hiển thị).
+    if initial_template:
+        for p in extra_run_params(initial_template.get("config", {})):
+            if _param_default_str(p).strip():
+                init_sql_params[str(p.get("name"))] = _param_default_str(p)
 
     return html.Div(
         id="new-run-root",
@@ -1024,12 +1144,30 @@ def sync_params_on_template_change(template_data: dict[str, Any] | None) -> tupl
 
 
 @callback(
+    Output("new-run-extra-params", "children"),
+    Input("new-run-template-store", "data"),
+    prevent_initial_call=True,
+)
+def sync_extra_params_on_template_change(template_data: dict[str, Any] | None) -> Any:
+    """Dựng lại các ô tham số phụ khi đổi template (thêm/bớt tham số ở wizard).
+
+    Chỉ dựng lại khối phụ, không chạm tới các ô p_from/p_to/p_org hay
+    select profile/data source (đã có callback riêng cập nhật giá trị).
+    """
+    if not template_data:
+        return dash.no_update
+    cfg_dict = template_data.get("config", {})
+    return [render_extra_param_input(p) for p in extra_run_params(cfg_dict)]
+
+
+@callback(
     Output("new-run-sql-container", "children"),
     Input("new-run-template-store", "data"),
     Input("new-run-profile-select", "value"),
     Input("new-run-p-from", "value"),
     Input("new-run-p-to", "value"),
     Input("new-run-p-org", "value"),
+    Input({"type": "new-run-extra-param", "name": ALL}, "value"),
 )
 def update_sql_preview_callback(
     template_data: dict[str, Any] | None,
@@ -1037,6 +1175,7 @@ def update_sql_preview_callback(
     p_from: str | None,
     p_to: str | None,
     p_org: str | None,
+    extra_values: list[Any] | None,
 ) -> Any:
     """Tự động cập nhật câu lệnh SQL đối soát DB khi template, profile hoặc tham số thay đổi."""
     params = {
@@ -1044,6 +1183,7 @@ def update_sql_preview_callback(
         "p_to": p_to,
         "p_org": p_org,
     }
+    params.update(build_extra_params_dict(template_data, extra_values))
     return render_sql_preview_section(template_data, profile_code, params)
 
 
@@ -1115,6 +1255,7 @@ def validate_inputs_and_enable_run(
     State("new-run-p-org", "value"),
     State("new-run-apply-excel-time", "checked"),
     State("new-run-state-store", "data"),
+    State({"type": "new-run-extra-param", "name": ALL}, "value"),
     prevent_initial_call=True,
 )
 def handle_execute_run(
@@ -1130,6 +1271,7 @@ def handle_execute_run(
     p_org_val: str | None,
     apply_excel_time: bool | None,
     state_data: dict[str, Any] | None = None,
+    extra_values: list[Any] | None = None,
 ) -> Any:
     """Xử lý khi người dùng nhấn nút 'Chạy đối soát' hoặc xác nhận Modal PROD."""
     ctx_dash = dash.callback_context
@@ -1173,7 +1315,19 @@ def handle_execute_run(
     dt_from = datetime.fromisoformat(p_from_str.strip().replace(" ", "T"))
     dt_to = datetime.fromisoformat(p_to_str.strip().replace(" ", "T"))
 
+    # Tham số phụ bắt buộc mà bỏ trống và không có default thì chặn ngay,
+    # tránh tạo run với bind None (Oracle so sánh = NULL sẽ trả 0 dòng).
+    missing_extra = missing_required_extra_params(template_data, extra_values)
+    if missing_extra:
+        err_ui = render_execution_section(
+            is_ready=True,
+            lock_reason="",
+            error_msg=f"Nhập tham số bắt buộc: {', '.join(missing_extra)}.",
+        )
+        return False, dash.no_update, dash.no_update, err_ui
+
     params_dict = {"p_org": p_org_val} if p_org_val else {}
+    params_dict.update(build_extra_params_dict(template_data, extra_values))
     ds_int = int(datasource_id) if datasource_id and datasource_id.isdigit() else None
 
     run_res = create_run(
