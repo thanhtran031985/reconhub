@@ -16,6 +16,7 @@ from app.services.dashboard import compare_runs, get_previous_run
 from app.services.issue import list_reasons, upsert_issue_for_row
 from app.services.run_service import export_run, get_row_detail, get_run, get_run_rows
 from app.services.temp_data import mark_checked, purge_runs
+from app.services.template import get_template
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
 from app.ui.components.drawer import drawer_right
@@ -55,6 +56,63 @@ def fmt_num(val: Any) -> str:
         return f"{num:,.2f}".replace(",", ".").rstrip("0").rstrip(".")
     except (ValueError, TypeError):
         return str(val)
+
+
+def _strip_measure_prefix(key: str) -> str:
+    """Bỏ tiền tố x__/d__/diff__ của JSON kết quả để lấy tên measure thật."""
+    for prefix in ("x__", "d__", "diff__"):
+        if key.startswith(prefix):
+            return key[len(prefix) :]
+    return key
+
+
+def _resolve_grid_measures(
+    ctx: Any, run_info: dict[str, Any] | None, rows: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Lấy measure chính để hiển thị ở lưới kết quả.
+
+    Lưới trước đây hardcode TOTAL_AMOUNT (measure chính của mẫu DTP), nên
+    template nào đặt tên measure khác (ví dụ BILL_VTOS dùng TOTAL_TONG_TIEN)
+    sẽ tra sai khóa trong EXCEL_JSON/DB_JSON/DIFF_JSON và hiện toàn "—",
+    trong khi drawer chi tiết tự suy khóa từ JSON nên vẫn hiện đủ số.
+    Thứ tự: (1) measure chính trong config của profile đã chạy, (2) measure
+    đầu tiên suy từ khóa JSON của các dòng đang hiển thị, (3) TOTAL_AMOUNT
+    để giữ hành vi cũ khi không suy ra được gì.
+    """
+    fallback = [{"name": "TOTAL_AMOUNT", "label": "Tổng tiền", "type": "number"}]
+    run_info = run_info or {}
+    profile_code = str(run_info.get("profile_code") or "")
+    template_id = run_info.get("template_id")
+    template_version = run_info.get("template_version")
+    if ctx is not None and template_id and profile_code:
+        try:
+            tmpl_res = get_template(ctx, template_id=template_id, version=template_version)
+            if tmpl_res.ok and tmpl_res.data:
+                config = tmpl_res.data.get("config") or {}
+                for prof in config.get("profiles") or []:
+                    if str(prof.get("code") or "") != profile_code:
+                        continue
+                    measures = prof.get("measures") or []
+                    if not measures:
+                        break
+                    main_name = prof.get("main_measure")
+                    chosen = next((m for m in measures if m.get("name") == main_name), measures[0])
+                    return [
+                        {
+                            "name": chosen.get("name"),
+                            "label": chosen.get("label") or chosen.get("name"),
+                            "type": "number",
+                        }
+                    ]
+        except Exception:
+            pass
+    for row in rows or []:
+        for key in ("excel", "db", "diff"):
+            data = row.get(key) or {}
+            if isinstance(data, dict) and data:
+                first_name = _strip_measure_prefix(next(iter(data.keys())))
+                return [{"name": first_name, "label": first_name, "type": "number"}]
+    return fallback
 
 
 def fmt_size(bytes_val: int | None) -> str:
@@ -462,9 +520,18 @@ def render_result_grid(
 
         for m in measures:
             m_name = m.get("name", "TOTAL_AMOUNT")
-            val_xl = xl_dict.get(m_name) or xl_dict.get(f"x__{m_name}")
-            val_db = db_dict.get(m_name) or db_dict.get(f"d__{m_name}")
-            val_df = df_dict.get(m_name) or df_dict.get(f"diff__{m_name}")
+
+            def _pick(data: dict[str, Any], *keys: str) -> Any:
+                # Dùng "khóa có mặt" thay vì `or`: giá trị 0 là số thật,
+                # không được rơi sang khóa dự phòng rồi thành None ("—").
+                for key in keys:
+                    if key in data:
+                        return data[key]
+                return None
+
+            val_xl = _pick(xl_dict, m_name, f"x__{m_name}")
+            val_db = _pick(db_dict, m_name, f"d__{m_name}")
+            val_df = _pick(df_dict, m_name, f"diff__{m_name}")
 
             diff_num = (
                 float(val_df)
@@ -1389,11 +1456,10 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
     run_data = run_res.data
     summary_data = run_data.get("summary") or {}
 
-    measures = [{"name": "TOTAL_AMOUNT", "label": "Tổng tiền", "type": "number"}]
-
     rows_res = get_run_rows(ctx, r_num, RunRowsFilter(status="ALL", page=1, page_size=50))
     initial_rows = rows_res.data.get("items", []) if rows_res.ok and rows_res.data else []
     total_rows = rows_res.data.get("total", len(initial_rows)) if rows_res.ok and rows_res.data else len(initial_rows)
+    measures = _resolve_grid_measures(ctx, run_data, initial_rows)
 
     return html.Div(
         id="run-result-root",
@@ -1558,8 +1624,6 @@ def handle_filter_or_tab_change(
     summary = data_store.get("summary", {}) if data_store else {}
     r_id = int(run_info.get("id", 0))
 
-    measures = [{"name": "TOTAL_AMOUNT", "label": "Tổng tiền", "type": "number"}]
-
     if ctx and r_id > 0:
         rows_res = get_run_rows(
             ctx,
@@ -1580,6 +1644,8 @@ def handle_filter_or_tab_change(
     else:
         displayed_rows = []
         total_count = 0
+
+    measures = _resolve_grid_measures(ctx, run_info, displayed_rows)
 
     grid_ui = render_result_grid(
         measures=measures,

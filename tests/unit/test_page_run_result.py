@@ -285,6 +285,77 @@ def test_render_result_grid_and_filters() -> None:
     assert table.withColumnBorders is True
 
 
+def test_grid_measures_follow_profile_main_measure_not_hardcoded_total_amount(monkeypatch) -> None:
+    """Lưới phải lấy measure chính của profile đã chạy, không hardcode TOTAL_AMOUNT.
+
+    Tái hiện ảnh /runs/1012: profile BILL_VTOS dùng TOTAL_TONG_TIEN nên
+    tra TOTAL_AMOUNT trong EXCEL_JSON/DB_JSON/DIFF_JSON ra None và hiện
+    toàn "—", trong khi drawer chi tiết tự suy khóa nên vẫn có số.
+    """
+    from types import SimpleNamespace
+
+    from app.ui.pages.run_result import _resolve_grid_measures
+
+    run_info = {"template_id": 8, "template_version": 9, "profile_code": "BILL_VTOS"}
+
+    # Đường config: ngay cả khi trang kết quả đang trống vẫn ra đúng measure.
+    fake_res = SimpleNamespace(
+        ok=True,
+        data={
+            "config": {
+                "profiles": [
+                    {
+                        "code": "BILL_VTOS",
+                        "main_measure": "TOTAL_TONG_TIEN",
+                        "measures": [{"name": "TOTAL_TONG_TIEN", "label": "Tổng tiền"}],
+                    }
+                ]
+            }
+        },
+    )
+    monkeypatch.setattr("app.ui.pages.run_result.get_template", lambda *a, **k: fake_res)
+    ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+    measures = _resolve_grid_measures(ctx, run_info, [])
+    assert measures == [{"name": "TOTAL_TONG_TIEN", "label": "Tổng tiền", "type": "number"}]
+
+    # Đường dự phòng khi không lấy được config: suy từ khóa JSON của dòng.
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.get_template",
+        lambda *a, **k: SimpleNamespace(ok=False, data=None),
+    )
+    rows = [
+        {
+            "key": "C26TBD0149467",
+            "status": "MISSING_IN_DB",
+            "excel": {"x__TOTAL_TONG_TIEN": 1425000},
+            "db": {"d__TOTAL_TONG_TIEN": None},
+            "diff": {"diff__TOTAL_TONG_TIEN": 1425000},
+        }
+    ]
+    assert _resolve_grid_measures(None, run_info, rows)[0]["name"] == "TOTAL_TONG_TIEN"
+    assert _resolve_grid_measures(None, {}, []) == [{"name": "TOTAL_AMOUNT", "label": "Tổng tiền", "type": "number"}]
+
+    # Lưới với measure đúng phải hiện số, kể cả giá trị 0 (không rơi thành "—").
+    grid_ui = render_result_grid(
+        measures=[{"name": "TOTAL_TONG_TIEN", "label": "Tổng tiền", "type": "number"}],
+        rows=rows
+        + [
+            {
+                "key": "C26TBD0000000",
+                "status": "MATCHED",
+                "excel": {"x__TOTAL_TONG_TIEN": 0},
+                "db": {"d__TOTAL_TONG_TIEN": 0},
+                "diff": {"diff__TOTAL_TONG_TIEN": 0},
+            }
+        ],
+    )
+    s = str(grid_ui)
+    assert "1.425.000" in s
+    assert "Tổng tiền" in s
+    # Dòng 0 phải hiện "0" ở cột Excel, không bị `or` đẩy thành "—".
+    assert s.count("1.425.000") >= 2
+
+
 def test_result_grid_headers_centered_rows_hoverable_and_tabs_xs() -> None:
     from pathlib import Path
 
