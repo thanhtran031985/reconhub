@@ -161,10 +161,16 @@ def render_header(run_info: dict[str, Any]) -> Any:
                 [
                     dmc.Title(f"Run #{r_id} · {tmpl_name}", order=2, fw=700),
                     dmc.Text(sub_title, size="sm", c="dimmed", mt=4),
-                    dmc.Group([chk_chip, temp_chip], gap="xs", mt="sm"),
                 ]
             ),
-            dmc.Group(action_btns, gap="sm"),
+            dmc.Stack(
+                [
+                    dmc.Group(action_btns, gap="sm", justify="flex-end"),
+                    dmc.Group([chk_chip, temp_chip], gap="xs", justify="flex-end"),
+                ],
+                gap="xs",
+                align="flex-end",
+            ),
         ],
     )
 
@@ -314,13 +320,13 @@ def render_ratio_bar_and_tabs(summary: dict[str, Any], active_tab: str = "ALL") 
                         f"{count:,}".replace(",", "."),
                         color=color,
                         variant="filled" if is_active else "light",
-                        size="sm",
+                        size="xs",
                     ),
                 ],
                 id={"type": "run-res-tab-btn", "index": code},
                 variant="filled" if is_active else "subtle",
                 color="primary" if is_active else "gray",
-                size="sm",
+                size="xs",
             )
         )
 
@@ -338,17 +344,17 @@ def build_grid_headers(measures: list[dict[str, Any]], only_diff_cols: bool = Fa
         dmc.TableTh(
             "Số hóa đơn / Khóa",
             tableProps={"rowSpan": 2},
-            style={"verticalAlign": "middle", "minWidth": "220px", "whiteSpace": "nowrap"},
+            style={"verticalAlign": "middle", "minWidth": "220px", "whiteSpace": "nowrap", "textAlign": "center"},
         ),
         dmc.TableTh(
             "Trạng thái",
             tableProps={"rowSpan": 2},
-            style={"verticalAlign": "middle", "minWidth": "120px", "whiteSpace": "nowrap"},
+            style={"verticalAlign": "middle", "minWidth": "120px", "whiteSpace": "nowrap", "textAlign": "center"},
         ),
         dmc.TableTh(
             "Đối soát & Xử lý",
             tableProps={"rowSpan": 2},
-            style={"verticalAlign": "middle", "minWidth": "160px", "whiteSpace": "nowrap"},
+            style={"verticalAlign": "middle", "minWidth": "160px", "whiteSpace": "nowrap", "textAlign": "center"},
         ),
     ]
     sub_ths = []
@@ -504,7 +510,7 @@ def render_result_grid(
                 tds,
                 id={"type": "run-res-row", "index": row_no},
                 n_clicks=0,
-                className="mantine-Table-tr",
+                className="mantine-Table-tr run-res-row",
                 style={"cursor": "pointer"},
             )
         )

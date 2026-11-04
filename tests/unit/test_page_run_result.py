@@ -285,6 +285,64 @@ def test_render_result_grid_and_filters() -> None:
     assert table.withColumnBorders is True
 
 
+def test_result_grid_headers_centered_rows_hoverable_and_tabs_xs() -> None:
+    from pathlib import Path
+
+    import dash_mantine_components as dmc
+
+    # Header: 3 header tầng trên canh giữa
+    from app.ui.pages.run_result import build_grid_headers
+
+    thead = build_grid_headers([{"name": "TOTAL_AMOUNT", "label": "Tổng tiền"}])
+    top_row = thead.children[0]
+    for th in top_row.children[:3]:
+        assert th.style.get("textAlign") == "center"
+
+    # Dòng kết quả mang class run-res-row để CSS kẻ ngang + hover áp dụng
+    grid_ui = render_result_grid(
+        measures=[{"name": "TOTAL_AMOUNT", "label": "Tổng tiền"}],
+        rows=[{"key": "X1", "status": "DIFF", "excel": {"TOTAL_AMOUNT": 1}, "db": {"TOTAL_AMOUNT": 2}, "diff": {"TOTAL_AMOUNT": 1}}],
+    )
+    assert "run-res-row" in str(grid_ui)
+    css = Path("app/ui/assets/custom.css").read_text(encoding="utf-8")
+    assert ".run-res-row td" in css
+    assert ".run-res-row:hover" in css
+
+    # Tab: nút và badge đều xuống xs
+    tabs_ui = render_ratio_bar_and_tabs({"CNT_MATCHED": 1, "CNT_MISMATCH": 2})
+    tab_group = tabs_ui.children[1]
+    first_btn = tab_group.children[0]
+    assert isinstance(first_btn, dmc.Button)
+    assert first_btn.size == "xs"
+    badge = first_btn.children[1]
+    assert isinstance(badge, dmc.Badge)
+    assert badge.size == "xs"
+
+
+def test_render_header_badges_moved_to_right() -> None:
+    header = render_header(
+        {
+            "id": 1010,
+            "template_name": "Doanh thu Vtos",
+            "profile_code": "BY_INVOICE",
+            "p_from": "2026-01-01",
+            "p_to": "2026-07-31",
+            "data_source_id": 2,
+            "template_version": 3,
+            "created_by": "admin",
+            "created_at": "2026-11-04",
+            "file_size": 1600000,
+        }
+    )
+    left, right = header.children
+    # Cột trái chỉ còn tiêu đề + metadata, không còn badge
+    assert len(left.children) == 2
+    assert "Chưa kiểm tra" not in str(left)
+    # Cột phải chứa badge, canh phải
+    assert "Chưa kiểm tra" in str(right)
+    assert "Dữ liệu tạm còn" in str(right)
+
+
 def test_render_detail_drawer_temp_purged_and_active() -> None:
     # 1. Dữ liệu tạm còn
     drawer_active = render_detail_drawer(

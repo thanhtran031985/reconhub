@@ -18,3 +18,14 @@ pre[class*="mantine-Code"] {
   color: var(--code-ink, #D6E2FF);
 }
 
+
+/* Bảng kết quả run: kẻ ngang từng dòng và hover chọn dòng.
+   Dòng dùng html.Tr nên kẻ ngang/highlight của Mantine không áp dụng
+   chắc chắn, vì vậy kẻ ngang và hover được định nghĩa tường minh ở đây. */
+.run-res-row td {
+  border-bottom: 1px solid var(--line, #e2e8f0);
+}
+
+.run-res-row:hover {
+  background-color: var(--surface-2, #f8fafc);
+}
