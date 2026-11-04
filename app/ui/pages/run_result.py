@@ -66,6 +66,53 @@ def _strip_measure_prefix(key: str) -> str:
     return key
 
 
+def _pick_value(data: dict[str, Any], *keys: str) -> Any:
+    """Lấy giá trị theo khóa có mặt đầu tiên, không dùng `or`.
+
+    Giá trị 0 là số thật, không được rơi sang khóa dự phòng rồi thành None ("—").
+    """
+    for key in keys:
+        if key in data:
+            return data[key]
+    return None
+
+
+def _profile_main_measure(ctx: Any, run_info: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Lấy measure chính + trường nguồn + group_by của profile đã chạy từ config.
+
+    Trả None khi không lấy được config; các nơi gọi sẽ tự dự phòng từ dữ
+    liệu dòng đang hiển thị thay vì hardcode tên measure của mẫu DTP.
+    """
+    run_info = run_info or {}
+    profile_code = str(run_info.get("profile_code") or "")
+    template_id = run_info.get("template_id")
+    template_version = run_info.get("template_version")
+    if ctx is None or not template_id or not profile_code:
+        return None
+    try:
+        tmpl_res = get_template(ctx, template_id=template_id, version=template_version)
+        if not tmpl_res.ok or not tmpl_res.data:
+            return None
+        config = tmpl_res.data.get("config") or {}
+        for prof in config.get("profiles") or []:
+            if str(prof.get("code") or "") != profile_code:
+                continue
+            measures = prof.get("measures") or []
+            if not measures:
+                return None
+            main_name = prof.get("main_measure")
+            chosen = next((m for m in measures if m.get("name") == main_name), measures[0])
+            return {
+                "name": chosen.get("name"),
+                "label": chosen.get("label") or chosen.get("name"),
+                "field": chosen.get("field"),
+                "group_by": list(prof.get("group_by") or []),
+            }
+    except Exception:
+        return None
+    return None
+
+
 def _resolve_grid_measures(
     ctx: Any, run_info: dict[str, Any] | None, rows: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -80,32 +127,9 @@ def _resolve_grid_measures(
     để giữ hành vi cũ khi không suy ra được gì.
     """
     fallback = [{"name": "TOTAL_AMOUNT", "label": "Tổng tiền", "type": "number"}]
-    run_info = run_info or {}
-    profile_code = str(run_info.get("profile_code") or "")
-    template_id = run_info.get("template_id")
-    template_version = run_info.get("template_version")
-    if ctx is not None and template_id and profile_code:
-        try:
-            tmpl_res = get_template(ctx, template_id=template_id, version=template_version)
-            if tmpl_res.ok and tmpl_res.data:
-                config = tmpl_res.data.get("config") or {}
-                for prof in config.get("profiles") or []:
-                    if str(prof.get("code") or "") != profile_code:
-                        continue
-                    measures = prof.get("measures") or []
-                    if not measures:
-                        break
-                    main_name = prof.get("main_measure")
-                    chosen = next((m for m in measures if m.get("name") == main_name), measures[0])
-                    return [
-                        {
-                            "name": chosen.get("name"),
-                            "label": chosen.get("label") or chosen.get("name"),
-                            "type": "number",
-                        }
-                    ]
-        except Exception:
-            pass
+    main = _profile_main_measure(ctx, run_info)
+    if main:
+        return [{"name": main["name"], "label": main["label"], "type": "number"}]
     for row in rows or []:
         for key in ("excel", "db", "diff"):
             data = row.get(key) or {}
@@ -236,8 +260,13 @@ def render_header(run_info: dict[str, Any]) -> Any:
     )
 
 
-def render_kpi_cards(summary: dict[str, Any]) -> Any:
-    """Dựng 4 KPI Cards: Control total file, Tổng tiền Excel, Tổng tiền DB, Chênh lệch từ số liệu thật."""
+def render_kpi_cards(summary: dict[str, Any], main_measure_name: str | None = None) -> Any:
+    """Dựng 4 KPI Cards: Control total file, Tổng tiền Excel, Tổng tiền DB, Chênh lệch từ số liệu thật.
+
+    Ưu tiên đúng measure chính của profile đã chạy; trước đây lấy TOTAL_AMOUNT
+    rồi mới rơi sang measure đầu tiên trong dict, nên profile có measure đầu
+    không phải tiền (ví dụ số lượng) sẽ hiện KPI sai chỉ tiêu.
+    """
     measure_totals = summary.get("MEASURE_TOTALS_JSON") or {}
     if isinstance(measure_totals, str):
         try:
@@ -245,7 +274,10 @@ def render_kpi_cards(summary: dict[str, Any]) -> Any:
         except Exception:
             measure_totals = {}
 
-    m_data = measure_totals.get("TOTAL_AMOUNT") or (next(iter(measure_totals.values())) if measure_totals else {})
+    if main_measure_name and measure_totals.get(main_measure_name):
+        m_data = measure_totals[main_measure_name]
+    else:
+        m_data = measure_totals.get("TOTAL_AMOUNT") or (next(iter(measure_totals.values())) if measure_totals else {})
 
     xl_val = m_data.get("excel") if m_data.get("excel") is not None else summary.get("EXCEL_TOTAL_AMOUNT")
     db_val = m_data.get("db") if m_data.get("db") is not None else summary.get("DB_TOTAL_AMOUNT")
@@ -520,18 +552,9 @@ def render_result_grid(
 
         for m in measures:
             m_name = m.get("name", "TOTAL_AMOUNT")
-
-            def _pick(data: dict[str, Any], *keys: str) -> Any:
-                # Dùng "khóa có mặt" thay vì `or`: giá trị 0 là số thật,
-                # không được rơi sang khóa dự phòng rồi thành None ("—").
-                for key in keys:
-                    if key in data:
-                        return data[key]
-                return None
-
-            val_xl = _pick(xl_dict, m_name, f"x__{m_name}")
-            val_db = _pick(db_dict, m_name, f"d__{m_name}")
-            val_df = _pick(df_dict, m_name, f"diff__{m_name}")
+            val_xl = _pick_value(xl_dict, m_name, f"x__{m_name}")
+            val_db = _pick_value(db_dict, m_name, f"d__{m_name}")
+            val_df = _pick_value(df_dict, m_name, f"diff__{m_name}")
 
             diff_num = (
                 float(val_df)
@@ -871,6 +894,9 @@ def render_detail_drawer(
     reasons: list[dict[str, Any]] | None = None,
     assignees: list[dict[str, Any]] | None = None,
     can_edit: bool = False,
+    main_measure_name: str | None = None,
+    main_measure_field: str | None = None,
+    group_by_fields: list[str] | None = None,
     **kwargs: Any,
 ) -> Any:
     """Dựng nội dung Drawer chi tiết: Trạng thái đối soát, ghi chú chênh lệch, dòng Excel gốc và dòng DB."""
@@ -992,9 +1018,9 @@ def render_detail_drawer(
     clean_keys = sorted(list(set(k.replace("x__", "").replace("d__", "").replace("diff__", "") for k in all_keys)))
 
     for mk in clean_keys:
-        vx = xl_json.get(f"x__{mk}") or xl_json.get(mk)
-        vd = db_json.get(f"d__{mk}") or db_json.get(mk)
-        vdf = diff_json.get(f"diff__{mk}") or diff_json.get(mk)
+        vx = _pick_value(xl_json, f"x__{mk}", mk)
+        vd = _pick_value(db_json, f"d__{mk}", mk)
+        vdf = _pick_value(diff_json, f"diff__{mk}", mk)
 
         diff_num = float(vdf) if vdf is not None and str(vdf).replace("-", "").replace(".", "").isdigit() else None
         has_df = diff_num is not None and diff_num != 0
@@ -1040,17 +1066,29 @@ def render_detail_drawer(
             tone="info",
         )
     elif excel_raw:
+        # Thành tiền của dòng Excel gốc phải lấy theo trường mà measure chính
+        # đang cộng dồn (ví dụ TOTAL_TONG_TIEN cộng trường TONG_TIEN), chứ
+        # không hardcode TOTAL_AMOUNT/AMOUNT của mẫu DTP (sai tên là ra 0).
+        # Không tìm thấy trường nào thì hiện "—", không hiện 0 gây hiểu lầm.
+        amount_keys = ([main_measure_field] if main_measure_field else []) + ["TOTAL_AMOUNT", "AMOUNT"]
+        invoice_keys = ["INVOICE_NO"] + list(group_by_fields or [])
         xl_rows_ui = []
         for r in excel_raw:
             data_map = r.get("data") or {}
+            invoice_val = _pick_value(data_map, *invoice_keys)
+            if invoice_val is None:
+                invoice_val = r.get("inv_no") or key_text
+            amount_val = _pick_value(data_map, *amount_keys)
+            if amount_val is None:
+                amount_val = r.get("amount")
             xl_rows_ui.append(
                 dmc.TableTr(
                     [
                         dmc.TableTd(dmc.Text(f"#{r.get('excel_row_no', r.get('row_no', 1))}", className="mono rh-code", size="xs")),
-                        dmc.TableTd(dmc.Text(str(data_map.get("INVOICE_NO") or key_text), className="mono rh-code", size="xs")),
+                        dmc.TableTd(dmc.Text(str(invoice_val), className="mono rh-code", size="xs")),
                         dmc.TableTd(
                             dmc.Text(
-                                fmt_num(data_map.get("TOTAL_AMOUNT") or data_map.get("AMOUNT") or r.get("amount", 0)),
+                                fmt_num(amount_val),
                                 size="xs",
                                 style={"textAlign": "right"},
                             )
@@ -1113,13 +1151,18 @@ def render_detail_drawer(
             ],
         )
     elif db_json:
+        # Cùng lỗi hardcode như trên: bản ghi DB phải lấy theo measure chính
+        # (hoặc measure đầu tiên có trong JSON), thiếu trong DB thì hiện "—".
+        db_measure_name = main_measure_name
+        if not db_measure_name:
+            db_measure_name = _strip_measure_prefix(next(iter(db_json.keys())))
         db_rows_ui = [
             dmc.TableTr(
                 [
                     dmc.TableTd(dmc.Text(key_text, className="mono rh-code", size="xs")),
                     dmc.TableTd(
                         dmc.Text(
-                            fmt_num(db_json.get("d__TOTAL_AMOUNT") or db_json.get("TOTAL_AMOUNT", 0)),
+                            fmt_num(_pick_value(db_json, f"d__{db_measure_name}", db_measure_name)),
                             size="xs",
                             style={"textAlign": "right"},
                         )
@@ -1138,7 +1181,7 @@ def render_detail_drawer(
                     dmc.TableTr(
                         [
                             dmc.TableTh("INVOICE_NO (Khóa)"),
-                            dmc.TableTh("TOTAL_AMOUNT (DB)", style={"textAlign": "right"}),
+                            dmc.TableTh(f"{db_measure_name} (DB)", style={"textAlign": "right"}),
                         ]
                     )
                 ),
@@ -1477,7 +1520,12 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
             # Header
             html.Div(id="run-res-header-container", children=render_header(run_data)),
             # 4 KPI Cards
-            html.Div(id="run-res-kpi-container", children=render_kpi_cards(summary_data)),
+            html.Div(
+                id="run-res-kpi-container",
+                children=render_kpi_cards(
+                    summary_data, main_measure_name=measures[0]["name"] if measures else None
+                ),
+            ),
             # Bộ Tabs chính: Kết quả đối soát vs Câu lệnh SQL đối soát DB
             dmc.Tabs(
                 value="results",
@@ -1710,11 +1758,15 @@ def handle_row_click_open_drawer(
     row_detail = detail_res.data
     reasons_res = list_reasons(ctx)
     reasons_list = reasons_res.data if reasons_res.ok and reasons_res.data else []
+    main_measure = _profile_main_measure(ctx, run_info)
 
     drawer_ui = render_detail_drawer(
         row_detail=row_detail,
         reasons_list=reasons_list,
         temp_purged_at=run_info.get("temp_purged_at"),
+        main_measure_name=main_measure["name"] if main_measure else None,
+        main_measure_field=main_measure["field"] if main_measure else None,
+        group_by_fields=main_measure["group_by"] if main_measure else None,
     )
     return True, drawer_ui
 

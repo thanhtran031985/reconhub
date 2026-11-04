@@ -356,6 +356,90 @@ def test_grid_measures_follow_profile_main_measure_not_hardcoded_total_amount(mo
     assert s.count("1.425.000") >= 2
 
 
+def test_other_status_tabs_and_detail_drawer_use_profile_measure() -> None:
+    """Các tab trạng thái khác và drawer chi tiết phải cùng hiện số Excel/DB.
+
+    Tất cả tab trạng thái dùng chung render_result_grid nên chỉ cần measure
+    đúng là đủ; riêng drawer trước đây hardcode TOTAL_AMOUNT ở 2 chỗ: dòng
+    Excel gốc (Thành tiền ra 0) và bản ghi DB (ra 0, tiêu đề TOTAL_AMOUNT).
+    """
+    # Lưới: 4 trạng thái, cùng measure TOTAL_TONG_TIEN, đều phải hiện số.
+    measures = [{"name": "TOTAL_TONG_TIEN", "label": "Tổng tiền", "type": "number"}]
+    rows = [
+        {
+            "key": "K1",
+            "status": "MATCHED",
+            "excel": {"x__TOTAL_TONG_TIEN": 1000000},
+            "db": {"d__TOTAL_TONG_TIEN": 1000000},
+            "diff": {"diff__TOTAL_TONG_TIEN": 0},
+        },
+        {
+            "key": "K2",
+            "status": "MISMATCH",
+            "excel": {"x__TOTAL_TONG_TIEN": 2000000},
+            "db": {"d__TOTAL_TONG_TIEN": 1900000},
+            "diff": {"diff__TOTAL_TONG_TIEN": 100000},
+        },
+        {
+            "key": "K3",
+            "status": "MISSING_IN_DB",
+            "excel": {"x__TOTAL_TONG_TIEN": 1425000},
+            "db": {"d__TOTAL_TONG_TIEN": None},
+            "diff": {"diff__TOTAL_TONG_TIEN": 1425000},
+        },
+        {
+            "key": "K4",
+            "status": "MISSING_IN_EXCEL",
+            "excel": {"x__TOTAL_TONG_TIEN": None},
+            "db": {"d__TOTAL_TONG_TIEN": 900000},
+            "diff": {"diff__TOTAL_TONG_TIEN": -900000},
+        },
+    ]
+    s_grid = str(render_result_grid(measures=measures, rows=rows))
+    for key in ("K1", "K2", "K3", "K4"):
+        assert key in s_grid
+    for amount in ("1.000.000", "2.000.000", "1.425.000", "900.000"):
+        assert amount in s_grid
+
+    # Drawer: dòng Excel gốc lấy theo trường của measure chính, bản ghi DB
+    # lấy theo tên measure chính, không còn 0 do tra sai tên.
+    drawer_ui = render_detail_drawer(
+        row_detail={
+            "key_text": "C26TBD0149467 | 2026-06-23 13:43:30",
+            "status": "MISSING_IN_DB",
+            "row_no": 1,
+            "run_id": 1012,
+            "issue": {},
+            "excel_raw_rows": [
+                {
+                    "excel_row_no": 1525,
+                    "data": {"HOA_DON": "C26TBD0149467", "TONG_TIEN": 1425000},
+                }
+            ],
+            "excel": {"x__TOTAL_TONG_TIEN": 1425000},
+            "db": {"d__TOTAL_TONG_TIEN": None},
+            "diff": {"diff__TOTAL_TONG_TIEN": 1425000},
+        },
+        reasons_list=[],
+        main_measure_name="TOTAL_TONG_TIEN",
+        main_measure_field="TONG_TIEN",
+        group_by_fields=["HOA_DON"],
+    )
+    s_drawer = str(drawer_ui)
+    assert "1.425.000" in s_drawer
+    assert "TOTAL_TONG_TIEN (DB)" in s_drawer
+    # Dòng Excel gốc phải hiện đúng 1.425.000, không phải 0 do tra TOTAL_AMOUNT.
+    assert s_drawer.count("1.425.000") >= 2
+
+    # KPI: khi truyền tên measure chính thì lấy đúng chỉ tiêu đó, không lấy
+    # measure đầu tiên trong dict (ở đây là số lượng).
+    kpi_ui = render_kpi_cards(
+        {"MEASURE_TOTALS_JSON": {"TOTAL_QTY": {"excel": 5, "db": 5, "diff": 0}, "TOTAL_TONG_TIEN": {"excel": 1425000, "db": 0, "diff": 1425000}}},
+        main_measure_name="TOTAL_TONG_TIEN",
+    )
+    assert "1.425.000" in str(kpi_ui)
+
+
 def test_result_grid_headers_centered_rows_hoverable_and_tabs_xs() -> None:
     from pathlib import Path
 
