@@ -565,11 +565,13 @@ def render_params_section(
                 mt="xs",
                 mb="sm",
             ),
-            # Checkbox áp khoảng Excel
-            dmc.Checkbox(
+            # Switch áp khoảng Excel (giữ nguyên id và prop checked để
+            # callback tạo run không cần đổi)
+            dmc.Switch(
                 id="new-run-apply-excel-time",
                 label="Áp dụng cùng khoảng thời gian cho dữ liệu Excel",
                 checked=False,
+                size="sm",
                 mb="md",
             ),
             *([precheck_node] if precheck_node is not None else []),

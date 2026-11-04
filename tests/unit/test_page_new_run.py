@@ -328,7 +328,7 @@ def test_handle_progress_tick_unchanged_returns_no_update(monkeypatch) -> None:
     assert redirect is dash.no_update
 
 
-def test_apply_excel_time_checkbox_defaults_unchecked() -> None:
+def test_apply_excel_time_switch_defaults_unchecked() -> None:
     params_ui = render_params_section(
         template_info={
             "code": "DTP",
@@ -338,7 +338,9 @@ def test_apply_excel_time_checkbox_defaults_unchecked() -> None:
         active_templates=[],
     )
     assert "new-run-apply-excel-time" in str(params_ui)
-    # Tìm component checkbox và kiểm tra checked=False
+    # Tìm component switch và kiểm tra checked=False
+    import dash_mantine_components as dmc
+
     def _find(node):
         if getattr(node, "id", None) == "new-run-apply-excel-time":
             return node
@@ -354,9 +356,10 @@ def test_apply_excel_time_checkbox_defaults_unchecked() -> None:
                     return found
         return None
 
-    checkbox = _find(params_ui)
-    assert checkbox is not None
-    assert checkbox.checked is False
+    switch = _find(params_ui)
+    assert switch is not None
+    assert isinstance(switch, dmc.Switch)
+    assert switch.checked is False
 
 
 def test_layout_renders_with_active_templates(new_run_env, monkeypatch) -> None:
