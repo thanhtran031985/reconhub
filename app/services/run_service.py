@@ -823,9 +823,21 @@ def dry_run(
     p_to: datetime,
     profile_code: str | None = None,
     mock_fetcher: Any = None,
+    p_org: str | None = None,
+    params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Chạy thử nghiệm (Dry-run) một phiên bản template trên file mẫu không lưu kết quả vào DB."""
+    """Chạy thử nghiệm (Dry-run) một phiên bản template trên file mẫu không lưu kết quả vào DB.
+
+    p_org phải được truyền xuống run, nếu không SQL có :p_org sẽ bị
+    check_sql chặn ở pipeline với SQL_NOT_ALLOWED, dù p_org đã khai báo
+    ở Bước 3. Trước đây wizard đọc p_org ở Bước 5 nhưng không truyền
+    xuống đây, nên dry-run luôn lỗi với template dùng :p_org.
+    """
     require_role(ctx, Role.OPERATOR, Role.TEMPLATE_OWNER, Role.ADMIN)
+
+    run_params: dict[str, Any] = dict(params or {})
+    if p_org:
+        run_params["p_org"] = p_org
 
     # 1. Tạo run với tham số đã chỉ định
     create_res = create_run(
@@ -837,6 +849,7 @@ def dry_run(
             profile_code=profile_code,
             p_from=p_from,
             p_to=p_to,
+            params=run_params or None,
         ),
     )
     if not create_res.ok:

@@ -755,3 +755,71 @@ def test_step5_timeline_shows_failed_dry_run_stage() -> None:
     s = str(ui)
     assert "ORA-00942" in s
     assert "Chạy đối soát thật" in s
+
+
+def test_dry_run_p_org_required_when_sql_uses_p_org() -> None:
+    from app.ui.pages.template_wizard import _p_org_required, handle_run_dry_run
+
+    cfg_sql = {
+        "template_code": "T1",
+        "name": "Test",
+        "fields": [{"name": "AMOUNT", "excel": "AMOUNT", "db": "AMOUNT"}],
+        "db_source": {
+            "kind": "sql",
+            "source_id": "GMD_DEV",
+            "sql": "SELECT * FROM T WHERE x >= :p_from AND y <= :p_to AND org_code = :p_org",
+            "params": [{"name": "p_org", "type": "text", "source": "default", "default": "", "label": "Đơn vị"}],
+        },
+        "profiles": [{"code": "P1", "group_by": ["AMOUNT"], "measures": [{"name": "M1", "field": "AMOUNT"}]}],
+    }
+    assert _p_org_required(cfg_sql) is True
+    # Chưa nhập p_org và không có mặc định thì chặn ở bước kiểm tra, không
+    # để pipeline báo SQL_NOT_ALLOWED khó hiểu.
+    _err, store, _meta = handle_run_dry_run(
+        1,
+        "2026-02-01 00:00:00",
+        "2026-02-05 23:59:59",
+        "",
+        cfg_sql,
+        {},
+        {"file_id": 1},
+    )
+    assert store["stage"] == "validate"
+    assert ":p_org" in store["error"]
+    assert "Mã đơn vị" in store["error"]
+
+
+def test_build_source_sql_uses_p_org_default() -> None:
+    from app.engine.sql_builder import build_source_sql
+    from app.schemas.template_config import TemplateConfig
+
+    cfg = TemplateConfig.model_validate(
+        {
+            "file": {"sheet": "S", "header_row": 1, "data_start_row": 2},
+            "fields": [{"name": "AMOUNT", "label": "Tiền", "excel": "AMOUNT", "db": "AMOUNT", "type": "number"}],
+            "db_source": {
+                "kind": "sql",
+                "sql": "SELECT AMOUNT FROM T WHERE d >= :p_from AND d <= :p_to AND org_code = :p_org",
+                "params": [
+                    {"name": "p_from", "type": "datetime", "source": "user", "label": "Từ"},
+                    {"name": "p_to", "type": "datetime", "source": "user", "label": "Đến"},
+                    {"name": "p_org", "type": "text", "source": "default", "default": "BDP", "label": "Đơn vị"},
+                ],
+            },
+            "profiles": [
+                {
+                    "code": "P1",
+                    "name": "P1",
+                    "is_default": True,
+                    "group_by": ["AMOUNT"],
+                    "measures": [{"name": "M1", "label": "M1", "agg": "sum", "field": "AMOUNT", "compare": "exact"}],
+                    "aggregate": False,
+                }
+            ],
+        }
+    )
+    sql, binds = build_source_sql(cfg, None, {"p_from": "2026-02-01", "p_to": "2026-02-05"})
+    assert binds["p_org"] == "BDP"
+    # Truyền p_org lúc chạy thì ưu tiên giá trị lúc chạy, không phải mặc định.
+    _sql, binds2 = build_source_sql(cfg, None, {"p_from": "2026-02-01", "p_to": "2026-02-05", "p_org": "HCM"})
+    assert binds2["p_org"] == "HCM"

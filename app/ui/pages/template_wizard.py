@@ -2125,7 +2125,13 @@ def render_step_5(
 
     p_from_val = (dry_run_data.get("p_from") if dry_run_data else None) or None
     p_to_val = (dry_run_data.get("p_to") if dry_run_data else None) or None
-    p_org_val = (dry_run_data.get("p_org") if dry_run_data else None) or ""
+    p_org_default_val = ""
+    for p in (config or {}).get("db_source", {}).get("params", []) or []:
+        if isinstance(p, dict) and p.get("name") == "p_org" and p.get("default"):
+            p_org_default_val = str(p.get("default"))
+            break
+    p_org_val = (dry_run_data.get("p_org") if dry_run_data else None) or p_org_default_val
+    p_org_required_val = _p_org_required(config)
 
     return html.Div(
         [
@@ -2177,9 +2183,11 @@ def render_step_5(
                                 span=4,
                                 children=dmc.TextInput(
                                     id="wizard-dry-p-org",
-                                    label="Mã đơn vị (p_org)",
+                                    label="Mã đơn vị (p_org) *" if p_org_required_val else "Mã đơn vị (p_org)",
                                     value=p_org_val,
-                                    placeholder="Để trống nếu không lọc",
+                                    placeholder="Bắt buộc vì SQL dùng :p_org, ví dụ BDP"
+                                    if p_org_required_val
+                                    else "Để trống nếu không lọc",
                                     className="mono",
                                 ),
                             ),
@@ -2635,13 +2643,20 @@ def validate_wizard_step(
         if db_spec.get("kind", "table") == "table":
             if not db_spec.get("table"):
                 errors.append("Bước 3: chưa chọn bảng/view nguồn.")
-        elif not db_spec.get("sql"):
-            errors.append("Bước 3: chưa nhập câu lệnh SQL nguồn.")
-        filters = {f.get("param"): f.get("column") for f in db_spec.get("filters", []) if isinstance(f, dict)}
-        if not filters.get("p_from"):
-            errors.append("Bước 3: chưa chọn cột DB cho Từ ngày giờ (p_from).")
-        if not filters.get("p_to"):
-            errors.append("Bước 3: chưa chọn cột DB cho Đến ngày giờ (p_to).")
+            filters = {f.get("param"): f.get("column") for f in db_spec.get("filters", []) if isinstance(f, dict)}
+            if not filters.get("p_from"):
+                errors.append("Bước 3: chưa chọn cột DB cho Từ ngày giờ (p_from).")
+            if not filters.get("p_to"):
+                errors.append("Bước 3: chưa chọn cột DB cho Đến ngày giờ (p_to).")
+        else:
+            if not db_spec.get("sql"):
+                errors.append("Bước 3: chưa nhập câu lệnh SQL nguồn.")
+            else:
+                sql_text = str(db_spec.get("sql") or "")
+                if ":p_from" not in sql_text:
+                    errors.append("Bước 3: SQL nguồn bắt buộc phải dùng :p_from.")
+                if ":p_to" not in sql_text:
+                    errors.append("Bước 3: SQL nguồn bắt buộc phải dùng :p_to.")
     elif step_index == 3:
         profiles = cfg.get("profiles", []) or []
         if not profiles:
@@ -3808,6 +3823,26 @@ DRY_RUN_STAGES = [
 ]
 
 
+def _p_org_required(config: dict[str, Any] | None) -> bool:
+    """p_org có bắt buộc cho lần chạy này không?
+
+    Bắt buộc khi SQL tùy biến dùng :p_org, hoặc bảng lọc có filter p_org
+    (không skip_if_empty), hoặc param p_org khai báo required=True.
+    Nếu bắt buộc mà lần chạy không truyền p_org, SQL sẽ bị check_sql
+    chặn với SQL_NOT_ALLOWED, dù p_org đã khai báo ở Bước 3.
+    """
+    db_spec = (config or {}).get("db_source", {}) or {}
+    if db_spec.get("kind") == "sql" and ":p_org" in (db_spec.get("sql") or ""):
+        return True
+    for flt in db_spec.get("filters", []) or []:
+        if isinstance(flt, dict) and flt.get("param") == "p_org" and flt.get("column") and not flt.get("skip_if_empty"):
+            return True
+    for p in db_spec.get("params", []) or []:
+        if isinstance(p, dict) and p.get("name") == "p_org" and p.get("required"):
+            return True
+    return False
+
+
 def _dry_run_store(
     stage: str,
     error: str | None,
@@ -3878,6 +3913,25 @@ def handle_run_dry_run(
         step_errors.extend(validate_wizard_step(_config, step_idx, _sample))
     if step_errors:
         msg = " · ".join(step_errors)
+        store = _dry_run_store("validate", msg, p_from, p_to, _p_org, _config)
+        return alert_box(f"Lỗi ở 1. Kiểm tra cấu hình: {msg}", tone="crit"), store, dash.no_update
+
+    # p_org: ưu tiên giá trị nhập ở Bước 5, sau đó là Mặc định ở Bước 3.
+    # Nếu p_org bắt buộc mà cả hai đều trống thì chặn ngay ở bước kiểm tra,
+    # thay vì để pipeline báo SQL_NOT_ALLOWED khó hiểu ở bước 3.
+    p_org_input = str(_p_org).strip() if _p_org else ""
+    p_org_default = ""
+    for p in ((_config or {}).get("db_source", {}) or {}).get("params", []) or []:
+        if isinstance(p, dict) and p.get("name") == "p_org" and p.get("default"):
+            p_org_default = str(p.get("default")).strip()
+            break
+    _p_org = p_org_input or p_org_default or None
+    if _p_org_required(_config) and not _p_org:
+        msg = (
+            "SQL / bảng lọc dùng :p_org nhưng chưa có Mã đơn vị: nhập Mã đơn vị ở Bước 5 "
+            "(ví dụ BDP), hoặc đặt Mặc định cho p_org ở Bước 3, rồi bấm Chạy thử lại. "
+            "Để trống ở Bước 5 chỉ được khi SQL không dùng :p_org."
+        )
         store = _dry_run_store("validate", msg, p_from, p_to, _p_org, _config)
         return alert_box(f"Lỗi ở 1. Kiểm tra cấu hình: {msg}", tone="crit"), store, dash.no_update
 
@@ -3953,6 +4007,7 @@ def handle_run_dry_run(
         p_from=dt_from,
         p_to=dt_to,
         profile_code=default_profile.get("code"),
+        p_org=_p_org,
     )
     if not dry_res.ok or not dry_res.data:
         msg = f"Dry-run thất bại: {dry_res.message or dry_res.code}"
