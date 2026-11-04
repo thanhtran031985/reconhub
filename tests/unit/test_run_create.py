@@ -169,8 +169,8 @@ def test_precheck_invalid_range(seed_data, operator_ctx):
     assert res.code == ErrorCode.INVALID_RANGE
 
 
-def test_precheck_range_too_large(seed_data, operator_ctx):
-    # Template max_range_days = 93
+def test_precheck_long_range_no_longer_blocked(seed_data, operator_ctx):
+    # Không còn giới hạn số ngày: khoảng 100 ngày vẫn qua precheck
     p_from = datetime(2026, 1, 1, 0, 0, 0)
     p_to = p_from + timedelta(days=100)
 
@@ -182,8 +182,7 @@ def test_precheck_range_too_large(seed_data, operator_ctx):
             p_to=p_to,
         ),
     )
-    assert not res.ok
-    assert res.code == ErrorCode.RANGE_TOO_LARGE
+    assert res.ok
 
 
 def test_precheck_prod_confirm_required(seed_data, operator_ctx):

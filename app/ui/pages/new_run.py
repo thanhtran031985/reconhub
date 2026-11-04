@@ -55,7 +55,7 @@ def compute_quick_range(mode: str, now_dt: datetime | None = None) -> tuple[str,
 
 
 def validate_run_params(p_from_str: str | None, p_to_str: str | None) -> str | None:
-    """Kiểm tra hợp lệ khoảng thời gian: bắt buộc cả 2 đầu, Từ <= Đến, tối đa 93 ngày."""
+    """Kiểm tra hợp lệ khoảng thời gian: bắt buộc cả 2 đầu, Từ <= Đến, không giới hạn số ngày."""
     if not p_from_str or not str(p_from_str).strip():
         return "Nhập Từ ngày giờ."
     if not p_to_str or not str(p_to_str).strip():
@@ -67,9 +67,6 @@ def validate_run_params(p_from_str: str | None, p_to_str: str | None) -> str | N
         dt_to = datetime.fromisoformat(t_clean)
         if dt_from > dt_to:
             return "Từ ngày giờ phải nhỏ hơn hoặc bằng Đến ngày giờ."
-        delta_days = (dt_to - dt_from).total_seconds() / 86400
-        if delta_days > 93:
-            return "Khoảng tìm kiếm tối đa 93 ngày."
     except Exception:
         return "Định dạng ngày giờ không hợp lệ. Ví dụ: 2026-02-01 00:00:00."
     return None
@@ -572,7 +569,7 @@ def render_params_section(
             dmc.Checkbox(
                 id="new-run-apply-excel-time",
                 label="Áp dụng cùng khoảng thời gian cho dữ liệu Excel",
-                checked=True,
+                checked=False,
                 mb="md",
             ),
             *([precheck_node] if precheck_node is not None else []),

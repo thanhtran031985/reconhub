@@ -81,16 +81,10 @@ def precheck(
             )
 
         cfg_dict = tv["CONFIG_JSON"]
-        cfg = TemplateConfig.model_validate(cfg_dict)
-
-        # Kiểm tra max_range_days từ time_filter (mặc định 93 ngày)
-        max_days = cfg.time_filter.max_range_days if cfg.time_filter and cfg.time_filter.max_range_days else 93
-        delta_seconds = (params.p_to - params.p_from).total_seconds()
-        if delta_seconds > max_days * 86400:
-            raise ServiceError(
-                ErrorCode.RANGE_TOO_LARGE,
-                f"Khoảng thời gian ({int(delta_seconds / 86400)} ngày) vượt quá giới hạn tối đa cho phép của template ({max_days} ngày).",
-            )
+        # Chỉ validate cấu hình, không dùng max_range_days để chặn nữa:
+        # khoảng tìm kiếm không còn giới hạn số ngày, chỉ còn kiểm tra
+        # Từ <= Đến ở bước 2 trên.
+        TemplateConfig.model_validate(cfg_dict)
 
         # 4. Kiểm tra Data Source và xác nhận PROD
         ds_id = params.data_source_id or tv["DATA_SOURCE_ID"]

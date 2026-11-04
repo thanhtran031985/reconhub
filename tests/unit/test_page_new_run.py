@@ -114,10 +114,10 @@ def test_validate_run_params() -> None:
     err_rev = validate_run_params("2026-02-05T00:00:00", "2026-02-01T00:00:00")
     assert err_rev == "Từ ngày giờ phải nhỏ hơn hoặc bằng Đến ngày giờ."
 
-    # Quá 93 ngày
+    # Không còn giới hạn số ngày: khoảng 95 ngày vẫn hợp lệ
     f_94 = "2026-01-01T00:00:00"
     t_94 = (datetime(2026, 1, 1) + timedelta(days=95)).isoformat()
-    assert validate_run_params(f_94, t_94) == "Khoảng tìm kiếm tối đa 93 ngày."
+    assert validate_run_params(f_94, t_94) is None
 
     # Hợp lệ
     assert validate_run_params("2026-02-01T00:00:00", "2026-02-05T23:59:59") is None
@@ -326,6 +326,37 @@ def test_handle_progress_tick_unchanged_returns_no_update(monkeypatch) -> None:
     assert ui is dash.no_update
     assert state is dash.no_update
     assert redirect is dash.no_update
+
+
+def test_apply_excel_time_checkbox_defaults_unchecked() -> None:
+    params_ui = render_params_section(
+        template_info={
+            "code": "DTP",
+            "config": {"profiles": [{"code": "BY_INVOICE", "name": "Theo số hóa đơn", "is_default": True}]},
+        },
+        data_sources=[],
+        active_templates=[],
+    )
+    assert "new-run-apply-excel-time" in str(params_ui)
+    # Tìm component checkbox và kiểm tra checked=False
+    def _find(node):
+        if getattr(node, "id", None) == "new-run-apply-excel-time":
+            return node
+        for child in getattr(node, "children", []) or []:
+            if isinstance(child, (list, tuple)):
+                for c in child:
+                    found = _find(c)
+                    if found is not None:
+                        return found
+            else:
+                found = _find(child)
+                if found is not None:
+                    return found
+        return None
+
+    checkbox = _find(params_ui)
+    assert checkbox is not None
+    assert checkbox.checked is False
 
 
 def test_layout_renders_with_active_templates(new_run_env, monkeypatch) -> None:

@@ -109,12 +109,14 @@ def run_pipeline(
     excel_rows_invalid = len(invalid_df)
     derived_excel = derive(norm_excel, config.derived)
 
-    # 7. Lọc theo thời gian (Excel)
+    # 7. Lọc theo thời gian (Excel) — chỉ khi apply_range_excel bật.
+    # Mặc định pipeline giữ True để các caller trực tiếp cũ không đổi hành
+    # vi; đường chạy qua UI/service luôn truyền giá trị đã lưu của run.
     p_from = _parse_datetime(params_dict.get("p_from"))
     p_to = _parse_datetime(params_dict.get("p_to"))
 
     excel_rows_out_of_range = 0
-    if config.time_filter and p_from and p_to:
+    if config.time_filter and p_from and p_to and params_dict.get("apply_range_excel", True):
         tf_res = apply_time_filter(derived_excel, config.time_filter, p_from, p_to)
         derived_excel = tf_res.df
         excel_rows_out_of_range = tf_res.out_of_range_count
