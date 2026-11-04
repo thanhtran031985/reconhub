@@ -491,9 +491,12 @@ def _render_login_history_table(history_logs: Any) -> Any:
             html.Thead(
                 html.Tr(
                     [
-                        html.Th("Thời gian", style={"padding": "10px 14px"}),
-                        html.Th("Kết quả", style={"padding": "10px 14px"}),
-                        html.Th("IP", style={"padding": "10px 14px"}),
+                        # Mantine căn giữa th mặc định, trong khi td căn
+                        # trái, nên không ghi textAlign thì tiêu đề "Thời
+                        # gian" lệch khỏi cột dữ liệu bên dưới.
+                        html.Th("Thời gian", style={"padding": "10px 14px", "textAlign": "left"}),
+                        html.Th("Kết quả", style={"padding": "10px 14px", "textAlign": "left"}),
+                        html.Th("IP", style={"padding": "10px 14px", "textAlign": "left"}),
                     ],
                     style={"background": "var(--bg-subtle, #f8fafc)"},
                 )

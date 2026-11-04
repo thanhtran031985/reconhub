@@ -152,6 +152,9 @@ def test_login_history_table_looks_like_a_table() -> None:
     # Nền header + kẻ dòng: 2 thứ khiến bảng nhìn ra bảng.
     assert "var(--bg-subtle" in text
     assert "borderBottom" in text
+    # Tiêu đề căn trái cho khớp dữ liệu (Mantine mặc định căn giữa th).
+    header_row = table.children[0].children
+    assert all(th.style.get("textAlign") == "left" for th in header_row.children)
 
     empty = _render_login_history_table(SimpleNamespace(ok=True, data=[]))
     assert "Chưa có lịch sử đăng nhập" in str(empty)
