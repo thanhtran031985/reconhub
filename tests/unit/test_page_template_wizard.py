@@ -706,6 +706,41 @@ def test_step4_available_fields_only_mapped_db_columns() -> None:
     assert any("SERVICE_NAME" in e and "chưa map cột DB" in e for e in errs)
 
 
+def test_step4_left_fields_show_excel_db_mapping() -> None:
+    from app.ui.pages.template_wizard import _mapped_fields_info, _render_step_4_left_fields
+
+    cfg = {
+        "fields": [
+            {"name": "SO_HD", "label": "Số HĐ", "excel": "Số HĐ", "db": "INVOICE_NO", "type": "text"},
+            {"name": "INV_DATETIME", "label": "Ngày", "excel": "Ngày", "db": "INVOICE_DATE", "type": "datetime"},
+        ],
+        "derived": [
+            {
+                "name": "NGAY_HD",
+                "label": "Ngày HĐ",
+                "type": "date",
+                "expr": {"fn": "trunc_day", "args": ["INV_DATETIME"]},
+            },
+        ],
+        "profiles": [],
+    }
+    info = _mapped_fields_info(cfg)
+    by_name = {f["name"]: f for f in info}
+    assert by_name["SO_HD"]["excel"] == "Số HĐ"
+    assert by_name["SO_HD"]["db"] == "INVOICE_NO"
+    assert by_name["NGAY_HD"]["derived_from"] == ["INV_DATETIME"]
+    assert by_name["NGAY_HD"]["source_db"] == ["INVOICE_DATE"]
+
+    # Cột trái hiện mapping 2 dòng, không chỉ tên trường.
+    ui = _render_step_4_left_fields(info, ["SO_HD"], ["NGAY_HD"])
+    s = str(ui)
+    assert "Excel: Số HĐ → DB: INVOICE_NO" in s
+    assert "Dẫn xuất từ: INV_DATETIME → DB: INVOICE_DATE" in s
+    # Chìa khóa của trường trong Group by và sigma của trường là
+    # measure đều tô đậm (filled) ở profile đang xem.
+    assert s.count("filled") >= 2
+
+
 def test_default_profile_is_empty_not_guessed() -> None:
     from app.ui.pages.template_wizard import _build_default_profiles_from_fields
 

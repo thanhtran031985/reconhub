@@ -1296,7 +1296,15 @@ def _mapped_fields_info(config: dict[str, Any] | None) -> list[dict[str, Any]]:
         db_col = f.get("db")
         if name and f.get("excel") and db_col and str(db_col).strip() not in ("", "— Không có —"):
             mapped_names.add(name)
-            info.append({"name": name, "label": f.get("label", name), "type": f.get("type", "text")})
+            info.append(
+                {
+                    "name": name,
+                    "label": f.get("label", name),
+                    "type": f.get("type", "text"),
+                    "excel": f.get("excel"),
+                    "db": str(db_col).strip(),
+                }
+            )
     for d in cfg.get("derived", []) or []:
         if not isinstance(d, dict):
             continue
@@ -1318,7 +1326,28 @@ def _mapped_fields_info(config: dict[str, Any] | None) -> list[dict[str, Any]]:
             elif a and all(c.isupper() or c.isdigit() or c == "_" for c in a):
                 field_args.append(a)
         if all(a in mapped_names for a in field_args):
-            info.append({"name": name, "label": d.get("label", name), "type": d.get("type", "date")})
+            # Cột DB của trường nguồn đã map, để cột trái Bước 4 hiển
+            # thị được "dẫn xuất từ đâu, tính trên cột DB nào".
+            source_db: list[str] = []
+            for src in field_args:
+                src_rec = next(
+                    (f for f in cfg.get("fields", []) or [] if isinstance(f, dict) and f.get("name") == src),
+                    None,
+                )
+                if src_rec and src_rec.get("db") and str(src_rec["db"]).strip() not in ("", "— Không có —"):
+                    if str(src_rec["db"]).strip() not in source_db:
+                        source_db.append(str(src_rec["db"]).strip())
+            info.append(
+                {
+                    "name": name,
+                    "label": d.get("label", name),
+                    "type": d.get("type", "date"),
+                    "excel": None,
+                    "db": None,
+                    "derived_from": field_args,
+                    "source_db": source_db,
+                }
+            )
     return info
 
 
@@ -1658,59 +1687,96 @@ def _render_measures_table(
 def _render_step_4_left_fields(
     avail_fields_info: list[dict[str, Any]],
     current_group_by: list[str],
+    current_measure_fields: list[str] | None = None,
 ) -> Any:
-    """Dựng danh sách trường có sẵn ở cột trái Bước 4."""
+    """Dựng danh sách trường có sẵn ở cột trái Bước 4.
+
+    Mỗi trường thành 2 dòng: dòng 1 là tên + nhãn + kiểu + nút chìa
+    khóa / sigma (id giữ nguyên), dòng 2 là mapping Excel → DB để
+    người dùng theo dõi được trường này map sang cột DB nào. Trường
+    dẫn xuất không có cột DB trực tiếp nên dòng 2 ghi nguồn dẫn xuất
+    và cột DB của trường nguồn. Nút chìa khóa / sigma tô đậm khi
+    trường đang được dùng ở profile đang xem.
+    """
+    measure_fields = set(current_measure_fields or [])
     rows = []
     for f in avail_fields_info:
         f_name = f.get("name", "")
         f_label = f.get("label", f_name)
         f_type = f.get("type", "text")
         is_key = f_name in current_group_by
+        is_measure = f_name in measure_fields
+
+        derived_from = f.get("derived_from") or []
+        if derived_from:
+            source_db = f.get("source_db") or []
+            mapping_line = f"Dẫn xuất từ: {', '.join(derived_from)}" + (
+                f" → DB: {', '.join(source_db)}" if source_db else ""
+            )
+        else:
+            mapping_line = f"Excel: {f.get('excel') or '—'} → DB: {f.get('db') or '—'}"
 
         rows.append(
-            dmc.Group(
-                justify="space-between",
-                py=4,
-                children=[
-                    html.Div(
-                        [
-                            html.Span(f_name, className="mono", style={"fontSize": "13px", "fontWeight": 600}),
-                            html.Span(
-                                f" ({f_label})",
-                                style={"color": "var(--text-muted, #64748b)", "fontSize": "11px"},
-                            )
-                            if f_label != f_name
-                            else None,
-                        ]
-                    ),
+            html.Div(
+                [
                     dmc.Group(
-                        [
-                            dmc.Badge(f_type, size="xs", variant="light", color="gray"),
-                            dmc.Tooltip(
-                                label=f"Bật/Tắt {f_name} vào Group by",
-                                children=dmc.ActionIcon(
-                                    DashIconify(icon="lucide:key", width=14),
-                                    id={"type": "wizard-field-key-btn", "index": f_name},
-                                    size="xs",
-                                    variant="filled" if is_key else "subtle",
-                                    color="primary" if is_key else "gray",
-                                ),
+                        justify="space-between",
+                        children=[
+                            html.Div(
+                                [
+                                    html.Span(f_name, className="mono", style={"fontSize": "13px", "fontWeight": 600}),
+                                    html.Span(
+                                        f" ({f_label})",
+                                        style={"color": "var(--text-muted, #64748b)", "fontSize": "11px"},
+                                    )
+                                    if f_label != f_name
+                                    else None,
+                                ]
                             ),
-                            dmc.Tooltip(
-                                label=f"Thêm measure từ {f_name}",
-                                children=dmc.ActionIcon(
-                                    DashIconify(icon="lucide:sigma", width=14),
-                                    id={"type": "wizard-field-sigma-btn", "index": f_name},
-                                    size="xs",
-                                    variant="subtle",
-                                    color="blue",
-                                ),
+                            dmc.Group(
+                                [
+                                    dmc.Badge(
+                                        "Dẫn xuất" if derived_from else f_type,
+                                        size="xs",
+                                        variant="light",
+                                        color="violet" if derived_from else "gray",
+                                    ),
+                                    dmc.Tooltip(
+                                        label=f"Bật/Tắt {f_name} vào Group by",
+                                        children=dmc.ActionIcon(
+                                            DashIconify(icon="lucide:key", width=14),
+                                            id={"type": "wizard-field-key-btn", "index": f_name},
+                                            size="xs",
+                                            variant="filled" if is_key else "subtle",
+                                            color="primary" if is_key else "gray",
+                                        ),
+                                    ),
+                                    dmc.Tooltip(
+                                        label=f"Thêm measure từ {f_name}",
+                                        children=dmc.ActionIcon(
+                                            DashIconify(icon="lucide:sigma", width=14),
+                                            id={"type": "wizard-field-sigma-btn", "index": f_name},
+                                            size="xs",
+                                            variant="filled" if is_measure else "subtle",
+                                            color="blue",
+                                        ),
+                                    ),
+                                ],
+                                gap=4,
                             ),
                         ],
-                        gap=4,
+                    ),
+                    html.Div(
+                        mapping_line,
+                        className="mono",
+                        style={"color": "var(--text-muted, #64748b)", "fontSize": "11px", "marginTop": "2px"},
                     ),
                 ],
-                style={"borderBottom": "1px solid var(--border-subtle, #f1f5f9)"},
+                style={
+                    "borderBottom": "1px solid var(--border-subtle, #f1f5f9)",
+                    "paddingTop": "4px",
+                    "paddingBottom": "4px",
+                },
             )
         )
     if not rows:
@@ -1900,6 +1966,9 @@ def _render_step_4_right_panel(
                     html.Div(
                         id="wizard-measures-container",
                         children=_render_measures_table(measures, avail_field_names, main_m),
+                        # Bảng measures rộng; cột phải thu từ 9 xuống 8
+                        # nên cho cuộn ngang trong card thay vì tràn ra.
+                        style={"overflowX": "auto"},
                     ),
                     dmc.Grid(
                         gutter="md",
@@ -2002,17 +2071,20 @@ def render_step_4(
             dmc.Grid(
                 gutter="md",
                 children=[
-                    # Cột trái: Trường có sẵn
+                    # Cột trái: Trường có sẵn, dính ở đầu trang và cuộn
+                    # riêng để vẫn nhìn thấy khi cuộn cột phải xuống SQL.
                     dmc.GridCol(
-                        span=3,
+                        span=4,
+                        style={"position": "sticky", "top": 16, "alignSelf": "flex-start"},
                         children=dmc.Paper(
                             withBorder=True,
                             p="md",
                             radius="sm",
+                            style={"maxHeight": "calc(100vh - 32px)", "overflowY": "auto"},
                             children=[
                                 dmc.Title("Trường có sẵn", order=4, mb="xs"),
                                 dmc.Text(
-                                    "Chỉ các trường đã map cột DB ở Bước 3 (trường dẫn xuất tính từ trường đã map cũng được tính). Bấm chìa khóa để gộp, sigma để thêm measure.",
+                                    "Chỉ các trường đã map cột DB ở Bước 3 (trường dẫn xuất tính từ trường đã map cũng được tính). Dòng dưới mỗi trường là mapping Excel → DB. Chìa khóa / sigma tô đậm khi trường đang dùng ở profile đang xem.",
                                     size="xs",
                                     c="dimmed",
                                     mb="sm",
@@ -2020,7 +2092,13 @@ def render_step_4(
                                 html.Div(
                                     id="wizard-step4-left-fields",
                                     children=_render_step_4_left_fields(
-                                        avail_fields_info, active_prof.get("group_by", [])
+                                        avail_fields_info,
+                                        active_prof.get("group_by", []),
+                                        [
+                                            m.get("field")
+                                            for m in active_prof.get("measures", [])
+                                            if isinstance(m, dict)
+                                        ],
                                     ),
                                 ),
                             ],
@@ -2028,7 +2106,7 @@ def render_step_4(
                     ),
                     # Cột phải: Group by, Measures & SQL gộp
                     dmc.GridCol(
-                        span=9,
+                        span=8,
                         children=html.Div(
                             id="wizard-step4-right-content",
                             children=_render_step_4_right_panel(active_prof, avail_field_names, config, sample_data),
@@ -4440,7 +4518,11 @@ def handle_step4_interaction(
     cfg["profiles"] = profiles
 
     right_ui = _render_step_4_right_panel(active_prof, avail_field_names, cfg, sample_data)
-    left_ui = _render_step_4_left_fields(avail_fields_info, active_prof.get("group_by", []))
+    left_ui = _render_step_4_left_fields(
+        avail_fields_info,
+        active_prof.get("group_by", []),
+        [m.get("field") for m in active_prof.get("measures", []) if isinstance(m, dict)],
+    )
 
     tab_list = [
         dmc.TabsTab(p.get("name", p.get("code", "Profile")), value=p.get("code", "BY_INVOICE")) for p in profiles
