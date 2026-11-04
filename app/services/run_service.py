@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
-from sqlalchemy import desc, func, select
+from sqlalchemy import delete, desc, func, select
 
 from app.core.context import Ctx, Role, require_role
 from app.db.engine import get_recon_engine
@@ -860,6 +860,18 @@ def dry_run(
         raise ServiceError(ErrorCode.INTERNAL_ERROR, "Không thể lấy thông tin run đã tạo.")
     run_id = int(create_res.data["run_id"])
 
+    # 1b. Gỡ run tạm khỏi hàng đợi NGAY trước khi chạy, để worker nền
+    # không nhận nó. Worker quét RECON_RUN_QUEUE mỗi 2 giây và chỉ nhận
+    # STATUS='READY'; nếu để lại, worker sẽ chạy cùng run_id này với
+    # persist=True (ghi RECON_RUN_SUMMARY/RECON_RESULT_ROW) trong khi
+    # wizard đang chạy nó với persist=False. Hậu quả đã gặp thật:
+    # hai bên cùng gọi load_excel_to_temp gây UNIQUE constraint trên
+    # RECON_EXCEL_LOAD, và bước dọn dẹp cuối dry-run xóa RECON_RUN
+    # bị FOREIGN KEY vì worker đã ghi dòng kết quả cho run đó.
+    engine = get_recon_engine()
+    with engine.begin() as conn:
+        conn.execute(recon_run_queue.delete().where(recon_run_queue.c.RUN_ID == run_id))
+
     # 2. Thực thi run với cờ persist=False
     from app.services.run_executor import execute_run
 
@@ -872,7 +884,6 @@ def dry_run(
 
     summary_dict = exec_res.get("summary") or {}
 
-    engine = get_recon_engine()
     # 3. Cập nhật SAMPLE_FILE_ID vào template version và dọn dẹp run tạm
     with engine.begin() as conn:
         conn.execute(
@@ -883,7 +894,16 @@ def dry_run(
             )
             .values(SAMPLE_FILE_ID=file_id)
         )
-        # Dọn dẹp run tạm khỏi hàng đợi và bảng run vì dry-run không lưu kết quả
+        # Dọn dẹp run tạm khỏi hàng đợi và bảng run vì dry-run không lưu kết quả.
+        # Xóa dòng con trước (summary/result/invalid) rồi mới xóa run,
+        # để không bị FOREIGN KEY nếu vì lý do nào đó đã có dòng kết
+        # quả cho run tạm này (ví dụ worker đã kịp nhận job trước khi
+        # bản sửa ở bước 1b được áp, hoặc một lần chạy persist=True
+        # cùng run_id trong tương lai).
+        conn.execute(delete(recon_run_summary).where(recon_run_summary.c.RUN_ID == run_id))
+        conn.execute(delete(recon_result_diff).where(recon_result_diff.c.RUN_ID == run_id))
+        conn.execute(delete(recon_result_row).where(recon_result_row.c.RUN_ID == run_id))
+        conn.execute(delete(recon_invalid_row).where(recon_invalid_row.c.RUN_ID == run_id))
         conn.execute(recon_run_queue.delete().where(recon_run_queue.c.RUN_ID == run_id))
         conn.execute(recon_run.delete().where(recon_run.c.ID == run_id))
 
