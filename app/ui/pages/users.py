@@ -297,117 +297,129 @@ def layout() -> Any:
                 title="Thêm người dùng",
                 size=540,
                 opened=False,
+                # Drawer thành cột flex để chân nút luôn ở đáy màn hình:
+                # nội dung cuộn trong vùng flex:1, chân nút không cuộn theo
+                # và không phụ thuộc nội dung dài hay ngắn (ví dụ có hay
+                # không có lịch sử đăng nhập). Chỉ áp cho drawer này, không
+                # đổi drawer_right dùng chung.
+                styles={
+                    "content": {"display": "flex", "flexDirection": "column"},
+                    "body": {"flex": "1", "display": "flex", "flexDirection": "column", "minHeight": 0},
+                },
                 children=html.Div(
                     [
-                        dcc.Store(id="users-drawer-state-store", data={"mode": "create", "user_id": None}),
-                        form_field(
-                            dmc.TextInput(
-                                id="users-input-username",
-                                placeholder="vd nguyenvana",
-                                className="mono",
-                            ),
-                            label="Tên đăng nhập",
-                            hint="Chữ thường, số, dấu chấm, gạch dưới. Không đổi được sau khi tạo.",
-                            required=True,
-                        ),
-                        html.Div(style={"height": 12}),
-                        form_field(
-                            dmc.TextInput(id="users-input-fullname", placeholder="vd Nguyễn Văn A"),
-                            label="Họ tên",
-                            required=True,
-                        ),
-                        html.Div(style={"height": 12}),
-                        form_field(
-                            dmc.TextInput(id="users-input-email", placeholder="vd a.nguyen@example.com"),
-                            label="Email",
-                        ),
-                        html.Div(style={"height": 12}),
-                        form_field(
-                            dmc.CheckboxGroup(
-                                id="users-input-roles",
-                                value=["VIEWER"],
-                                children=dmc.Group(
-                                    [
-                                        dmc.Checkbox(label="Admin", value="ADMIN"),
-                                        dmc.Checkbox(label="Template Owner", value="TEMPLATE_OWNER"),
-                                        dmc.Checkbox(label="Operator", value="OPERATOR"),
-                                        dmc.Checkbox(label="Viewer", value="VIEWER"),
-                                    ],
-                                    gap="md",
-                                    mt=4,
-                                ),
-                            ),
-                            label="Vai trò",
-                            required=True,
-                        ),
-                        # Khối mật khẩu (chỉ khi tạo mới)
                         html.Div(
-                            id="users-create-pw-box",
-                            children=[
-                                html.Div(style={"height": 12}),
+                            [
+                                dcc.Store(id="users-drawer-state-store", data={"mode": "create", "user_id": None}),
                                 form_field(
-                                    dmc.PasswordInput(id="users-input-password"),
-                                    label="Mật khẩu ban đầu",
-                                    hint="Không được để trống.",
+                                    dmc.TextInput(
+                                        id="users-input-username",
+                                        placeholder="vd nguyenvana",
+                                        className="mono",
+                                    ),
+                                    label="Tên đăng nhập",
+                                    hint="Chữ thường, số, dấu chấm, gạch dưới. Không đổi được sau khi tạo.",
                                     required=True,
                                 ),
-                                dmc.Checkbox(
-                                    id="users-input-must-change-pw",
-                                    label="Bắt đổi mật khẩu ở lần đăng nhập đầu",
-                                    checked=True,
-                                    mt="sm",
+                                html.Div(style={"height": 12}),
+                                form_field(
+                                    dmc.TextInput(id="users-input-fullname", placeholder="vd Nguyễn Văn A"),
+                                    label="Họ tên",
+                                    required=True,
                                 ),
-                            ],
-                        ),
-                        # Khối trạng thái & lịch sử đăng nhập (chỉ khi sửa)
-                        html.Div(
-                            id="users-edit-status-box",
-                            style={"display": "none"},
-                            children=[
-                                html.Div(style={"height": 16}),
-                                dmc.Text("Trạng thái tài khoản", size="sm", fw=600),
-                                dmc.Group(
-                                    [
-                                        dmc.Button(
-                                            "Tắt tài khoản",
-                                            id="users-toggle-active-btn",
-                                            color="red",
-                                            variant="light",
-                                            size="sm",
-                                            leftSection=DashIconify(icon="lucide:lock", width=14),
+                                html.Div(style={"height": 12}),
+                                form_field(
+                                    dmc.TextInput(id="users-input-email", placeholder="vd a.nguyen@example.com"),
+                                    label="Email",
+                                ),
+                                html.Div(style={"height": 12}),
+                                form_field(
+                                    dmc.CheckboxGroup(
+                                        id="users-input-roles",
+                                        value=["VIEWER"],
+                                        children=dmc.Group(
+                                            [
+                                                dmc.Checkbox(label="Admin", value="ADMIN"),
+                                                dmc.Checkbox(label="Template Owner", value="TEMPLATE_OWNER"),
+                                                dmc.Checkbox(label="Operator", value="OPERATOR"),
+                                                dmc.Checkbox(label="Viewer", value="VIEWER"),
+                                            ],
+                                            gap="md",
+                                            mt=4,
+                                        ),
+                                    ),
+                                    label="Vai trò",
+                                    required=True,
+                                ),
+                                # Khối mật khẩu (chỉ khi tạo mới)
+                                html.Div(
+                                    id="users-create-pw-box",
+                                    children=[
+                                        html.Div(style={"height": 12}),
+                                        form_field(
+                                            dmc.PasswordInput(id="users-input-password"),
+                                            label="Mật khẩu ban đầu",
+                                            hint="Không được để trống.",
+                                            required=True,
+                                        ),
+                                        dmc.Checkbox(
+                                            id="users-input-must-change-pw",
+                                            label="Bắt đổi mật khẩu ở lần đăng nhập đầu",
+                                            checked=True,
+                                            mt="sm",
                                         ),
                                     ],
-                                    mt="xs",
                                 ),
-                                dmc.Box(id="users-toggle-error-msg", mt="xs"),
-                                html.Div(style={"height": 16}),
-                                dmc.Text("Lịch sử đăng nhập gần nhất", size="sm", fw=600),
-                                dmc.Box(id="users-history-container", mt="xs"),
+                                # Khối trạng thái & lịch sử đăng nhập (chỉ khi sửa)
+                                html.Div(
+                                    id="users-edit-status-box",
+                                    style={"display": "none"},
+                                    children=[
+                                        html.Div(style={"height": 16}),
+                                        dmc.Text("Trạng thái tài khoản", size="sm", fw=600),
+                                        dmc.Group(
+                                            [
+                                                dmc.Button(
+                                                    "Tắt tài khoản",
+                                                    id="users-toggle-active-btn",
+                                                    color="red",
+                                                    variant="light",
+                                                    size="sm",
+                                                    leftSection=DashIconify(icon="lucide:lock", width=14),
+                                                ),
+                                            ],
+                                            mt="xs",
+                                        ),
+                                        dmc.Box(id="users-toggle-error-msg", mt="xs"),
+                                        html.Div(style={"height": 16}),
+                                        dmc.Text("Lịch sử đăng nhập gần nhất", size="sm", fw=600),
+                                        dmc.Box(id="users-history-container", mt="xs"),
+                                    ],
+                                ),
+                                dmc.Box(id="users-form-error-alert", mt="md"),
                             ],
+                            style={"flex": "1", "overflowY": "auto", "minHeight": 0},
                         ),
-                        dmc.Box(id="users-form-error-alert", mt="md"),
-                        # Chân drawer dính đáy: cuộn nội dung drawer bao nhiêu
-                        # thì nút Hủy/Lưu vẫn hiện, không phải cuộn xuống
-                        # cuối mới thấy (đặc biệt khi drawer Sửa còn thêm
-                        # cả bảng lịch sử đăng nhập phía trên).
+                        # Chân drawer cố định ở đáy màn hình, không còn phụ
+                        # thuộc nội dung dài hay ngắn: sticky cũ chỉ giữ nút
+                        # khi có cuộn, còn nội dung ngắn thì nút nằm ngay sau
+                        # nội dung thay vì ở đáy.
                         dmc.Group(
                             [
                                 button_subtle("Hủy", id="users-drawer-cancel-btn"),
                                 button_primary("Lưu", id="users-drawer-save-btn"),
                             ],
                             justify="flex-end",
-                            mt="md",
                             pt="md",
                             pb="xs",
                             style={
-                                "position": "sticky",
-                                "bottom": 0,
+                                "flexShrink": 0,
                                 "background": "var(--mantine-color-body)",
                                 "borderTop": "1px solid var(--border-subtle, #e2e8f0)",
-                                "zIndex": 1,
                             },
                         ),
-                    ]
+                    ],
+                    style={"display": "flex", "flexDirection": "column", "height": "100%"},
                 ),
             ),
             # Modal Đặt lại mật khẩu

@@ -176,18 +176,72 @@ def _find_parent_of(node: object, target_id: str) -> object | None:
     return None
 
 
-def test_users_drawer_save_cancel_buttons_are_sticky(users_env, monkeypatch):
+def _find_node(node: object, target_id: str) -> object | None:
+    if getattr(node, "id", None) == target_id:
+        return node
+    children = getattr(node, "children", None)
+    if isinstance(children, list):
+        for child in children:
+            found = _find_node(child, target_id)
+            if found is not None:
+                return found
+    elif children is not None and not isinstance(children, str):
+        return _find_node(children, target_id)
+    return None
+
+
+def _find_parent_of_obj(node: object, target_obj: object) -> object | None:
+    children = getattr(node, "children", None)
+    if isinstance(children, list):
+        if any(child is target_obj for child in children):
+            return node
+        for child in children:
+            found = _find_parent_of_obj(child, target_obj)
+            if found is not None:
+                return found
+    elif children is not None and not isinstance(children, str):
+        if children is target_obj:
+            return node
+        return _find_parent_of_obj(children, target_obj)
+    return None
+
+
+def test_users_drawer_save_cancel_buttons_are_fixed_at_bottom(users_env, monkeypatch):
+    # Chân nút phải ở đáy màn hình dù nội dung dài hay ngắn (có hay
+    # không có lịch sử đăng nhập): drawer là cột flex, nội dung cuộn
+    # riêng trong vùng flex:1, chân nút không co lại. Sticky cũ không
+    # đủ vì nội dung ngắn thì không có cuộn, nút nằm ngay sau nội dung.
     admin_ctx = Ctx(user_id=1, username="admin", full_name="Quản trị viên", roles=[Role.ADMIN])
     monkeypatch.setattr("app.ui.pages.users.get_current_ctx", lambda: admin_ctx)
 
     from app.ui.pages.users import layout
 
     content = layout()
+    drawer = _find_node(content, "users-drawer")
+    assert drawer is not None
+    styles = getattr(drawer, "styles", None) or {}
+    assert styles.get("content", {}).get("display") == "flex"
+    assert styles.get("content", {}).get("flexDirection") == "column"
+    assert styles.get("body", {}).get("flex") == "1"
+
     footer = _find_parent_of(content, "users-drawer-save-btn")
     assert footer is not None
-    style = getattr(footer, "style", None) or {}
-    assert style.get("position") == "sticky"
-    assert style.get("bottom") == 0
+    footer_style = getattr(footer, "style", None) or {}
+    assert footer_style.get("flexShrink") == 0
+    assert "borderTop" in footer_style
+
+    outer = _find_parent_of_obj(content, footer)
+    assert outer is not None
+    # Cha của chân nút là cột flex cao 100% của drawer, vùng nội dung
+    # là con đầu tiên, cuộn riêng.
+    outer_style = getattr(outer, "style", None) or {}
+    assert outer_style.get("display") == "flex"
+    assert outer_style.get("flexDirection") == "column"
+    assert outer_style.get("height") == "100%"
+    scroll_area = outer.children[0]
+    scroll_style = getattr(scroll_area, "style", None) or {}
+    assert scroll_style.get("flex") == "1"
+    assert scroll_style.get("overflowY") == "auto"
 
 
 def test_users_forbidden_for_non_admin(users_env, monkeypatch):
