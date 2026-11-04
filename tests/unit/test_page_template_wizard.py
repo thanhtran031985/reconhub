@@ -540,3 +540,107 @@ def test_step3_sql_input_change() -> None:
     cfg = {"db_source": {"kind": "sql", "sql": "SELECT 1"}}
     updated = handle_sql_input_change("SELECT 2 FROM DUAL", cfg)
     assert updated["db_source"]["sql"] == "SELECT 2 FROM DUAL"
+
+
+def test_validate_wizard_step_blocks_each_step() -> None:
+    from app.ui.pages.template_wizard import validate_wizard_step
+
+    assert validate_wizard_step({}, 0)
+    assert validate_wizard_step({"template_code": "T1", "name": "Test", "fields": []}, 0)
+    assert (
+        validate_wizard_step(
+            {"template_code": "T1", "name": "Test", "fields": [{"name": "AMOUNT", "excel": "AMOUNT"}]},
+            1,
+        )
+        == []
+    )
+    assert validate_wizard_step(
+        {"fields": [{"name": "AMOUNT", "excel": "AMOUNT"}, {"name": "AMOUNT", "excel": "AMOUNT2"}]},
+        1,
+    )
+    assert validate_wizard_step({"db_source": {"kind": "table", "table": "", "filters": []}}, 2)
+    assert (
+        validate_wizard_step(
+            {
+                "db_source": {
+                    "source_id": "TEST_DS",
+                    "kind": "table",
+                    "table": "SCHEMA.TBL",
+                    "filters": [
+                        {"param": "p_from", "column": "CREATED_AT"},
+                        {"param": "p_to", "column": "CREATED_AT"},
+                    ],
+                }
+            },
+            2,
+        )
+        == []
+    )
+    assert validate_wizard_step({"profiles": [{"code": "P1", "group_by": [], "measures": []}]}, 3)
+
+
+def test_step2_field_edits_save_and_rename_propagates() -> None:
+    from app.ui.pages.template_wizard import handle_step2_field_edits
+
+    cfg = {
+        "fields": [
+            {"name": "AMOUNT", "label": "Tiền", "excel": "AMOUNT", "type": "number"},
+            {"name": "QTY", "label": "SL", "excel": "QTY", "type": "number"},
+        ],
+        "derived": [],
+        "profiles": [
+            {
+                "code": "P1",
+                "group_by": ["AMOUNT"],
+                "measures": [{"name": "M1", "field": "AMOUNT"}],
+                "main_measure": "M1",
+            }
+        ],
+    }
+    updated = handle_step2_field_edits(
+        ["TOTAL_AMT", "QTY"],
+        ["Tổng tiền", "SL"],
+        ["number", "number"],
+        [True, False],
+        [],
+        [],
+        [],
+        cfg,
+    )
+    assert updated["fields"][0]["name"] == "TOTAL_AMT"
+    assert updated["fields"][0]["label"] == "Tổng tiền"
+    assert updated["fields"][1]["excel"] is None
+    assert updated["fields"][1]["_unused_excel"] == "QTY"
+    assert updated["profiles"][0]["group_by"] == ["TOTAL_AMT"]
+    assert updated["profiles"][0]["measures"][0]["field"] == "TOTAL_AMT"
+
+
+def test_step3_no_dtp_fallback_for_empty_config(wizard_env, monkeypatch) -> None:
+    from app.core.context import Ctx, Role
+    from app.ui.pages.template_wizard import build_default_config, render_step_3
+
+    owner_ctx = Ctx(user_id=1, username="owner", full_name="Owner", roles=[Role.TEMPLATE_OWNER])
+    monkeypatch.setattr("app.ui.pages.template_wizard.get_current_ctx", lambda: owner_ctx)
+    ui = render_step_3(build_default_config())
+    s = str(ui)
+    assert "FACT_BILL" not in s
+    assert "INVOICE_DATE" not in s
+    assert "Chưa chọn bảng nguồn" in s or "Chưa có thông tin cột nguồn" in s
+
+
+def test_dry_run_no_longer_returns_simulated_numbers() -> None:
+    import dash
+
+    from app.ui.pages.template_wizard import handle_run_dry_run
+
+    err, data, _meta = handle_run_dry_run(
+        1,
+        "2026-02-01 00:00:00",
+        "2026-02-05 23:59:59",
+        "",
+        {},
+        {},
+        None,
+    )
+    assert "190" not in str(data)
+    assert data is dash.no_update or (data or {}).get("dry_run_ok") is not True

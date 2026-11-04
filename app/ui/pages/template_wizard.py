@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,7 @@ from app.schemas.template_config import FileSpec, TemplateConfig
 from app.services.data_source import options_data_sources
 from app.services.diagram import generate_all_diagrams
 from app.services.file_service import upload_file
+from app.services.run_service import dry_run as service_dry_run
 from app.services.template import activate_version, describe_source, get_template, save_draft_template
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
@@ -331,10 +334,18 @@ def render_step_2(
         sample_v = f.get("sample_value") or (f.get("sample_values")[0] if f.get("sample_values") else "—")
         tr = html.Tr(
             [
-                html.Td(dmc.Checkbox(checked=is_used, size="xs"), style={"padding": "8px 10px"}),
+                html.Td(
+                    dmc.Checkbox(
+                        id={"type": "wizard-field-use", "index": idx},
+                        checked=is_used,
+                        size="xs",
+                    ),
+                    style={"padding": "8px 10px"},
+                ),
                 html.Td(html.B(f_excel or f_name), style={"padding": "8px 10px"}),
                 html.Td(
                     dmc.TextInput(
+                        id={"type": "wizard-field-name", "index": idx},
                         value=f_name,
                         size="xs",
                         className="mono",
@@ -344,11 +355,17 @@ def render_step_2(
                     style={"padding": "8px 10px"},
                 ),
                 html.Td(
-                    dmc.TextInput(value=f_label, size="xs", style={"width": 150}),
+                    dmc.TextInput(
+                        id={"type": "wizard-field-label", "index": idx},
+                        value=f_label,
+                        size="xs",
+                        style={"width": 150},
+                    ),
                     style={"padding": "8px 10px"},
                 ),
                 html.Td(
                     dmc.Select(
+                        id={"type": "wizard-field-type", "index": idx},
                         value=f_type,
                         size="xs",
                         data=[
@@ -376,7 +393,7 @@ def render_step_2(
         rows.append(tr)
 
     # Derived fields
-    for d in derived_list:
+    for d_idx, d in enumerate(derived_list):
         d_name = d.get("name", "")
         d_label = d.get("label", "")
         d_type = d.get("type", "date")
@@ -386,15 +403,27 @@ def render_step_2(
                 html.Td(dmc.Checkbox(checked=True, size="xs"), style={"padding": "8px 10px"}),
                 html.Td(html.B(expr_str), style={"padding": "8px 10px"}),
                 html.Td(
-                    dmc.TextInput(value=d_name, size="xs", className="mono", style={"width": 150}),
+                    dmc.TextInput(
+                        id={"type": "wizard-derived-name", "index": d_idx},
+                        value=d_name,
+                        size="xs",
+                        className="mono",
+                        style={"width": 150},
+                    ),
                     style={"padding": "8px 10px"},
                 ),
                 html.Td(
-                    dmc.TextInput(value=d_label, size="xs", style={"width": 150}),
+                    dmc.TextInput(
+                        id={"type": "wizard-derived-label", "index": d_idx},
+                        value=d_label,
+                        size="xs",
+                        style={"width": 150},
+                    ),
                     style={"padding": "8px 10px"},
                 ),
                 html.Td(
                     dmc.Select(
+                        id={"type": "wizard-derived-type", "index": d_idx},
                         value=d_type,
                         size="xs",
                         data=[
@@ -462,20 +491,6 @@ def render_step_2(
             ),
         ],
     )
-
-
-DEFAULT_DTP_COLUMNS: list[tuple[str, str]] = [
-    ("INVOICE_NO", "VARCHAR2(30)"),
-    ("INVOICE_DATE", "DATE"),
-    ("COLLECT_POINT", "VARCHAR2(20)"),
-    ("TXN_ID", "VARCHAR2(80)"),
-    ("PIN_NO", "VARCHAR2(30)"),
-    ("SERVICE_CODE", "VARCHAR2(10)"),
-    ("QUANTITY", "NUMBER(12,2)"),
-    ("AMOUNT", "NUMBER(18,2)"),
-    ("INVOICE_STATUS", "VARCHAR2(20)"),
-    ("ORG_CODE", "VARCHAR2(10)"),
-]
 
 
 def _resolve_ds_id_and_schema(ctx: Any, ds_name: str | None) -> tuple[int | None, str]:
@@ -681,22 +696,22 @@ def _render_db_mapping_table(
 
 def _render_filter_params_table(
     db_cols_chips: list[tuple[str, str]],
-    p_from_col: str = "INVOICE_DATE",
-    p_to_col: str = "INVOICE_DATE",
-    p_org_col: str = "ORG_CODE",
-    p_org_default: str = "BDP",
+    p_from_col: str = "",
+    p_to_col: str = "",
+    p_org_col: str = "",
+    p_org_default: str = "",
     extra_filters: list[dict[str, Any]] | None = None,
 ) -> Any:
     """Hiển thị bảng tham số lọc Từ ngày giờ, Đến ngày giờ, Đơn vị và các tham số bổ sung."""
-    col_names = [c[0] for c in db_cols_chips] if db_cols_chips else ["INVOICE_DATE", "ORG_CODE"]
+    col_names = [c[0] for c in db_cols_chips] if db_cols_chips else []
 
     date_cols = [c[0] for c in db_cols_chips if "DATE" in c[1].upper() or "TIME" in c[1].upper()]
     if not date_cols:
         date_cols = col_names
 
-    sel_p_from = p_from_col if p_from_col in col_names else (date_cols[0] if date_cols else "INVOICE_DATE")
-    sel_p_to = p_to_col if p_to_col in col_names else (date_cols[0] if date_cols else "INVOICE_DATE")
-    sel_p_org = p_org_col if p_org_col in col_names else (col_names[0] if col_names else "ORG_CODE")
+    sel_p_from = p_from_col if p_from_col in col_names else None
+    sel_p_to = p_to_col if p_to_col in col_names else None
+    sel_p_org = p_org_col if p_org_col in col_names else None
 
     col_select_data = [{"label": c, "value": c} for c in col_names]
     op_select_data = [
@@ -869,30 +884,31 @@ def _render_filter_params_table(
 def _render_generated_sql(
     table_name: str | None,
     fields: list[dict[str, Any]],
-    p_from_col: str = "INVOICE_DATE",
-    p_to_col: str = "INVOICE_DATE",
-    p_org_col: str = "ORG_CODE",
+    p_from_col: str = "",
+    p_to_col: str = "",
+    p_org_col: str = "",
     extra_filters: list[dict[str, Any]] | None = None,
 ) -> str:
     """Sinh câu truy vấn SELECT mẫu để xem trước."""
     db_cols = [f["db"] for f in fields if f.get("db")]
-    if not db_cols:
-        db_cols = ["INVOICE_NO", "INVOICE_DATE", "AMOUNT"]
+    if not table_name or not db_cols:
+        return "-- Chưa chọn bảng nguồn hoặc chưa map cột DB, chưa sinh được câu SELECT."
 
     quoted_cols = [f'"{c}"' for c in db_cols]
     select_str = ",\n       ".join(quoted_cols)
 
-    tbl = table_name or "DATARAW.FACT_BILL"
+    tbl = table_name
     parts = tbl.split(".")
     if len(parts) == 2:
         from_str = f'"{parts[0]}"."{parts[1]}"'
     else:
         from_str = f'"{tbl}"'
 
-    where_clauses = [
-        f'"{p_from_col}" >= :p_from',
-        f'"{p_to_col}" <= :p_to',
-    ]
+    where_clauses: list[str] = []
+    if p_from_col:
+        where_clauses.append(f'"{p_from_col}" >= :p_from')
+    if p_to_col:
+        where_clauses.append(f'"{p_to_col}" <= :p_to')
     if p_org_col:
         where_clauses.append(f'"{p_org_col}" = :p_org')
 
@@ -904,6 +920,8 @@ def _render_generated_sql(
             if col and param:
                 where_clauses.append(f'"{col}" {op} :{param}')
 
+    if not where_clauses:
+        return f"SELECT {select_str}\nFROM   {from_str}"
     where_str = "\nAND    ".join(where_clauses)
     return f"SELECT {select_str}\nFROM   {from_str}\nWHERE  {where_str}"
 
@@ -914,15 +932,10 @@ def render_step_3(
 ) -> Any:
     """Dựng giao diện Bước 3: Nguồn dữ liệu DB & Điều kiện lọc."""
     db_spec = config.get("db_source", {})
-    source_id = db_spec.get("source_id", "GMD_DEV")
+    source_id = db_spec.get("source_id", "")
     mode_val = db_spec.get("kind", "table")
-    table_name = db_spec.get("table", "DATARAW.FACT_BILL")
-    sql_val = db_spec.get("sql") or (
-        "SELECT INVOICE_NO, INVOICE_DATE, AMOUNT\n"
-        "FROM   DATARAW.FACT_BILL\n"
-        "WHERE  INVOICE_DATE >= :p_from\n"
-        "AND    INVOICE_DATE <= :p_to"
-    )
+    table_name = db_spec.get("table", "")
+    sql_val = db_spec.get("sql") or ""
     pushdown = db_spec.get("pushdown_aggregate", True)
 
     # Nạp danh sách Data Sources đang hoạt động từ DB
@@ -942,20 +955,15 @@ def render_step_3(
         except Exception:
             pass
 
-    if not ds_options:
-        ds_options = [{"label": f"{source_id} (DEV) – chỉ đọc", "value": source_id}]
+    selected_ds = source_id if source_id in [o["value"] for o in ds_options] else None
 
-    selected_ds = source_id
-    if selected_ds not in [o["value"] for o in ds_options]:
-        selected_ds = ds_options[0]["value"]
+    if selected_ds is None:
+        ds_id, default_schema, table_options = None, "", []
+    else:
+        ds_id, default_schema = _resolve_ds_id_and_schema(ctx, selected_ds)
+        table_options = _fetch_table_options(ds_id, default_schema)
 
-    ds_id, default_schema = _resolve_ds_id_and_schema(ctx, selected_ds)
-    table_options = _fetch_table_options(ds_id, default_schema)
-
-    # Ensure table_name is in table_options
-    if not table_name:
-        fact_bill = next((t["value"] for t in table_options if "FACT_BILL" in t["value"]), None)
-        table_name = fact_bill or (table_options[0]["value"] if table_options else "DATARAW.FACT_BILL")
+    # Không tự chọn bảng: người dùng phải chọn bảng/view thật trong danh sách.
 
     if table_name and not any(t["value"] == table_name for t in table_options):
         table_options.insert(0, {"label": f"{table_name} (Hiện tại)", "value": table_name})
@@ -985,7 +993,7 @@ def render_step_3(
             pass
 
     if not db_cols_chips:
-        db_cols_chips = list(DEFAULT_DTP_COLUMNS)
+        db_cols_chips = []
 
     # Tự động match các trường nếu chưa map
     if fields and not any(f.get("db") for f in fields):
@@ -995,10 +1003,10 @@ def render_step_3(
     # Filter params
     filters = db_spec.get("filters", [])
     extra_filters = db_spec.get("extra_filters", [])
-    p_from_col = "INVOICE_DATE"
-    p_to_col = "INVOICE_DATE"
-    p_org_col = "ORG_CODE"
-    p_org_default = "BDP"
+    p_from_col = ""
+    p_to_col = ""
+    p_org_col = ""
+    p_org_default = ""
     for flt in filters:
         if flt.get("param") == "p_from":
             p_from_col = flt.get("column", p_from_col)
@@ -1223,7 +1231,7 @@ def render_step_3(
                                 dmc.Title("Lọc dữ liệu Excel theo cùng khoảng", order=4, mb="sm"),
                                 alert_box(
                                     "Từ/Đến ngày giờ do người dùng nhập khi chạy, không lấy từ file. "
-                                    "Cùng khoảng áp cho DB (cột INVOICE_DATE) và Excel.",
+                                    "Cùng khoảng áp cho DB (cột lọc Từ/Đến) và Excel.",
                                     tone="info",
                                 ),
                                 html.Div(style={"height": 12}),
@@ -1231,10 +1239,16 @@ def render_step_3(
                                     id="wizard-excel-time-field",
                                     label="Trường thời gian lọc Excel",
                                     data=[
-                                        {"label": "INV_DATETIME", "value": "INV_DATETIME"},
-                                        {"label": "Không lọc Excel", "value": "NONE"},
-                                    ],
-                                    value="INV_DATETIME",
+                                        {"label": f.get("name", ""), "value": f.get("name", "")}
+                                        for f in fields
+                                        if f.get("type") in ("date", "datetime")
+                                    ]
+                                    + [{"label": "Không lọc Excel", "value": "NONE"}],
+                                    value=(
+                                        (config.get("time_filter") or {}).get("excel_field")
+                                        if config.get("time_filter")
+                                        else "NONE"
+                                    ),
                                     mb="sm",
                                 ),
                                 dmc.Select(
@@ -1245,7 +1259,14 @@ def render_step_3(
                                         {"label": "Tháng trước", "value": "last_month"},
                                         {"label": "Để trống", "value": "none"},
                                     ],
-                                    value="yesterday",
+                                    value=next(
+                                        (
+                                            p.get("suggest", "yesterday")
+                                            for p in db_spec.get("params", [])
+                                            if p.get("name") == "p_from" and p.get("suggest")
+                                        ),
+                                        "yesterday",
+                                    ),
                                 ),
                             ],
                         ),
@@ -2038,23 +2059,27 @@ def render_step_5(
     """Dựng giao diện Bước 5: Dry-run trên file mẫu & Kích hoạt."""
     summary = dry_run_data.get("summary", {}) if dry_run_data else {}
     grain_warnings = dry_run_data.get("grain_warnings", []) if dry_run_data else []
+    has_dry_run = bool(dry_run_data and dry_run_data.get("dry_run_ok"))
 
-    ct_diff = summary.get("CONTROL_TOTAL_DIFF", 0)
-    ct_ok = ct_diff == 0
-    ct_val = "Khớp" if ct_ok else f"Lệch ({ct_diff:,.0f} đ)"
-    ct_tone = "ok" if ct_ok else "warn"
-
-    excel_groups = summary.get("EXCEL_GROUPS", 190)
-    db_groups = summary.get("DB_GROUPS", 190)
-    cnt_matched = summary.get("CNT_MATCHED", 184)
-    duration_val = "3,8 giây"
-    if "DURATION_SECONDS" in summary:
-        duration_val = f"{summary['DURATION_SECONDS']:.1f} giây"
+    if "CONTROL_TOTAL_DIFF" in summary:
+        ct_diff = summary.get("CONTROL_TOTAL_DIFF", 0)
+        ct_ok = ct_diff == 0
+        ct_val = "Khớp" if ct_ok else f"Lệch ({ct_diff:,.0f} đ)"
+        ct_tone = "ok" if ct_ok else "warn"
+        ct_meta = "Chênh lệch control total theo kết quả Dry-run thật."
+    else:
+        ct_val = "Chưa chạy"
+        ct_tone = "primary"
+        ct_meta = "Chưa chạy Dry-run, chưa có số liệu thật."
+    excel_groups = summary.get("EXCEL_GROUPS", "—")
+    db_groups = summary.get("DB_GROUPS", "—")
+    cnt_matched = summary.get("CNT_MATCHED", "—")
+    duration_val = f"{summary['DURATION_SECONDS']:.1f} giây" if "DURATION_SECONDS" in summary else "—"
 
     warning_alerts = [alert_box(w, tone="warn") for w in grain_warnings]
 
-    p_from_val = (dry_run_data.get("p_from") if dry_run_data else None) or "2026-02-01 00:00:00"
-    p_to_val = (dry_run_data.get("p_to") if dry_run_data else None) or "2026-02-05 23:59:59"
+    p_from_val = (dry_run_data.get("p_from") if dry_run_data else None) or None
+    p_to_val = (dry_run_data.get("p_to") if dry_run_data else None) or None
     p_org_val = (dry_run_data.get("p_org") if dry_run_data else None) or ""
 
     return html.Div(
@@ -2125,7 +2150,8 @@ def render_step_5(
             ),
             # Alert phạm vi dữ liệu
             alert_box(
-                "Dùng 100 dòng đầu file mẫu (phạm vi: 01/02/2026 00:00:00 – 05/02/2026 23:59:59). Không ghi lịch sử chạy.",
+                "Dry-run chạy thật trên file mẫu đã tải và nguồn DB, không ghi lịch sử chạy. "
+                "Chưa bấm 'Chạy thử' thì các KPI dưới đây chưa có số liệu thật.",
                 tone="info",
             ),
             *([html.Div(warning_alerts, style={"marginTop": 12})] if warning_alerts else []),
@@ -2140,7 +2166,7 @@ def render_step_5(
                             label="Control total",
                             value=ct_val,
                             tone=ct_tone,
-                            meta="Tổng tiền: 236.850.000 đ",
+                            meta=ct_meta,
                             icon="lucide:check-circle-2",
                         ),
                     ),
@@ -2150,7 +2176,7 @@ def render_step_5(
                             label="Nhóm Excel / DB",
                             value=f"{excel_groups} / {db_groups}",
                             tone="primary",
-                            meta="Độ chi tiết khóa đúng chuẩn",
+                            meta="Theo kết quả Dry-run thật." if has_dry_run else "Chưa chạy Dry-run.",
                             icon="lucide:layers",
                         ),
                     ),
@@ -2160,7 +2186,7 @@ def render_step_5(
                             label="Khớp",
                             value=str(cnt_matched),
                             tone="ok",
-                            meta="184 nhóm khớp hoàn toàn",
+                            meta="Theo kết quả Dry-run thật." if has_dry_run else "Chưa chạy Dry-run.",
                             icon="lucide:check-check",
                         ),
                     ),
@@ -2170,7 +2196,7 @@ def render_step_5(
                             label="Thời gian",
                             value=duration_val,
                             tone="primary",
-                            meta="Đọc: 0,4s · DB: 2,1s · So: 1,3s",
+                            meta="Theo kết quả Dry-run thật." if has_dry_run else "Chưa chạy Dry-run.",
                             icon="lucide:clock",
                         ),
                     ),
@@ -2194,10 +2220,17 @@ def render_step_5(
                             ),
                             dmc.Stack(
                                 [
-                                    dmc.Text("Sẵn sàng kích hoạt phiên bản", fw=600, size="sm"),
                                     dmc.Text(
-                                        "Cấu hình đã vượt qua toàn bộ kiểm tra schema và logic ánh xạ. "
-                                        "Nhấn nút 'Lưu & kích hoạt' bên dưới để ban hành phiên bản này.",
+                                        "Sẵn sàng kích hoạt phiên bản" if has_dry_run else "Chưa sẵn sàng kích hoạt",
+                                        fw=600,
+                                        size="sm",
+                                    ),
+                                    dmc.Text(
+                                        "Dry-run thật đã thành công. Nhấn nút 'Lưu & kích hoạt' bên dưới "
+                                        "để ban hành phiên bản này."
+                                        if has_dry_run
+                                        else "Cần bấm 'Chạy thử' và chờ Dry-run thật thành công trước khi "
+                                        "kích hoạt. Nút 'Lưu & kích hoạt' sẽ báo lý do nếu chưa đạt.",
                                         size="xs",
                                         c="dimmed",
                                     ),
@@ -2488,6 +2521,77 @@ def build_default_config() -> dict[str, Any]:
     }
 
 
+def _config_hash(cfg: dict[str, Any] | None) -> str:
+    """Hash cấu hình để biết Dry-run có còn khớp với cấu hình hiện tại không."""
+    try:
+        raw = json.dumps(cfg or {}, sort_keys=True, default=str)
+    except Exception:
+        raw = str(cfg)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def validate_wizard_step(
+    cfg: dict[str, Any] | None,
+    step_index: int,
+    sample_data: dict[str, Any] | None = None,
+) -> list[str]:
+    """Validate từng bước wizard, trả về danh sách lỗi (rỗng là đạt).
+
+    Chỉ kiểm tra những gì bước đó phải có, để lỗi lộ ngay khi bấm Tiếp
+    thay vì dồn đến bước kích hoạt. Không tự chèn giá trị mặc định.
+    """
+    cfg = cfg or {}
+    errors: list[str] = []
+    if step_index == 0:
+        code = (cfg.get("template_code") or "").strip()
+        name = (cfg.get("name") or cfg.get("template_name") or "").strip()
+        if not code or code == "NEW_TEMPLATE":
+            errors.append("Bước 1: chưa nhập mã template.")
+        if not name:
+            errors.append("Bước 1: chưa nhập tên template.")
+        if not cfg.get("fields"):
+            errors.append("Bước 1: chưa tải file mẫu, chưa có trường nào.")
+    elif step_index == 1:
+        fields = cfg.get("fields", []) or []
+        if not fields:
+            errors.append("Bước 2: chưa có trường nào.")
+        seen: set[str] = set()
+        for f in fields:
+            fname = (f.get("name") or "").strip()
+            if not fname:
+                errors.append("Bước 2: có trường chưa nhập tên trường logic.")
+            elif fname in seen:
+                errors.append(f"Bước 2: trùng tên trường logic '{fname}'.")
+            else:
+                seen.add(fname)
+        if fields and not any(f.get("excel") for f in fields):
+            errors.append("Bước 2: chưa tick Dùng cho trường nào.")
+    elif step_index == 2:
+        db_spec = cfg.get("db_source", {}) or {}
+        if not db_spec.get("source_id"):
+            errors.append("Bước 3: chưa chọn Data Source.")
+        if db_spec.get("kind", "table") == "table":
+            if not db_spec.get("table"):
+                errors.append("Bước 3: chưa chọn bảng/view nguồn.")
+        elif not db_spec.get("sql"):
+            errors.append("Bước 3: chưa nhập câu lệnh SQL nguồn.")
+        filters = {f.get("param"): f.get("column") for f in db_spec.get("filters", []) if isinstance(f, dict)}
+        if not filters.get("p_from"):
+            errors.append("Bước 3: chưa chọn cột DB cho Từ ngày giờ (p_from).")
+        if not filters.get("p_to"):
+            errors.append("Bước 3: chưa chọn cột DB cho Đến ngày giờ (p_to).")
+    elif step_index == 3:
+        profiles = cfg.get("profiles", []) or []
+        if not profiles:
+            errors.append("Bước 4: chưa có profile nào.")
+        for prof in profiles:
+            if not prof.get("group_by"):
+                errors.append(f"Bước 4: profile '{prof.get('code', '')}' chưa chọn Group by.")
+            if not prof.get("measures"):
+                errors.append(f"Bước 4: profile '{prof.get('code', '')}' chưa có measure nào.")
+    return errors
+
+
 def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
     """Layout chính màn hình Wizard Đăng ký & Sửa Template (Screen03 & Screen04)."""
     ctx = get_current_ctx()
@@ -2762,7 +2866,12 @@ def handle_wizard_file_upload(
     else:
         cfg["file"]["detect_by_headers"] = [c.name for c in inspect_res.columns[:3]]
 
-    # Gợi ý danh sách trường logic ở Bước 2
+    # Gợi ý danh sách trường logic ở Bước 2. Upload lại không xóa sạch
+    # sửa tay: giữ lại tên/nhãn/kiểu/norm/db của trường cũ khớp theo cột Excel,
+    # và giữ lại profile cũ nếu group_by/measure vẫn còn trường đó.
+    old_fields_by_excel = {
+        f.get("excel"): f for f in (current_config or {}).get("fields", []) if isinstance(f, dict) and f.get("excel")
+    }
     suggested_fields = []
     for col in inspect_res.columns:
         norm_rules: list[str] = []
@@ -2772,22 +2881,39 @@ def handle_wizard_file_upload(
             norm_rules.append("round_2")
 
         sample_v = col.sample_values[0] if col.sample_values else "—"
-        suggested_fields.append(
-            {
-                "name": col.suggested_field_name,
-                "label": col.name,
-                "excel": col.name,
-                "excel_aliases": [],
-                "db": col.suggested_field_name,
-                "type": col.suggested_type,
-                "format": None,
-                "norm": norm_rules,
-                "required": False,
-                "sample_value": sample_v,
-            }
-        )
+        new_field = {
+            "name": col.suggested_field_name,
+            "label": col.name,
+            "excel": col.name,
+            "excel_aliases": [],
+            "db": col.suggested_field_name,
+            "type": col.suggested_type,
+            "format": None,
+            "norm": norm_rules,
+            "required": False,
+            "sample_value": sample_v,
+        }
+        old_field = old_fields_by_excel.get(col.name)
+        if old_field:
+            for key in ("name", "label", "type", "norm", "db"):
+                if old_field.get(key) is not None:
+                    new_field[key] = old_field[key]
+        suggested_fields.append(new_field)
     cfg["fields"] = suggested_fields
-    cfg["profiles"] = _build_default_profiles_from_fields(suggested_fields, cfg.get("derived", []))
+    old_profiles = (current_config or {}).get("profiles", []) or []
+    new_field_names = {f.get("name") for f in suggested_fields}
+    profiles_kept = False
+    if old_profiles:
+        profiles_kept = True
+        for prof in old_profiles:
+            if not prof.get("group_by") or not all(g in new_field_names for g in prof.get("group_by", [])):
+                profiles_kept = False
+            for m in prof.get("measures", []):
+                if m.get("field") and m.get("field") not in new_field_names:
+                    profiles_kept = False
+    cfg["profiles"] = (
+        old_profiles if profiles_kept else _build_default_profiles_from_fields(suggested_fields, cfg.get("derived", []))
+    )
 
     if inspect_res.candidate_total_rows:
         cfg["file"]["skip_footer_rows"] = len(inspect_res.candidate_total_rows)
@@ -2846,6 +2972,236 @@ def handle_template_code_name_change(
 
 
 @callback(
+    Output("wizard-config-store", "data", allow_duplicate=True),
+    Output("wizard-sample-file-store", "data", allow_duplicate=True),
+    Output("wizard-error-alert-container", "children", allow_duplicate=True),
+    Input("wizard-input-sheet", "value"),
+    Input("wizard-input-header-row", "value"),
+    Input("wizard-input-data-row", "value"),
+    Input("wizard-apply-suggestions", "checked"),
+    State("wizard-config-store", "data"),
+    State("wizard-sample-file-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_step1_file_params_change(
+    sheet_val: str | None,
+    header_row_val: int | None,
+    data_row_val: int | None,
+    apply_suggestions: bool | None,
+    current_config: dict[str, Any] | None,
+    sample_data: dict[str, Any] | None,
+) -> tuple[Any, Any, Any]:
+    """Đồng bộ Sheet / Dòng header / Dữ liệu từ dòng ở Bước 1 vào config.
+
+    Trước đây các ô này không có callback nên sửa không ăn, upload lại
+    còn ghi đè về header_row=1, data_start_row=2. Nay đổi sheet/header/
+    dòng thì đọc lại 5 dòng xem trước từ file mẫu đã upload (nếu có).
+    """
+    if not current_config:
+        return dash.no_update, dash.no_update, dash.no_update
+    cfg = dict(current_config)
+    file_spec = dict(cfg.get("file", {}))
+    old_sheet = file_spec.get("sheet", "")
+    old_header = file_spec.get("header_row", 1)
+    old_data = file_spec.get("data_start_row", 2)
+    old_apply = file_spec.get("apply_suggestions", True)
+    new_sheet = sheet_val if sheet_val is not None else old_sheet
+    new_header = header_row_val if header_row_val is not None else old_header
+    new_data = data_row_val if data_row_val is not None else old_data
+    new_apply = True if apply_suggestions is None else bool(apply_suggestions)
+    if new_sheet == old_sheet and new_header == old_header and new_data == old_data and new_apply == old_apply:
+        return dash.no_update, dash.no_update, dash.no_update
+    if new_header < 1 or new_data <= new_header:
+        err = alert_box(
+            "Dữ liệu từ dòng phải lớn hơn Dòng header và cả hai phải >= 1.",
+            tone="crit",
+        )
+        return dash.no_update, dash.no_update, err
+    file_spec["sheet"] = new_sheet
+    file_spec["header_row"] = new_header
+    file_spec["data_start_row"] = new_data
+    file_spec["apply_suggestions"] = new_apply
+    # Áp / gỡ các chuẩn hóa tự động (strip cho text, round_2 cho number).
+    if new_apply != old_apply:
+        for f in cfg.get("fields", []):
+            norms = [n for n in (f.get("norm") or []) if n not in ("strip", "round_2")]
+            if new_apply:
+                if f.get("type") == "text":
+                    norms.append("strip")
+                elif f.get("type") == "number":
+                    norms.append("round_2")
+            f["norm"] = norms
+        sample = sample_data or {}
+        cand = sample.get("candidate_total_rows") or []
+        file_spec["skip_footer_rows"] = len(cand) if new_apply else 0
+    cfg["file"] = file_spec
+    if not sample_data or not sample_data.get("storage_path"):
+        return cfg, dash.no_update, dash.no_update
+    try:
+        spec = FileSpec(sheet=new_sheet, header_row=new_header, data_start_row=new_data)
+        raw_df, _ = read_sheet(Path(sample_data["storage_path"]), spec)
+        cols = [c for c in raw_df.head(5).columns if c != "__row_no"]
+        new_sample = dict(sample_data)
+        new_sample["sheet"] = new_sheet
+        new_sample["preview_rows"] = raw_df.head(5).select(cols).to_dicts()
+        return cfg, new_sample, dash.no_update
+    except Exception as exc:
+        err = alert_box(f"Không đọc được sheet/dòng đã chọn: {exc}", tone="crit")
+        return dash.no_update, dash.no_update, err
+
+
+@callback(
+    Output("wizard-config-store", "data", allow_duplicate=True),
+    Input({"type": "wizard-field-name", "index": dash.ALL}, "value"),
+    Input({"type": "wizard-field-label", "index": dash.ALL}, "value"),
+    Input({"type": "wizard-field-type", "index": dash.ALL}, "value"),
+    Input({"type": "wizard-field-use", "index": dash.ALL}, "checked"),
+    Input({"type": "wizard-derived-name", "index": dash.ALL}, "value"),
+    Input({"type": "wizard-derived-label", "index": dash.ALL}, "value"),
+    Input({"type": "wizard-derived-type", "index": dash.ALL}, "value"),
+    State("wizard-config-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_step2_field_edits(
+    names: list[str | None],
+    labels: list[str | None],
+    types: list[str | None],
+    uses: list[bool | None],
+    derived_names: list[str | None],
+    derived_labels: list[str | None],
+    derived_types: list[str | None],
+    current_config: dict[str, Any] | None,
+) -> Any:
+    """Đồng bộ các ô sửa ở Bước 2 vào config.
+
+    Trước đây các ô này không có id/callback nên sửa rồi bấm Tiếp là
+    mất. Đổi tên trường còn đổi theo group_by / measure field để
+    profile ở Bước 4 không trỏ tới tên cũ.
+    """
+    if not current_config:
+        return dash.no_update
+    cfg = dict(current_config)
+    fields = list(cfg.get("fields", []))
+    changed = False
+    old_names: dict[int, str] = {}
+    for idx, f in enumerate(fields):
+        if idx >= len(names):
+            break
+        old_names[idx] = f.get("name", "")
+        new_name = (names[idx] or "").strip()
+        new_label = labels[idx] if idx < len(labels) else f.get("label")
+        new_type = types[idx] if idx < len(types) else f.get("type")
+        new_use = uses[idx] if idx < len(uses) else bool(f.get("excel"))
+        if new_name and f.get("name") != new_name:
+            f["name"] = new_name
+            changed = True
+        if new_label is not None and f.get("label") != new_label:
+            f["label"] = new_label
+            changed = True
+        if new_type and f.get("type") != new_type:
+            f["type"] = new_type
+            changed = True
+        if new_use is False and f.get("excel"):
+            f["_unused_excel"] = f.get("excel")
+            f["excel"] = None
+            changed = True
+        elif new_use is True and not f.get("excel") and f.get("_unused_excel"):
+            f["excel"] = f.pop("_unused_excel")
+            changed = True
+    if changed:
+        # Đổi tên trường thì đổi theo các tham chiếu ở profile.
+        rename_map = {
+            old: fields[idx].get("name")
+            for idx, old in old_names.items()
+            if old and fields[idx].get("name") and old != fields[idx].get("name")
+        }
+        if rename_map:
+            for prof in cfg.get("profiles", []):
+                prof["group_by"] = [rename_map.get(g, g) for g in prof.get("group_by", [])]
+                for m in prof.get("measures", []):
+                    if m.get("field") in rename_map:
+                        m["field"] = rename_map[m["field"]]
+                if prof.get("main_measure") in rename_map:
+                    prof["main_measure"] = rename_map[prof["main_measure"]]
+        cfg["fields"] = fields
+    derived = list(cfg.get("derived", []))
+    for idx, d in enumerate(derived):
+        if idx >= len(derived_names):
+            break
+        new_name = (derived_names[idx] or "").strip()
+        new_label = derived_labels[idx] if idx < len(derived_labels) else d.get("label")
+        new_type = derived_types[idx] if idx < len(derived_types) else d.get("type")
+        if new_name and d.get("name") != new_name:
+            d["name"] = new_name
+            changed = True
+        if new_label is not None and d.get("label") != new_label:
+            d["label"] = new_label
+            changed = True
+        if new_type and d.get("type") != new_type:
+            d["type"] = new_type
+            changed = True
+    if changed:
+        cfg["derived"] = derived
+        return cfg
+    return dash.no_update
+
+
+@callback(
+    Output("wizard-config-store", "data", allow_duplicate=True),
+    Input("wizard-excel-time-field", "value"),
+    Input("wizard-excel-suggest-range", "value"),
+    State("wizard-config-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_step3_time_filter_change(
+    time_field: str | None,
+    suggest_range: str | None,
+    current_config: dict[str, Any] | None,
+) -> Any:
+    """Đồng bộ 2 select ở Bước 3 (trước đây là ô chết) vào config."""
+    if not current_config:
+        return dash.no_update
+    cfg = dict(current_config)
+    if time_field in (None, "NONE"):
+        cfg["time_filter"] = None
+    else:
+        tf = dict(cfg.get("time_filter") or {})
+        tf["excel_field"] = time_field
+        tf.setdefault("granularity", "datetime")
+        cfg["time_filter"] = tf
+    if suggest_range:
+        db_spec = cfg.setdefault("db_source", {})
+        params = list(db_spec.get("params", []))
+        for p in params:
+            if p.get("name") in ("p_from", "p_to"):
+                p["suggest"] = suggest_range
+        db_spec["params"] = params
+    return cfg
+
+
+@callback(
+    Output("wizard-meta-store", "data", allow_duplicate=True),
+    Input("wizard-config-store", "data"),
+    State("wizard-meta-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_mark_wizard_dirty(
+    _config: dict[str, Any] | None,
+    meta_data: dict[str, Any] | None,
+) -> Any:
+    """Đánh dấu is_dirty khi config thay đổi, để autosave 15 giây chạy thật.
+
+    Trước đây không callback nào gán is_dirty=True nên autosave luôn bị
+    bỏ qua. Callback này chỉ chạm meta, không chạm config nên không vòng lặp.
+    """
+    if not meta_data or meta_data.get("is_dirty"):
+        return dash.no_update
+    meta = dict(meta_data)
+    meta["is_dirty"] = True
+    return meta
+
+
+@callback(
     Output("wizard-table-mode-box", "style"),
     Output("wizard-sql-mode-box", "style"),
     Output("wizard-card-generated-sql", "style"),
@@ -2891,10 +3247,9 @@ def handle_change_data_source(ds_name: str | None, current_config: dict[str, Any
     new_table_val = None
     if current_table and any(t["value"] == current_table for t in table_options):
         new_table_val = current_table
-    elif table_options:
-        fact_bill = next((t["value"] for t in table_options if "FACT_BILL" in t["value"]), None)
-        new_table_val = fact_bill or table_options[0]["value"]
-        cfg["db_source"]["table"] = new_table_val
+    else:
+        new_table_val = None
+        cfg["db_source"]["table"] = ""
 
     return table_options, new_table_val, cfg
 
@@ -2956,10 +3311,10 @@ def handle_select_or_fetch_table(
     chips_ui = _render_columns_chips(db_cols_chips)
     mapping_ui = _render_db_mapping_table(updated_fields, db_cols_chips)
 
-    p_from_col = "INVOICE_DATE"
-    p_to_col = "INVOICE_DATE"
-    p_org_col = "ORG_CODE"
-    p_org_default = "BDP"
+    p_from_col = ""
+    p_to_col = ""
+    p_org_col = ""
+    p_org_default = ""
     extra_filters = cfg.get("db_source", {}).get("extra_filters", [])
     for flt in cfg.get("db_source", {}).get("filters", []):
         if flt.get("param") == "p_from":
@@ -3062,10 +3417,10 @@ def handle_check_custom_sql(
     chips_ui = _render_columns_chips(db_cols_chips)
     mapping_ui = _render_db_mapping_table(updated_fields, db_cols_chips)
 
-    p_from_col = "INVOICE_DATE"
-    p_to_col = "INVOICE_DATE"
-    p_org_col = "ORG_CODE"
-    p_org_default = "BDP"
+    p_from_col = ""
+    p_to_col = ""
+    p_org_col = ""
+    p_org_default = ""
     for flt in db_spec.get("filters", []):
         if flt.get("param") == "p_from":
             p_from_col = flt.get("column", p_from_col)
@@ -3129,19 +3484,19 @@ def handle_change_filter_cols(
     found_from = found_to = found_org = False
     for flt in filters:
         if flt.get("param") == "p_from":
-            flt["column"] = p_from or "INVOICE_DATE"
+            flt["column"] = p_from or ""
             found_from = True
         elif flt.get("param") == "p_to":
-            flt["column"] = p_to or "INVOICE_DATE"
+            flt["column"] = p_to or ""
             found_to = True
         elif flt.get("param") == "p_org":
-            flt["column"] = p_org_col or "ORG_CODE"
+            flt["column"] = p_org_col or ""
             found_org = True
 
     if not found_from:
-        filters.append({"param": "p_from", "column": p_from or "INVOICE_DATE", "op": ">=", "cast": "none"})
+        filters.append({"param": "p_from", "column": p_from or "", "op": ">=", "cast": "none"})
     if not found_to:
-        filters.append({"param": "p_to", "column": p_to or "INVOICE_DATE", "op": "<=", "cast": "none"})
+        filters.append({"param": "p_to", "column": p_to or "", "op": "<=", "cast": "none"})
     if not found_org and p_org_col:
         filters.append({"param": "p_org", "column": p_org_col, "op": "=", "cast": "none"})
 
@@ -3151,7 +3506,7 @@ def handle_change_filter_cols(
     found_org_param = False
     for p in params:
         if p.get("name") == "p_org":
-            p["default"] = p_org_val or "BDP"
+            p["default"] = p_org_val or ""
             found_org_param = True
     if not found_org_param:
         params.append(
@@ -3159,7 +3514,7 @@ def handle_change_filter_cols(
                 "name": "p_org",
                 "type": "text",
                 "source": "default",
-                "default": p_org_val or "BDP",
+                "default": p_org_val or "",
                 "label": "Đơn vị",
                 "required": True,
             }
@@ -3168,12 +3523,10 @@ def handle_change_filter_cols(
 
     _sync_db_source_filters_and_params(cfg)
 
-    table_name = db_spec.get("table", "DATARAW.FACT_BILL")
+    table_name = db_spec.get("table", "")
     fields = cfg.get("fields", [])
     extra_filters = db_spec.get("extra_filters", [])
-    gen_sql = _render_generated_sql(
-        table_name, fields, p_from or "INVOICE_DATE", p_to or "INVOICE_DATE", p_org_col or "ORG_CODE", extra_filters
-    )
+    gen_sql = _render_generated_sql(table_name, fields, p_from or "", p_to or "", p_org_col or "", extra_filters)
     gen_sql_ui = code_block(gen_sql, language="sql")
 
     return cfg, gen_sql_ui
@@ -3275,6 +3628,7 @@ def handle_switch_tabs(
     State("wizard-meta-store", "data"),
     State("wizard-config-store", "data"),
     State("wizard-sample-file-store", "data"),
+    State("wizard-dry-run-store", "data"),
     prevent_initial_call=True,
 )
 def handle_step_navigation(
@@ -3284,6 +3638,7 @@ def handle_step_navigation(
     meta: dict[str, Any] | None,
     config_data: dict[str, Any] | None,
     sample_data: dict[str, Any] | None = None,
+    dry_run_data: dict[str, Any] | None = None,
 ) -> Any:
     """Xử lý nút Tiếp và Quay lại trên Stepper 5 bước và kích hoạt template."""
     ctx_dash = dash.callback_context
@@ -3292,6 +3647,21 @@ def handle_step_navigation(
 
     trigger = ctx_dash.triggered[0]["prop_id"]
     if "wizard-next-btn" in trigger:
+        # Validate bước hiện tại trước khi đi tiếp / kích hoạt.
+        step_errors = validate_wizard_step(config_data, current_active, sample_data)
+        if current_active == 4 and not (dry_run_data or {}).get("dry_run_ok"):
+            step_errors.append(
+                "Bước 5: chưa chạy Dry-run thật thành công, chưa thể kích hoạt. "
+                "Bấm 'Chạy thử' và chờ kết quả thật trước."
+            )
+        elif current_active == 4 and (dry_run_data or {}).get("config_hash") != _config_hash(config_data):
+            step_errors.append(
+                "Bước 5: cấu hình đã thay đổi sau lần Dry-run gần nhất, cần bấm 'Chạy thử' lại trước khi kích hoạt."
+            )
+        if step_errors:
+            err_box = alert_box(" · ".join(step_errors), tone="crit")
+            next_text = "Lưu & kích hoạt" if current_active == 4 else "Tiếp"
+            return current_active, current_active == 0, next_text, meta or {}, dash.no_update, err_box
         if current_active == 4:
             # Xử lý Kích hoạt template
             ctx = get_current_ctx()
@@ -3301,17 +3671,8 @@ def handle_step_navigation(
 
             cfg_dict = dict(config_data or {})
 
-            # 1. Đảm bảo db_source hợp lệ
+            # 1. Không tự chèn bảng/cột lọc: thiếu thì validate ở bước kích hoạt sẽ báo lỗi.
             db_src = dict(cfg_dict.get("db_source") or {})
-            if not db_src.get("table") and db_src.get("kind", "table") == "table":
-                db_src["table"] = "FACT_BILL"
-            filters = list(db_src.get("filters") or [])
-            filter_params = {f.get("param") for f in filters if isinstance(f, dict)}
-            if "p_from" not in filter_params:
-                filters.append({"param": "p_from", "column": "INVOICE_DATE", "op": ">=", "cast": "none"})
-            if "p_to" not in filter_params:
-                filters.append({"param": "p_to", "column": "INVOICE_DATE", "op": "<=", "cast": "none"})
-            db_src["filters"] = filters
             cfg_dict["db_source"] = db_src
 
             # 2. Đảm bảo các fields có db mapping
@@ -3338,44 +3699,21 @@ def handle_step_navigation(
                 err_box = alert_box(f"Không thể kích hoạt vì cấu hình chưa hợp lệ: {errors}", tone="crit")
                 return 4, False, "Lưu & kích hoạt", meta or {}, dash.no_update, err_box
 
+            # Không lưu nháp lại ở đây: save_draft_template luôn reset DRY_RUN_OK
+            # về "N", lưu lại sẽ xóa cờ Dry-run vừa đạt. Dry-run thật đã lưu
+            # nháp và cập nhật meta (template_id/version/row_version) trước đó,
+            # nên kích hoạt đúng version đó. Nếu chưa có meta đó thì báo lỗi
+            # thay vì lưu lại và kích hoạt bằng override.
             t_id = (meta or {}).get("template_id")
             ver = (meta or {}).get("version", 1)
-
-            code_to_save = (
-                ((meta or {}).get("template_code") or (config_data or {}).get("template_code") or "NEW_TEMPLATE")
-                .strip()
-                .upper()
-            )
-
-            name_to_save = (
-                (meta or {}).get("template_name") or (config_data or {}).get("name") or f"Template {code_to_save}"
-            ).strip()
-
-            ds_name = (config_data or {}).get("db_source", {}).get("source_id")
-            ds_id = None
-            if ds_name:
-                ds_id, _ = _resolve_ds_id_and_schema(ctx, ds_name)
-
-            s_file_id = (sample_data or {}).get("file_id") or (meta or {}).get("sample_file_id")
-
-            save_res = save_draft_template(
-                ctx,
-                code=code_to_save,
-                name=name_to_save,
-                config=template_cfg,
-                description=getattr(template_cfg, "description", None),
-                data_source_id=ds_id,
-                row_version=(meta or {}).get("row_version"),
-                sample_file_id=s_file_id,
-            )
-            if not save_res.ok or not save_res.data:
-                err_box = alert_box(f"Lỗi khi lưu bản nháp template: {save_res.message or save_res.code}", tone="crit")
+            if not t_id:
+                err_box = alert_box(
+                    "Chưa có bản nháp đã lưu từ lần Dry-run gần nhất, bấm 'Chạy thử' lại trước khi kích hoạt.",
+                    tone="crit",
+                )
                 return 4, False, "Lưu & kích hoạt", meta or {}, dash.no_update, err_box
 
-            t_id = save_res.data.get("id", t_id)
-            ver = save_res.data.get("current_version", save_res.data.get("version", ver))
-
-            act_res = activate_version(ctx, template_id=t_id, version=ver, dry_run_override=True)
+            act_res = activate_version(ctx, template_id=t_id, version=ver, dry_run_override=False)
             if not act_res.ok:
                 err_box = alert_box(f"Lỗi khi kích hoạt template: {act_res.message}", tone="crit")
                 return 4, False, "Lưu & kích hoạt", meta or {}, dash.no_update, err_box
@@ -3395,12 +3733,14 @@ def handle_step_navigation(
 @callback(
     Output("wizard-dry-run-error", "children"),
     Output("wizard-dry-run-store", "data"),
+    Output("wizard-meta-store", "data", allow_duplicate=True),
     Input("wizard-run-dry-btn", "n_clicks"),
     State("wizard-dry-p-from", "value"),
     State("wizard-dry-p-to", "value"),
     State("wizard-dry-p-org", "value"),
     State("wizard-config-store", "data"),
     State("wizard-meta-store", "data"),
+    State("wizard-sample-file-store", "data"),
     prevent_initial_call=True,
 )
 def handle_run_dry_run(
@@ -3410,32 +3750,123 @@ def handle_run_dry_run(
     _p_org: str | None,
     _config: dict[str, Any] | None,
     _meta: dict[str, Any] | None,
-) -> tuple[Any, Any]:
-    """Thực thi Dry-run trên file mẫu và cập nhật các KPI cards."""
+    _sample: dict[str, Any] | None = None,
+) -> tuple[Any, Any, Any]:
+    """Chạy Dry-run thật trên file mẫu qua service, không dùng số mẫu."""
     if not n_clicks:
-        return dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update
 
     err = validate_dry_run_params(p_from, p_to)
     if err:
-        return alert_box(err, tone="crit"), dash.no_update
+        return alert_box(err, tone="crit"), dash.no_update, dash.no_update
+    step_errors: list[str] = []
+    for step_idx in range(4):
+        step_errors.extend(validate_wizard_step(_config, step_idx, _sample))
+    if step_errors:
+        return alert_box(" · ".join(step_errors), tone="crit"), dash.no_update, dash.no_update
 
-    simulated_result = {
+    ctx = get_current_ctx()
+    if ctx is None:
+        return (
+            alert_box("Phiên làm việc đã hết hạn hoặc bạn chưa đăng nhập.", tone="crit"),
+            dash.no_update,
+            dash.no_update,
+        )
+    template_cfg, cfg_errors = form_state_to_config(_config or {})
+    if template_cfg is None:
+        return (
+            alert_box(f"Cấu hình chưa hợp lệ để chạy thử: {cfg_errors}", tone="crit"),
+            dash.no_update,
+            dash.no_update,
+        )
+    code_to_save = (
+        ((_meta or {}).get("template_code") or (_config or {}).get("template_code") or "NEW_TEMPLATE").strip().upper()
+    )
+    name_to_save = (
+        (_meta or {}).get("template_name") or (_config or {}).get("name") or f"Template {code_to_save}"
+    ).strip()
+    ds_name = (_config or {}).get("db_source", {}).get("source_id")
+    ds_id = _resolve_ds_id_and_schema(ctx, ds_name)[0] if ds_name else None
+    s_file_id = (_sample or {}).get("file_id") or (_meta or {}).get("sample_file_id")
+    if not s_file_id:
+        return (
+            alert_box("Chưa có file mẫu để chạy thử. Tải file mẫu ở Bước 1 trước.", tone="crit"),
+            dash.no_update,
+            dash.no_update,
+        )
+    save_res = save_draft_template(
+        ctx,
+        code=code_to_save,
+        name=name_to_save,
+        config=template_cfg,
+        description=getattr(template_cfg, "description", None),
+        data_source_id=ds_id,
+        row_version=(_meta or {}).get("row_version"),
+        sample_file_id=s_file_id,
+    )
+    if not save_res.ok or not save_res.data:
+        return (
+            alert_box(f"Lỗi khi lưu bản nháp trước khi chạy thử: {save_res.message or save_res.code}", tone="crit"),
+            dash.no_update,
+            dash.no_update,
+        )
+    t_id = save_res.data.get("id", (_meta or {}).get("template_id"))
+    ver = save_res.data.get("current_version", save_res.data.get("version", 1))
+    dt_from = datetime.fromisoformat(str(p_from).strip().replace(" ", "T"))
+    dt_to = datetime.fromisoformat(str(p_to).strip().replace(" ", "T"))
+    profiles = (_config or {}).get("profiles", []) or []
+    default_profile = next((p for p in profiles if p.get("is_default")), profiles[0] if profiles else {})
+    dry_res = service_dry_run(
+        ctx,
+        template_id=t_id,
+        version=ver,
+        file_id=s_file_id,
+        p_from=dt_from,
+        p_to=dt_to,
+        profile_code=default_profile.get("code"),
+    )
+    if not dry_res.ok or not dry_res.data:
+        return (
+            alert_box(f"Dry-run thất bại: {dry_res.message or dry_res.code}", tone="crit"),
+            {
+                "dry_run_ok": False,
+                "p_from": str(p_from),
+                "p_to": str(p_to),
+                "p_org": _p_org or "",
+                "summary": {},
+                "grain_warnings": [],
+                "config_hash": _config_hash(_config),
+            },
+            dash.no_update,
+        )
+    dry_data = dry_res.data
+    result = {
         "dry_run_ok": True,
-        "p_from": str(p_from) if p_from else "2026-02-01 00:00:00",
-        "p_to": str(p_to) if p_to else "2026-02-05 23:59:59",
+        "p_from": str(p_from),
+        "p_to": str(p_to),
         "p_org": _p_org or "",
-        "summary": {
-            "CONTROL_TOTAL_DIFF": 0,
-            "EXCEL_GROUPS": 190,
-            "DB_GROUPS": 190,
-            "CNT_MATCHED": 184,
-            "DURATION_SECONDS": 3.8,
-        },
-        "grain_warnings": [],
+        "summary": dry_data.get("summary", {}),
+        "grain_warnings": dry_data.get("grain_warnings", []),
+        "config_hash": _config_hash(_config),
     }
-    return alert_box(
-        "Chạy thử nghiệm hoàn tất thành công. Toàn bộ chỉ số đã được cập nhật.", tone="ok"
-    ), simulated_result
+    saved_meta = {
+        **(_meta or {}),
+        "template_id": t_id,
+        "template_code": code_to_save,
+        "template_name": name_to_save,
+        "version": ver,
+        "row_version": save_res.data.get("row_version") if save_res.data else (_meta or {}).get("row_version"),
+        "sample_file_id": s_file_id,
+        "is_dirty": False,
+    }
+    return (
+        alert_box(
+            "Dry-run thật hoàn tất thành công. Toàn bộ chỉ số đã được cập nhật từ kết quả thật.",
+            tone="ok",
+        ),
+        result,
+        saved_meta,
+    )
 
 
 @callback(
@@ -3939,10 +4370,10 @@ def handle_step4_measure_edits(
 def _sync_db_source_filters_and_params(cfg: dict[str, Any]) -> None:
     """Đồng bộ filters và params tổng thể từ p_from, p_to, p_org và extra_filters."""
     db_spec = cfg.setdefault("db_source", {})
-    p_from_col = "INVOICE_DATE"
-    p_to_col = "INVOICE_DATE"
-    p_org_col = "ORG_CODE"
-    p_org_default = "BDP"
+    p_from_col = ""
+    p_to_col = ""
+    p_org_col = ""
+    p_org_default = ""
 
     for flt in db_spec.get("filters", []):
         if flt.get("param") == "p_from":
@@ -3956,6 +4387,12 @@ def _sync_db_source_filters_and_params(cfg: dict[str, Any]) -> None:
         if p.get("name") == "p_org" and p.get("default"):
             p_org_default = str(p.get("default"))
 
+    existing_suggest = {
+        p.get("name"): p.get("suggest")
+        for p in db_spec.get("params", [])
+        if p.get("name") in ("p_from", "p_to") and p.get("suggest")
+    }
+
     all_filters: list[dict[str, Any]] = [
         {"param": "p_from", "column": p_from_col, "op": ">=", "cast": "none"},
         {"param": "p_to", "column": p_to_col, "op": "<=", "cast": "none"},
@@ -3968,7 +4405,7 @@ def _sync_db_source_filters_and_params(cfg: dict[str, Any]) -> None:
             "source": "user",
             "label": "Từ ngày giờ",
             "required": True,
-            "suggest": "yesterday",
+            "suggest": existing_suggest.get("p_from", "yesterday"),
         },
         {
             "name": "p_to",
@@ -3976,7 +4413,7 @@ def _sync_db_source_filters_and_params(cfg: dict[str, Any]) -> None:
             "source": "user",
             "label": "Đến ngày giờ",
             "required": True,
-            "suggest": "yesterday",
+            "suggest": existing_suggest.get("p_to", "yesterday"),
         },
         {
             "name": "p_org",
@@ -4032,7 +4469,7 @@ def handle_add_filter_param(n_clicks: int | None, current_config: dict[str, Any]
     db_spec = cfg.setdefault("db_source", {})
     extra_filters = list(db_spec.get("extra_filters", []))
 
-    db_cols_chips = db_spec.get("_columns") or list(DEFAULT_DTP_COLUMNS)
+    db_cols_chips = db_spec.get("_columns") or []
     col_names = [c[0] for c in db_cols_chips] if db_cols_chips else ["INVOICE_STATUS"]
     default_col = "INVOICE_STATUS" if "INVOICE_STATUS" in col_names else (col_names[0] if col_names else "STATUS")
 
@@ -4049,10 +4486,10 @@ def handle_add_filter_param(n_clicks: int | None, current_config: dict[str, Any]
 
     _sync_db_source_filters_and_params(cfg)
 
-    p_from_col = "INVOICE_DATE"
-    p_to_col = "INVOICE_DATE"
-    p_org_col = "ORG_CODE"
-    p_org_default = "BDP"
+    p_from_col = ""
+    p_to_col = ""
+    p_org_col = ""
+    p_org_default = ""
     for flt in db_spec.get("filters", []):
         if flt.get("param") == "p_from":
             p_from_col = flt.get("column", p_from_col)
@@ -4064,7 +4501,7 @@ def handle_add_filter_param(n_clicks: int | None, current_config: dict[str, Any]
         if p.get("name") == "p_org" and p.get("default"):
             p_org_default = str(p.get("default"))
 
-    table_name = db_spec.get("table", "DATARAW.FACT_BILL")
+    table_name = db_spec.get("table", "")
     fields = cfg.get("fields", [])
     gen_sql = _render_generated_sql(table_name, fields, p_from_col, p_to_col, p_org_col, extra_filters)
 
@@ -4119,11 +4556,11 @@ def handle_delete_filter_param(n_clicks_list: list[int | None], current_config: 
 
     _sync_db_source_filters_and_params(cfg)
 
-    db_cols_chips = db_spec.get("_columns") or list(DEFAULT_DTP_COLUMNS)
-    p_from_col = "INVOICE_DATE"
-    p_to_col = "INVOICE_DATE"
-    p_org_col = "ORG_CODE"
-    p_org_default = "BDP"
+    db_cols_chips = db_spec.get("_columns") or []
+    p_from_col = ""
+    p_to_col = ""
+    p_org_col = ""
+    p_org_default = ""
     for flt in db_spec.get("filters", []):
         if flt.get("param") == "p_from":
             p_from_col = flt.get("column", p_from_col)
@@ -4135,7 +4572,7 @@ def handle_delete_filter_param(n_clicks_list: list[int | None], current_config: 
         if p.get("name") == "p_org" and p.get("default"):
             p_org_default = str(p.get("default"))
 
-    table_name = db_spec.get("table", "DATARAW.FACT_BILL")
+    table_name = db_spec.get("table", "")
     fields = cfg.get("fields", [])
     gen_sql = _render_generated_sql(table_name, fields, p_from_col, p_to_col, p_org_col, extra_filters)
 
@@ -4182,11 +4619,11 @@ def handle_change_extra_filter_values(
     db_spec["extra_filters"] = extra_filters
     _sync_db_source_filters_and_params(cfg)
 
-    table_name = db_spec.get("table", "DATARAW.FACT_BILL")
+    table_name = db_spec.get("table", "")
     fields = cfg.get("fields", [])
-    p_from_col = "INVOICE_DATE"
-    p_to_col = "INVOICE_DATE"
-    p_org_col = "ORG_CODE"
+    p_from_col = ""
+    p_to_col = ""
+    p_org_col = ""
     for flt in db_spec.get("filters", []):
         if flt.get("param") == "p_from":
             p_from_col = flt.get("column", p_from_col)
