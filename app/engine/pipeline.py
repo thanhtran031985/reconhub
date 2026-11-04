@@ -131,6 +131,17 @@ def run_pipeline(
 
     # 10. Lấy dữ liệu DB
     source_sql: str | None = None
+    # Cờ này chỉ đúng khi dữ liệu thật sự lấy qua SQL do build_source_sql
+    # sinh ra (đường chạy qua /runs/new và worker). Khi đó, nếu
+    # pushdown_aggregate bật (mặc định), Oracle đã GROUP BY sẵn và trả về
+    # các cột tên measure (ví dụ TOTAL_TONG_TIEN), không còn cột trường gốc
+    # (ví dụ TONG_TIEN). Giai đoạn gộp phía dưới bắt buộc phải biết điều
+    # này, nếu không nó sẽ gộp lại theo tên trường gốc, không tìm thấy cột
+    # nên tổng SUM ra 0 cho mọi nhóm DB — đúng triệu chứng "Thiếu trong
+    # Excel nhưng cột DB toàn 0" và các nhóm Excel 0 bị khớp giả.
+    # Fetcher dạng DataFrame/callable (test, golden) trả dữ liệu chi tiết,
+    # không qua SQL pushdown nên cờ này phải là False.
+    db_pushdown_applied = False
     if isinstance(fetcher, pl.DataFrame):
         db_raw = fetcher
     elif callable(fetcher):
@@ -141,6 +152,7 @@ def run_pipeline(
         if not ok:
             raise ServiceError(ErrorCode.SQL_NOT_ALLOWED, err_msg or "SQL không hợp lệ.")
         source_sql = sql
+        db_pushdown_applied = bool(profile.aggregate and config.db_source.pushdown_aggregate)
         db_raw = fetcher.fetch_df(None, sql, binds)
     else:
         db_raw = pl.DataFrame()
@@ -178,8 +190,8 @@ def run_pipeline(
     if profile.filters:
         derived_db = apply_profile_filters(derived_db, profile.filters)
 
-    # Gộp dữ liệu DB
-    db_agg = aggregate(derived_db, profile)
+    # Gộp dữ liệu DB (dùng đúng nhánh pushdown khi Oracle đã gộp sẵn)
+    db_agg = aggregate(derived_db, profile, is_db_pushdown=db_pushdown_applied)
     db_groups = len(db_agg)
 
     # 11. Ghép và so sánh kết quả
