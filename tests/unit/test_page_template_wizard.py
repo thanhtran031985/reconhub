@@ -716,3 +716,42 @@ def test_default_profile_is_empty_not_guessed() -> None:
     assert profs[0]["main_measure"] is None
     assert "BY_INVOICE" not in str(profs)
     assert "TOTAL_AMOUNT" not in str(profs)
+
+
+def test_dry_run_error_survives_step5_rerender() -> None:
+    from app.ui.pages.template_wizard import handle_run_dry_run, render_step_5
+
+    err_box, store, _meta = handle_run_dry_run(
+        1,
+        "2026-02-01 00:00:00",
+        "2026-02-05 23:59:59",
+        "",
+        {},
+        {},
+        None,
+    )
+    assert store["stage"] == "validate"
+    assert store["error"]
+    assert "Kiểm tra cấu hình" in str(err_box)
+    # Render lại Bước 5 từ store vẫn phải hiện đúng lỗi, không bị xóa.
+    ui = render_step_5({}, dry_run_data=store)
+    s = str(ui)
+    assert store["error"] in s
+    assert "Tiến trình Dry-run" in s
+
+
+def test_step5_timeline_shows_failed_dry_run_stage() -> None:
+    from app.ui.pages.template_wizard import render_step_5
+
+    store = {
+        "dry_run_ok": False,
+        "stage": "dry_run",
+        "stage_label": "3. Chạy đối soát thật",
+        "error": "Dry-run thất bại: ORA-00942: table or view does not exist (mã: SOURCE_QUERY_FAILED)",
+        "summary": {},
+        "grain_warnings": [],
+    }
+    ui = render_step_5({}, dry_run_data=store)
+    s = str(ui)
+    assert "ORA-00942" in s
+    assert "Chạy đối soát thật" in s

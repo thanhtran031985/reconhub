@@ -2064,6 +2064,47 @@ def render_step_5(
     summary = dry_run_data.get("summary", {}) if dry_run_data else {}
     grain_warnings = dry_run_data.get("grain_warnings", []) if dry_run_data else []
     has_dry_run = bool(dry_run_data and dry_run_data.get("dry_run_ok"))
+    dry_error = (dry_run_data or {}).get("error")
+    dry_message = (dry_run_data or {}).get("message")
+    # Timeline trạng thái: lấy từ store nên sống qua lần render lại Bước 5.
+    # Nếu chỉ hiện lỗi qua ô lỗi riêng, render lại sẽ dựng lại ô đó trống
+    # và lỗi biến mất, đúng như lỗi người dùng vừa gặp ở bước dry-run thật.
+    stage_order = [s for s, _ in DRY_RUN_STAGES]
+    failed_idx = (
+        stage_order.index((dry_run_data or {}).get("stage")) if (dry_run_data or {}).get("stage") in stage_order else -1
+    )
+    timeline_badges = []
+    for idx, (_stage, label) in enumerate(DRY_RUN_STAGES):
+        if has_dry_run:
+            badge_color, badge_text = "green", f"✓ {label}"
+        elif failed_idx >= 0 and idx < failed_idx:
+            badge_color, badge_text = "green", f"✓ {label}"
+        elif failed_idx >= 0 and idx == failed_idx:
+            badge_color, badge_text = "red", f"✗ {label}"
+        else:
+            badge_color, badge_text = "gray", f"○ {label}"
+        timeline_badges.append(dmc.Badge(badge_text, size="sm", variant="light", color=badge_color))
+    timeline = dmc.Paper(
+        withBorder=True,
+        p="sm",
+        radius="sm",
+        mb="md",
+        children=[
+            dmc.Text("Tiến trình Dry-run", fw=600, size="sm", mb="xs"),
+            dmc.Group(timeline_badges, gap="xs"),
+            (
+                alert_box(f"Lỗi ở {(dry_run_data or {}).get('stage_label', 'Dry-run')}: {dry_error}", tone="crit")
+                if dry_error
+                else alert_box(dry_message, tone="ok")
+                if dry_message
+                else dmc.Text(
+                    "Chưa bấm 'Chạy thử'. Chạy thử truy vấn Oracle thật nên có thể mất vài chục giây, đừng bấm lại liên tục, chờ kết quả hiện ở dưới.",
+                    size="xs",
+                    c="dimmed",
+                )
+            ),
+        ],
+    )
 
     if "CONTROL_TOTAL_DIFF" in summary:
         ct_diff = summary.get("CONTROL_TOTAL_DIFF", 0)
@@ -2088,6 +2129,7 @@ def render_step_5(
 
     return html.Div(
         [
+            timeline,
             # Card 1: Form tham số dry-run
             dmc.Paper(
                 withBorder=True,
@@ -2149,7 +2191,23 @@ def render_step_5(
                         ],
                         mt="md",
                     ),
-                    dmc.Box(id="wizard-dry-run-error", mt="sm"),
+                    dcc.Loading(
+                        children=dmc.Box(
+                            id="wizard-dry-run-error",
+                            children=(
+                                alert_box(
+                                    f"Lỗi ở {(dry_run_data or {}).get('stage_label', 'Dry-run')}: {dry_error}",
+                                    tone="crit",
+                                )
+                                if dry_error
+                                else alert_box(dry_message, tone="ok")
+                                if dry_message
+                                else None
+                            ),
+                            mt="sm",
+                        ),
+                        type="dots",
+                    ),
                 ],
             ),
             # Alert phạm vi dữ liệu
@@ -3653,10 +3711,19 @@ def handle_step_navigation(
         # Validate bước hiện tại trước khi đi tiếp / kích hoạt.
         step_errors = validate_wizard_step(config_data, current_active, sample_data)
         if current_active == 4 and not (dry_run_data or {}).get("dry_run_ok"):
-            step_errors.append(
-                "Bước 5: chưa chạy Dry-run thật thành công, chưa thể kích hoạt. "
-                "Bấm 'Chạy thử' và chờ kết quả thật trước."
-            )
+            last_err = (dry_run_data or {}).get("error")
+            last_stage = (dry_run_data or {}).get("stage_label")
+            if last_err:
+                step_errors.append(
+                    f"Bước 5: chưa chạy Dry-run thật thành công, chưa thể kích hoạt. "
+                    f"Lỗi Dry-run gần nhất ở {last_stage}: {last_err}. "
+                    f"Bấm 'Chạy thử' lại và xem lỗi ở timeline Tiến trình Dry-run ở trên."
+                )
+            else:
+                step_errors.append(
+                    "Bước 5: chưa chạy Dry-run thật thành công, chưa thể kích hoạt. "
+                    "Bấm 'Chạy thử' và chờ kết quả thật trước."
+                )
         elif current_active == 4 and (dry_run_data or {}).get("config_hash") != _config_hash(config_data):
             step_errors.append(
                 "Bước 5: cấu hình đã thay đổi sau lần Dry-run gần nhất, cần bấm 'Chạy thử' lại trước khi kích hoạt."
@@ -3733,6 +3800,49 @@ def handle_step_navigation(
     return new_step, (new_step == 0), next_btn_text, updated_meta, dash.no_update, None
 
 
+DRY_RUN_STAGES = [
+    ("validate", "1. Kiểm tra cấu hình"),
+    ("save", "2. Lưu bản nháp"),
+    ("dry_run", "3. Chạy đối soát thật"),
+    ("done", "4. Sẵn sàng kích hoạt"),
+]
+
+
+def _dry_run_store(
+    stage: str,
+    error: str | None,
+    p_from: Any,
+    p_to: Any,
+    p_org: Any,
+    config: dict[str, Any] | None,
+    summary: dict[str, Any] | None = None,
+    grain_warnings: list[str] | None = None,
+) -> dict[str, Any]:
+    """Gói kết quả Dry-run vào store, kèm bước đã dừng và lỗi đầy đủ.
+
+    Store là nơi duy nhất sống qua lần render lại Bước 5: callback render
+    chạy lại mỗi khi store đổi và dựng lại cả ô lỗi, nên lỗi chỉ trả qua
+    ô lỗi riêng sẽ bị render lại xóa mất. Ghi lỗi vào store thì render
+    lại vẫn hiện đúng lỗi ở đúng bước.
+    """
+    stage_label = dict(DRY_RUN_STAGES).get(stage, stage)
+    return {
+        "dry_run_ok": stage == "done" and not error,
+        "stage": stage,
+        "stage_label": stage_label,
+        "error": error,
+        "message": None
+        if error
+        else "Dry-run thật hoàn tất thành công. Toàn bộ chỉ số đã được cập nhật từ kết quả thật.",
+        "p_from": str(p_from) if p_from else None,
+        "p_to": str(p_to) if p_to else None,
+        "p_org": p_org or "",
+        "summary": summary or {},
+        "grain_warnings": grain_warnings or [],
+        "config_hash": _config_hash(config),
+    }
+
+
 @callback(
     Output("wizard-dry-run-error", "children"),
     Output("wizard-dry-run-store", "data"),
@@ -3761,27 +3871,26 @@ def handle_run_dry_run(
 
     err = validate_dry_run_params(p_from, p_to)
     if err:
-        return alert_box(err, tone="crit"), dash.no_update, dash.no_update
+        store = _dry_run_store("validate", err, p_from, p_to, _p_org, _config)
+        return alert_box(f"Lỗi ở 1. Kiểm tra cấu hình: {err}", tone="crit"), store, dash.no_update
     step_errors: list[str] = []
     for step_idx in range(4):
         step_errors.extend(validate_wizard_step(_config, step_idx, _sample))
     if step_errors:
-        return alert_box(" · ".join(step_errors), tone="crit"), dash.no_update, dash.no_update
+        msg = " · ".join(step_errors)
+        store = _dry_run_store("validate", msg, p_from, p_to, _p_org, _config)
+        return alert_box(f"Lỗi ở 1. Kiểm tra cấu hình: {msg}", tone="crit"), store, dash.no_update
 
     ctx = get_current_ctx()
     if ctx is None:
-        return (
-            alert_box("Phiên làm việc đã hết hạn hoặc bạn chưa đăng nhập.", tone="crit"),
-            dash.no_update,
-            dash.no_update,
-        )
+        msg = "Phiên làm việc đã hết hạn hoặc bạn chưa đăng nhập."
+        store = _dry_run_store("validate", msg, p_from, p_to, _p_org, _config)
+        return alert_box(f"Lỗi ở 1. Kiểm tra cấu hình: {msg}", tone="crit"), store, dash.no_update
     template_cfg, cfg_errors = form_state_to_config(_config or {})
     if template_cfg is None:
-        return (
-            alert_box(f"Cấu hình chưa hợp lệ để chạy thử: {cfg_errors}", tone="crit"),
-            dash.no_update,
-            dash.no_update,
-        )
+        msg = f"Cấu hình chưa hợp lệ để chạy thử: {cfg_errors}"
+        store = _dry_run_store("save", msg, p_from, p_to, _p_org, _config)
+        return alert_box(f"Lỗi ở 2. Lưu bản nháp: {msg}", tone="crit"), store, dash.no_update
     code_to_save = (
         ((_meta or {}).get("template_code") or (_config or {}).get("template_code") or "NEW_TEMPLATE").strip().upper()
     )
@@ -3792,11 +3901,9 @@ def handle_run_dry_run(
     ds_id = _resolve_ds_id_and_schema(ctx, ds_name)[0] if ds_name else None
     s_file_id = (_sample or {}).get("file_id") or (_meta or {}).get("sample_file_id")
     if not s_file_id:
-        return (
-            alert_box("Chưa có file mẫu để chạy thử. Tải file mẫu ở Bước 1 trước.", tone="crit"),
-            dash.no_update,
-            dash.no_update,
-        )
+        msg = "Chưa có file mẫu để chạy thử. Tải file mẫu ở Bước 1 trước."
+        store = _dry_run_store("save", msg, p_from, p_to, _p_org, _config)
+        return alert_box(f"Lỗi ở 2. Lưu bản nháp: {msg}", tone="crit"), store, dash.no_update
     save_res = save_draft_template(
         ctx,
         code=code_to_save,
@@ -3827,11 +3934,11 @@ def handle_run_dry_run(
             )
             retried_stale = save_res.ok
     if not save_res.ok or not save_res.data:
-        return (
-            alert_box(f"Lỗi khi lưu bản nháp trước khi chạy thử: {save_res.message or save_res.code}", tone="crit"),
-            dash.no_update,
-            dash.no_update,
-        )
+        msg = f"Lỗi khi lưu bản nháp trước khi chạy thử: {save_res.message or save_res.code}"
+        if save_res.code:
+            msg += f" (mã: {save_res.code})"
+        store = _dry_run_store("save", msg, p_from, p_to, _p_org, _config)
+        return alert_box(f"Lỗi ở 2. Lưu bản nháp: {msg}", tone="crit"), store, dash.no_update
     t_id = save_res.data.get("id", (_meta or {}).get("template_id"))
     ver = save_res.data.get("current_version", save_res.data.get("version", 1))
     dt_from = datetime.fromisoformat(str(p_from).strip().replace(" ", "T"))
@@ -3848,29 +3955,24 @@ def handle_run_dry_run(
         profile_code=default_profile.get("code"),
     )
     if not dry_res.ok or not dry_res.data:
-        return (
-            alert_box(f"Dry-run thất bại: {dry_res.message or dry_res.code}", tone="crit"),
-            {
-                "dry_run_ok": False,
-                "p_from": str(p_from),
-                "p_to": str(p_to),
-                "p_org": _p_org or "",
-                "summary": {},
-                "grain_warnings": [],
-                "config_hash": _config_hash(_config),
-            },
-            dash.no_update,
-        )
+        msg = f"Dry-run thất bại: {dry_res.message or dry_res.code}"
+        if dry_res.code:
+            msg += f" (mã: {dry_res.code})"
+        if dry_res.details:
+            msg += f" Chi tiết: {dry_res.details}"
+        store = _dry_run_store("dry_run", msg, p_from, p_to, _p_org, _config)
+        return alert_box(f"Lỗi ở 3. Chạy đối soát thật: {msg}", tone="crit"), store, dash.no_update
     dry_data = dry_res.data
-    result = {
-        "dry_run_ok": True,
-        "p_from": str(p_from),
-        "p_to": str(p_to),
-        "p_org": _p_org or "",
-        "summary": dry_data.get("summary", {}),
-        "grain_warnings": dry_data.get("grain_warnings", []),
-        "config_hash": _config_hash(_config),
-    }
+    result = _dry_run_store(
+        "done",
+        None,
+        p_from,
+        p_to,
+        _p_org,
+        _config,
+        summary=dry_data.get("summary", {}),
+        grain_warnings=dry_data.get("grain_warnings", []),
+    )
     saved_meta = {
         **(_meta or {}),
         "template_id": t_id,
