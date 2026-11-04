@@ -978,7 +978,7 @@ def render_step_3(
                 for flt in db_spec.get("filters", []):
                     if flt.get("param") and flt.get("param") not in reg_p:
                         reg_p.append(flt.get("param"))
-                for ef in db_spec.get("extra_filters", []):
+                for ef in _extra_filters_from_db_spec(db_spec):
                     if ef.get("param") and ef.get("param") not in reg_p:
                         reg_p.append(ef.get("param"))
                 desc_res = describe_source(
@@ -1002,7 +1002,7 @@ def render_step_3(
 
     # Filter params
     filters = db_spec.get("filters", [])
-    extra_filters = db_spec.get("extra_filters", [])
+    extra_filters = _extra_filters_from_db_spec(db_spec)
     p_from_col = ""
     p_to_col = ""
     p_org_col = ""
@@ -1496,11 +1496,28 @@ def _render_profile_grouped_sql(
     outer_select_str = ",\n       ".join(outer_selects)
     group_by_str = ",\n         ".join(group_by_exprs)
 
+    # Placeholder cho câu SELECT trong: liệt kê đủ bind của Bước 3, không
+    # hardcode chỉ :p_from, :p_to, :p_org, nếu không template thêm tham
+    # số phụ (ví dụ :p_application) sẽ bị hiểu nhầm là SQL gộp thiếu nó.
+    # Đây vẫn chỉ là chú thích xem trước, câu SELECT thật ở Bước 3 và
+    # câu chạy thật ở engine đều sinh từ filters/params đầy đủ.
+    step3_binds = ["p_from", "p_to", "p_org"]
+    for ef in _extra_filters_from_db_spec(config.get("db_source", {})):
+        pname = ef.get("param")
+        if pname and pname not in step3_binds:
+            step3_binds.append(str(pname))
+    # Dự phòng: bản cấu hình chỉ còn params mà thiếu filters thì vẫn liệt kê.
+    for p in (config.get("db_source", {}) or {}).get("params", []) or []:
+        pname = p.get("name") if isinstance(p, dict) else None
+        if pname and pname not in step3_binds:
+            step3_binds.append(str(pname))
+    step3_binds_text = ", ".join(f":{b}" for b in step3_binds)
+
     return (
         f"{warn_prefix}"
         f"SELECT {outer_select_str}\n"
         f"FROM   (\n"
-        f"    <Câu SELECT sinh ra ở bước 3 với :p_from, :p_to, :p_org>\n"
+        f"    <Câu SELECT sinh ra ở bước 3 với {step3_binds_text}>\n"
         f") src\n"
         f"GROUP BY\n"
         f"         {group_by_str}"
@@ -2810,6 +2827,16 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
                 if ds_name_found:
                     initial_config.setdefault("db_source", {})["source_id"] = ds_name_found
 
+    # Khôi phục tham số lọc phụ từ bản đã lưu: bản lưu giữ filters/params
+    # nhưng rớt extra_filters khi validate, nên vào lại mà không khôi phục
+    # thì Bước 3 sẽ không hiện dòng phụ và lần sửa ở Bước 3 có thể xóa
+    # mất nó khỏi filters/params thật sự.
+    _saved_db_spec = initial_config.get("db_source", {})
+    if "extra_filters" not in _saved_db_spec:
+        _recovered = _extra_filters_from_db_spec(_saved_db_spec)
+        if _recovered:
+            _saved_db_spec["extra_filters"] = _recovered
+
     t_code = initial_config.get("template_code") or t_code
     ds_name = initial_config.get("db_source", {}).get("source_id", "—")
     tb_name = initial_config.get("db_source", {}).get("table", "—")
@@ -3469,7 +3496,7 @@ def handle_select_or_fetch_table(
     p_to_col = ""
     p_org_col = ""
     p_org_default = ""
-    extra_filters = cfg.get("db_source", {}).get("extra_filters", [])
+    extra_filters = _extra_filters_from_db_spec(cfg.get("db_source", {}))
     for flt in cfg.get("db_source", {}).get("filters", []):
         if flt.get("param") == "p_from":
             p_from_col = flt.get("column", p_from_col)
@@ -3529,7 +3556,7 @@ def handle_check_custom_sql(
         p_name = p.get("name")
         if p_name and p_name not in registered_params:
             registered_params.append(p_name)
-    for ef in db_spec.get("extra_filters", []):
+    for ef in _extra_filters_from_db_spec(db_spec):
         p_name = ef.get("param")
         if p_name and p_name not in registered_params:
             registered_params.append(p_name)
@@ -3586,7 +3613,7 @@ def handle_check_custom_sql(
         if p.get("name") == "p_org" and p.get("default"):
             p_org_default = str(p.get("default"))
 
-    extra_filters = db_spec.get("extra_filters", [])
+    extra_filters = _extra_filters_from_db_spec(db_spec)
     filters_ui = _render_filter_params_table(
         db_cols_chips, p_from_col, p_to_col, p_org_col, p_org_default, extra_filters
     )
@@ -3679,7 +3706,7 @@ def handle_change_filter_cols(
 
     table_name = db_spec.get("table", "")
     fields = cfg.get("fields", [])
-    extra_filters = db_spec.get("extra_filters", [])
+    extra_filters = _extra_filters_from_db_spec(db_spec)
     gen_sql = _render_generated_sql(table_name, fields, p_from or "", p_to or "", p_org_col or "", extra_filters)
     gen_sql_ui = code_block(gen_sql, language="sql")
 
@@ -4624,9 +4651,60 @@ def handle_step4_measure_edits(
     return cfg, sql_ui
 
 
+def _extra_filters_from_db_spec(db_spec: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Lấy danh sách tham số lọc phụ của Bước 3, kể cả khi chỉ còn bản đã lưu.
+
+    `extra_filters` chỉ là trạng thái nội bộ của wizard, không nằm trong
+    TemplateConfig (DbSourceSpec để extra="ignore") nên khi lưu nháp nó bị
+    rớt khỏi CONFIG_JSON đã lưu. Bản đã lưu vẫn giữ filters/params đầy đủ
+    (trong đó có tham số phụ như p_application), vì vậy khi vào lại mà
+    `extra_filters` trống thì phải khôi phục từ filters/params, nếu không
+    bảng lọc ở Bước 3 sẽ không hiện dòng đó, SQL sinh ra ở Bước 3 thiếu
+    nó, và lần sửa nào ở Bước 3 gọi _sync cũng sẽ xóa nó khỏi
+    filters/params thật sự. Hàm này chỉ dùng để đọc/hiển thị và làm điểm
+    xuất phát khi thêm/sửa/xóa; _sync vẫn chỉ tin `extra_filters` đã ghi
+    trong db_spec để việc xóa tham số không bị khôi phục lại.
+    """
+    db_spec = db_spec or {}
+    # Phân biệt "chưa từng có key" (bản đã lưu, cần khôi phục) với "có key
+    # nhưng rỗng" (người dùng đã xóa hết tham số phụ, không được khôi phục).
+    if "extra_filters" in db_spec:
+        return list(db_spec.get("extra_filters") or [])
+    fixed = {"p_from", "p_to", "p_org"}
+    params_by_name: dict[str, Any] = {}
+    for p in db_spec.get("params", []) or []:
+        if isinstance(p, dict) and p.get("name"):
+            params_by_name[str(p.get("name"))] = p
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for flt in db_spec.get("filters", []) or []:
+        if not isinstance(flt, dict):
+            continue
+        pname = flt.get("param")
+        if not pname or pname in fixed or pname in seen:
+            continue
+        seen.add(str(pname))
+        p = params_by_name.get(str(pname), {})
+        out.append(
+            {
+                "param": str(pname),
+                "column": flt.get("column", ""),
+                "op": flt.get("op", "="),
+                "default": p.get("default", ""),
+                "label": p.get("label", pname),
+            }
+        )
+    return out
+
+
 def _sync_db_source_filters_and_params(cfg: dict[str, Any]) -> None:
     """Đồng bộ filters và params tổng thể từ p_from, p_to, p_org và extra_filters."""
     db_spec = cfg.setdefault("db_source", {})
+    # Khôi phục key extra_filters nếu bản cấu hình chỉ còn filters/params
+    # (trường hợp vào lại sau khi lưu), để lần đồng bộ này không xóa mất
+    # tham số phụ đã lưu chỉ vì UI chưa kịp dựng lại dòng đó.
+    if "extra_filters" not in db_spec:
+        db_spec["extra_filters"] = _extra_filters_from_db_spec(db_spec)
     p_from_col = ""
     p_to_col = ""
     p_org_col = ""
@@ -4682,7 +4760,7 @@ def _sync_db_source_filters_and_params(cfg: dict[str, Any]) -> None:
         },
     ]
 
-    for ef in db_spec.get("extra_filters", []):
+    for ef in _extra_filters_from_db_spec(db_spec):
         p_name = ef.get("param")
         if p_name and p_name not in [f["param"] for f in all_filters]:
             all_filters.append(
@@ -4724,7 +4802,7 @@ def handle_add_filter_param(n_clicks: int | None, current_config: dict[str, Any]
 
     cfg = dict(current_config)
     db_spec = cfg.setdefault("db_source", {})
-    extra_filters = list(db_spec.get("extra_filters", []))
+    extra_filters = list(_extra_filters_from_db_spec(db_spec))
 
     db_cols_chips = db_spec.get("_columns") or []
     col_names = [c[0] for c in db_cols_chips] if db_cols_chips else ["INVOICE_STATUS"]
@@ -4806,7 +4884,7 @@ def handle_delete_filter_param(n_clicks_list: list[int | None], current_config: 
 
     cfg = dict(current_config)
     db_spec = cfg.setdefault("db_source", {})
-    extra_filters = list(db_spec.get("extra_filters", []))
+    extra_filters = list(_extra_filters_from_db_spec(db_spec))
     if 0 <= del_index < len(extra_filters):
         extra_filters.pop(del_index)
     db_spec["extra_filters"] = extra_filters
@@ -4863,7 +4941,7 @@ def handle_change_extra_filter_values(
 
     cfg = dict(current_config)
     db_spec = cfg.setdefault("db_source", {})
-    extra_filters = list(db_spec.get("extra_filters", []))
+    extra_filters = list(_extra_filters_from_db_spec(db_spec))
 
     for idx, (p_name, p_col, p_op, p_val) in enumerate(zip(names, cols, ops, vals, strict=False)):
         if idx < len(extra_filters):
