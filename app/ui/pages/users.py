@@ -321,18 +321,15 @@ def layout() -> Any:
                                     hint="Chữ thường, số, dấu chấm, gạch dưới. Không đổi được sau khi tạo.",
                                     required=True,
                                 ),
-                                html.Div(style={"height": 12}),
                                 form_field(
                                     dmc.TextInput(id="users-input-fullname", placeholder="vd Nguyễn Văn A"),
                                     label="Họ tên",
                                     required=True,
                                 ),
-                                html.Div(style={"height": 12}),
                                 form_field(
                                     dmc.TextInput(id="users-input-email", placeholder="vd a.nguyen@example.com"),
                                     label="Email",
                                 ),
-                                html.Div(style={"height": 12}),
                                 form_field(
                                     dmc.CheckboxGroup(
                                         id="users-input-roles",
@@ -355,7 +352,6 @@ def layout() -> Any:
                                 html.Div(
                                     id="users-create-pw-box",
                                     children=[
-                                        html.Div(style={"height": 12}),
                                         form_field(
                                             dmc.PasswordInput(id="users-input-password"),
                                             label="Mật khẩu ban đầu",
@@ -370,12 +366,13 @@ def layout() -> Any:
                                         ),
                                     ],
                                 ),
-                                # Khối trạng thái & lịch sử đăng nhập (chỉ khi sửa)
+                                # Khối trạng thái (chỉ khi sửa). Lịch sử đăng
+                                # nhập tách ra vùng riêng bên dưới để cuộn
+                                # riêng, form phía trên luôn cố định.
                                 html.Div(
                                     id="users-edit-status-box",
                                     style={"display": "none"},
                                     children=[
-                                        html.Div(style={"height": 16}),
                                         dmc.Text("Trạng thái tài khoản", size="sm", fw=600),
                                         dmc.Group(
                                             [
@@ -391,19 +388,37 @@ def layout() -> Any:
                                             mt="xs",
                                         ),
                                         dmc.Box(id="users-toggle-error-msg", mt="xs"),
-                                        html.Div(style={"height": 16}),
-                                        dmc.Text("Lịch sử đăng nhập gần nhất", size="sm", fw=600),
-                                        dmc.Box(id="users-history-container", mt="xs"),
                                     ],
                                 ),
                                 dmc.Box(id="users-form-error-alert", mt="md"),
                             ],
-                            style={"flex": "1", "overflowY": "auto", "minHeight": 0},
+                            style={"flex": "0 1 auto", "overflowY": "auto", "minHeight": 0},
                         ),
-                        # Chân drawer cố định ở đáy màn hình, không còn phụ
-                        # thuộc nội dung dài hay ngắn: sticky cũ chỉ giữ nút
-                        # khi có cuộn, còn nội dung ngắn thì nút nằm ngay sau
-                        # nội dung thay vì ở đáy.
+                        # Vùng lịch sử đăng nhập: chiếm phần còn lại của
+                        # drawer và cuộn riêng trong đó, form nhập liệu phía
+                        # trên và chân nút phía dưới đều đứng yên. Ẩn ở chế
+                        # độ tạo mới (callback mở drawer điều khiển style).
+                        html.Div(
+                            [
+                                dmc.Text("Lịch sử đăng nhập gần nhất", size="sm", fw=600, mt="sm"),
+                                dmc.Box(
+                                    id="users-history-container",
+                                    mt="xs",
+                                    style={"flex": "1", "overflowY": "auto", "minHeight": 0},
+                                ),
+                            ],
+                            id="users-history-box",
+                            style={
+                                "display": "none",
+                                "flexDirection": "column",
+                                "flex": "1",
+                                "minHeight": 0,
+                            },
+                        ),
+                        # Chân drawer cố định ở đáy màn hình: marginTop auto
+                        # đẩy chân xuống đáy kể cả khi vùng lịch sử đang ẩn
+                        # (chế độ tạo mới), còn khi lịch sử hiện thì vùng
+                        # flex:1 đã chiếm hết phần còn lại.
                         dmc.Group(
                             [
                                 button_subtle("Hủy", id="users-drawer-cancel-btn"),
@@ -414,6 +429,7 @@ def layout() -> Any:
                             pb="xs",
                             style={
                                 "flexShrink": 0,
+                                "marginTop": "auto",
                                 "background": "var(--mantine-color-body)",
                                 "borderTop": "1px solid var(--border-subtle, #e2e8f0)",
                             },
@@ -505,10 +521,38 @@ def _render_login_history_table(history_logs: Any) -> Any:
                     [
                         # Mantine căn giữa th mặc định, trong khi td căn
                         # trái, nên không ghi textAlign thì tiêu đề "Thời
-                        # gian" lệch khỏi cột dữ liệu bên dưới.
-                        html.Th("Thời gian", style={"padding": "10px 14px", "textAlign": "left"}),
-                        html.Th("Kết quả", style={"padding": "10px 14px", "textAlign": "left"}),
-                        html.Th("IP", style={"padding": "10px 14px", "textAlign": "left"}),
+                        # gian" lệch khỏi cột dữ liệu bên dưới. Tiêu đề dính
+                        # trên cùng vùng cuộn của bảng để cuộn dòng vẫn thấy.
+                        html.Th(
+                            "Thời gian",
+                            style={
+                                "padding": "10px 14px",
+                                "textAlign": "left",
+                                "position": "sticky",
+                                "top": 0,
+                                "background": "var(--bg-subtle, #f8fafc)",
+                            },
+                        ),
+                        html.Th(
+                            "Kết quả",
+                            style={
+                                "padding": "10px 14px",
+                                "textAlign": "left",
+                                "position": "sticky",
+                                "top": 0,
+                                "background": "var(--bg-subtle, #f8fafc)",
+                            },
+                        ),
+                        html.Th(
+                            "IP",
+                            style={
+                                "padding": "10px 14px",
+                                "textAlign": "left",
+                                "position": "sticky",
+                                "top": 0,
+                                "background": "var(--bg-subtle, #f8fafc)",
+                            },
+                        ),
                     ],
                     style={"background": "var(--bg-subtle, #f8fafc)"},
                 )
@@ -556,6 +600,7 @@ def handle_filter_users(q: str | None, role: str | None, status_filter: str | No
     Output("users-history-container", "children"),
     Output("users-form-error-alert", "children", allow_duplicate=True),
     Output("users-toggle-error-msg", "children", allow_duplicate=True),
+    Output("users-history-box", "style"),
     Input("users-add-btn", "n_clicks"),
     prevent_initial_call=True,
 )
@@ -578,6 +623,7 @@ def handle_open_create_drawer(n_clicks: int | None) -> Any:
         None,  # history
         None,  # form error
         None,  # toggle error
+        {"display": "none"},  # history box
     )
 
 
@@ -596,6 +642,7 @@ def handle_open_create_drawer(n_clicks: int | None) -> Any:
     Output("users-history-container", "children", allow_duplicate=True),
     Output("users-form-error-alert", "children", allow_duplicate=True),
     Output("users-toggle-error-msg", "children", allow_duplicate=True),
+    Output("users-history-box", "style", allow_duplicate=True),
     Input({"type": "user-edit-btn", "index": ALL}, "n_clicks"),
     prevent_initial_call=True,
 )
@@ -652,6 +699,12 @@ def handle_open_edit_drawer(n_clicks_list: list[int | None]) -> Any:
         history_table,
         None,  # form error
         None,  # toggle error
+        {
+            "display": "flex",
+            "flexDirection": "column",
+            "flex": "1",
+            "minHeight": 0,
+        },  # history box
     )
 
 
