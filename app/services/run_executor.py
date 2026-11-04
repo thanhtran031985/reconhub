@@ -68,6 +68,35 @@ def _serialize_val(v: Any) -> Any:
     return v
 
 
+# Số biến bind tối đa cho một mệnh đề IN. 500 an toàn cho cả SQLite
+# (giới hạn thấp nhất thường gặp là 999 biến/câu lệnh) và Oracle (tối đa
+# 1000 biểu thức trong IN list). Đừng tăng lên quá 900 nếu không kiểm chứng
+# lại trên cả hai dialect.
+_ISSUE_UPDATE_BATCH_SIZE = 500
+
+
+def _update_issues_last_run(conn: Any, template_id: int, profile_code: str, key_hashes: list[str], run_id: int) -> None:
+    """Cập nhật LAST_RUN_ID cho các issue khớp key_hash, chia lô để không vượt giới hạn biến SQL.
+
+    key_hashes gom từ mọi dòng kết quả nên có thể lên tới hàng trăm nghìn
+    (file lớn) và có thể trùng nhau; đưa cả danh sách vào một mệnh đề IN
+    duy nhất sẽ gây lỗi "too many SQL variables" và làm run FAILED ở giai
+    đoạn SAVE, dù kết quả đã ghi xong.
+    """
+    unique_hashes = list(dict.fromkeys(key_hashes))
+    for start in range(0, len(unique_hashes), _ISSUE_UPDATE_BATCH_SIZE):
+        batch = unique_hashes[start : start + _ISSUE_UPDATE_BATCH_SIZE]
+        conn.execute(
+            update(recon_issue)
+            .where(
+                recon_issue.c.TEMPLATE_ID == template_id,
+                recon_issue.c.PROFILE_CODE == profile_code,
+                recon_issue.c.KEY_HASH.in_(batch),
+            )
+            .values(LAST_RUN_ID=run_id)
+        )
+
+
 def execute_run(
     run_id: int,
     mock_fetcher: Any = None,
@@ -288,17 +317,9 @@ def execute_run(
                 if diffs_to_insert:
                     conn.execute(recon_result_diff.insert(), diffs_to_insert)
 
-                # Cập nhật LAST_RUN_ID cho các issue hiện có
+                # Cập nhật LAST_RUN_ID cho các issue hiện có (chia lô, xem _update_issues_last_run)
                 if all_key_hashes:
-                    conn.execute(
-                        update(recon_issue)
-                        .where(
-                            recon_issue.c.TEMPLATE_ID == template_id,
-                            recon_issue.c.PROFILE_CODE == profile_code,
-                            recon_issue.c.KEY_HASH.in_(all_key_hashes),
-                        )
-                        .values(LAST_RUN_ID=run_id)
-                    )
+                    _update_issues_last_run(conn, template_id, profile_code, all_key_hashes, run_id)
 
                 # 2. Ghi RECON_INVALID_ROW
                 invalid_to_insert: list[dict[str, Any]] = []
