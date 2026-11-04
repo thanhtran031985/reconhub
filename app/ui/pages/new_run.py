@@ -420,9 +420,17 @@ def _param_default_str(p: dict[str, Any]) -> str:
 
 
 def render_extra_param_input(p: dict[str, Any]) -> Any:
-    """Một ô nhập cho tham số phụ, dùng id pattern-matching để callback đọc chung."""
+    """Một ô nhập cho tham số phụ, dùng id pattern-matching để callback đọc chung.
+
+    Nhãn lấy thẳng theo tên parameter (ví dụ p_application), không lấy
+    theo label trong template. Wizard khi thêm tham số mới tự gán label
+    chung chung là "Tham Số 1", "Tham Số 2", nên nếu hiển thị label đó
+    thì thêm nhiều tham số một lúc sẽ không phân biệt được ô nào là gì,
+    trong khi tên parameter là thứ duy nhất phân biệt được và khớp với
+    tên bind trong SQL preview (:p_application).
+    """
     name = str(p.get("name"))
-    label = str(p.get("label") or name)
+    label = name
     if p.get("required"):
         label = f"{label} *"
     comp_id = {"type": "new-run-extra-param", "name": name}

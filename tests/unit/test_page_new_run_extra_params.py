@@ -25,7 +25,9 @@ def _template_with_application() -> dict:
                         "type": "text",
                         "source": "default",
                         "default": "VTOS",
-                        "label": "Ứng dụng",
+                        # Nhãn mặc định wizard tự gán khi thêm tham số mới;
+                        # /runs/new không được hiển thị nhãn này.
+                        "label": "Tham Số 1",
                     },
                 ]
             },
@@ -55,6 +57,19 @@ def test_sync_extra_params_on_template_change_renders_application() -> None:
     assert len(children) == 1
     assert children[0].id == {"type": "new-run-extra-param", "name": "p_application"}
     assert children[0].value == "VTOS"
+    # Nhãn lấy theo tên parameter, không lấy label "Tham Số 1" của wizard,
+    # để thêm nhiều tham số một lúc vẫn phân biệt được ô nào là gì.
+    assert children[0].label == "p_application"
+
+
+def test_render_params_section_label_is_param_name_not_generic_label() -> None:
+    ui = render_params_section(
+        template_info=_template_with_application(),
+        data_sources=[],
+        active_templates=[],
+    )
+    assert "p_application" in str(ui)
+    assert "Tham Số 1" not in str(ui)
 
 
 def test_build_extra_params_dict_maps_values_in_order_and_skips_empty() -> None:
