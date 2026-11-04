@@ -261,6 +261,29 @@ def test_render_result_grid_and_filters() -> None:
     assert "Tổng tiền" in s
     assert "rh-diff" in s
 
+    # Bảng kết quả chính phải bật kẻ dọc giữa các cột
+    import dash_mantine_components as dmc
+
+    def _find_table(node):
+        if isinstance(node, dmc.Table):
+            return node
+        children = getattr(node, "children", None)
+        if isinstance(children, (list, tuple)):
+            items = children
+        elif children is not None and not isinstance(children, str):
+            items = [children]
+        else:
+            items = []
+        for child in items:
+            found = _find_table(child)
+            if found is not None:
+                return found
+        return None
+
+    table = _find_table(grid_ui)
+    assert table is not None
+    assert table.withColumnBorders is True
+
 
 def test_render_detail_drawer_temp_purged_and_active() -> None:
     # 1. Dữ liệu tạm còn

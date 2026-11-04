@@ -608,7 +608,7 @@ def render_result_grid(
                             striped=False,
                             highlightOnHover=True,
                             withTableBorder=False,
-                            withColumnBorders=False,
+                            withColumnBorders=True,
                             verticalSpacing="sm",
                         ),
                     ),
