@@ -1277,88 +1277,76 @@ def render_step_3(
     )
 
 
+def _mapped_fields_info(config: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Trường có sẵn ở Bước 4: chỉ những trường so sánh được cả hai phía.
+
+    Trường thường phải có cả cột Excel đang dùng và cột DB đã map ở Bước 3
+    (db khác rỗng, không phải sentinel "— Không có —"). Trường dẫn xuất
+    không có cột DB trực tiếp, nhưng được tính lại ở cả hai phía từ các
+    trường đã map, nên chỉ giữ lại khi mọi tham số là tên trường của nó
+    đều nằm trong tập trường đã map.
+    """
+    cfg = config or {}
+    mapped_names: set[str] = set()
+    info: list[dict[str, Any]] = []
+    for f in cfg.get("fields", []) or []:
+        if not isinstance(f, dict):
+            continue
+        name = f.get("name", "")
+        db_col = f.get("db")
+        if name and f.get("excel") and db_col and str(db_col).strip() not in ("", "— Không có —"):
+            mapped_names.add(name)
+            info.append({"name": name, "label": f.get("label", name), "type": f.get("type", "text")})
+    for d in cfg.get("derived", []) or []:
+        if not isinstance(d, dict):
+            continue
+        name = d.get("name", "")
+        if not name:
+            continue
+        expr = d.get("expr") or {}
+        args = expr.get("args") if isinstance(expr, dict) else []
+        arg_names = [a for a in (args or []) if isinstance(a, str)]
+        # Tham số là tên trường có trong config thì phải đã map; tham số
+        # dạng tên trường (CHỮ_HOA) nhưng không có trong config cũng coi
+        # là chưa map, vì derived không tính được từ trường đã map. Hằng
+        # số / chuỗi khác thì bỏ qua.
+        field_names = {f.get("name") for f in cfg.get("fields", []) or [] if isinstance(f, dict)}
+        field_args = []
+        for a in arg_names:
+            if a in field_names:
+                field_args.append(a)
+            elif a and all(c.isupper() or c.isdigit() or c == "_" for c in a):
+                field_args.append(a)
+        if all(a in mapped_names for a in field_args):
+            info.append({"name": name, "label": d.get("label", name), "type": d.get("type", "date")})
+    return info
+
+
 def _build_default_profiles_from_fields(
     fields: list[dict[str, Any]],
     derived: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Tự động sinh profile so sánh mặc định từ danh sách trường."""
-    all_fields = list(fields or []) + list(derived or [])
-    field_names: list[str] = [str(f.get("name")) for f in all_fields if f.get("name")]
+    """Profile trống để người dùng tự chọn Group by và Measures.
 
-    key_field = "INVOICE_NO" if "INVOICE_NO" in field_names else (field_names[0] if field_names else "ID")
-    group_by = [key_field]
-
-    measures: list[dict[str, Any]] = []
-
-    # Amount / Total
-    amt_field = next((f for f in field_names if "AMOUNT" in f or "TIEN" in f), None)
-    if amt_field:
-        measures.append(
-            {
-                "name": "TOTAL_AMOUNT",
-                "label": "Tổng tiền",
-                "agg": "sum",
-                "field": amt_field,
-                "compare": "abs_tol",
-                "tolerance": 1,
-                "round": 0,
-            }
-        )
-
-    # Quantity / San luong
-    qty_field = next((f for f in field_names if "QTY" in f or "LUONG" in f or "QUANTITY" in f), None)
-    if qty_field:
-        measures.append(
-            {
-                "name": "TOTAL_QTY",
-                "label": "Số lượng",
-                "agg": "sum",
-                "field": qty_field,
-                "compare": "exact",
-                "round": 0,
-            }
-        )
-
-    # Date
-    date_field = next(
-        (f for f in field_names if ("DATE" in f or "TIME" in f or "NGAY" in f) and f != "TOTAL_AMOUNT"), None
-    )
-    if date_field:
-        measures.append(
-            {
-                "name": "M_INV_DATE",
-                "label": "Ngày HĐ",
-                "agg": "first_distinct",
-                "field": date_field,
-                "compare": "exact",
-            }
-        )
-
-    # Line count
-    measures.append(
+    Trước đây hàm này tự đoán Group by = INVOICE_NO (hoặc trường đầu tiên)
+    và tự sinh TOTAL_AMOUNT/TOTAL_QTY/M_INV_DATE/LINE_CNT theo tên trường,
+    nên bấm qua Bước 4 là đã có sẵn một profile mà người dùng chưa chọn gì.
+    Giờ chỉ trả về profile rỗng; validate Bước 4 sẽ chặn Tiếp cho đến khi
+    người dùng chọn Group by và ít nhất một measure.
+    """
+    return [
         {
-            "name": "LINE_CNT",
-            "label": "Số dòng",
-            "agg": "count",
-            "field": None,
-            "compare": "display_only",
+            "code": "PROFILE_1",
+            "name": "Profile 1",
+            "is_default": True,
+            "aggregate": True,
+            "group_by": [],
+            "measures": [],
+            "filters": [],
+            "main_measure": None,
+            "drilldown_to": None,
         }
-    )
-
-    main_m = measures[0]["name"] if measures else "LINE_CNT"
-
-    p1 = {
-        "code": "BY_INVOICE",
-        "name": "Theo số hóa đơn",
-        "is_default": True,
-        "aggregate": True,
-        "group_by": group_by,
-        "measures": measures,
-        "filters": [],
-        "main_measure": main_m,
-        "drilldown_to": None,
-    }
-    return [p1]
+    ]
 
 
 def _calculate_grain_info(
@@ -1366,11 +1354,17 @@ def _calculate_grain_info(
     sample_data: dict[str, Any] | None,
     total_rows_fallback: int = 200,
 ) -> tuple[int, int, str]:
-    """Tính toán số dòng Excel và số nhóm theo group_by."""
-    total_rows = sample_data.get("total_rows", total_rows_fallback) if sample_data else total_rows_fallback
+    """Tính toán số dòng Excel và số nhóm theo group_by.
+
+    Không có dữ liệu mẫu hoặc không khớp được cột thì trả về 0 nhóm kèm
+    mô tả "chưa tính được", không tự điền 190 nhóm / 95% tổng dòng như trước.
+    """
+    if not sample_data:
+        return 0, 0, "Chưa có dữ liệu mẫu để tính số nhóm."
+    total_rows = sample_data.get("total_rows", 0) or 0
 
     groups_count = 0
-    if sample_data and "columns" in sample_data:
+    if "columns" in sample_data:
         cols = sample_data["columns"]
         matched_unique = []
         for g in group_by:
@@ -1390,10 +1384,7 @@ def _calculate_grain_info(
                 groups_count = min(total_rows, prod)
 
     if groups_count <= 0:
-        if "INVOICE_NO" in [g.upper() for g in group_by]:
-            groups_count = 190 if total_rows == 200 else min(total_rows, int(total_rows * 0.98))
-        else:
-            groups_count = max(1, int(total_rows * 0.95))
+        return total_rows, 0, "Chưa tính được số nhóm từ dữ liệu mẫu."
 
     pct = (groups_count / total_rows * 100) if total_rows > 0 else 0
     if pct >= 80:
@@ -1412,7 +1403,27 @@ def _render_profile_grouped_sql(
     measures: list[dict[str, Any]],
 ) -> str:
     """Sinh câu SQL truy vấn gộp cho Bước 4 dựa trên group_by và measures."""
+    if not group_by:
+        return "-- Chưa chọn Group by, chưa sinh được SQL gộp."
     fields_map = {f.get("name"): f for f in config.get("fields", [])}
+    unmapped = [
+        g
+        for g in group_by
+        if g not in {d.get("name") for d in config.get("derived", [])} and not fields_map.get(g, {}).get("db")
+    ]
+    unmapped += [
+        m.get("field")
+        for m in measures
+        if m.get("field")
+        and m.get("field") != "*"
+        and m.get("field") not in {d.get("name") for d in config.get("derived", [])}
+        and not fields_map.get(m.get("field"), {}).get("db")
+    ]
+    warn_prefix = (
+        f"-- Cảnh báo: trường {', '.join(sorted(set(unmapped)))} chưa map cột DB, SQL này chưa chạy được.\n"
+        if unmapped
+        else ""
+    )
 
     outer_selects: list[str] = []
     group_by_exprs: list[str] = []
@@ -1454,9 +1465,10 @@ def _render_profile_grouped_sql(
             outer_selects.append(f'COUNT(DISTINCT TRUNC(src."{db_col}")) AS "N__{m_name}"')
 
     outer_select_str = ",\n       ".join(outer_selects)
-    group_by_str = ",\n         ".join(group_by_exprs) if group_by_exprs else 'src."INVOICE_NO"'
+    group_by_str = ",\n         ".join(group_by_exprs)
 
     return (
+        f"{warn_prefix}"
         f"SELECT {outer_select_str}\n"
         f"FROM   (\n"
         f"    <Câu SELECT sinh ra ở bước 3 với :p_from, :p_to, :p_org>\n"
@@ -1501,7 +1513,7 @@ def _render_measures_table(
         m_cmp = m.get("compare", "exact")
         m_tol = m.get("tolerance")
         m_round = m.get("round", 0)
-        is_main = m_name == (main_measure or "TOTAL_AMOUNT")
+        is_main = bool(main_measure) and m_name == main_measure
         has_tol = m_cmp in ("abs_tol", "pct_tol")
 
         main_badge_or_btn = (
@@ -1704,7 +1716,7 @@ def _render_step_4_left_fields(
     if not rows:
         return html.Div(
             alert_box(
-                "Chưa có trường nào được định nghĩa. Vui lòng tải file mẫu ở Bước 1 hoặc thêm trường ở Bước 2.",
+                "Chưa có trường nào đã map cột DB ở Bước 3. Quay lại Bước 3, chọn Cột DB cho các trường muốn so sánh rồi mới chọn Group by / Measure ở đây.",
                 tone="info",
             )
         )
@@ -1745,7 +1757,9 @@ def _render_step_4_right_panel(
     tot_rows, groups_cnt, grain_desc = _calculate_grain_info(group_by, sample_data)
     grain_desc_str = f"({', '.join(group_by)})" if group_by else "(chưa chọn khóa)"
     grain_alert = alert_box(
-        f"{tot_rows:,} dòng Excel → {groups_cnt:,} nhóm theo {grain_desc_str}. {grain_desc}",
+        f"{grain_desc}"
+        if groups_cnt == 0
+        else f"{tot_rows:,} dòng Excel → {groups_cnt:,} nhóm theo {grain_desc_str}. {grain_desc}",
         tone="info",
     )
 
@@ -1956,19 +1970,9 @@ def render_step_4(
 
     current_prof_code = active_prof.get("code", "BY_INVOICE")
 
-    # Danh sách trường có sẵn (cả fields và derived)
-    raw_fields = config.get("fields", [])
-    raw_derived = config.get("derived", [])
-    avail_fields_info = [
-        {"name": f.get("name", ""), "label": f.get("label", f.get("name", "")), "type": f.get("type", "text")}
-        for f in raw_fields
-        if f.get("name")
-    ]
-    avail_fields_info += [
-        {"name": d.get("name", ""), "label": d.get("label", d.get("name", "")), "type": d.get("type", "date")}
-        for d in raw_derived
-        if d.get("name")
-    ]
+    # Danh sách trường có sẵn: chỉ trường đã map cột DB ở Bước 3 (xem
+    # _mapped_fields_info), không phải mọi trường ở Bước 2.
+    avail_fields_info = _mapped_fields_info(config)
 
     avail_field_names = [f["name"] for f in avail_fields_info]
 
@@ -2008,7 +2012,7 @@ def render_step_4(
                             children=[
                                 dmc.Title("Trường có sẵn", order=4, mb="xs"),
                                 dmc.Text(
-                                    "Bấm chìa khóa để gộp, sigma để thêm measure.",
+                                    "Chỉ các trường đã map cột DB ở Bước 3 (trường dẫn xuất tính từ trường đã map cũng được tính). Bấm chìa khóa để gộp, sigma để thêm measure.",
                                     size="xs",
                                     c="dimmed",
                                     mb="sm",
@@ -2584,11 +2588,23 @@ def validate_wizard_step(
         profiles = cfg.get("profiles", []) or []
         if not profiles:
             errors.append("Bước 4: chưa có profile nào.")
+        mapped = {f["name"] for f in _mapped_fields_info(cfg)}
         for prof in profiles:
             if not prof.get("group_by"):
                 errors.append(f"Bước 4: profile '{prof.get('code', '')}' chưa chọn Group by.")
             if not prof.get("measures"):
                 errors.append(f"Bước 4: profile '{prof.get('code', '')}' chưa có measure nào.")
+            for g in prof.get("group_by", []) or []:
+                if g not in mapped:
+                    errors.append(
+                        f"Bước 4: Group by '{g}' của profile '{prof.get('code', '')}' chưa map cột DB ở Bước 3."
+                    )
+            for m in prof.get("measures", []) or []:
+                mf = (m or {}).get("field")
+                if mf and mf != "*" and mf not in mapped:
+                    errors.append(
+                        f"Bước 4: measure '{(m or {}).get('name', '')}' dùng trường '{mf}' chưa map cột DB ở Bước 3."
+                    )
     return errors
 
 
@@ -2670,6 +2686,7 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
                     "is_editing": is_editing,
                     "current_step": 1,
                     "is_dirty": False,
+                    "last_saved_config_hash": _config_hash(initial_config) if is_editing else None,
                     "last_saved_at": None,
                     "sample_file_id": sample_file_id_val,
                 },
@@ -3179,26 +3196,12 @@ def handle_step3_time_filter_change(
     return cfg
 
 
-@callback(
-    Output("wizard-meta-store", "data", allow_duplicate=True),
-    Input("wizard-config-store", "data"),
-    State("wizard-meta-store", "data"),
-    prevent_initial_call=True,
-)
-def handle_mark_wizard_dirty(
-    _config: dict[str, Any] | None,
-    meta_data: dict[str, Any] | None,
-) -> Any:
-    """Đánh dấu is_dirty khi config thay đổi, để autosave 15 giây chạy thật.
-
-    Trước đây không callback nào gán is_dirty=True nên autosave luôn bị
-    bỏ qua. Callback này chỉ chạm meta, không chạm config nên không vòng lặp.
-    """
-    if not meta_data or meta_data.get("is_dirty"):
-        return dash.no_update
-    meta = dict(meta_data)
-    meta["is_dirty"] = True
-    return meta
+# Không dùng callback đánh dấu is_dirty nữa: callback đó ghi đè wizard-meta-store
+# bằng snapshot meta cũ, có thể về sau cả bản meta mà autosave vừa ghi
+# (row_version mới) và khiến lần lưu sau bị STALE_DATA. Thay vào đó,
+# autosave tự so hash config hiện tại với hash lần lưu gần nhất trong meta;
+# meta chỉ còn được ghi bởi các callback lưu/điều hướng, đều giữ nguyên
+# row_version hoặc ghi row_version mới, nên không bị revert.
 
 
 @callback(
@@ -3804,6 +3807,25 @@ def handle_run_dry_run(
         row_version=(_meta or {}).get("row_version"),
         sample_file_id=s_file_id,
     )
+    retried_stale = False
+    if (not save_res.ok) and save_res.code == "STALE_DATA" and (_meta or {}).get("template_id"):
+        # Meta trong trình duyệt có thể lệch row_version so với DB (ví dụ
+        # autosave vừa lưu xong nhưng meta chưa kịp cập nhật). Đọc lại
+        # row_version hiện tại từ DB và thử lưu lại một lần, thay vì bắt
+        # người dùng tải lại trang. Nếu lần hai vẫn STALE thì báo lỗi thật.
+        fresh = get_template(ctx, (_meta or {}).get("template_id"))
+        if fresh.ok and fresh.data and fresh.data.get("row_version"):
+            save_res = save_draft_template(
+                ctx,
+                code=code_to_save,
+                name=name_to_save,
+                config=template_cfg,
+                description=getattr(template_cfg, "description", None),
+                data_source_id=ds_id,
+                row_version=fresh.data.get("row_version"),
+                sample_file_id=s_file_id,
+            )
+            retried_stale = save_res.ok
     if not save_res.ok or not save_res.data:
         return (
             alert_box(f"Lỗi khi lưu bản nháp trước khi chạy thử: {save_res.message or save_res.code}", tone="crit"),
@@ -3858,10 +3880,12 @@ def handle_run_dry_run(
         "row_version": save_res.data.get("row_version") if save_res.data else (_meta or {}).get("row_version"),
         "sample_file_id": s_file_id,
         "is_dirty": False,
+        "last_saved_config_hash": _config_hash(_config),
     }
     return (
         alert_box(
-            "Dry-run thật hoàn tất thành công. Toàn bộ chỉ số đã được cập nhật từ kết quả thật.",
+            "Dry-run thật hoàn tất thành công. Toàn bộ chỉ số đã được cập nhật từ kết quả thật."
+            + (" (Đã đồng bộ lại row_version trước khi lưu.)" if retried_stale else ""),
             tone="ok",
         ),
         result,
@@ -3896,9 +3920,9 @@ def handle_save_or_autosave_draft(
     triggered_id = ctx_dash.triggered[0]["prop_id"] if ctx_dash.triggered else ""
     is_manual = "wizard-save-draft-btn" in triggered_id
 
-    is_dirty = meta_data.get("is_dirty", False) if meta_data else False
-    if not is_manual and not is_dirty:
-        # Nếu là autosave và không dirty thì bỏ qua
+    # Autosave chỉ lưu khi config khác lần lưu gần nhất (so hash), không
+    # dùng cờ is_dirty nữa để tránh callback khác ghi đè meta cũ.
+    if not is_manual and (meta_data or {}).get("last_saved_config_hash") == _config_hash(config_data):
         return dash.no_update, dash.no_update, dash.no_update
 
     template_cfg, errors = form_state_to_config(config_data)
@@ -3951,6 +3975,7 @@ def handle_save_or_autosave_draft(
         "row_version": res.data.get("row_version") if res.data else None,
         "sample_file_id": sample_file_id_val,
         "is_dirty": False,
+        "last_saved_config_hash": _config_hash(config_data),
         "last_saved_at": now_str,
     }
     sub_title = (
@@ -4032,17 +4057,8 @@ def handle_step4_interaction(
             break
     active_prof = dict(profiles[active_idx])
 
-    # Danh sách các trường có sẵn
-    avail_fields_info = [
-        {"name": f.get("name", ""), "label": f.get("label", f.get("name", "")), "type": f.get("type", "text")}
-        for f in cfg.get("fields", [])
-        if f.get("name")
-    ]
-    avail_fields_info += [
-        {"name": d.get("name", ""), "label": d.get("label", d.get("name", "")), "type": d.get("type", "date")}
-        for d in cfg.get("derived", [])
-        if d.get("name")
-    ]
+    # Danh sách các trường có sẵn: chỉ trường đã map cột DB ở Bước 3.
+    avail_fields_info = _mapped_fields_info(cfg)
     avail_field_names = [f["name"] for f in avail_fields_info]
 
     new_tab_value: Any = dash.no_update
@@ -4129,7 +4145,9 @@ def handle_step4_interaction(
             new_num += 1
             new_code = f"PROFILE_{new_num}"
         new_name = f"Profile {new_num}"
-        g_cols = [avail_field_names[0]] if avail_field_names else []
+        # Không tự lấy trường đầu tiên làm Group by: profile mới phải để
+        # người dùng chọn khóa, giống như profile mặc định giờ là rỗng.
+        g_cols: list[str] = []
 
         new_prof = {
             "code": new_code,

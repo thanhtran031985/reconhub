@@ -356,8 +356,18 @@ def test_step_4_grain_and_sql_helpers() -> None:
 
     tot, grp, desc = _calculate_grain_info(["INVOICE_NO"], {"total_rows": 200})
     assert tot == 200
-    assert grp > 0
-    assert "cân bằng" in desc or "nhóm" in desc
+    # Không có cột mẫu để khớp thì không tự điền số nhóm giả.
+    assert grp == 0
+    assert "Chưa tính được" in desc
+    tot2, grp2, _desc2 = _calculate_grain_info(
+        ["INVOICE_NO"],
+        {
+            "total_rows": 200,
+            "columns": [{"name": "INVOICE_NO", "suggested_field_name": "INVOICE_NO", "unique_count": 190}],
+        },
+    )
+    assert tot2 == 200
+    assert grp2 == 190
 
     config = {
         "db_source": {
@@ -644,3 +654,65 @@ def test_dry_run_no_longer_returns_simulated_numbers() -> None:
     )
     assert "190" not in str(data)
     assert data is dash.no_update or (data or {}).get("dry_run_ok") is not True
+
+
+def test_step4_available_fields_only_mapped_db_columns() -> None:
+    from app.ui.pages.template_wizard import _mapped_fields_info, render_step_4, validate_wizard_step
+
+    cfg = {
+        "fields": [
+            {"name": "INVOICE_NO", "label": "Số HĐ", "excel": "Số HĐ", "db": "INVOICE_NO", "type": "text"},
+            {"name": "SERVICE_NAME", "label": "Dịch vụ", "excel": "Dịch vụ", "db": None, "type": "text"},
+            {"name": "QTY", "label": "SL", "excel": "SL", "db": "QUANTITY", "type": "number"},
+            {"name": "UNUSED", "label": "Không dùng", "excel": None, "db": "UNUSED_COL", "type": "text"},
+        ],
+        "derived": [
+            {
+                "name": "INV_DATE",
+                "label": "Ngày HĐ",
+                "type": "date",
+                "expr": {"fn": "trunc_day", "args": ["INV_DATETIME"]},
+            },
+            {
+                "name": "BAD_DERIVED",
+                "label": "Xấu",
+                "type": "date",
+                "expr": {"fn": "trunc_day", "args": ["SERVICE_NAME"]},
+            },
+        ],
+        "profiles": [{"code": "PROFILE_1", "name": "Profile 1", "is_default": True, "group_by": [], "measures": []}],
+    }
+    # INV_DATETIME chưa có trong fields nên INV_DATE không đủ điều kiện map.
+    names = [f["name"] for f in _mapped_fields_info(cfg)]
+    assert names == ["INVOICE_NO", "QTY"]
+    # Thêm trường gốc đã map cho derived thì derived mới vào danh sách.
+    cfg["fields"].append(
+        {"name": "INV_DATETIME", "label": "Ngày", "excel": "Ngày", "db": "INVOICE_DATE", "type": "datetime"}
+    )
+    names = [f["name"] for f in _mapped_fields_info(cfg)]
+    assert "INV_DATE" in names
+    assert "SERVICE_NAME" not in names
+    assert "BAD_DERIVED" not in names
+    assert "UNUSED" not in names
+
+    ui = render_step_4(cfg)
+    s = str(ui)
+    assert "SERVICE_NAME" not in s or "chưa map" in s
+
+    # Validate chặn Group by / measure dùng trường chưa map.
+    cfg["profiles"][0]["group_by"] = ["SERVICE_NAME"]
+    cfg["profiles"][0]["measures"] = [{"name": "M1", "field": "SERVICE_NAME"}]
+    errs = validate_wizard_step(cfg, 3)
+    assert any("SERVICE_NAME" in e and "chưa map cột DB" in e for e in errs)
+
+
+def test_default_profile_is_empty_not_guessed() -> None:
+    from app.ui.pages.template_wizard import _build_default_profiles_from_fields
+
+    profs = _build_default_profiles_from_fields([{"name": "INVOICE_NO"}, {"name": "AMOUNT"}, {"name": "QTY"}])
+    assert len(profs) == 1
+    assert profs[0]["group_by"] == []
+    assert profs[0]["measures"] == []
+    assert profs[0]["main_measure"] is None
+    assert "BY_INVOICE" not in str(profs)
+    assert "TOTAL_AMOUNT" not in str(profs)
