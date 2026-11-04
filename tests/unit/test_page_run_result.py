@@ -343,6 +343,33 @@ def test_render_header_badges_moved_to_right() -> None:
     assert "Dữ liệu tạm còn" in str(right)
 
 
+def test_render_header_xs_sizes() -> None:
+    import dash_mantine_components as dmc
+
+    header = render_header(
+        {
+            "id": 1010,
+            "template_name": "Doanh thu Vtos",
+            "profile_code": "BY_INVOICE",
+            "p_from": "2026-01-01",
+            "p_to": "2026-07-31",
+            "data_source_id": 2,
+            "template_version": 3,
+            "created_by": "admin",
+            "created_at": "2026-11-04",
+            "file_size": 1600000,
+        }
+    )
+    left, right = header.children
+    # Dòng phụ giảm từ sm xuống xs để đỡ rớt dòng ở màn hình nhỏ
+    assert left.children[1].size == "xs"
+    btn_group, badge_group = right.children
+    assert btn_group.gap == "xs"
+    visible_btns = [b for b in btn_group.children if isinstance(b, dmc.Button)]
+    assert visible_btns and all(b.size == "xs" for b in visible_btns)
+    assert all(b.size == "xs" for b in badge_group.children)
+
+
 def test_render_detail_drawer_temp_purged_and_active() -> None:
     # 1. Dữ liệu tạm còn
     drawer_active = render_detail_drawer(

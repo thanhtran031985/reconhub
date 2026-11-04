@@ -93,7 +93,7 @@ def render_header(run_info: dict[str, Any]) -> Any:
             f"Đã kiểm tra · {checked_by or user} · {checked_at}",
             color="teal",
             variant="light",
-            size="md",
+            size="xs",
             leftSection=DashIconify(icon="lucide:check", width=14),
         )
     else:
@@ -101,7 +101,7 @@ def render_header(run_info: dict[str, Any]) -> Any:
             "Chưa kiểm tra",
             color="gray",
             variant="outline",
-            size="md",
+            size="xs",
         )
 
     size_str = f" · {fmt_size(file_size)}" if file_size else ""
@@ -110,14 +110,14 @@ def render_header(run_info: dict[str, Any]) -> Any:
             f"Dữ liệu tạm đã xóa lúc {purged_at}",
             color="gray",
             variant="light",
-            size="md",
+            size="xs",
         )
     else:
         temp_chip = dmc.Badge(
             f"Dữ liệu tạm còn{size_str}",
             color="yellow",
             variant="light",
-            size="md",
+            size="xs",
             leftSection=DashIconify(icon="lucide:info", width=14),
         )
 
@@ -128,6 +128,7 @@ def render_header(run_info: dict[str, Any]) -> Any:
             "Đã kiểm tra xong",
             id="run-res-mark-checked-btn",
             icon="lucide:check",
+            size="xs",
             style={} if not checked_at else {"display": "none"},
         )
     )
@@ -136,17 +137,19 @@ def render_header(run_info: dict[str, Any]) -> Any:
             "Xóa dữ liệu tạm",
             id="run-res-purge-temp-btn",
             icon="lucide:trash-2",
+            size="xs",
             style={} if (checked_at and not purged_at) else {"display": "none"},
         )
     )
 
-    action_btns.append(button_subtle("So với run trước", id="run-res-compare-btn", icon="lucide:git-compare"))
-    action_btns.append(dcc.Link(button_subtle("Chạy lại", icon="lucide:refresh-cw"), href="/runs/new"))
+    action_btns.append(button_subtle("So với run trước", id="run-res-compare-btn", icon="lucide:git-compare", size="xs"))
+    action_btns.append(dcc.Link(button_subtle("Chạy lại", icon="lucide:refresh-cw", size="xs"), href="/runs/new"))
     action_btns.append(
         button_primary(
             "Export Excel",
             id="run-res-export-btn",
             icon="lucide:download",
+            size="xs",
         )
     )
 
@@ -160,12 +163,12 @@ def render_header(run_info: dict[str, Any]) -> Any:
             html.Div(
                 [
                     dmc.Title(f"Run #{r_id} · {tmpl_name}", order=2, fw=700),
-                    dmc.Text(sub_title, size="sm", c="dimmed", mt=4),
+                    dmc.Text(sub_title, size="xs", c="dimmed", mt=4),
                 ]
             ),
             dmc.Stack(
                 [
-                    dmc.Group(action_btns, gap="sm", justify="flex-end"),
+                    dmc.Group(action_btns, gap="xs", justify="flex-end"),
                     dmc.Group([chk_chip, temp_chip], gap="xs", justify="flex-end"),
                 ],
                 gap="xs",
