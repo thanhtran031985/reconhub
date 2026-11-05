@@ -1,0 +1,21 @@
+{
+  "code": "DOANH_THU_CUOI_THANG",
+  "name": "Đối soát doanh thu cuối tháng",
+  "status": "ACTIVE",
+  "max_parallel_per_ds": 2,
+  "items": [
+    {
+      "template_code": "DTP_HOA_DON_TAC_NGHIEP",
+      "seq_no": 1,
+      "priority": 100,
+      "profile_code": null,
+      "file_pattern": "*DTP*",
+      "multi_file": "Y",
+      "is_required": "Y",
+      "params_override": {
+        "p_org": "BDP"
+      }
+    }
+  ],
+  "note": "Các template khác do người dùng đăng ký thật; thêm qua màn Bộ đối soát."
+}
