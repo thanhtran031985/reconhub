@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 from app.core.auth import hash_password
 from app.core.config import get_settings
 from app.core.session import invalidate_user_session_cache
-from app.db.metadata import metadata, recon_user, recon_user_role
+from app.db.metadata import metadata, recon_user
 from app.ui.app import create_app
 
 
@@ -24,6 +24,11 @@ def ui_test_client(tmp_path, monkeypatch):
 
     engine = create_engine(db_url)
     metadata.create_all(engine)
+
+    # Đồng bộ menu + vai trò seed (task 19) trước khi chèn user
+    from tests.conftest import seed_perm_basics
+
+    seed_perm_basics(engine)
 
     # Thêm user test
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -42,13 +47,7 @@ def ui_test_client(tmp_path, monkeypatch):
             )
         )
         user_id = res.inserted_primary_key[0]
-        conn.execute(
-            recon_user_role.insert().values(
-                USER_ID=user_id,
-                ROLE="ADMIN",
-                CREATED_AT=now,
-            )
-        )
+        seed_perm_basics(engine, {user_id: ["ADMIN"]}, conn=conn)
 
     dash_app = create_app()
     server = dash_app.server

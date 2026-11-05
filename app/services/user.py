@@ -7,13 +7,14 @@ from sqlalchemy import Connection, desc, func, select, update
 
 from app.core.audit import write_audit_log
 from app.core.auth import hash_password, verify_password
-from app.core.context import Ctx, Role, require_role
+from app.core.context import Ctx, require_role
 from app.core.session import invalidate_user_session_cache
 from app.db.engine import get_recon_engine
-from app.db.metadata import recon_login_log, recon_user, recon_user_role
+from app.db.metadata import recon_login_log, recon_role, recon_user, recon_user_role
 from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.user import UserCreateDTO, UserResponse, UserUpdateDTO
 from app.services import service
+from app.services.perm import require_admin, requires_menu
 
 
 def _count_active_admins(conn: Connection) -> int:
@@ -21,17 +22,59 @@ def _count_active_admins(conn: Connection) -> int:
     stmt = (
         select(recon_user.c.ID)
         .join(recon_user_role, recon_user.c.ID == recon_user_role.c.USER_ID)
-        .where(recon_user_role.c.ROLE == "ADMIN")
+        .join(recon_role, recon_user_role.c.ROLE_ID == recon_role.c.ID)
+        .where(recon_role.c.CODE == "ADMIN")
         .where(recon_user.c.IS_ACTIVE == "Y")
     )
     return len(conn.execute(stmt).scalars().all())
 
 
 def _get_user_roles(conn: Connection, user_id: int) -> list[str]:
-    """Lấy danh sách vai trò của một người dùng."""
+    """Lấy danh sách mã vai trò của một người dùng."""
     return list(
-        conn.execute(select(recon_user_role.c.ROLE).where(recon_user_role.c.USER_ID == user_id)).scalars().all()
+        conn.execute(
+            select(recon_role.c.CODE)
+            .select_from(recon_user_role.join(recon_role, recon_user_role.c.ROLE_ID == recon_role.c.ID))
+            .where(recon_user_role.c.USER_ID == user_id)
+        )
+        .scalars()
+        .all()
     )
+
+
+def _role_ids_by_code(conn: Connection, codes: list[str]) -> dict[str, int]:
+    """Tra ID vai trò theo mã; mã không tồn tại thì báo lỗi rõ."""
+    rows = conn.execute(select(recon_role.c.ID, recon_role.c.CODE).where(recon_role.c.CODE.in_(codes))).all()
+    found = {str(code): int(role_id) for role_id, code in rows}
+    missing = [code for code in codes if code not in found]
+    if missing:
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR,
+            f"Vai trò không tồn tại: {', '.join(missing)}",
+        )
+    return found
+
+
+def _assign_roles(
+    conn: Connection,
+    user_id: int,
+    role_codes: list[str],
+    assigned_by: str,
+    now: datetime,
+) -> None:
+    """Gán lại toàn bộ vai trò cho user (xóa cũ, thêm mới theo ROLE_ID)."""
+    conn.execute(recon_user_role.delete().where(recon_user_role.c.USER_ID == user_id))
+    role_ids = _role_ids_by_code(conn, role_codes)
+    for code in role_codes:
+        conn.execute(
+            recon_user_role.insert().values(
+                USER_ID=user_id,
+                ROLE_ID=role_ids[code],
+                ASSIGNED_BY=assigned_by,
+                ASSIGNED_AT=now,
+                CREATED_AT=now,
+            )
+        )
 
 
 def _build_user_response(user_row: Any, roles: list[str]) -> UserResponse:
@@ -54,6 +97,7 @@ def _build_user_response(user_row: Any, roles: list[str]) -> UserResponse:
 
 
 @service
+@requires_menu("user")
 def list_users(
     ctx: Ctx,
     q: str | None = None,
@@ -61,8 +105,8 @@ def list_users(
     active: bool | None = None,
 ) -> list[UserResponse]:
     """Danh sách người dùng cho Admin, hỗ trợ tìm kiếm và lọc."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
 
     with engine.connect() as conn:
         stmt = select(recon_user).order_by(recon_user.c.USERNAME)
@@ -92,10 +136,11 @@ def list_users(
 
 
 @service
+@requires_menu("user")
 def create_user(ctx: Ctx, dto: UserCreateDTO) -> UserResponse:
     """Tạo người dùng mới (chỉ Admin)."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     norm_username = dto.username.strip().lower()
 
@@ -131,15 +176,8 @@ def create_user(ctx: Ctx, dto: UserCreateDTO) -> UserResponse:
             raise ServiceError(ErrorCode.INTERNAL_ERROR, "Không lấy được ID người dùng vừa tạo")
         user_id = int(ins_res.inserted_primary_key[0])
 
-        assigned_roles = dto.roles if dto.roles else ["VIEWER"]
-        for r in assigned_roles:
-            conn.execute(
-                recon_user_role.insert().values(
-                    USER_ID=user_id,
-                    ROLE=r.upper(),
-                    CREATED_AT=now,
-                )
-            )
+        assigned_roles = [r.upper() for r in dto.roles] if dto.roles else ["VIEWER"]
+        _assign_roles(conn, user_id, assigned_roles, ctx.username, now)
 
         write_audit_log(
             conn=conn,
@@ -163,10 +201,11 @@ def create_user(ctx: Ctx, dto: UserCreateDTO) -> UserResponse:
 
 
 @service
+@requires_menu("user")
 def update_user(ctx: Ctx, user_id: int, dto: UserUpdateDTO) -> UserResponse:
     """Cập nhật thông tin và vai trò của người dùng (chỉ Admin)."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     with engine.begin() as conn:
@@ -198,15 +237,7 @@ def update_user(ctx: Ctx, user_id: int, dto: UserUpdateDTO) -> UserResponse:
             new_roles = [r.upper() for r in dto.roles]
             if set(new_roles) != set(current_roles):
                 roles_changed = True
-                conn.execute(recon_user_role.delete().where(recon_user_role.c.USER_ID == user_id))
-                for r in new_roles:
-                    conn.execute(
-                        recon_user_role.insert().values(
-                            USER_ID=user_id,
-                            ROLE=r,
-                            CREATED_AT=now,
-                        )
-                    )
+                _assign_roles(conn, user_id, new_roles, ctx.username, now)
                 update_values["SESSION_VERSION"] = int(user_row["SESSION_VERSION"] or 1) + 1
 
         conn.execute(update(recon_user).where(recon_user.c.ID == user_id).values(**update_values))
@@ -240,10 +271,11 @@ def update_user(ctx: Ctx, user_id: int, dto: UserUpdateDTO) -> UserResponse:
 
 
 @service
+@requires_menu("user")
 def set_active(ctx: Ctx, user_id: int, is_active: bool) -> UserResponse:
     """Kích hoạt hoặc vô hiệu hóa tài khoản (chỉ Admin)."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     with engine.begin() as conn:
@@ -291,10 +323,11 @@ def set_active(ctx: Ctx, user_id: int, is_active: bool) -> UserResponse:
 
 
 @service
+@requires_menu("user")
 def unlock_user(ctx: Ctx, user_id: int) -> UserResponse:
     """Mở khóa thủ công cho tài khoản bị khóa tạm (chỉ Admin)."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     with engine.begin() as conn:
@@ -334,10 +367,11 @@ def unlock_user(ctx: Ctx, user_id: int) -> UserResponse:
 
 
 @service
+@requires_menu("user")
 def reset_password(ctx: Ctx, user_id: int, new_pw: str) -> bool:
     """Admin đặt lại mật khẩu cho người dùng và bật cờ MUST_CHANGE_PW."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     new_hash = hash_password(new_pw)
@@ -421,14 +455,15 @@ def change_password(ctx: Ctx, old_pw: str, new_pw: str) -> bool:
 
 
 @service
+@requires_menu("user")
 def get_login_log(
     ctx: Ctx,
     user_id: int | None = None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     """Lấy danh sách nhật ký đăng nhập (chỉ Admin)."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
 
     with engine.connect() as conn:
         stmt = select(recon_login_log).order_by(desc(recon_login_log.c.CREATED_AT)).limit(limit)

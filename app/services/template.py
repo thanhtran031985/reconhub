@@ -29,17 +29,19 @@ from app.engine.sql_guard import check_sql
 from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.template_config import ProfileSpec, TemplateConfig
 from app.services import service
+from app.services.perm import require_admin, requires_menu
 from app.services.source_conn import open_source_connection
 
 
 @service
+@requires_menu("template", "issue", any_of=True)
 def list_templates(
     ctx: Ctx,
     q: str | None = None,
     status: str | None = None,
 ) -> list[dict[str, Any]]:
     """Liệt kê danh sách template kèm cấu hình và phiên bản hiện hành."""
-    require_role(ctx)
+
     engine = get_recon_engine()
 
     with engine.connect() as conn:
@@ -169,13 +171,14 @@ def list_templates(
 
 
 @service
+@requires_menu("template", "result", any_of=True)
 def get_template(
     ctx: Ctx,
     template_id: int | str,
     version: int | None = None,
 ) -> dict[str, Any]:
     """Lấy thông tin chi tiết template và cấu hình CONFIG_JSON của phiên bản tương ứng."""
-    require_role(ctx)
+
     engine = get_recon_engine()
 
     with engine.connect() as conn:
@@ -255,6 +258,7 @@ def get_template(
 
 
 @service
+@requires_menu("template")
 def save_draft_template(
     ctx: Ctx,
     code: str,
@@ -449,6 +453,7 @@ def save_draft_template(
 
 
 @service
+@requires_menu("template")
 def activate_version(
     ctx: Ctx,
     template_id: int,
@@ -525,6 +530,7 @@ def activate_version(
 
 
 @service
+@requires_menu("template")
 def clone_template(
     ctx: Ctx,
     template_id: int,
@@ -618,6 +624,7 @@ def clone_template(
 
 
 @service
+@requires_menu("template")
 def archive_template(
     ctx: Ctx,
     template_id: int,
@@ -656,13 +663,14 @@ def archive_template(
 
 
 @service
+@requires_menu("template")
 def delete_template(
     ctx: Ctx,
     template_id: int | str,
 ) -> dict[str, Any]:
     """Xóa vĩnh viễn template và các cấu hình/dữ liệu liên quan (chỉ dành cho Quản trị viên)."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     with engine.begin() as conn:
@@ -728,6 +736,7 @@ def delete_template(
 
 
 @service
+@requires_menu("template")
 def preview_source_sql(
     ctx: Ctx,
     template_id: int,
@@ -736,7 +745,7 @@ def preview_source_sql(
     params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Xem trước câu lệnh SQL sinh ra cho nguồn DB và danh sách bind parameters."""
-    require_role(ctx)
+
     tmpl_res = get_template(ctx, template_id, version=version)
     if not tmpl_res.ok or not isinstance(tmpl_res.data, dict):
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy template có ID {template_id}")
@@ -767,6 +776,7 @@ def preview_source_sql(
 
 
 @service
+@requires_menu("template")
 def describe_source(
     ctx: Ctx,
     data_source_id: int,
@@ -776,7 +786,7 @@ def describe_source(
     allowed_params: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Phân tích cấu trúc cột của bảng nguồn hoặc câu lệnh SQL tùy biến."""
-    require_role(ctx)
+
     if not table_name and not sql:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "Cần cung cấp table_name hoặc sql để phân tích cấu trúc cột.")
 

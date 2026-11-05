@@ -26,6 +26,7 @@ from app.db.metadata import (
 from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.run import PurgeFilter
 from app.services import service
+from app.services.perm import check_owned, is_admin, owner_filter, require_admin, requires_menu
 
 
 def _get_dir_size(path: Path) -> int:
@@ -153,6 +154,7 @@ def _purge_run_internal(ctx: Ctx, run_id: int) -> tuple[int, int]:
 
 
 @service
+@requires_menu("result")
 def mark_checked(
     ctx: Ctx,
     run_id: int,
@@ -167,6 +169,7 @@ def mark_checked(
         run_row = conn.execute(select(recon_run).where(recon_run.c.ID == run_id)).mappings().first()
         if not run_row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy run {run_id}.")
+        check_owned(conn, recon_run, "ID", run_id, ctx, engine=engine)
 
         if run_row["STATUS"] in ("QUEUED", "RUNNING"):
             raise ServiceError(
@@ -197,6 +200,7 @@ def mark_checked(
 
 
 @service
+@requires_menu("dashboard", "data_source", any_of=True)
 def usage(ctx: Ctx) -> dict[str, Any]:
     """Giám sát dung lượng dữ liệu tạm và số lượng run chưa kiểm tra hoặc quá hạn cảnh báo."""
     settings = get_settings()
@@ -228,13 +232,22 @@ def usage(ctx: Ctx) -> dict[str, Any]:
             except Exception:
                 pass
 
-        # Đếm các chỉ số
-        excel_rows_count = conn.execute(select(func.count(recon_excel_row.c.LOAD_ID))).scalar() or 0
+        # Đếm các chỉ số (phạm vi dữ liệu: vai trò thường chỉ tính run của mình)
+        scope = owner_filter(ctx, engine)
+        own = [] if scope["is_admin"] else [recon_run.c.CREATED_BY == scope["username"]]
+        own_load_ids = select(recon_run.c.EXCEL_LOAD_ID).where(recon_run.c.EXCEL_LOAD_ID.is_not(None), *own)
+        excel_rows_count = (
+            conn.execute(
+                select(func.count(recon_excel_row.c.LOAD_ID)).where(recon_excel_row.c.LOAD_ID.in_(own_load_ids))
+            ).scalar()
+            or 0
+        )
         unchecked_count = (
-            conn.execute(select(func.count(recon_run.c.ID)).where(recon_run.c.CHECKED_AT.is_(None))).scalar() or 0
+            conn.execute(select(func.count(recon_run.c.ID)).where(recon_run.c.CHECKED_AT.is_(None), *own)).scalar() or 0
         )
         unpurged_count = (
-            conn.execute(select(func.count(recon_run.c.ID)).where(recon_run.c.TEMP_PURGED_AT.is_(None))).scalar() or 0
+            conn.execute(select(func.count(recon_run.c.ID)).where(recon_run.c.TEMP_PURGED_AT.is_(None), *own)).scalar()
+            or 0
         )
 
         overdue_threshold = now - timedelta(days=warn_days)
@@ -243,11 +256,15 @@ def usage(ctx: Ctx) -> dict[str, Any]:
                 select(func.count(recon_run.c.ID)).where(
                     recon_run.c.TEMP_PURGED_AT.is_(None),
                     recon_run.c.CREATED_AT < overdue_threshold,
+                    *own,
                 )
             ).scalar()
             or 0
         )
 
+    # Vai trò thường không thấy dung lượng ổ đĩa toàn hệ thống
+    if not is_admin(ctx, engine):
+        disk_bytes = 0
     total_est_bytes = disk_bytes + (excel_rows_count * 150)
     is_warn = (total_est_bytes > warn_gb * 1024 * 1024 * 1024) or (overdue_count > 0)
     warn_gb_fmt = f"{total_est_bytes / (1024 * 1024 * 1024):.1f}".replace(".", ",")
@@ -271,10 +288,11 @@ def usage(ctx: Ctx) -> dict[str, Any]:
 
 
 @service
+@requires_menu("history", "data_source", any_of=True)
 def preview(ctx: Ctx, filter: PurgeFilter) -> dict[str, Any]:
     """Xem trước số run, số dòng và dung lượng sẽ giải phóng trước khi xóa."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
 
     with engine.connect() as conn:
         stmt = select(recon_run).where(
@@ -377,21 +395,30 @@ def _purge_runs_core(
 
 
 @service
+@requires_menu("history", "result", any_of=True)
 def purge_runs(ctx: Ctx, run_ids: list[int]) -> dict[str, Any]:
-    """Xóa dữ liệu tạm cho danh sách các run được chọn (chỉ dành cho Quản trị viên)."""
-    require_role(ctx, Role.ADMIN)
+    """Xóa dữ liệu tạm cho danh sách các run được chọn.
+
+    Một run: chủ sở hữu được xóa (Q11). Nhiều run: chỉ ADMIN.
+    """
+    engine = get_recon_engine()
+    if len(run_ids) == 1:
+        with engine.connect() as conn:
+            check_owned(conn, recon_run, "ID", run_ids[0], ctx, engine=engine)
+    else:
+        require_admin(ctx, engine)
     return _purge_runs_core(ctx, run_ids, scope="RUNS", filter_json={"run_ids": run_ids})
 
 
 @service
+@requires_menu("history", "data_source", any_of=True)
 def purge_filter(
     ctx: Ctx,
     filter: PurgeFilter,
     confirm_text: str,
 ) -> dict[str, Any]:
     """Xóa dữ liệu tạm theo bộ lọc điều kiện với từ khóa xác nhận bắt buộc 'XOA'."""
-    require_role(ctx, Role.ADMIN)
-
+    require_admin(ctx, get_recon_engine())
     if confirm_text != "XOA":
         raise ServiceError(
             ErrorCode.PURGE_CONFIRM_MISMATCH,
@@ -415,14 +442,14 @@ def purge_filter(
 
 
 @service
+@requires_menu("history", "data_source", any_of=True)
 def purge_results(
     ctx: Ctx,
     older_than_days: int,
     confirm_text: str,
 ) -> dict[str, Any]:
     """Xóa các bản ghi kết quả đối soát cũ quá số ngày chỉ định (mặc định tắt, chỉ ADMIN)."""
-    require_role(ctx, Role.ADMIN)
-
+    require_admin(ctx, get_recon_engine())
     if confirm_text != "XOA":
         raise ServiceError(
             ErrorCode.PURGE_CONFIRM_MISMATCH,

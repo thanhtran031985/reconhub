@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
-from app.core.context import Ctx, Role, require_role
+from app.core.context import Ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_excel_load, recon_excel_row, recon_file, recon_template_version
 from app.engine.control_total import check_control_total
@@ -20,6 +20,7 @@ from app.engine.reader import read_sheet
 from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.template_config import TemplateConfig
 from app.services import service
+from app.services.perm import requires_menu
 
 
 def _serialize_row_dict(d: dict[str, Any]) -> dict[str, Any]:
@@ -59,6 +60,7 @@ def _reused_response(existing: Any, file_id: int, template_id: int, template_ver
 
 
 @service
+@requires_menu("run")
 def load_excel_to_temp(
     ctx: Ctx,
     file_id: int,
@@ -67,7 +69,6 @@ def load_excel_to_temp(
     sheet_name: str | None = None,
 ) -> dict[str, Any]:
     """Nạp dữ liệu từ file Excel đã upload vào bảng tạm RECON_EXCEL_LOAD và RECON_EXCEL_ROW."""
-    require_role(ctx, Role.OPERATOR, Role.TEMPLATE_OWNER, Role.ADMIN)
 
     engine = get_recon_engine()
 

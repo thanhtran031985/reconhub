@@ -9,6 +9,7 @@ from dash import dcc, html
 from app.core.session import get_current_ctx
 from app.schemas.template_config import TemplateConfig
 from app.services.diagram import generate_screen04_diagrams
+from app.services.perm import page_gate
 from app.services.template import get_template
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
@@ -23,6 +24,8 @@ try:
     )
 except Exception:
     pass
+
+MENU_CODE = "template"
 
 
 def render_diagram_card(
@@ -119,6 +122,15 @@ def layout(template_id: str | None = None, **kwargs: Any) -> Any:
     ctx = get_current_ctx()
     if ctx is None:
         return alert_box("Bạn cần đăng nhập để xem sơ đồ template.", tone="crit")
+
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
+        return html.Div(
+            [
+                dcc.Location(id="diagram-forbidden-redirect", href=gate),
+                alert_box("Bạn không có quyền xem sơ đồ template.", tone="crit"),
+            ]
+        )
 
     if not template_id:
         return empty_state(

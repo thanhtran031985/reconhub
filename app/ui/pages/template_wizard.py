@@ -13,7 +13,6 @@ from dash import Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
 from pydantic import ValidationError
 
-from app.core.context import Role
 from app.core.session import get_current_ctx
 from app.engine.catalog import list_tables
 from app.engine.inspect import inspect_sample
@@ -23,6 +22,7 @@ from app.schemas.template_config import FileSpec, TemplateConfig
 from app.services.data_source import options_data_sources
 from app.services.diagram import generate_all_diagrams
 from app.services.file_service import upload_file
+from app.services.perm import has_role, page_gate
 from app.services.run_service import dry_run as service_dry_run
 from app.services.template import activate_version, describe_source, get_template, save_draft_template
 from app.ui.components.alert_box import alert_box
@@ -2608,6 +2608,8 @@ try:
 except Exception:
     pass
 
+MENU_CODE = "template"
+
 
 def map_validation_errors(exc: ValidationError) -> dict[str, str]:
     """Chuyển đổi lỗi Pydantic ValidationError thành dictionary ánh xạ path -> thông báo tiếng Việt."""
@@ -2861,8 +2863,15 @@ def validate_wizard_step(
 def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
     """Layout chính màn hình Wizard Đăng ký & Sửa Template (Screen03 & Screen04)."""
     ctx = get_current_ctx()
-    allowed_roles = {Role.ADMIN, Role.TEMPLATE_OWNER}
-    if ctx is None or not (allowed_roles & set(ctx.roles)):
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
+        return html.Div(
+            [
+                dcc.Location(id="wizard-forbidden-redirect", href=gate),
+                alert_box("Bạn không có quyền truy cập trang đăng ký hoặc sửa template.", tone="crit"),
+            ]
+        )
+    if ctx is None or not has_role(ctx, "ADMIN", "TEMPLATE_OWNER"):
         return html.Div(
             [
                 dcc.Location(id="wizard-forbidden-redirect", href="/forbidden"),

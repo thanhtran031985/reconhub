@@ -77,7 +77,7 @@ def operator_ctx() -> Ctx:
 
 
 @pytest.fixture
-def purge_setup(test_db, admin_ctx, tmp_path):
+def purge_setup(test_db, operator_ctx, tmp_path):
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Copy file mẫu vào storage
@@ -151,8 +151,9 @@ def purge_setup(test_db, admin_ctx, tmp_path):
     def mock_fetcher(config, profile, p_from, p_to, max_rows, timeout):
         return db_df
 
+    # Run do operator tạo để kiểm tra phạm vi dữ liệu (Q11, task 19)
     res1 = create_run(
-        admin_ctx,
+        operator_ctx,
         CreateRunParams(
             template_id=tmpl_id,
             file_id=f_id,
@@ -165,7 +166,7 @@ def purge_setup(test_db, admin_ctx, tmp_path):
     execute_run(run_id1, mock_fetcher=mock_fetcher)
 
     res2 = create_run(
-        admin_ctx,
+        operator_ctx,
         CreateRunParams(
             template_id=tmpl_id,
             file_id=f_id,
@@ -213,7 +214,8 @@ def test_purge_running_forbidden(purge_setup, admin_ctx, test_db):
 
 
 def test_operator_forbidden_from_bulk_purge(purge_setup, operator_ctx):
-    res = purge_runs(operator_ctx, [purge_setup["run_id1"]])
+    # Xóa hàng loạt (2 run) cần ADMIN; xóa 1 run của mình thì được (Q11)
+    res = purge_runs(operator_ctx, [purge_setup["run_id1"], purge_setup["run_id2"]])
     assert not res.ok
     assert res.code == ErrorCode.FORBIDDEN
 

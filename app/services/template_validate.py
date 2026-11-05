@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.context import Ctx, Role, require_role
+from app.core.context import Ctx
 from app.engine.catalog import list_columns, list_tables
 from app.schemas.errors import ErrorCode
 from app.schemas.template_config import TemplateConfig
 from app.services import service
+from app.services.perm import requires_menu
 
 
 @service
+@requires_menu("template")
 def validate_template_connected(
     ctx: Ctx,
     config: TemplateConfig,
@@ -21,7 +23,6 @@ def validate_template_connected(
     và cột dùng cho p_from/p_to có kiểu DATE/TIMESTAMP.
     Nếu không kết nối được CSDL, trả cảnh báo (warning) chứ không chặn việc lưu nháp.
     """
-    require_role(ctx, Role.ADMIN, Role.TEMPLATE_OWNER, Role.OPERATOR, Role.VIEWER)
 
     if not data_source_id:
         return {

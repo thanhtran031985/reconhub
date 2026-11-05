@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from unittest.mock import patch
 
+import pytest
+from sqlalchemy import create_engine
+
 from app.core.context import Ctx
+from app.db.metadata import metadata, recon_user
 from app.ui.pages.data_sources import (
     layout,
     render_data_sources_table,
@@ -10,7 +15,48 @@ from app.ui.pages.data_sources import (
 )
 
 
-def test_data_sources_layout_renders_for_admin() -> None:
+@pytest.fixture
+def ds_perm_env(tmp_path, monkeypatch):
+    """DB tạm có admin/operator + phân quyền (task 19) cho test layout.
+
+    layout() kiểm tra admin từ DB (is_admin) nên không được dựa vào
+    DB ambient hay cache settings của test chạy trước.
+    """
+    from tests.conftest import seed_perm_basics
+
+    db_path = tmp_path / "ds_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    metadata.create_all(engine)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with engine.begin() as conn:
+        for uid, username in [(1, "admin"), (2, "operator")]:
+            conn.execute(
+                recon_user.insert().values(
+                    ID=uid,
+                    USERNAME=username,
+                    FULL_NAME=username,
+                    PASSWORD_HASH="hash",
+                    IS_ACTIVE="Y",
+                    MUST_CHANGE_PW="N",
+                    SESSION_VERSION=1,
+                    CREATED_BY="system",
+                    CREATED_AT=now,
+                    UPDATED_AT=now,
+                )
+            )
+    seed_perm_basics(engine, {1: ["ADMIN"], 2: ["OPERATOR"]})
+    for mod in [
+        "app.services.perm",
+        "app.services.data_source",
+        "app.services.temp_data",
+        "app.ui.pages.data_sources",
+        "app.db.engine",
+    ]:
+        monkeypatch.setattr(f"{mod}.get_recon_engine", lambda: engine)
+    yield engine
+
+
+def test_data_sources_layout_renders_for_admin(ds_perm_env) -> None:
     admin_ctx = Ctx(user_id=1, username="admin", full_name="Admin", roles=["ADMIN"])
     with patch("app.ui.pages.data_sources.get_current_ctx", return_value=admin_ctx):
         page = layout()
@@ -20,7 +66,7 @@ def test_data_sources_layout_renders_for_admin() -> None:
         assert "Lưu trữ RECON_APP" in page_str
 
 
-def test_data_sources_forbidden_for_non_admin() -> None:
+def test_data_sources_forbidden_for_non_admin(ds_perm_env) -> None:
     op_ctx = Ctx(user_id=2, username="operator", full_name="Operator", roles=["OPERATOR"])
     with patch("app.ui.pages.data_sources.get_current_ctx", return_value=op_ctx):
         page = layout()
@@ -55,7 +101,7 @@ def test_render_data_sources_table() -> None:
     assert "ds-active-switch" in content_str
 
 
-def test_render_storage_tab() -> None:
+def test_render_storage_tab(ds_perm_env) -> None:
     mock_usage = {
         "temp_bytes": 3355443,  # 3.2 MB
         "warning_gb": 2.0,

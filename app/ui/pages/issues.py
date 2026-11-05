@@ -7,7 +7,6 @@ import dash_mantine_components as dmc
 from dash import ALL, Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
 
-from app.core.context import Role
 from app.core.session import get_current_ctx
 from app.services.issue import (
     bulk_update_issues_by_ids,
@@ -17,6 +16,7 @@ from app.services.issue import (
     list_reasons,
     update_issue_by_id,
 )
+from app.services.perm import has_role, page_gate
 from app.services.template import list_templates
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
@@ -34,7 +34,7 @@ try:
 except Exception:
     pass
 
-MUTATION_ROLES = {Role.ADMIN, Role.OPERATOR, Role.TEMPLATE_OWNER}
+MENU_CODE = "issue"
 
 
 def render_header(kpis: dict[str, int]) -> dmc.Stack:
@@ -372,7 +372,16 @@ def layout(**kwargs: Any) -> Any:
             ]
         )
 
-    can_edit = bool(set(ctx.roles) & MUTATION_ROLES)
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
+        return html.Div(
+            [
+                dcc.Location(id="issues-forbidden-redirect", href=gate),
+                alert_box("Bạn không có quyền truy cập màn hình này.", tone="crit"),
+            ]
+        )
+
+    can_edit = has_role(ctx, "ADMIN", "OPERATOR", "TEMPLATE_OWNER")
 
     # Nạp danh sách Template và Assignees
     tmpl_res = list_templates(ctx)
@@ -536,7 +545,7 @@ def update_issues_view(
     header_ui = render_header(kpis)
     kpi_ui = render_kpi_cards(kpis)
 
-    can_edit = bool(set(ctx.roles) & MUTATION_ROLES)
+    can_edit = has_role(ctx, "ADMIN", "OPERATOR", "TEMPLATE_OWNER")
     table_ui = render_issues_table(items, selected_ids or [], can_edit=can_edit)
 
     return header_ui, kpi_ui, table_ui

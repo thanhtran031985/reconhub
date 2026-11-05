@@ -8,9 +8,11 @@ import dash_mantine_components as dmc
 from dash import ALL, Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
 
-from app.core.context import Ctx, Role
+from app.core.context import Ctx
 from app.core.session import get_current_ctx
 from app.schemas.user import UserCreateDTO, UserResponse, UserUpdateDTO
+from app.services.perm import is_admin, page_gate
+from app.services.role import list_roles
 from app.services.user import (
     create_user,
     get_login_log,
@@ -36,6 +38,26 @@ try:
     )
 except Exception:
     pass
+
+MENU_CODE = "user"
+
+# Vai trò mặc định khi chưa có bảng RECON_ROLE (trước migration task 19).
+_FALLBACK_ROLES = [
+    {"label": "Admin", "value": "ADMIN"},
+    {"label": "Template Owner", "value": "TEMPLATE_OWNER"},
+    {"label": "Operator", "value": "OPERATOR"},
+    {"label": "Viewer", "value": "VIEWER"},
+]
+
+
+def _role_options(ctx: Ctx | None) -> list[dict[str, str]]:
+    """Lựa chọn vai trò từ RECON_ROLE (kể cả vai trò tự tạo ở /roles)."""
+    if ctx is None:
+        return list(_FALLBACK_ROLES)
+    res = list_roles(ctx)
+    if not res.ok or not res.data:
+        return list(_FALLBACK_ROLES)
+    return [{"label": str(r["name"]), "value": str(r["code"])} for r in res.data]
 
 
 def render_users_table(
@@ -200,7 +222,15 @@ def build_header_title(ctx: Ctx) -> str:
 def layout() -> Any:
     """Layout chính màn hình Quản lý Người dùng (Screen11)."""
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
+        return html.Div(
+            [
+                dcc.Location(id="users-forbidden-redirect", href=gate),
+                alert_box("Bạn không có quyền truy cập trang quản lý người dùng.", tone="crit"),
+            ]
+        )
+    if ctx is None or not is_admin(ctx):
         return html.Div(
             [
                 dcc.Location(id="users-forbidden-redirect", href="/forbidden"),
@@ -262,13 +292,7 @@ def layout() -> Any:
                     dmc.Select(
                         id="users-role-filter",
                         label="Vai trò",
-                        data=[
-                            {"label": "Tất cả", "value": "ALL"},
-                            {"label": "Admin", "value": "ADMIN"},
-                            {"label": "Template Owner", "value": "TEMPLATE_OWNER"},
-                            {"label": "Operator", "value": "OPERATOR"},
-                            {"label": "Viewer", "value": "VIEWER"},
-                        ],
+                        data=[{"label": "Tất cả", "value": "ALL"}, *_role_options(ctx)],
                         value="ALL",
                         style={"width": 180},
                     ),
@@ -336,10 +360,8 @@ def layout() -> Any:
                                         value=["VIEWER"],
                                         children=dmc.Group(
                                             [
-                                                dmc.Checkbox(label="Admin", value="ADMIN"),
-                                                dmc.Checkbox(label="Template Owner", value="TEMPLATE_OWNER"),
-                                                dmc.Checkbox(label="Operator", value="OPERATOR"),
-                                                dmc.Checkbox(label="Viewer", value="VIEWER"),
+                                                dmc.Checkbox(label=o["label"], value=o["value"])
+                                                for o in _role_options(ctx)
                                             ],
                                             gap="md",
                                             mt=4,
@@ -577,7 +599,7 @@ def _render_login_history_table(history_logs: Any) -> Any:
 def handle_filter_users(q: str | None, role: str | None, status_filter: str | None, _refresh: int | None) -> Any:
     """Lọc danh sách người dùng và cập nhật số lượng."""
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return alert_box("Bạn không có quyền truy cập.", tone="crit"), "Người dùng"
 
     table = render_users_table(ctx, q=q, role=role, status_filter=status_filter)
@@ -608,6 +630,10 @@ def handle_open_create_drawer(n_clicks: int | None) -> Any:
     """Mở ngăn kéo thêm người dùng mới."""
     if not n_clicks:
         return dash.no_update
+    options = _role_options(get_current_ctx())
+    default_roles = (
+        ["VIEWER"] if any(o["value"] == "VIEWER" for o in options) else ([options[0]["value"]] if options else [])
+    )
     return (
         True,
         {"mode": "create", "user_id": None},
@@ -615,7 +641,7 @@ def handle_open_create_drawer(n_clicks: int | None) -> Any:
         False,  # username not disabled
         "",  # full name
         "",  # email
-        ["VIEWER"],  # roles
+        default_roles,  # roles
         {"display": "block"},  # create pw box
         {"display": "none"},  # edit status box
         "Tắt tài khoản",
@@ -660,7 +686,7 @@ def handle_open_edit_drawer(n_clicks_list: list[int | None]) -> Any:
     target_id = json.loads(prop_json)["index"]
 
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return dash.no_update
 
     users_res = list_users(ctx)
@@ -754,7 +780,7 @@ def handle_save_user(
         return dash.no_update
 
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return False, dash.no_update, dash.no_update, alert_box("Không có quyền thực hiện.", tone="crit")
 
     mode = drawer_state.get("mode") if drawer_state else "create"
@@ -836,7 +862,7 @@ def handle_toggle_active_user(
         return dash.no_update
 
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return dash.no_update
 
     target_active = not current_active
@@ -890,7 +916,7 @@ def handle_unlock_user(
     target_id = json.loads(prop_json)["index"]
 
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return dash.no_update
 
     unlock_res = unlock_user(ctx, int(target_id))
@@ -934,7 +960,7 @@ def handle_open_or_cancel_reset_modal(
     target_id = json.loads(prop_json)["index"]
 
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return dash.no_update
 
     users_res = list_users(ctx)
@@ -978,7 +1004,7 @@ def handle_confirm_reset_password(
         return True, alert_box("Mật khẩu mới không được để trống.", tone="crit"), dash.no_update, dash.no_update
 
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return False, None, dash.no_update, dash.no_update
 
     res = reset_password(ctx, int(target_id), new_pw.strip())

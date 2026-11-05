@@ -10,7 +10,7 @@ from dash import ALL, Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
 from sqlalchemy import desc, select
 
-from app.core.context import Ctx, Role
+from app.core.context import Ctx
 from app.core.session import get_current_ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
@@ -27,6 +27,7 @@ from app.engine.sql_builder import build_source_sql
 from app.schemas.run import CreateRunParams
 from app.schemas.template_config import TemplateConfig
 from app.services.file_service import upload_file
+from app.services.perm import has_role, page_gate
 from app.services.run_service import create_run
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
@@ -886,12 +887,21 @@ try:
 except Exception:
     pass
 
+MENU_CODE = "run"
+
 
 def layout() -> Any:
     """Layout chính của màn hình Chạy đối soát (Screen05-NewRun)."""
     ctx = get_current_ctx()
-    allowed_roles = {Role.ADMIN, Role.TEMPLATE_OWNER, Role.OPERATOR}
-    if ctx is None or not (allowed_roles & set(ctx.roles)):
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
+        return html.Div(
+            [
+                dcc.Location(id="new-run-forbidden-redirect", href=gate),
+                alert_box("Bạn không có quyền truy cập trang chạy đối soát.", tone="crit"),
+            ]
+        )
+    if ctx is None or not has_role(ctx, "ADMIN", "TEMPLATE_OWNER", "OPERATOR"):
         return html.Div(
             [
                 dcc.Location(id="new-run-forbidden-redirect", href="/forbidden"),

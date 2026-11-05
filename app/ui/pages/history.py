@@ -9,9 +9,9 @@ import dash_mantine_components as dmc
 from dash import Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
 
-from app.core.context import Role
 from app.core.session import get_current_ctx
 from app.schemas.run import RunListFilter
+from app.services.perm import is_admin, page_gate
 from app.services.run_service import list_runs
 from app.services.temp_data import purge_runs
 from app.services.template import list_templates
@@ -26,6 +26,8 @@ try:
     dash.register_page(__name__, path="/history", title="Lịch sử – ReconHub")  # type: ignore[no-untyped-call]
 except Exception:
     pass
+
+MENU_CODE = "history"
 
 
 def format_short_dt(iso_str: str | None) -> str:
@@ -591,6 +593,14 @@ def render_bulk_purge_modal() -> dmc.Modal:
 def layout() -> html.Div:
     """Giao diện chính màn hình Lịch sử run."""
     ctx = get_current_ctx()
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
+        return html.Div(
+            [
+                dcc.Location(id="history-forbidden-redirect", href=gate),
+                alert_box("Bạn không có quyền truy cập trang lịch sử.", tone="crit"),
+            ]
+        )
     tpl_options: list[dict[str, str]] = []
     usr_options: list[dict[str, str]] = []
     if ctx:
@@ -607,7 +617,7 @@ def layout() -> html.Div:
         except Exception:
             pass
 
-    is_admin = bool(ctx and Role.ADMIN in ctx.roles)
+    is_admin_user = is_admin(ctx)
 
     return html.Div(
         [
@@ -621,7 +631,7 @@ def layout() -> html.Div:
                     render_filter_bar(tpl_options, usr_options),
                     html.Div(
                         id="history-bulk-alert-container",
-                        children=render_bulk_alert(0, is_admin),
+                        children=render_bulk_alert(0, is_admin_user),
                     ),
                     dcc.Loading(
                         id="history-loading",
@@ -715,7 +725,7 @@ def update_history_table(
         current_page = int(page_or_selected) if page_or_selected else 1
         selected_ids_input = selected_data or []
 
-    is_admin = Role.ADMIN in ctx.roles
+    is_admin_user = is_admin(ctx)
     selected_ids = set(selected_ids_input)
 
     # Xây dựng filter object
@@ -796,7 +806,7 @@ def update_history_table(
 
         table_node = render_runs_table(
             items,
-            is_admin=is_admin,
+            is_admin=is_admin_user,
             selected_ids=selected_ids,
             total=total,
             current_page=current_page,
@@ -823,9 +833,9 @@ def update_history_table(
 def update_bulk_alert(selected_data: list[int] | None) -> Any:
     """Cập nhật thanh thông báo khi có run được chọn."""
     ctx = get_current_ctx()
-    is_admin = bool(ctx and Role.ADMIN in ctx.roles)
+    is_admin_user = is_admin(ctx)
     count = len(selected_data or [])
-    return render_bulk_alert(count, is_admin)
+    return render_bulk_alert(count, is_admin_user)
 
 
 @callback(
@@ -938,7 +948,7 @@ def handle_confirm_bulk_purge(
         )
 
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return (
             {"display": "block"},
             "Chỉ có Quản trị viên (Admin) mới có quyền xóa dữ liệu tạm.",

@@ -18,6 +18,7 @@ from app.db.metadata import (
 )
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
+from app.services.perm import check_owned, owner_filter, requires_menu
 
 ALL_ROLES = (Role.VIEWER, Role.OPERATOR, Role.TEMPLATE_OWNER, Role.ADMIN)
 MUTATION_ROLES = (Role.OPERATOR, Role.TEMPLATE_OWNER, Role.ADMIN)
@@ -31,6 +32,12 @@ DEFAULT_ISSUE_REASONS = [
     ("POLICY_EXCEPTION", "Ngoại lệ chính sách / Phê duyệt đặc biệt"),
     ("OTHER", "Nguyên nhân khác"),
 ]
+
+
+def _check_issue_owner(conn: Connection, issue_row: Any, ctx: Ctx, engine) -> None:
+    """Issue thuộc về người chạy run FIRST_RUN_ID (Q9, task 19)."""
+    first_run_id = issue_row["FIRST_RUN_ID"]
+    check_owned(conn, recon_run, "ID", int(first_run_id), ctx, engine=engine)
 
 
 def ensure_default_reasons(conn: Connection) -> None:
@@ -48,9 +55,11 @@ def ensure_default_reasons(conn: Connection) -> None:
 
 
 @service
+# Trang kết quả run (menu result) cũng cần đọc lý do để mở drawer issue.
+@requires_menu("issue", "result", any_of=True)
 def list_reasons(ctx: Ctx) -> list[dict[str, Any]]:
     """Lấy danh sách các nguyên nhân chênh lệch đang hoạt động."""
-    require_role(ctx, *ALL_ROLES)
+
     engine = get_recon_engine()
     with engine.begin() as conn:
         ensure_default_reasons(conn)
@@ -83,9 +92,10 @@ def list_reasons(ctx: Ctx) -> list[dict[str, Any]]:
 
 
 @service
+@requires_menu("issue")
 def list_assignees(ctx: Ctx) -> list[dict[str, Any]]:
     """Lấy danh sách người dùng có thể gán xử lý chênh lệch."""
-    require_role(ctx, *ALL_ROLES)
+
     engine = get_recon_engine()
     with engine.connect() as conn:
         rows = (
@@ -115,6 +125,7 @@ def list_assignees(ctx: Ctx) -> list[dict[str, Any]]:
 
 
 @service
+@requires_menu("issue")
 def update_issue_by_id(
     ctx: Ctx,
     issue_id: int,
@@ -136,6 +147,7 @@ def update_issue_by_id(
         issue = conn.execute(select(recon_issue).where(recon_issue.c.ID == issue_id)).mappings().first()
         if not issue:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Issue với ID {issue_id}.")
+        _check_issue_owner(conn, issue, ctx, engine)
 
         upd_values: dict[str, Any] = {
             "UPDATED_BY": ctx.username,
@@ -169,6 +181,7 @@ def update_issue_by_id(
 
 
 @service
+@requires_menu("issue")
 def bulk_update_issues_by_ids(
     ctx: Ctx,
     issue_ids: list[int],
@@ -206,6 +219,11 @@ def bulk_update_issues_by_ids(
         upd_values["NOTE"] = note
 
     with engine.begin() as conn:
+        rows = conn.execute(select(recon_issue).where(recon_issue.c.ID.in_(issue_ids))).mappings().all()
+        if len(rows) != len(set(issue_ids)):
+            raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy một số Issue yêu cầu.")
+        for row in rows:
+            _check_issue_owner(conn, row, ctx, engine)
         conn.execute(update(recon_issue).where(recon_issue.c.ID.in_(issue_ids)).values(**upd_values))
 
         write_audit_log(
@@ -230,9 +248,10 @@ def bulk_update_issues_by_ids(
 
 
 @service
+@requires_menu("issue")
 def get_issue(ctx: Ctx, issue_id: int) -> dict[str, Any]:
     """Xem thông tin chi tiết một issue."""
-    require_role(ctx, *ALL_ROLES)
+
     engine = get_recon_engine()
     with engine.connect() as conn:
         stmt = (
@@ -253,13 +272,16 @@ def get_issue(ctx: Ctx, issue_id: int) -> dict[str, Any]:
 
     if not row:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Issue với ID {issue_id}.")
+    with engine.connect() as conn:
+        _check_issue_owner(conn, row, ctx, engine)
     return dict(row)
 
 
 @service
+@requires_menu("issue")
 def get_issue_for_row(ctx: Ctx, run_id: int, row_no: int) -> dict[str, Any] | None:
     """Lấy thông tin Issue (nếu có) liên kết với một dòng kết quả của run."""
-    require_role(ctx, *ALL_ROLES)
+
     engine = get_recon_engine()
     with engine.connect() as conn:
         # Lấy thông tin run và dòng kết quả
@@ -270,6 +292,8 @@ def get_issue_for_row(ctx: Ctx, run_id: int, row_no: int) -> dict[str, Any] | No
         )
         if not run_row:
             return None
+        # Phạm vi dữ liệu (task 19): run không phải của mình thì không có issue
+        check_owned(conn, recon_run, "ID", run_id, ctx, engine=engine)
 
         result_row = (
             conn.execute(
@@ -306,6 +330,7 @@ def get_issue_for_row(ctx: Ctx, run_id: int, row_no: int) -> dict[str, Any] | No
 
 
 @service
+@requires_menu("issue")
 def upsert_issue_for_row(
     ctx: Ctx,
     run_id: int,
@@ -340,6 +365,7 @@ def upsert_issue_for_row(
         )
         if not run_row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Run #{run_id}.")
+        check_owned(conn, recon_run, "ID", run_id, ctx, engine=engine)
 
         r_row = (
             conn.execute(
@@ -441,6 +467,7 @@ def upsert_issue_for_row(
 
 
 @service
+@requires_menu("issue")
 def bulk_upsert_issues(
     ctx: Ctx,
     run_id: int,
@@ -475,6 +502,7 @@ def bulk_upsert_issues(
         )
         if not run_row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Run #{run_id}.")
+        check_owned(conn, recon_run, "ID", run_id, ctx, engine=engine)
 
         template_id = run_row["TEMPLATE_ID"]
         profile_code = run_row["PROFILE_CODE"]
@@ -582,6 +610,7 @@ def bulk_upsert_issues(
 
 
 @service
+@requires_menu("issue")
 def list_issues(
     ctx: Ctx,
     template_id: int | None = None,
@@ -593,13 +622,14 @@ def list_issues(
     page_size: int = 50,
 ) -> dict[str, Any]:
     """Danh sách các vấn đề chênh lệch phục vụ màn hình /issues."""
-    require_role(ctx, *ALL_ROLES)
+
     engine = get_recon_engine()
 
     page = max(1, page)
     page_size = max(1, min(200, page_size))
     offset = (page - 1) * page_size
 
+    scope = owner_filter(ctx, get_recon_engine())
     with engine.connect() as conn:
         stmt = (
             select(
@@ -614,8 +644,17 @@ def list_issues(
             .outerjoin(recon_user, recon_issue.c.ASSIGNEE_ID == recon_user.c.ID)
             .outerjoin(recon_issue_reason, recon_issue.c.REASON_CODE == recon_issue_reason.c.CODE)
         )
+        # Phạm vi dữ liệu (task 19): chỉ issue của run mình chạy
+        if not scope["is_admin"]:
+            stmt = stmt.join(recon_run, recon_run.c.ID == recon_issue.c.FIRST_RUN_ID).where(
+                recon_run.c.CREATED_BY == scope["username"]
+            )
 
         count_stmt = select(func.count()).select_from(recon_issue)
+        if not scope["is_admin"]:
+            count_stmt = count_stmt.join(recon_run, recon_run.c.ID == recon_issue.c.FIRST_RUN_ID).where(
+                recon_run.c.CREATED_BY == scope["username"]
+            )
 
         conditions = []
         if template_id:
@@ -645,9 +684,13 @@ def list_issues(
         stmt = stmt.order_by(desc(recon_issue.c.UPDATED_AT)).offset(offset).limit(page_size)
         rows = conn.execute(stmt).mappings().all()
 
-        # Thống kê KPI tổng thể
+        # Thống kê KPI tổng thể (theo phạm vi dữ liệu)
         kpi_counts: dict[str, int] = {st: 0 for st in VALID_ISSUE_STATUSES}
         kpi_stmt = select(recon_issue.c.STATUS, func.count()).group_by(recon_issue.c.STATUS)
+        if not scope["is_admin"]:
+            kpi_stmt = kpi_stmt.join(recon_run, recon_run.c.ID == recon_issue.c.FIRST_RUN_ID).where(
+                recon_run.c.CREATED_BY == scope["username"]
+            )
         for st_val, c_val in conn.execute(kpi_stmt).fetchall():
             if st_val in kpi_counts:
                 kpi_counts[st_val] = c_val

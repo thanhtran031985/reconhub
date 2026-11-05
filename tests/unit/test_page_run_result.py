@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 import pytest
 from sqlalchemy import create_engine
@@ -14,7 +15,6 @@ from app.db.metadata import (
     recon_run_summary,
     recon_template,
     recon_user,
-    recon_user_role,
 )
 from app.ui.pages.run_result import (
     handle_compare_runs,
@@ -37,6 +37,11 @@ def run_result_env(tmp_path, monkeypatch):
     engine = create_engine(db_url)
     metadata.create_all(engine)
 
+    # Đồng bộ menu + vai trò seed (task 19) trước khi chèn user
+    from tests.conftest import seed_perm_basics
+
+    seed_perm_basics(engine)
+
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     with engine.begin() as conn:
         # User operator
@@ -54,7 +59,7 @@ def run_result_env(tmp_path, monkeypatch):
             )
         )
         u_id = res_u.inserted_primary_key[0]
-        conn.execute(recon_user_role.insert().values(USER_ID=u_id, ROLE="OPERATOR", CREATED_AT=now))
+        seed_perm_basics(engine, {u_id: ["OPERATOR"]}, conn=conn)
 
         # Data source & File
         from app.db.metadata import recon_data_source, recon_file
@@ -434,7 +439,12 @@ def test_other_status_tabs_and_detail_drawer_use_profile_measure() -> None:
     # KPI: khi truyền tên measure chính thì lấy đúng chỉ tiêu đó, không lấy
     # measure đầu tiên trong dict (ở đây là số lượng).
     kpi_ui = render_kpi_cards(
-        {"MEASURE_TOTALS_JSON": {"TOTAL_QTY": {"excel": 5, "db": 5, "diff": 0}, "TOTAL_TONG_TIEN": {"excel": 1425000, "db": 0, "diff": 1425000}}},
+        {
+            "MEASURE_TOTALS_JSON": {
+                "TOTAL_QTY": {"excel": 5, "db": 5, "diff": 0},
+                "TOTAL_TONG_TIEN": {"excel": 1425000, "db": 0, "diff": 1425000},
+            }
+        },
         main_measure_name="TOTAL_TONG_TIEN",
     )
     assert "1.425.000" in str(kpi_ui)
@@ -456,7 +466,15 @@ def test_result_grid_headers_centered_rows_hoverable_and_tabs_xs() -> None:
     # Dòng kết quả mang class run-res-row để CSS kẻ ngang + hover áp dụng
     grid_ui = render_result_grid(
         measures=[{"name": "TOTAL_AMOUNT", "label": "Tổng tiền"}],
-        rows=[{"key": "X1", "status": "DIFF", "excel": {"TOTAL_AMOUNT": 1}, "db": {"TOTAL_AMOUNT": 2}, "diff": {"TOTAL_AMOUNT": 1}}],
+        rows=[
+            {
+                "key": "X1",
+                "status": "DIFF",
+                "excel": {"TOTAL_AMOUNT": 1},
+                "db": {"TOTAL_AMOUNT": 2},
+                "diff": {"TOTAL_AMOUNT": 1},
+            }
+        ],
     )
     assert "run-res-row" in str(grid_ui)
     css = Path("app/ui/assets/custom.css").read_text(encoding="utf-8")
@@ -751,6 +769,7 @@ def test_handle_row_click_open_drawer(run_result_env: Any, monkeypatch: Any) -> 
     data_store = {"run": {"id": 1042}}
 
     import dash
+
     monkeypatch.setattr(
         dash,
         "callback_context",

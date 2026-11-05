@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlalchemy import and_, desc, func, or_, select
 
-from app.core.context import Ctx, Role, require_role
+from app.core.context import Ctx, Role
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
     recon_result_row,
@@ -15,20 +15,24 @@ from app.db.metadata import (
 )
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
+from app.services.perm import check_owned, owner_filter, requires_menu
 from app.services.temp_data import usage
 
 ALL_ROLES = (Role.VIEWER, Role.OPERATOR, Role.TEMPLATE_OWNER, Role.ADMIN)
 
 
 @service
+@requires_menu("dashboard")
 def get_dashboard_summary(ctx: Ctx, month: str | None = None) -> dict[str, Any]:
     """Tổng hợp số liệu thống kê cho Dashboard (PRD C1).
 
     Bao gồm 4 thẻ KPI chỉ số, 10 run gần đây và thống kê tỉ lệ lệch theo template.
     """
-    require_role(ctx, *ALL_ROLES)
+
     engine = get_recon_engine()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    scope = owner_filter(ctx, engine)
+    owner_cond = [] if scope["is_admin"] else [recon_run.c.CREATED_BY == scope["username"]]
 
     # Xác định khoảng thời gian tháng cần thống kê
     if month:
@@ -52,6 +56,7 @@ def get_dashboard_summary(ctx: Ctx, month: str | None = None) -> dict[str, Any]:
         runs_query = select(recon_run).where(
             recon_run.c.CREATED_AT >= start_date,
             recon_run.c.CREATED_AT < end_date,
+            *owner_cond,
         )
         all_month_runs = conn.execute(runs_query).mappings().fetchall()
         total_runs = len(all_month_runs)
@@ -83,6 +88,7 @@ def get_dashboard_summary(ctx: Ctx, month: str | None = None) -> dict[str, Any]:
                 recon_run.c.CREATED_AT >= start_date,
                 recon_run.c.CREATED_AT < end_date,
                 recon_run.c.STATUS == "DONE",
+                *owner_cond,
             )
         )
         sums = conn.execute(sum_stmt).mappings().first()
@@ -122,6 +128,8 @@ def get_dashboard_summary(ctx: Ctx, month: str | None = None) -> dict[str, Any]:
             .order_by(desc(recon_run.c.CREATED_AT))
             .limit(10)
         )
+        if owner_cond:
+            recent_stmt = recent_stmt.where(*owner_cond)
         recent_rows = conn.execute(recent_stmt).mappings().fetchall()
 
         recent_items = []
@@ -183,6 +191,7 @@ def get_dashboard_summary(ctx: Ctx, month: str | None = None) -> dict[str, Any]:
                 recon_run.c.CREATED_AT >= start_date,
                 recon_run.c.CREATED_AT < end_date,
                 recon_run.c.STATUS == "DONE",
+                *owner_cond,
             )
             .group_by(
                 recon_template.c.ID,
@@ -240,6 +249,7 @@ def get_dashboard_summary(ctx: Ctx, month: str | None = None) -> dict[str, Any]:
 
 
 @service
+@requires_menu("dashboard")
 def compare_runs(ctx: Ctx, run_id_a: int, run_id_b: int) -> dict[str, Any]:
     """So sánh kết quả giữa 2 run cùng Template và Profile (PRD C6).
 
@@ -248,7 +258,7 @@ def compare_runs(ctx: Ctx, run_id_a: int, run_id_b: int) -> dict[str, Any]:
     2. ONLY_IN_B: Khóa chỉ xuất hiện trong Run B (mới xuất hiện ở Run B).
     3. IN_BOTH: Khóa xuất hiện ở cả 2 run (phân loại tiếp STATUS_CHANGED hoặc SAME_STATUS).
     """
-    require_role(ctx, *ALL_ROLES)
+
     engine = get_recon_engine()
 
     with engine.connect() as conn:
@@ -277,6 +287,10 @@ def compare_runs(ctx: Ctx, run_id_a: int, run_id_b: int) -> dict[str, Any]:
         )
         if not run_b:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Run #{run_id_b}.")
+
+        # Phạm vi dữ liệu (task 19): chỉ so sánh run của mình
+        check_owned(conn, recon_run, "ID", run_id_a, ctx, engine=engine)
+        check_owned(conn, recon_run, "ID", run_id_b, ctx, engine=engine)
 
         if run_a["STATUS"] != "DONE" or run_b["STATUS"] != "DONE":
             raise ServiceError(
@@ -429,9 +443,10 @@ def compare_runs(ctx: Ctx, run_id_a: int, run_id_b: int) -> dict[str, Any]:
 
 
 @service
+@requires_menu("dashboard")
 def get_previous_run(ctx: Ctx, run_id: int) -> dict[str, Any] | None:
     """Tìm run DONE trước đó gần nhất cùng Template và Profile."""
-    require_role(ctx, *ALL_ROLES)
+
     engine = get_recon_engine()
 
     with engine.connect() as conn:
@@ -451,6 +466,15 @@ def get_previous_run(ctx: Ctx, run_id: int) -> dict[str, Any] | None:
         if not curr:
             return None
 
+        # Phạm vi dữ liệu (task 19): run gốc không phải của mình thì coi như không có
+        prev_scope = owner_filter(ctx, engine)
+        if not prev_scope["is_admin"]:
+            curr_owner = conn.execute(
+                select(recon_run.c.CREATED_BY).where(recon_run.c.ID == run_id)
+            ).scalar_one_or_none()
+            if curr_owner != ctx.username:
+                return None
+
         prev = (
             conn.execute(
                 select(
@@ -464,6 +488,7 @@ def get_previous_run(ctx: Ctx, run_id: int) -> dict[str, Any] | None:
                     recon_run.c.PROFILE_CODE == curr["PROFILE_CODE"],
                     recon_run.c.STATUS == "DONE",
                     recon_run.c.ID != run_id,
+                    *([recon_run.c.CREATED_BY == prev_scope["username"]] if not prev_scope["is_admin"] else []),
                     or_(
                         recon_run.c.CREATED_AT < curr["CREATED_AT"],
                         and_(

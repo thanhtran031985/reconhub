@@ -39,6 +39,11 @@ def new_run_env(tmp_path, monkeypatch):
     # Seed users and templates
     seed_cmd(argparse.Namespace())
 
+    # Đồng bộ menu + gán vai trò cho operator (ID 3) để qua kiểm tra menu (task 19)
+    from tests.conftest import seed_perm_basics
+
+    seed_perm_basics(engine, {3: ["OPERATOR"]})
+
     # Kích hoạt template DTP_HOA_DON_TAC_NGHIEP
     with engine.begin() as conn:
         tmpl_id = conn.scalar(select(recon_template.c.ID).where(recon_template.c.CODE == "DTP_HOA_DON_TAC_NGHIEP"))
@@ -262,9 +267,7 @@ def test_handle_execute_run_ignores_remount_with_n_clicks_zero(monkeypatch) -> N
         "create_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_run must not be called on remount")),
     )
-    result = handle_execute_run(
-        0, None, None, None, None, None, None, None, None, None, None, None
-    )
+    result = handle_execute_run(0, None, None, None, None, None, None, None, None, None, None, None)
     assert result == (dash.no_update, dash.no_update, dash.no_update, dash.no_update)
 
 
@@ -284,7 +287,17 @@ def test_handle_execute_run_ignores_click_while_running(monkeypatch) -> None:
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_run must not be called while running")),
     )
     result = handle_execute_run(
-        2, None, None, None, None, None, None, None, None, None, None,
+        2,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
         {"is_running": True, "run_id": 123},
     )
     assert result == (dash.no_update, dash.no_update, dash.no_update, dash.no_update)
@@ -320,9 +333,7 @@ def test_handle_progress_tick_unchanged_returns_no_update(monkeypatch) -> None:
             return _Conn()
 
     monkeypatch.setattr(new_run_page, "get_recon_engine", lambda: _Engine())
-    ui, state, redirect = handle_progress_tick(
-        5, {"is_running": True, "run_id": 999, "stage": 1, "pct": 10}
-    )
+    ui, state, redirect = handle_progress_tick(5, {"is_running": True, "run_id": 999, "stage": 1, "pct": 10})
     assert ui is dash.no_update
     assert state is dash.no_update
     assert redirect is dash.no_update

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import Engine, select, update
 
 from app.core.config import get_settings
-from app.db.metadata import recon_login_log, recon_user, recon_user_role
+from app.db.metadata import recon_login_log, recon_role, recon_user, recon_user_role
 from app.schemas.errors import ErrorCode, ServiceError, ServiceResult
 
 _hasher = PasswordHasher()
@@ -185,9 +185,15 @@ def authenticate_user(
 
         _record_login_log(conn, norm_username, user_id, True, "SUCCESS", ip, now)
 
-        # Lấy danh sách vai trò
+        # Lấy danh sách vai trò (mã vai trò qua RECON_ROLE)
         roles_rows = (
-            conn.execute(select(recon_user_role.c.ROLE).where(recon_user_role.c.USER_ID == user_id)).scalars().all()
+            conn.execute(
+                select(recon_role.c.CODE)
+                .select_from(recon_user_role.join(recon_role, recon_user_role.c.ROLE_ID == recon_role.c.ID))
+                .where(recon_user_role.c.USER_ID == user_id)
+            )
+            .scalars()
+            .all()
         )
 
         return ServiceResult.success(

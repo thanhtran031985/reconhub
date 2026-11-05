@@ -8,12 +8,13 @@ from typing import Any
 from sqlalchemy import select
 
 from app.core.config import get_settings
-from app.core.context import Ctx, Role, require_role
+from app.core.context import Ctx, require_role
 from app.db.engine import get_recon_engine
-from app.db.metadata import recon_file
+from app.db.metadata import recon_file, recon_run, recon_template_version
 from app.engine.reader import list_sheets
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
+from app.services.perm import effective_menus, is_admin, requires_menu
 
 
 def _validate_magic_bytes(ext: str, content: bytes) -> None:
@@ -55,13 +56,13 @@ def _validate_magic_bytes(ext: str, content: bytes) -> None:
 
 
 @service
+@requires_menu("run", "template", any_of=True)
 def upload_file(
     ctx: Ctx,
     filename: str,
     content: bytes,
 ) -> dict[str, Any]:
     """Tải lên file dữ liệu Excel/CSV, kiểm tra magic bytes, lưu kho và ghi nhận RECON_FILE."""
-    require_role(ctx, Role.OPERATOR, Role.TEMPLATE_OWNER, Role.ADMIN)
 
     settings = get_settings()
     max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
@@ -126,8 +127,31 @@ def get_file(ctx: Ctx, file_id: int) -> dict[str, Any]:
     with engine.connect() as conn:
         rec = conn.execute(select(recon_file).where(recon_file.c.ID == file_id)).mappings().first()
 
-    if not rec:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy file với id {file_id}.")
+        if not rec:
+            raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy file với id {file_id}.")
+
+        # Quyền tải file gốc (Q8, task 19): ADMIN thấy hết; còn lại phải thỏa
+        # một trong ba: file do mình upload, file thuộc run của mình, hoặc file
+        # mẫu của template mà mình có menu template. Không thỏa -> NOT_FOUND.
+        if not is_admin(ctx, engine):
+            allowed = str(rec["UPLOADED_BY"]) == ctx.username
+            if not allowed:
+                own_run = conn.execute(
+                    select(recon_run.c.ID)
+                    .where(recon_run.c.FILE_ID == file_id)
+                    .where(recon_run.c.CREATED_BY == ctx.username)
+                    .limit(1)
+                ).first()
+                allowed = own_run is not None
+            if not allowed and "template" in effective_menus(ctx, engine):
+                sample = conn.execute(
+                    select(recon_template_version.c.TEMPLATE_ID)
+                    .where(recon_template_version.c.SAMPLE_FILE_ID == file_id)
+                    .limit(1)
+                ).first()
+                allowed = sample is not None
+            if not allowed:
+                raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy file với id {file_id}.")
 
     storage_path_str = rec["STORAGE_PATH"]
     purged_at = rec["PURGED_AT"]

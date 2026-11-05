@@ -11,7 +11,6 @@ from dash import ALL, Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
 from sqlalchemy import desc, select
 
-from app.core.context import Role
 from app.core.session import get_current_ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
@@ -37,6 +36,7 @@ from app.services.metadata_migration import (
     start_migration,
 )
 from app.services.oracle_admin import generate_target_user_sql
+from app.services.perm import is_admin, page_gate
 from app.services.temp_data import preview, purge_filter, usage
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
@@ -56,6 +56,8 @@ try:
     )
 except Exception:
     pass
+
+MENU_CODE = "data_source"
 
 
 def render_data_sources_table(
@@ -137,7 +139,9 @@ def render_data_sources_table(
                     ),
                     style={"textAlign": "center", "verticalAlign": "middle", "whiteSpace": "nowrap"},
                 ),
-                dmc.TableTd(dmc.Text(name, fw=600, size="sm"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                dmc.TableTd(
+                    dmc.Text(name, fw=600, size="sm"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}
+                ),
                 dmc.TableTd(status_chip(env, size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
                 dmc.TableTd(
                     dmc.Text(f"{host}:{port}/{service}", className="rh-code", size="xs"),
@@ -276,12 +280,27 @@ def render_storage_tab(
         log_rows.append(
             dmc.TableTr(
                 [
-                    dmc.TableTd(dmc.Text(purged_at, size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
-                    dmc.TableTd(dmc.Badge(scope, variant="light", color="gray", size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
-                    dmc.TableTd(dmc.Text(str(runs_cnt), size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
-                    dmc.TableTd(dmc.Text(f"{rows_cnt:,}".replace(",", "."), size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
-                    dmc.TableTd(dmc.Text(freed, size="xs", fw=600), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
-                    dmc.TableTd(dmc.Text(f"@{purged_by}", size="xs", c="dimmed", className="rh-code"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                    dmc.TableTd(
+                        dmc.Text(purged_at, size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}
+                    ),
+                    dmc.TableTd(
+                        dmc.Badge(scope, variant="light", color="gray", size="xs"),
+                        style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                    ),
+                    dmc.TableTd(
+                        dmc.Text(str(runs_cnt), size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}
+                    ),
+                    dmc.TableTd(
+                        dmc.Text(f"{rows_cnt:,}".replace(",", "."), size="xs"),
+                        style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                    ),
+                    dmc.TableTd(
+                        dmc.Text(freed, size="xs", fw=600), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}
+                    ),
+                    dmc.TableTd(
+                        dmc.Text(f"@{purged_by}", size="xs", c="dimmed", className="rh-code"),
+                        style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                    ),
                 ]
             )
         )
@@ -556,7 +575,18 @@ def render_storage_tab(
 
 def layout() -> Any:
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
+        return dmc.Container(
+            alert_box(
+                title="Quyền truy cập bị từ chối",
+                message="Trang Data Sources và Cấu hình lưu trữ chỉ dành cho Quản trị viên (ADMIN).",
+                tone="crit",
+            ),
+            size="md",
+            py="xl",
+        )
+    if ctx is None or not is_admin(ctx):
         return dmc.Container(
             alert_box(
                 title="Quyền truy cập bị từ chối",
@@ -761,7 +791,7 @@ def layout() -> Any:
 )
 def load_sources_data(*args: Any) -> Any:
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return {"items": [], "error": "Chưa đăng nhập"}
 
     res = list_data_sources(ctx, purpose="SOURCE")
@@ -797,7 +827,7 @@ def handle_ds_active_toggle(checked_values: list[bool], id_list: list[dict[str, 
         raise dash.exceptions.PreventUpdate
 
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         raise dash.exceptions.PreventUpdate
 
     triggered_id = dash.ctx.triggered_id
@@ -863,7 +893,7 @@ def update_sources_table(store_data: Any) -> Any:
 )
 def load_storage_data(*args: Any) -> Any:
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return {}
 
     usage_res = usage(ctx)
@@ -1024,7 +1054,7 @@ def handle_purge_preview(
     user_val: str | None,
 ) -> tuple[Any, Any]:
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return alert_box("Lỗi", "Chưa đăng nhập", tone="crit"), None
 
     b_date = datetime.now() - timedelta(days=int(days_val)) if days_val else None
@@ -1103,7 +1133,7 @@ def handle_execute_purge(n_clicks: Any, input_val: str | None, filter_data: Any)
         return False
 
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return False
 
     p_filter = PurgeFilter(**filter_data)
@@ -1142,7 +1172,7 @@ def handle_save_data_source(
     timeout_val: Any,
 ) -> tuple[Any, bool]:
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return alert_box("Lỗi", "Chưa đăng nhập", tone="crit"), True
 
     if not name_val or not host_val or not service_val or not user_val:
@@ -1217,7 +1247,7 @@ def handle_test_drawer_connection(
     timeout_val: Any,
 ) -> Any:
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return alert_box("Lỗi", "Chưa đăng nhập hoặc không đủ quyền Quản trị viên.", tone="crit")
 
     # Nếu chưa nhập host, service hoặc user
@@ -1312,7 +1342,7 @@ def handle_table_test_connection(n_clicks: list[Any]) -> Any:
         ds_id = parsed.get("index")
         if ds_id is not None:
             ctx = get_current_ctx()
-            if ctx and Role.ADMIN in ctx.roles:
+            if ctx and is_admin(ctx):
                 test_data_source(ctx, int(ds_id))
                 refreshed = list_data_sources(ctx, purpose="SOURCE")
                 if refreshed.ok and refreshed.data:
@@ -1335,7 +1365,7 @@ def handle_migration_precheck(n_clicks: Any, target_ds_id: Any, mode: str | None
         return alert_box("Lưu ý", "Vui lòng chọn Data Source Oracle đích trước khi kiểm tra.", tone="warn")
 
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return alert_box("Từ chối", "Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện.", tone="crit")
 
     res = precheck(ctx, int(target_ds_id), mode=mode or "NO_TEMP")
@@ -1348,9 +1378,18 @@ def handle_migration_precheck(n_clicks: Any, target_ds_id: Any, mode: str | None
         table_rows.append(
             dmc.TableTr(
                 [
-                    dmc.TableTd(dmc.Text(t["table"], size="xs", className="rh-code"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
-                    dmc.TableTd(dmc.Text(f"{t['rows']:,}".replace(",", "."), size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
-                    dmc.TableTd(dmc.Text(format_bytes(t["bytes_est"]), size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                    dmc.TableTd(
+                        dmc.Text(t["table"], size="xs", className="rh-code"),
+                        style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                    ),
+                    dmc.TableTd(
+                        dmc.Text(f"{t['rows']:,}".replace(",", "."), size="xs"),
+                        style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                    ),
+                    dmc.TableTd(
+                        dmc.Text(format_bytes(t["bytes_est"]), size="xs"),
+                        style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                    ),
                 ]
             )
         )
@@ -1406,7 +1445,7 @@ def handle_migration_start(n_clicks: Any, target_ds_id: Any, mode: str | None) -
         return alert_box("Lưu ý", "Vui lòng chọn Data Source Oracle đích trước khi chuyển.", tone="warn")
 
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return alert_box("Từ chối", "Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện.", tone="crit")
 
     res = start_migration(ctx, int(target_ds_id), mode=mode or "NO_TEMP")
@@ -1420,9 +1459,18 @@ def handle_migration_start(n_clicks: Any, target_ds_id: Any, mode: str | None) -
         comp_rows.append(
             dmc.TableTr(
                 [
-                    dmc.TableTd(dmc.Text(t_name, size="xs", className="rh-code"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
-                    dmc.TableTd(dmc.Text(f"{info.get('src_rows', 0):,}".replace(",", "."), size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
-                    dmc.TableTd(dmc.Text(f"{info.get('tgt_rows', 0):,}".replace(",", "."), size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
+                    dmc.TableTd(
+                        dmc.Text(t_name, size="xs", className="rh-code"),
+                        style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                    ),
+                    dmc.TableTd(
+                        dmc.Text(f"{info.get('src_rows', 0):,}".replace(",", "."), size="xs"),
+                        style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                    ),
+                    dmc.TableTd(
+                        dmc.Text(f"{info.get('tgt_rows', 0):,}".replace(",", "."), size="xs"),
+                        style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                    ),
                     dmc.TableTd(
                         dmc.Badge("Khớp SHA256", color="ok", variant="light", size="xs")
                         if info.get("checksum_matched")
@@ -1501,7 +1549,7 @@ def handle_clean_schema(n_clicks: Any, input_val: str | None, target_ds_id: Any)
         return False, dash.no_update
 
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return False, alert_box("Lỗi", "Chưa đăng nhập", tone="crit")
 
     # Lấy thông tin default schema của target ds
@@ -1557,7 +1605,7 @@ def handle_delete_sqlite(n_clicks: Any, input_val: str | None) -> tuple[bool, An
         return False, dash.no_update
 
     ctx = get_current_ctx()
-    if ctx is None or Role.ADMIN not in ctx.roles:
+    if ctx is None or not is_admin(ctx):
         return False, alert_box("Lỗi", "Chưa đăng nhập", tone="crit")
 
     # Lấy tên file sqlite từ bản migration gần nhất

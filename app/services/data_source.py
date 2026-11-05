@@ -10,7 +10,7 @@ from sqlalchemy import Engine, create_engine, func, select, text, update
 
 from app.core.audit import write_audit_log
 from app.core.config import get_settings
-from app.core.context import Ctx, Role, require_role
+from app.core.context import Ctx
 from app.core.crypto import decrypt_secret, encrypt_secret
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_data_source, recon_template_version
@@ -22,6 +22,7 @@ from app.schemas.data_source import (
 )
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
+from app.services.perm import require_admin, requires_menu
 
 
 def _build_ds_response(row: Any, template_count: int = 0) -> DataSourceResponse:
@@ -54,13 +55,14 @@ def _build_ds_response(row: Any, template_count: int = 0) -> DataSourceResponse:
 
 
 @service
+@requires_menu("data_source")
 def list_data_sources(
     ctx: Ctx,
     purpose: str | None = None,
 ) -> list[DataSourceResponse]:
     """Danh sách tất cả Data Source (chỉ dành cho Admin)."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
 
     with engine.connect() as conn:
         stmt = select(recon_data_source).order_by(recon_data_source.c.ENV, recon_data_source.c.NAME)
@@ -87,12 +89,13 @@ def list_data_sources(
 
 
 @service
+@requires_menu("template", "data_source", any_of=True)
 def options_data_sources(
     ctx: Ctx,
     purpose: str | None = None,
 ) -> list[DataSourceOption]:
     """Danh sách tùy chọn Data Source đang hoạt động (cho mọi vai trò đã đăng nhập)."""
-    require_role(ctx)
+
     engine = get_recon_engine()
 
     with engine.connect() as conn:
@@ -126,10 +129,11 @@ def options_data_sources(
 
 
 @service
+@requires_menu("data_source")
 def create_data_source(ctx: Ctx, dto: DataSourceCreateDTO) -> DataSourceResponse:
     """Tạo Data Source mới (chỉ Admin)."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     norm_name = dto.name.strip().upper()
@@ -200,6 +204,7 @@ def create_data_source(ctx: Ctx, dto: DataSourceCreateDTO) -> DataSourceResponse
 
 
 @service
+@requires_menu("data_source")
 def update_data_source(
     ctx: Ctx,
     ds_id: int,
@@ -209,8 +214,8 @@ def update_data_source(
 
     Nếu password rỗng hoặc None thì giữ nguyên mật khẩu cũ.
     """
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     with engine.begin() as conn:
@@ -264,13 +269,14 @@ def update_data_source(
 
 
 @service
+@requires_menu("data_source")
 def activate_data_source(
     ctx: Ctx,
     ds_id: int,
 ) -> DataSourceResponse:
     """Kích hoạt Data Source (chỉ Admin)."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     with engine.begin() as conn:
@@ -325,6 +331,7 @@ def get_active_environment() -> str:
 
 
 @service
+@requires_menu("data_source")
 def deactivate_data_source(
     ctx: Ctx,
     ds_id: int,
@@ -334,8 +341,8 @@ def deactivate_data_source(
 
     Không cho phép vô hiệu hóa Data Source lưu trữ RECON_APP hiện tại.
     """
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     with engine.begin() as conn:
@@ -449,10 +456,11 @@ def _test_oracle_connection(
 
 
 @service
+@requires_menu("data_source")
 def test_data_source(ctx: Ctx, ds_id: int) -> dict[str, Any]:
     """Kiểm tra kết nối Data Source theo mục đích (SOURCE hoặc METADATA)."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     with engine.connect() as conn:
@@ -548,6 +556,7 @@ def test_data_source(ctx: Ctx, ds_id: int) -> dict[str, Any]:
 
 
 @service
+@requires_menu("data_source")
 def test_data_source_config(
     ctx: Ctx,
     host: str,
@@ -560,8 +569,8 @@ def test_data_source_config(
     purpose: str = "SOURCE",
 ) -> dict[str, Any]:
     """Kiểm tra kết nối trực tiếp với các thông số cấu hình."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     plain_password = password

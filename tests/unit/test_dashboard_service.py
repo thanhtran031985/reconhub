@@ -98,6 +98,18 @@ def dashboard_env(tmp_path: Path, monkeypatch):
                 UPDATED_AT=t1,
             )
         )
+        conn.execute(
+            recon_user.insert().values(
+                ID=20,
+                USERNAME="viewer_tester",
+                FULL_NAME="Viewer Tester",
+                PASSWORD_HASH="hash",
+                IS_ACTIVE="Y",
+                CREATED_BY="admin",
+                CREATED_AT=t1,
+                UPDATED_AT=t1,
+            )
+        )
 
         # Run 1 (cũ hơn, trạng thái DONE)
         run_1_id = conn.execute(
@@ -149,14 +161,18 @@ def dashboard_env(tmp_path: Path, monkeypatch):
             )
         )
 
+    from tests.conftest import seed_perm_basics
+
+    seed_perm_basics(engine, {10: ["OPERATOR"], 20: ["VIEWER"]})
+
     return engine, operator_ctx, viewer_ctx, tmpl_id, run_1_id, run_2_id
 
 
 def test_get_dashboard_summary(dashboard_env):
     _, operator_ctx, viewer_ctx, tmpl_id, _, _ = dashboard_env
 
-    # 1. Gọi summary với Viewer
-    res = get_dashboard_summary(viewer_ctx)
+    # 1. Gọi summary với Operator (chủ sở hữu 2 run)
+    res = get_dashboard_summary(operator_ctx)
     assert res.ok is True
     data = res.data
     assert data["total_runs"] >= 2
@@ -178,6 +194,11 @@ def test_get_dashboard_summary(dashboard_env):
     recent = data["recent_runs"]
     assert len(recent) >= 2
     assert recent[0]["id"] is not None
+
+    # 4. Viewer không phải chủ run -> chỉ thấy run của mình (0 run)
+    res_viewer = get_dashboard_summary(viewer_ctx)
+    assert res_viewer.ok is True
+    assert res_viewer.data["total_runs"] == 0
 
 
 def test_compare_runs_three_groups(dashboard_env):

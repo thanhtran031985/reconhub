@@ -8,7 +8,7 @@ from typing import Any
 import polars as pl
 from sqlalchemy import delete, desc, func, select
 
-from app.core.context import Ctx, Role, require_role
+from app.core.context import Ctx, Role
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
     recon_app_setting,
@@ -33,9 +33,11 @@ from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.run import CreateRunParams, PrecheckParams, RunListFilter, RunRowsFilter
 from app.schemas.template_config import TemplateConfig
 from app.services import service
+from app.services.perm import check_owned, owner_filter, requires_menu
 
 
 @service
+@requires_menu("run")
 def precheck(
     ctx: Ctx,
     params: PrecheckParams,
@@ -118,12 +120,12 @@ def precheck(
 
 
 @service
+@requires_menu("run")
 def create_run(
     ctx: Ctx,
     params: CreateRunParams,
 ) -> dict[str, Any]:
     """Tạo run đối soát mới và đẩy vào hàng đợi RECON_RUN_QUEUE."""
-    require_role(ctx, Role.OPERATOR, Role.TEMPLATE_OWNER, Role.ADMIN)
 
     # 1. Thực hiện precheck
     pre_res = precheck(
@@ -270,10 +272,12 @@ def create_run(
 
 
 @service
+@requires_menu("result")
 def get_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
     """Lấy thông tin chi tiết của một lần chạy (run) kèm thống kê kết quả."""
     engine = get_recon_engine()
     with engine.connect() as conn:
+        check_owned(conn, recon_run, "ID", run_id, ctx, engine=engine)
         stmt = (
             select(
                 recon_run,
@@ -334,6 +338,7 @@ def get_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
 
 
 @service
+@requires_menu("result")
 def list_runs(ctx: Ctx, filter: RunListFilter) -> dict[str, Any]:
     """Lấy danh sách các lần chạy có phân trang và bộ lọc."""
     engine = get_recon_engine()
@@ -377,6 +382,11 @@ def list_runs(ctx: Ctx, filter: RunListFilter) -> dict[str, Any]:
                 base_query = base_query.where(recon_run.c.TEMP_PURGED_AT.is_(None))
         if filter.filename:
             base_query = base_query.where(recon_file.c.ORIGINAL_NAME.ilike(f"%{filter.filename.strip()}%"))
+
+        # Phạm vi dữ liệu (task 19): vai trò thường chỉ thấy run của mình
+        scope = owner_filter(ctx, engine)
+        if not scope["is_admin"]:
+            base_query = base_query.where(recon_run.c.CREATED_BY == scope["username"])
 
         # Đếm tổng số
         count_stmt = select(func.count()).select_from(base_query.subquery())
@@ -442,10 +452,12 @@ def list_runs(ctx: Ctx, filter: RunListFilter) -> dict[str, Any]:
 
 
 @service
+@requires_menu("result")
 def get_run_columns(ctx: Ctx, run_id: int) -> list[dict[str, Any]]:
     """Lấy metadata danh sách cột cho màn hình hiển thị AG Grid và xuất Excel."""
     engine = get_recon_engine()
     with engine.connect() as conn:
+        check_owned(conn, recon_run, "ID", run_id, ctx, engine=engine)
         summ = conn.execute(
             select(recon_run_summary.c.COLUMNS_JSON).where(recon_run_summary.c.RUN_ID == run_id)
         ).scalar()
@@ -476,10 +488,12 @@ def get_run_columns(ctx: Ctx, run_id: int) -> list[dict[str, Any]]:
 
 
 @service
+@requires_menu("result")
 def get_run_rows(ctx: Ctx, run_id: int, filter: RunRowsFilter) -> dict[str, Any]:
     """Lấy danh sách các dòng kết quả phân trang theo trạng thái, tìm kiếm và sắp xếp, kèm thông tin issue."""
     engine = get_recon_engine()
     with engine.connect() as conn:
+        check_owned(conn, recon_run, "ID", run_id, ctx, engine=engine)
         run_row = (
             conn.execute(select(recon_run.c.TEMPLATE_ID, recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id))
             .mappings()
@@ -579,10 +593,12 @@ def get_run_rows(ctx: Ctx, run_id: int, filter: RunRowsFilter) -> dict[str, Any]
 
 
 @service
+@requires_menu("result")
 def get_row_detail(ctx: Ctx, run_id: int, row_no: int) -> dict[str, Any]:
     """Lấy chi tiết dòng đối soát, các measures lệch và các dòng Excel gốc tương ứng."""
     engine = get_recon_engine()
     with engine.connect() as conn:
+        check_owned(conn, recon_run, "ID", run_id, ctx, engine=engine)
         r_stmt = select(recon_result_row).where(
             recon_result_row.c.RUN_ID == run_id,
             recon_result_row.c.ROW_NO == row_no,
@@ -676,10 +692,12 @@ def get_row_detail(ctx: Ctx, run_id: int, row_no: int) -> dict[str, Any]:
 
 
 @service
+@requires_menu("result")
 def get_invalid_rows(ctx: Ctx, run_id: int, page: int = 1, page_size: int = 50) -> dict[str, Any]:
     """Lấy danh sách các dòng Excel không hợp lệ (INVALID) khi nạp file."""
     engine = get_recon_engine()
     with engine.connect() as conn:
+        check_owned(conn, recon_run, "ID", run_id, ctx, engine=engine)
         base_query = select(recon_invalid_row).where(recon_invalid_row.c.RUN_ID == run_id)
         count_stmt = select(func.count()).select_from(base_query.subquery())
         total = conn.execute(count_stmt).scalar() or 0
@@ -701,6 +719,7 @@ def get_invalid_rows(ctx: Ctx, run_id: int, page: int = 1, page_size: int = 50) 
 
 
 @service
+@requires_menu("result")
 def export_run(
     ctx: Ctx,
     run_id: int,
@@ -709,6 +728,7 @@ def export_run(
     """Xuất file Excel báo cáo đối soát từ các bảng kết quả lưu trong RECON_APP."""
     engine = get_recon_engine()
     with engine.connect() as conn:
+        check_owned(conn, recon_run, "ID", run_id, ctx, engine=engine)
         run_row = conn.execute(select(recon_run).where(recon_run.c.ID == run_id)).mappings().first()
         if not run_row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy run {run_id}.")
@@ -814,6 +834,7 @@ def export_run(
 
 
 @service
+@requires_menu("run")
 def dry_run(
     ctx: Ctx,
     template_id: int,
@@ -833,7 +854,6 @@ def dry_run(
     ở Bước 3. Trước đây wizard đọc p_org ở Bước 5 nhưng không truyền
     xuống đây, nên dry-run luôn lỗi với template dùng :p_org.
     """
-    require_role(ctx, Role.OPERATOR, Role.TEMPLATE_OWNER, Role.ADMIN)
 
     run_params: dict[str, Any] = dict(params or {})
     if p_org:

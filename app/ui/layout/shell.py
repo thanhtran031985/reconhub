@@ -13,9 +13,11 @@ from app.core.session import get_current_ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_app_setting
 from app.services.data_source import get_active_environment
+from app.services.perm import effective_menus, get_perm_revision, is_admin, menu_state, user_role_codes
 from app.services.temp_data import usage
 from app.ui.components.alert_box import alert_box
 from app.ui.formatters import format_bytes
+from app.ui.menus import GROUPS, MENUS
 
 
 def build_breadcrumbs(pathname: str | None) -> list[dict[str, str]]:
@@ -156,6 +158,40 @@ def get_nav_items_for_roles(roles: set[Role] | set[str]) -> list[dict[str, Any]]
     if sys_items:
         groups.append({"title": "HỆ THỐNG", "items": sys_items})
 
+    return groups
+
+
+# Menu có trong effective_menus nhưng chưa có trang thanh bên: "result" là
+# trang chi tiết run (/runs/<id>), "batch_run"/"batch_def" thuộc task 18
+# (chưa làm), "menu_admin" thuộc task 20 (Q7: khai báo + seed nhưng ẩn
+# khỏi thanh bên tới task 20). Khi các task đó xong, bỏ mã khỏi tập này.
+_SIDEBAR_SKIP_CODES = {"result", "batch_run", "batch_def", "menu_admin"}
+
+
+def get_nav_items_for_menus(menus: set[str], engine: Any = None) -> list[dict[str, Any]]:
+    """Nhóm menu thanh bên từ menu hiệu lực của người dùng (task 19).
+
+    Thứ tự nhóm/menu và tên/đường dẫn/icon lấy từ `app/ui/menus.py`;
+    menu đang ẩn hoặc đã gỡ không hiện (menu_admin đang ẩn nên cũng
+    không hiện, theo Q7 — tới task 20 mới mở).
+    """
+    visible = set(menus)
+    groups: list[dict[str, Any]] = []
+    for group in sorted(GROUPS, key=lambda g: g.order):
+        items: list[dict[str, str]] = []
+        for menu in sorted([m for m in MENUS if m.group == group.code], key=lambda m: m.order):
+            if menu.code not in visible or menu.code in _SIDEBAR_SKIP_CODES:
+                continue
+            state = menu_state(menu.code, engine)
+            if state is None:
+                label = menu.label
+            else:
+                if state.get("IS_REMOVED") == "Y" or state.get("IS_HIDDEN") == "Y":
+                    continue
+                label = str(state.get("DISPLAY_LABEL") or menu.label)
+            items.append({"label": label, "href": menu.path, "icon": menu.icon})
+        if items:
+            groups.append({"title": group.label.upper(), "items": items})
     return groups
 
 
@@ -343,8 +379,10 @@ def get_active_nav_href(nav_groups: list[dict[str, Any]], pathname: str | None) 
 
 def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) -> Any:
     """Tạo thanh navbar 232px (hoặc 60px mini) với các nhóm menu phân quyền."""
-    roles = set(ctx.roles) if ctx else set()
-    nav_groups = get_nav_items_for_roles(roles)
+    if ctx is None:
+        nav_groups = get_nav_items_for_roles(set())
+    else:
+        nav_groups = get_nav_items_for_menus(effective_menus(ctx))
     active_href = get_active_nav_href(nav_groups, pathname)
 
     content_children: list[Any] = []
@@ -505,6 +543,10 @@ def create_shell_layout() -> Any:
         [
             dcc.Location(id="app-location", refresh=False),
             dcc.Store(id="app-sidebar-collapsed", storage_type="local", data=False),
+            # Kiểm tra PERM_REVISION mỗi 5 giây: đổi quyền thì dựng lại
+            # thanh bên trong tối đa 5 giây (spec 11 mục 6).
+            dcc.Store(id="app-perm-revision", data=None),
+            dcc.Interval(id="app-perm-revision-check", interval=5000, n_intervals=0),
             html.Div(id="app-shell-container"),
         ]
     )
@@ -539,7 +581,7 @@ def render_app_shell(pathname: str | None, is_collapsed_data: Any) -> Any:
             if row and row[0] == "Y":
                 is_maintenance = True
 
-        if ctx and Role.ADMIN in ctx.roles:
+        if ctx and is_admin(ctx):
             res_usage = usage(ctx)
             if res_usage.ok and res_usage.data:
                 temp_bytes = res_usage.data.temp_bytes
@@ -551,7 +593,7 @@ def render_app_shell(pathname: str | None, is_collapsed_data: Any) -> Any:
     active_env = get_active_environment()
     header_content = create_header(ctx, active_env, pathname, is_mini=is_mini)
     navbar_content = create_navbar(ctx, pathname, is_mini=is_mini)
-    user_roles = set(ctx.roles) if ctx else set()
+    user_roles = user_role_codes(ctx) if ctx else set()
     banners = render_banners(is_maintenance, storage_warn, user_roles, temp_bytes, warning_gb)
 
     main_content: list[Any] = []
@@ -569,6 +611,32 @@ def render_app_shell(pathname: str | None, is_collapsed_data: Any) -> Any:
             dmc.AppShellMain(main_content),
         ],
     )
+
+
+@callback(
+    Output("app-shell-navbar", "children", allow_duplicate=True),
+    Output("app-perm-revision", "data", allow_duplicate=True),
+    Input("app-perm-revision-check", "n_intervals"),
+    State("app-perm-revision", "data"),
+    State("app-sidebar-collapsed", "data"),
+    State("app-location", "pathname"),
+    prevent_initial_call=True,
+)
+def handle_perm_revision_check(
+    _n_intervals: int, last_revision: Any, is_collapsed_data: Any, pathname: str | None
+) -> tuple[Any, Any]:
+    """Dựng lại thanh bên khi PERM_REVISION đổi (quyền vừa bị thu/hồi)."""
+    if pathname == "/login":
+        raise dash.exceptions.PreventUpdate
+    try:
+        revision = get_perm_revision()
+    except Exception:
+        raise dash.exceptions.PreventUpdate from None
+    if revision == last_revision:
+        raise dash.exceptions.PreventUpdate
+    ctx = get_current_ctx()
+    navbar_children = create_navbar(ctx, pathname, is_mini=bool(is_collapsed_data))
+    return navbar_children, revision
 
 
 @callback(

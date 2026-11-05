@@ -14,6 +14,7 @@ from app.core.session import get_current_ctx
 from app.schemas.run import RunRowsFilter
 from app.services.dashboard import compare_runs, get_previous_run
 from app.services.issue import list_reasons, upsert_issue_for_row
+from app.services.perm import page_gate
 from app.services.run_service import export_run, get_row_detail, get_run, get_run_rows
 from app.services.temp_data import mark_checked, purge_runs
 from app.services.template import get_template
@@ -224,7 +225,9 @@ def render_header(run_info: dict[str, Any]) -> Any:
         )
     )
 
-    action_btns.append(button_subtle("So với run trước", id="run-res-compare-btn", icon="lucide:git-compare", size="xs"))
+    action_btns.append(
+        button_subtle("So với run trước", id="run-res-compare-btn", icon="lucide:git-compare", size="xs")
+    )
     action_btns.append(dcc.Link(button_subtle("Chạy lại", icon="lucide:refresh-cw", size="xs"), href="/runs/new"))
     action_btns.append(
         button_primary(
@@ -589,7 +592,9 @@ def render_result_grid(
             tds.append(
                 dmc.TableTd(
                     dmc.Text(
-                        fmt_num(val_df) if val_df is not None and has_diff else ("—" if not has_diff else fmt_num(val_df)),
+                        fmt_num(val_df)
+                        if val_df is not None and has_diff
+                        else ("—" if not has_diff else fmt_num(val_df)),
                         size="xs",
                         style={"textAlign": "right", **diff_style},
                     ),
@@ -1084,7 +1089,11 @@ def render_detail_drawer(
             xl_rows_ui.append(
                 dmc.TableTr(
                     [
-                        dmc.TableTd(dmc.Text(f"#{r.get('excel_row_no', r.get('row_no', 1))}", className="mono rh-code", size="xs")),
+                        dmc.TableTd(
+                            dmc.Text(
+                                f"#{r.get('excel_row_no', r.get('row_no', 1))}", className="mono rh-code", size="xs"
+                            )
+                        ),
                         dmc.TableTd(dmc.Text(str(invoice_val), className="mono rh-code", size="xs")),
                         dmc.TableTd(
                             dmc.Text(
@@ -1472,6 +1481,8 @@ try:
 except Exception:
     pass
 
+MENU_CODE = "result"
+
 
 def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
     """Layout chính màn hình Kết quả run (Screen06-RunResult)."""
@@ -1484,6 +1495,15 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
             ]
         )
 
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
+        return html.Div(
+            [
+                dcc.Location(id="run-res-forbidden-redirect", href=gate),
+                alert_box("Bạn không có quyền xem kết quả run này.", tone="crit"),
+            ]
+        )
+
     r_num = int(run_id) if run_id and str(run_id).isdigit() else 1
 
     run_res = get_run(ctx, r_num)
@@ -1491,7 +1511,7 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
         return html.Div(
             [
                 alert_box(f"Không tìm thấy dữ liệu lần chạy #{r_num}.", tone="crit"),
-                dcc.Link(button_primary("Quay lại lịch sử đối soát"), href="/runs"),
+                dcc.Link(button_primary("Quay lại lịch sử đối soát"), href="/history"),
             ],
             style={"padding": "24px"},
         )
@@ -1522,9 +1542,7 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
             # 4 KPI Cards
             html.Div(
                 id="run-res-kpi-container",
-                children=render_kpi_cards(
-                    summary_data, main_measure_name=measures[0]["name"] if measures else None
-                ),
+                children=render_kpi_cards(summary_data, main_measure_name=measures[0]["name"] if measures else None),
             ),
             # Bộ Tabs chính: Kết quả đối soát vs Câu lệnh SQL đối soát DB
             dmc.Tabs(

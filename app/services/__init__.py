@@ -65,6 +65,7 @@ def service(func: Callable[P, R]) -> Callable[P, ServiceResult[Any]]:
                 details={"request_id": req_id},
             )
 
+    wrapper._is_service = True  # type: ignore[attr-defined]
     return wrapper
 
 

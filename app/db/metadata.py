@@ -118,9 +118,83 @@ recon_user_role = Table(
     "RECON_USER_ROLE",
     metadata,
     Column("USER_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_USER.ID"), primary_key=True),
-    Column("ROLE", String(20), primary_key=True),
-    Column("ORG_SCOPE", String(200), nullable=True),
+    Column("ROLE_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_ROLE.ID"), primary_key=True),
+    Column("ASSIGNED_BY", String(60), nullable=True),
+    Column("ASSIGNED_AT", DateTime, nullable=True),
     Column("CREATED_AT", DateTime, nullable=False),
+)
+
+# 1b. Menu, vai trò, phân quyền (task 19, spec 11/11a)
+recon_menu_group = Table(
+    "RECON_MENU_GROUP",
+    metadata,
+    Column("CODE", String(40), primary_key=True),
+    Column("SOURCE_LABEL", String(100), nullable=False),
+    Column("SOURCE_ORDER", Integer, nullable=False),
+    Column("DISPLAY_LABEL", String(100), nullable=True),
+    Column("DISPLAY_ORDER", Integer, nullable=True),
+    Column("IS_REMOVED", String(1), nullable=False, default="N"),
+    Column("SYNCED_AT", DateTime, nullable=False),
+    Column("UPDATED_BY", String(60), nullable=False),
+    Column("UPDATED_AT", DateTime, nullable=False),
+    Column("ROW_VERSION", Integer, nullable=False, default=1),
+)
+
+recon_menu = Table(
+    "RECON_MENU",
+    metadata,
+    Column("CODE", String(40), primary_key=True),
+    Column("PATH", String(200), nullable=False),
+    Column("ICON", String(60), nullable=True),
+    Column("SOURCE_LABEL", String(100), nullable=False),
+    Column("SOURCE_GROUP", String(40), ForeignKey("RECON_MENU_GROUP.CODE"), nullable=False),
+    Column("SOURCE_ORDER", Integer, nullable=False),
+    Column("DISPLAY_LABEL", String(100), nullable=True),
+    Column("DISPLAY_GROUP", String(40), ForeignKey("RECON_MENU_GROUP.CODE"), nullable=True),
+    Column("DISPLAY_ORDER", Integer, nullable=True),
+    Column("IS_HIDEABLE", String(1), nullable=False, default="Y"),
+    Column("IS_HIDDEN", String(1), nullable=False, default="N"),
+    Column("HIDDEN_REASON", String(300), nullable=True),
+    Column("HIDDEN_BY", String(60), nullable=True),
+    Column("HIDDEN_AT", DateTime, nullable=True),
+    Column("IS_NEW", String(1), nullable=False, default="Y"),
+    Column("IS_REMOVED", String(1), nullable=False, default="N"),
+    Column("SYNCED_AT", DateTime, nullable=False),
+    Column("UPDATED_BY", String(60), nullable=False),
+    Column("UPDATED_AT", DateTime, nullable=False),
+    Column("ROW_VERSION", Integer, nullable=False, default=1),
+    CheckConstraint("IS_HIDDEN = 'N' OR IS_HIDEABLE = 'Y'", name="ck_recon_menu_hideable"),
+    CheckConstraint("IS_HIDDEN = 'N' OR HIDDEN_REASON IS NOT NULL", name="ck_recon_menu_hidden_reason"),
+)
+
+recon_role = Table(
+    "RECON_ROLE",
+    metadata,
+    Column("ID", BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True),
+    Column("CODE", String(30), nullable=False, unique=True),
+    Column("NAME", String(100), nullable=False),
+    Column("DESCRIPTION", String(300), nullable=True),
+    Column("IS_SYSTEM", String(1), nullable=False, default="N"),
+    Column("IS_ACTIVE", String(1), nullable=False, default="Y"),
+    Column("CREATED_BY", String(60), nullable=False),
+    Column("CREATED_AT", DateTime, nullable=False),
+    Column("UPDATED_BY", String(60), nullable=False),
+    Column("UPDATED_AT", DateTime, nullable=False),
+    Column("ROW_VERSION", Integer, nullable=False, default=1),
+)
+
+recon_role_menu = Table(
+    "RECON_ROLE_MENU",
+    metadata,
+    Column(
+        "ROLE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_ROLE.ID", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("MENU_CODE", String(40), ForeignKey("RECON_MENU.CODE"), primary_key=True),
+    Column("GRANTED_BY", String(60), nullable=False),
+    Column("GRANTED_AT", DateTime, nullable=False),
 )
 
 recon_login_log = Table(

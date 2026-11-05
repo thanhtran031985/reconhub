@@ -11,7 +11,7 @@ from app.core.auth import (
     needs_rehash,
     verify_password,
 )
-from app.db.metadata import metadata, recon_login_log, recon_user, recon_user_role
+from app.db.metadata import metadata, recon_login_log, recon_user
 from app.schemas.errors import ErrorCode, ServiceError
 
 
@@ -59,13 +59,9 @@ def test_authenticate_success(test_db) -> None:
             )
         )
         user_id = res.inserted_primary_key[0]
-        conn.execute(
-            recon_user_role.insert().values(
-                USER_ID=user_id,
-                ROLE="OPERATOR",
-                CREATED_AT=now,
-            )
-        )
+    from tests.conftest import seed_perm_basics
+
+    seed_perm_basics(engine, {int(user_id): ["OPERATOR"]})
 
     auth_res = authenticate_user(engine, "NhanVien", "matkhau123", ip="127.0.0.1")
     assert auth_res.ok is True

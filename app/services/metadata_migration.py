@@ -9,7 +9,7 @@ from sqlalchemy import Engine, create_engine, func, select, text, update
 
 from app.core.audit import write_audit_log
 from app.core.config import get_settings
-from app.core.context import Ctx, Role, require_role
+from app.core.context import Ctx
 from app.core.crypto import decrypt_secret
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
@@ -22,9 +22,16 @@ from app.db.metadata import (
 )
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
+from app.services.perm import require_admin, requires_menu
 
 RECON_TABLES_ORDER = [
     "RECON_USER",
+    # Thứ tự theo spec 11 mục 10: nhóm/menu/vai trò/vai trò-menu phải chép
+    # trước RECON_USER_ROLE (khóa ngoại tới RECON_ROLE).
+    "RECON_MENU_GROUP",
+    "RECON_MENU",
+    "RECON_ROLE",
+    "RECON_ROLE_MENU",
     "RECON_USER_ROLE",
     "RECON_DATA_SOURCE",
     "RECON_TEMPLATE",
@@ -49,6 +56,11 @@ RECON_TABLES_ORDER = [
 
 CONFIG_ONLY_TABLES = [
     "RECON_USER",
+    # Bảng phân quyền thuộc phạm vi CONFIG_ONLY (spec 11 mục 10).
+    "RECON_MENU_GROUP",
+    "RECON_MENU",
+    "RECON_ROLE",
+    "RECON_ROLE_MENU",
     "RECON_USER_ROLE",
     "RECON_DATA_SOURCE",
     "RECON_TEMPLATE",
@@ -80,10 +92,11 @@ def create_engine_for_ds(row: Any) -> Engine:
 
 
 @service
+@requires_menu("data_source")
 def set_maintenance_mode(ctx: Ctx, enabled: bool) -> dict[str, Any]:
     """Bật/tắt chế độ bảo trì toàn hệ thống."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     val = "Y" if enabled else "N"
 
@@ -119,6 +132,7 @@ def set_maintenance_mode(ctx: Ctx, enabled: bool) -> dict[str, Any]:
 
 
 @service
+@requires_menu("data_source")
 def precheck(
     ctx: Ctx,
     target_ds_id: int,
@@ -126,8 +140,7 @@ def precheck(
     mock_target_engine: Engine | None = None,
 ) -> dict[str, Any]:
     """Kiểm tra điều kiện trước khi chuyển metadata RECON_APP từ SQLite sang Oracle."""
-    require_role(ctx, Role.ADMIN)
-
+    require_admin(ctx, get_recon_engine())
     if mode not in ("NO_TEMP", "FULL", "CONFIG_ONLY"):
         raise ServiceError(
             ErrorCode.VALIDATION_ERROR,
@@ -234,6 +247,7 @@ def _copy_table_data(tgt_conn: Any, tbl: Any, chunk: list[dict[str, Any]]) -> No
 
 
 @service
+@requires_menu("data_source")
 def start_migration(
     ctx: Ctx,
     target_ds_id: int,
@@ -241,7 +255,7 @@ def start_migration(
     mock_target_engine: Engine | None = None,
 ) -> dict[str, Any]:
     """Thực thi chuyển toàn bộ metadata sang Oracle đích với đối chiếu và đồng bộ identity."""
-    require_role(ctx, Role.ADMIN)
+    require_admin(ctx, get_recon_engine())
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     src_engine = get_recon_engine()
 
@@ -415,6 +429,7 @@ def start_migration(
 
 
 @service
+@requires_menu("data_source")
 def clean_target_schema(
     ctx: Ctx,
     target_ds_id: int,
@@ -422,7 +437,7 @@ def clean_target_schema(
     mock_target_engine: Engine | None = None,
 ) -> dict[str, Any]:
     """Xóa toàn bộ bảng RECON_* ở schema đích khi cần thử lại sau khi chuyển lỗi."""
-    require_role(ctx, Role.ADMIN)
+    require_admin(ctx, get_recon_engine())
     src_engine = get_recon_engine()
 
     with src_engine.connect() as conn:
@@ -460,10 +475,11 @@ def clean_target_schema(
 
 
 @service
+@requires_menu("data_source")
 def get_migration_status(ctx: Ctx, migration_id: int) -> dict[str, Any]:
     """Lấy trạng thái và báo cáo của phiên di chuyển."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     with engine.connect() as conn:
         row = (
             conn.execute(select(recon_metadata_migration).where(recon_metadata_migration.c.ID == migration_id))
@@ -476,10 +492,11 @@ def get_migration_status(ctx: Ctx, migration_id: int) -> dict[str, Any]:
 
 
 @service
+@requires_menu("data_source")
 def list_migrations(ctx: Ctx) -> list[dict[str, Any]]:
     """Danh sách các phiên di chuyển metadata."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     with engine.connect() as conn:
         rows = (
             conn.execute(select(recon_metadata_migration).order_by(recon_metadata_migration.c.ID.desc()))
@@ -490,14 +507,15 @@ def list_migrations(ctx: Ctx) -> list[dict[str, Any]]:
 
 
 @service
+@requires_menu("data_source")
 def delete_old_sqlite(
     ctx: Ctx,
     confirm_filename: str,
     target_sqlite_path: str | None = None,
 ) -> dict[str, Any]:
     """Xóa file SQLite cũ trên máy chủ khi hệ thống đã chuyển sang chạy trên Oracle."""
-    require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
 
     # Ràng buộc bắt buộc: Chỉ cho phép xóa khi ứng dụng đang chạy trên Oracle
     if engine.dialect.name == "sqlite":

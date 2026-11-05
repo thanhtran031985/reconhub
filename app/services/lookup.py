@@ -8,17 +8,19 @@ Bảo vệ dữ liệu:
 - Mã có IS_SYSTEM='Y' không được xóa cứng, chỉ có thể vô hiệu hóa.
 - Mã đã được dùng trong RECON_ISSUE (REASON_CODE) cũng không được xóa cứng.
 """
+
 from __future__ import annotations
 
 from typing import Any
 
 from sqlalchemy import Connection, delete, func, select, update
 
-from app.core.context import Ctx, Role, require_role
+from app.core.context import Ctx, Role
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_issue, recon_lookup_code, recon_lookup_type
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
+from app.services.perm import require_admin, requires_menu
 
 ALL_ROLES = (Role.VIEWER, Role.OPERATOR, Role.TEMPLATE_OWNER, Role.ADMIN)
 ADMIN_ONLY = (Role.ADMIN,)
@@ -35,16 +37,25 @@ _DEFAULT_TYPES = [
 
 _DEFAULT_CODES: list[tuple[str, str, str, int, str, str, str, str]] = [
     # (lookup_type, code, meaning, order, color, icon, is_default, is_system)
-    ("ISSUE_STATUS", "OPEN",        "Chưa đối soát (Chờ xử lý)",   1, "gray",   "lucide:clock",         "Y", "Y"),
-    ("ISSUE_STATUS", "IN_PROGRESS", "Đang kiểm tra",                2, "blue",   "lucide:loader",        "N", "Y"),
-    ("ISSUE_STATUS", "ACCEPTED",    "Xác nhận đối soát (Chấp nhận lệch)", 3, "teal", "lucide:check-circle", "N", "Y"),
-    ("ISSUE_STATUS", "RESOLVED",    "Đã xử lý xong",               4, "teal",   "lucide:check-circle-2","N", "Y"),
-    ("ISSUE_REASON", "ROUNDING",       "Lệch làm tròn số thập phân",             1, "blue",   "lucide:calculator",  "N", "Y"),
-    ("ISSUE_REASON", "TIMING",         "Lệch thời điểm ghi nhận giao dịch",      2, "blue",   "lucide:clock",       "N", "Y"),
-    ("ISSUE_REASON", "SYSTEM_BUG",     "Lỗi hệ thống tác nghiệp/billing",        3, "red",    "lucide:bug",         "N", "Y"),
-    ("ISSUE_REASON", "DATA_INPUT",     "Sai sót nhập liệu thủ công",             4, "warn",   "lucide:pencil",      "N", "Y"),
-    ("ISSUE_REASON", "POLICY_EXCEPTION","Ngoại lệ chính sách / Phê duyệt đặc biệt", 5, "purple","lucide:shield",   "N", "Y"),
-    ("ISSUE_REASON", "OTHER",          "Nguyên nhân khác",                        6, "gray",   "lucide:more-horizontal","N","Y"),
+    ("ISSUE_STATUS", "OPEN", "Chưa đối soát (Chờ xử lý)", 1, "gray", "lucide:clock", "Y", "Y"),
+    ("ISSUE_STATUS", "IN_PROGRESS", "Đang kiểm tra", 2, "blue", "lucide:loader", "N", "Y"),
+    ("ISSUE_STATUS", "ACCEPTED", "Xác nhận đối soát (Chấp nhận lệch)", 3, "teal", "lucide:check-circle", "N", "Y"),
+    ("ISSUE_STATUS", "RESOLVED", "Đã xử lý xong", 4, "teal", "lucide:check-circle-2", "N", "Y"),
+    ("ISSUE_REASON", "ROUNDING", "Lệch làm tròn số thập phân", 1, "blue", "lucide:calculator", "N", "Y"),
+    ("ISSUE_REASON", "TIMING", "Lệch thời điểm ghi nhận giao dịch", 2, "blue", "lucide:clock", "N", "Y"),
+    ("ISSUE_REASON", "SYSTEM_BUG", "Lỗi hệ thống tác nghiệp/billing", 3, "red", "lucide:bug", "N", "Y"),
+    ("ISSUE_REASON", "DATA_INPUT", "Sai sót nhập liệu thủ công", 4, "warn", "lucide:pencil", "N", "Y"),
+    (
+        "ISSUE_REASON",
+        "POLICY_EXCEPTION",
+        "Ngoại lệ chính sách / Phê duyệt đặc biệt",
+        5,
+        "purple",
+        "lucide:shield",
+        "N",
+        "Y",
+    ),
+    ("ISSUE_REASON", "OTHER", "Nguyên nhân khác", 6, "gray", "lucide:more-horizontal", "N", "Y"),
 ]
 
 
@@ -122,19 +133,15 @@ def _row_to_code_dict(r: Any) -> dict[str, Any]:
 
 # ─── LIST ────────────────────────────────────────────────────────────────────
 
+
 @service
+@requires_menu("lookup")
 def list_lookup_types(ctx: Ctx) -> list[dict[str, Any]]:
     """Trả danh sách tất cả Lookup Type đang hoạt động kèm số lượng mã con."""
-    require_role(ctx, *ALL_ROLES)
+
     engine = get_recon_engine()
     with engine.connect() as conn:
-        rows = (
-            conn.execute(
-                select(recon_lookup_type).order_by(recon_lookup_type.c.LOOKUP_TYPE)
-            )
-            .mappings()
-            .all()
-        )
+        rows = conn.execute(select(recon_lookup_type).order_by(recon_lookup_type.c.LOOKUP_TYPE)).mappings().all()
         # Đếm số code active cho từng type
         counts_rows = conn.execute(
             select(
@@ -163,9 +170,10 @@ def list_lookup_types(ctx: Ctx) -> list[dict[str, Any]]:
 
 
 @service
+@requires_menu("lookup")
 def list_lookup_codes(ctx: Ctx, *, lookup_type: str) -> list[dict[str, Any]]:
     """Trả danh sách các Lookup Code (kể cả inactive) theo Lookup Type."""
-    require_role(ctx, *ALL_ROLES)
+
     # Không dùng cache nếu đang test (cache có thể chứa data từ DB khác)
     engine = get_recon_engine()
     with engine.connect() as conn:
@@ -187,7 +195,9 @@ def list_lookup_codes(ctx: Ctx, *, lookup_type: str) -> list[dict[str, Any]]:
 
 # ─── CREATE ──────────────────────────────────────────────────────────────────
 
+
 @service
+@requires_menu("lookup")
 def create_lookup_type(
     ctx: Ctx,
     *,
@@ -197,7 +207,7 @@ def create_lookup_type(
     is_system: str = "N",
 ) -> dict[str, Any]:
     """Tạo mới Lookup Type. Mã phải là chữ hoa, không dấu, không trùng."""
-    require_role(ctx, *ADMIN_ONLY)
+    require_admin(ctx, get_recon_engine())
     lookup_type = lookup_type.strip().upper()
     if not lookup_type:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "Mã loại danh mục không được để trống.")
@@ -222,6 +232,7 @@ def create_lookup_type(
 
 
 @service
+@requires_menu("lookup")
 def create_lookup_code(
     ctx: Ctx,
     *,
@@ -235,7 +246,7 @@ def create_lookup_code(
     is_default: str = "N",
 ) -> dict[str, Any]:
     """Tạo mới Lookup Code trong một Lookup Type. Mã không được trùng."""
-    require_role(ctx, *ADMIN_ONLY)
+    require_admin(ctx, get_recon_engine())
     lookup_code = lookup_code.strip().upper()
     if not lookup_code:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "Mã giá trị không được để trống.")
@@ -274,7 +285,9 @@ def create_lookup_code(
 
 # ─── UPDATE ──────────────────────────────────────────────────────────────────
 
+
 @service
+@requires_menu("lookup")
 def update_lookup_type(
     ctx: Ctx,
     *,
@@ -284,12 +297,14 @@ def update_lookup_type(
     is_active: bool | None = None,
 ) -> dict[str, Any]:
     """Sửa thông tin Lookup Type (tên, mô tả, trạng thái)."""
-    require_role(ctx, *ADMIN_ONLY)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     with engine.begin() as conn:
-        row = conn.execute(
-            select(recon_lookup_type).where(recon_lookup_type.c.LOOKUP_TYPE == lookup_type)
-        ).mappings().first()
+        row = (
+            conn.execute(select(recon_lookup_type).where(recon_lookup_type.c.LOOKUP_TYPE == lookup_type))
+            .mappings()
+            .first()
+        )
         if not row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Loại danh mục '{lookup_type}' không tồn tại.")
         vals: dict[str, Any] = {}
@@ -306,6 +321,7 @@ def update_lookup_type(
 
 
 @service
+@requires_menu("lookup")
 def update_lookup_code(
     ctx: Ctx,
     *,
@@ -319,15 +335,19 @@ def update_lookup_code(
     is_default: str | None = None,
 ) -> dict[str, Any]:
     """Sửa thông tin Lookup Code (nhãn, mô tả, thứ tự, màu, icon)."""
-    require_role(ctx, *ADMIN_ONLY)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     with engine.begin() as conn:
-        row = conn.execute(
-            select(recon_lookup_code).where(
-                recon_lookup_code.c.LOOKUP_TYPE == lookup_type,
-                recon_lookup_code.c.LOOKUP_CODE == lookup_code,
+        row = (
+            conn.execute(
+                select(recon_lookup_code).where(
+                    recon_lookup_code.c.LOOKUP_TYPE == lookup_type,
+                    recon_lookup_code.c.LOOKUP_CODE == lookup_code,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if not row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Mã '{lookup_code}' không tồn tại trong '{lookup_type}'.")
         vals: dict[str, Any] = {}
@@ -345,10 +365,12 @@ def update_lookup_code(
             vals["IS_DEFAULT"] = is_default
         if vals:
             conn.execute(
-                update(recon_lookup_code).where(
+                update(recon_lookup_code)
+                .where(
                     recon_lookup_code.c.LOOKUP_TYPE == lookup_type,
                     recon_lookup_code.c.LOOKUP_CODE == lookup_code,
-                ).values(**vals)
+                )
+                .values(**vals)
             )
     _clear_cache()
     return {"lookup_type": lookup_type, "lookup_code": lookup_code}
@@ -356,7 +378,9 @@ def update_lookup_code(
 
 # ─── TOGGLE / DELETE ─────────────────────────────────────────────────────────
 
+
 @service
+@requires_menu("lookup")
 def toggle_lookup_code_status(
     ctx: Ctx,
     *,
@@ -365,28 +389,35 @@ def toggle_lookup_code_status(
     is_active: bool,
 ) -> dict[str, Any]:
     """Bật / Tắt trạng thái hoạt động của một Lookup Code (soft-delete)."""
-    require_role(ctx, *ADMIN_ONLY)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     with engine.begin() as conn:
-        row = conn.execute(
-            select(recon_lookup_code).where(
-                recon_lookup_code.c.LOOKUP_TYPE == lookup_type,
-                recon_lookup_code.c.LOOKUP_CODE == lookup_code,
+        row = (
+            conn.execute(
+                select(recon_lookup_code).where(
+                    recon_lookup_code.c.LOOKUP_TYPE == lookup_type,
+                    recon_lookup_code.c.LOOKUP_CODE == lookup_code,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if not row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Mã '{lookup_code}' không tồn tại trong '{lookup_type}'.")
         conn.execute(
-            update(recon_lookup_code).where(
+            update(recon_lookup_code)
+            .where(
                 recon_lookup_code.c.LOOKUP_TYPE == lookup_type,
                 recon_lookup_code.c.LOOKUP_CODE == lookup_code,
-            ).values(IS_ACTIVE="Y" if is_active else "N")
+            )
+            .values(IS_ACTIVE="Y" if is_active else "N")
         )
     _clear_cache()
     return {"lookup_type": lookup_type, "lookup_code": lookup_code, "is_active": is_active}
 
 
 @service
+@requires_menu("lookup")
 def delete_lookup_code(
     ctx: Ctx,
     *,
@@ -398,15 +429,19 @@ def delete_lookup_code(
     Nếu là IS_SYSTEM='Y' hoặc đã được dùng trong RECON_ISSUE → trả lỗi,
     đề nghị vô hiệu hóa thay vì xóa.
     """
-    require_role(ctx, *ADMIN_ONLY)
     engine = get_recon_engine()
+    require_admin(ctx, engine)
     with engine.begin() as conn:
-        row = conn.execute(
-            select(recon_lookup_code).where(
-                recon_lookup_code.c.LOOKUP_TYPE == lookup_type,
-                recon_lookup_code.c.LOOKUP_CODE == lookup_code,
+        row = (
+            conn.execute(
+                select(recon_lookup_code).where(
+                    recon_lookup_code.c.LOOKUP_TYPE == lookup_type,
+                    recon_lookup_code.c.LOOKUP_CODE == lookup_code,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if not row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Mã '{lookup_code}' không tồn tại trong '{lookup_type}'.")
 

@@ -10,6 +10,7 @@ from dash import Input, Output, callback, dcc, html
 from app.core.context import Ctx
 from app.core.session import get_current_ctx
 from app.services.dashboard import get_dashboard_summary
+from app.services.perm import page_gate
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.empty_state import empty_state
@@ -21,6 +22,8 @@ try:
     dash.register_page(__name__, path="/", title="Dashboard – ReconHub")  # type: ignore[no-untyped-call]
 except Exception:
     pass
+
+MENU_CODE = "dashboard"
 
 
 def format_short_dt(iso_str: str | None) -> str:
@@ -368,6 +371,15 @@ def render_recent_runs_card(recent_items: list[dict[str, Any]]) -> dmc.Card:
 
 def layout() -> html.Div:
     """Giao diện chính màn hình Dashboard."""
+    ctx = get_current_ctx()
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
+        return html.Div(
+            [
+                dcc.Location(id="dashboard-forbidden-redirect", href=gate),
+                alert_box("Bạn không có quyền truy cập Dashboard.", tone="crit"),
+            ]
+        )
     return html.Div(
         [
             dcc.Store(id="dashboard-refresh-trigger", data=0),

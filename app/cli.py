@@ -23,6 +23,9 @@ from app.core.session import invalidate_user_session_cache
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
     recon_data_source,
+    recon_menu,
+    recon_role,
+    recon_role_menu,
     recon_template,
     recon_template_version,
     recon_user,
@@ -32,6 +35,27 @@ from app.schemas.run import PurgeFilter
 from app.services.data_source import sync_current_metadata_source
 from app.services.metadata_migration import precheck, start_migration
 from app.services.temp_data import preview, purge_filter, purge_runs, usage
+
+
+def _ensure_role(conn, code: str, name: str, is_system: str, now: datetime) -> int:
+    """Trả về ID vai trò, tự tạo nếu chưa có (DB mới chưa chạy migration 0003)."""
+    role_id = conn.execute(select(recon_role.c.ID).where(recon_role.c.CODE == code)).scalar_one_or_none()
+    if role_id is not None:
+        return int(role_id)
+    res = conn.execute(
+        recon_role.insert().values(
+            CODE=code,
+            NAME=name,
+            IS_SYSTEM=is_system,
+            IS_ACTIVE="Y",
+            CREATED_BY="CLI",
+            CREATED_AT=now,
+            UPDATED_BY="CLI",
+            UPDATED_AT=now,
+            ROW_VERSION=1,
+        )
+    )
+    return int(res.inserted_primary_key[0])
 
 
 def create_admin_cmd(args: argparse.Namespace) -> None:
@@ -45,7 +69,8 @@ def create_admin_cmd(args: argparse.Namespace) -> None:
             conn.execute(
                 select(recon_user.c.ID)
                 .join(recon_user_role, recon_user.c.ID == recon_user_role.c.USER_ID)
-                .where(recon_user_role.c.ROLE == "ADMIN")
+                .join(recon_role, recon_user_role.c.ROLE_ID == recon_role.c.ID)
+                .where(recon_role.c.CODE == "ADMIN")
             )
             .scalars()
             .all()
@@ -113,18 +138,23 @@ def create_admin_cmd(args: argparse.Namespace) -> None:
                 sys.exit(1)
             user_id = int(ins_res.inserted_primary_key[0])
 
-        # Đảm bảo có role ADMIN
-        has_admin_role = conn.execute(
-            select(recon_user_role.c.ROLE)
-            .where(recon_user_role.c.USER_ID == user_id)
-            .where(recon_user_role.c.ROLE == "ADMIN")
-        ).scalar_one_or_none()
+        # Đảm bảo có role ADMIN (tự tạo nếu DB mới chưa chạy migration 0003)
+        admin_role_id = _ensure_role(conn, "ADMIN", "Quản trị viên", "Y", now)
+        has_admin_role = None
+        if admin_role_id is not None:
+            has_admin_role = conn.execute(
+                select(recon_user_role.c.ROLE_ID)
+                .where(recon_user_role.c.USER_ID == user_id)
+                .where(recon_user_role.c.ROLE_ID == admin_role_id)
+            ).scalar_one_or_none()
 
-        if not has_admin_role:
+        if admin_role_id is not None and not has_admin_role:
             conn.execute(
                 recon_user_role.insert().values(
                     USER_ID=user_id,
-                    ROLE="ADMIN",
+                    ROLE_ID=admin_role_id,
+                    ASSIGNED_BY="CLI",
+                    ASSIGNED_AT=now,
                     CREATED_AT=now,
                 )
             )
@@ -373,10 +403,45 @@ def seed_cmd(args: argparse.Namespace) -> None:
             user_id = int(ins_res.inserted_primary_key[0])
 
             for role in roles:
+                role_id = _ensure_role(
+                    conn,
+                    role,
+                    {
+                        "ADMIN": "Quản trị viên",
+                        "TEMPLATE_OWNER": "Chủ sở hữu Template",
+                        "OPERATOR": "Chuyên viên đối soát",
+                        "VIEWER": "Người xem báo cáo",
+                    }.get(role, role),
+                    "Y" if role == "ADMIN" else "N",
+                    now,
+                )
+                # Gán menu seed cho vai trò (chỉ khi menu đã đồng bộ vào DB)
+                from app.ui.menus import ROLE_MENUS_SEED
+
+                for menu_code in ROLE_MENUS_SEED.get(role, []):
+                    menu_exists = conn.execute(
+                        select(recon_menu.c.CODE).where(recon_menu.c.CODE == menu_code)
+                    ).scalar_one_or_none()
+                    granted = conn.execute(
+                        select(recon_role_menu.c.MENU_CODE)
+                        .where(recon_role_menu.c.ROLE_ID == role_id)
+                        .where(recon_role_menu.c.MENU_CODE == menu_code)
+                    ).scalar_one_or_none()
+                    if menu_exists is not None and granted is None:
+                        conn.execute(
+                            recon_role_menu.insert().values(
+                                ROLE_ID=role_id,
+                                MENU_CODE=menu_code,
+                                GRANTED_BY="SEED",
+                                GRANTED_AT=now,
+                            )
+                        )
                 conn.execute(
                     recon_user_role.insert().values(
                         USER_ID=user_id,
-                        ROLE=role,
+                        ROLE_ID=int(role_id),
+                        ASSIGNED_BY="SEED",
+                        ASSIGNED_AT=now,
                         CREATED_AT=now,
                     )
                 )

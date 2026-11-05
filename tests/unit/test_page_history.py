@@ -18,7 +18,6 @@ from app.db.metadata import (
     recon_template,
     recon_template_version,
     recon_user,
-    recon_user_role,
 )
 from app.ui.pages.history import (
     format_date_range,
@@ -45,6 +44,11 @@ def history_env(tmp_path, monkeypatch):
     engine = create_engine(db_url)
     metadata.create_all(engine)
 
+    # Đồng bộ menu + vai trò seed (task 19) trước khi chèn user
+    from tests.conftest import seed_perm_basics
+
+    seed_perm_basics(engine)
+
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     with engine.begin() as conn:
         # Admin user
@@ -62,7 +66,7 @@ def history_env(tmp_path, monkeypatch):
             )
         )
         adm_id = res_adm.inserted_primary_key[0]
-        conn.execute(recon_user_role.insert().values(USER_ID=adm_id, ROLE=Role.ADMIN.value, CREATED_AT=now))
+        seed_perm_basics(engine, {adm_id: ["ADMIN"]}, conn=conn)
 
         # Operator user
         res_op = conn.execute(
@@ -79,7 +83,7 @@ def history_env(tmp_path, monkeypatch):
             )
         )
         op_id = res_op.inserted_primary_key[0]
-        conn.execute(recon_user_role.insert().values(USER_ID=op_id, ROLE=Role.OPERATOR.value, CREATED_AT=now))
+        seed_perm_basics(engine, {op_id: ["OPERATOR"]}, conn=conn)
 
         # Data Source
         res_ds = conn.execute(

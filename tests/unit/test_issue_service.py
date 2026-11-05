@@ -140,6 +140,10 @@ def issue_env(tmp_path: Path, monkeypatch):
             )
         )
 
+    from tests.conftest import seed_perm_basics
+
+    seed_perm_basics(engine, {10: ["OPERATOR"]})
+
     return engine, operator_ctx, viewer_ctx, admin_ctx, tmpl_id, run_id
 
 
@@ -336,19 +340,19 @@ def test_list_issues_filters_and_kpis(issue_env):
     )
 
     # 1. List tất cả
-    lst = list_issues(viewer_ctx, template_id=tmpl_id)
+    lst = list_issues(operator_ctx, template_id=tmpl_id)
     assert lst.ok is True
     assert lst.data["total"] >= 2
     assert lst.data["kpis"]["open"] >= 1
     assert lst.data["kpis"]["resolved"] >= 1
 
     # 2. Lọc theo trạng thái
-    lst_open = list_issues(viewer_ctx, status="OPEN")
+    lst_open = list_issues(operator_ctx, status="OPEN")
     assert lst_open.ok is True
     assert all(it["STATUS"] == "OPEN" for it in lst_open.data["items"])
 
     # 3. Tìm kiếm theo từ khóa
-    lst_search = list_issues(viewer_ctx, search="CUSTOMER_X")
+    lst_search = list_issues(operator_ctx, search="CUSTOMER_X")
     assert lst_search.ok is True
     assert len(lst_search.data["items"]) == 1
     assert lst_search.data["items"][0]["KEY_TEXT"] == "INV_CUSTOMER_X"

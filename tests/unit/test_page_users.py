@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 
 from app.core.auth import hash_password
 from app.core.context import Ctx, Role
-from app.db.metadata import metadata, recon_login_log, recon_user, recon_user_role
+from app.db.metadata import metadata, recon_login_log, recon_user
 from app.schemas.errors import ErrorCode
 from app.services.user import (
     set_active,
@@ -28,6 +28,11 @@ def users_env(monkeypatch, tmp_path):
     engine = create_engine(db_url)
     metadata.create_all(engine)
 
+    # Đồng bộ menu + vai trò seed (task 19) trước khi chèn user
+    from tests.conftest import seed_perm_basics
+
+    seed_perm_basics(engine)
+
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     with engine.begin() as conn:
         # 1 Admin
@@ -46,13 +51,7 @@ def users_env(monkeypatch, tmp_path):
                 UPDATED_AT=now,
             )
         )
-        conn.execute(
-            recon_user_role.insert().values(
-                USER_ID=1,
-                ROLE="ADMIN",
-                CREATED_AT=now,
-            )
-        )
+        seed_perm_basics(engine, {1: ["ADMIN"]}, conn=conn)
         # 1 Operator locked
         locked_time = now + timedelta(minutes=15)
         conn.execute(
@@ -72,13 +71,7 @@ def users_env(monkeypatch, tmp_path):
                 UPDATED_AT=now,
             )
         )
-        conn.execute(
-            recon_user_role.insert().values(
-                USER_ID=2,
-                ROLE="OPERATOR",
-                CREATED_AT=now,
-            )
-        )
+        seed_perm_basics(engine, {2: ["OPERATOR"]}, conn=conn)
         # Login log for operator
         conn.execute(
             recon_login_log.insert().values(
@@ -106,13 +99,7 @@ def users_env(monkeypatch, tmp_path):
                 UPDATED_AT=now,
             )
         )
-        conn.execute(
-            recon_user_role.insert().values(
-                USER_ID=3,
-                ROLE="VIEWER",
-                CREATED_AT=now,
-            )
-        )
+        seed_perm_basics(engine, {3: ["VIEWER"]}, conn=conn)
 
     return db_url
 

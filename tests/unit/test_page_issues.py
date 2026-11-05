@@ -17,7 +17,6 @@ from app.db.metadata import (
     recon_run,
     recon_template,
     recon_user,
-    recon_user_role,
 )
 from app.ui.pages.issues import (
     handle_bulk_apply,
@@ -52,6 +51,11 @@ def issues_ui_env(tmp_path: Path, monkeypatch):
 
     engine = create_engine(db_url)
     metadata.create_all(engine)
+
+    # Đồng bộ menu + vai trò seed (task 19) trước khi chèn user
+    from tests.conftest import seed_perm_basics
+
+    seed_perm_basics(engine)
 
     operator_ctx = Ctx(
         user_id=10,
@@ -90,7 +94,7 @@ def issues_ui_env(tmp_path: Path, monkeypatch):
                 UPDATED_AT=now,
             )
         ).inserted_primary_key[0]
-        conn.execute(recon_user_role.insert().values(USER_ID=u1, ROLE="OPERATOR", CREATED_AT=now))
+        seed_perm_basics(engine, {u1: ["OPERATOR"]}, conn=conn)
 
         # Data source
         ds_id = conn.execute(

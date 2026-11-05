@@ -152,8 +152,9 @@ def test_navbar_active_item_exact_templates_new() -> None:
     nav_links = find_nav_links(navbar)
     active_links = [getattr(link, "href", None) for link in nav_links if getattr(link, "active", False)]
 
-    # CHỈ CÓ duy nhất 1 mục active là /templates/new
-    assert active_links == ["/templates/new"]
+    # /templates/new thuộc menu template nên chỉ /templates active (task 19:
+    # thanh bên theo menu, không còn mục riêng "Đăng ký template")
+    assert active_links == ["/templates"]
 
 
 def test_navbar_mini_mode_and_tooltips() -> None:

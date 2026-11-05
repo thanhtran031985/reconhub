@@ -17,7 +17,6 @@ from app.db.metadata import (
     recon_template,
     recon_template_version,
     recon_user,
-    recon_user_role,
 )
 from app.schemas.run import CreateRunParams, RunListFilter
 from app.services.file_service import upload_file
@@ -42,6 +41,11 @@ def workflow_env(tmp_path, monkeypatch):
     engine = create_engine(db_url)
     metadata.create_all(engine)
 
+    # Đồng bộ menu + vai trò seed (task 19) trước khi chèn user
+    from tests.conftest import seed_perm_basics
+
+    seed_perm_basics(engine)
+
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     with engine.begin() as conn:
         # 1. Admin
@@ -59,7 +63,7 @@ def workflow_env(tmp_path, monkeypatch):
             )
         )
         adm_id = res_adm.inserted_primary_key[0]
-        conn.execute(recon_user_role.insert().values(USER_ID=adm_id, ROLE=Role.ADMIN.value, CREATED_AT=now))
+        seed_perm_basics(engine, {adm_id: ["ADMIN"]}, conn=conn)
 
         # 2. Operator
         res_op = conn.execute(
@@ -76,7 +80,7 @@ def workflow_env(tmp_path, monkeypatch):
             )
         )
         op_id = res_op.inserted_primary_key[0]
-        conn.execute(recon_user_role.insert().values(USER_ID=op_id, ROLE=Role.OPERATOR.value, CREATED_AT=now))
+        seed_perm_basics(engine, {op_id: ["OPERATOR"]}, conn=conn)
 
         # 3. Viewer
         res_vw = conn.execute(
@@ -93,7 +97,7 @@ def workflow_env(tmp_path, monkeypatch):
             )
         )
         vw_id = res_vw.inserted_primary_key[0]
-        conn.execute(recon_user_role.insert().values(USER_ID=vw_id, ROLE=Role.VIEWER.value, CREATED_AT=now))
+        seed_perm_basics(engine, {vw_id: ["VIEWER"]}, conn=conn)
 
         # Data source
         res_ds = conn.execute(

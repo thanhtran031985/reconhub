@@ -9,8 +9,8 @@ import dash_mantine_components as dmc
 from dash import ALL, Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
 
-from app.core.context import Role
 from app.core.session import get_current_ctx
+from app.services.perm import is_admin, page_gate
 from app.services.template import (
     archive_template,
     clone_template,
@@ -37,6 +37,8 @@ try:
     )
 except Exception:
     pass
+
+MENU_CODE = "template"
 
 
 def render_templates_content(
@@ -375,6 +377,15 @@ def render_templates_content(
 
 
 def layout() -> Any:
+    ctx = get_current_ctx()
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
+        return dmc.Container(
+            [
+                dcc.Location(id="templates-forbidden-redirect", href=gate),
+                alert_box("Bạn không có quyền truy cập trang Templates.", tone="crit"),
+            ]
+        )
     return dmc.Container(
         [
             dcc.Store(id="tmpl-store-list"),
@@ -558,10 +569,10 @@ def load_templates_data(*args: Any) -> Any:
 
     res = list_templates(ctx)
     if not res.ok:
-        return {"items": [], "error": res.message, "is_admin": ctx.has_role(Role.ADMIN)}
+        return {"items": [], "error": res.message, "is_admin": is_admin(ctx)}
 
     items = res.data or []
-    return {"items": items, "error": None, "is_admin": ctx.has_role(Role.ADMIN)}
+    return {"items": items, "error": None, "is_admin": is_admin(ctx)}
 
 
 @callback(
@@ -777,7 +788,7 @@ def handle_archive_template(n_clicks: Any, target_id: Any) -> tuple[bool, Any]:
     ctx = get_current_ctx()
     res = list_templates(ctx) if ctx else None
     items = res.data if res and res.ok else []
-    is_adm = ctx.has_role(Role.ADMIN) if ctx else False
+    is_adm = is_admin(ctx) if ctx else False
     return False, {"items": items, "error": None, "is_admin": is_adm}
 
 
@@ -819,7 +830,7 @@ def handle_delete_template(n_clicks: Any, target_id: Any) -> tuple[bool, Any]:
     if target_id is not None:
         try:
             ctx = get_current_ctx()
-            if ctx and ctx.has_role(Role.ADMIN):
+            if ctx and is_admin(ctx):
                 delete_template(ctx, target_id)
         except Exception:
             pass
@@ -827,7 +838,7 @@ def handle_delete_template(n_clicks: Any, target_id: Any) -> tuple[bool, Any]:
     ctx = get_current_ctx()
     res = list_templates(ctx) if ctx else None
     items = res.data if res and res.ok else []
-    is_adm = ctx.has_role(Role.ADMIN) if ctx else False
+    is_adm = is_admin(ctx) if ctx else False
     return False, {"items": items, "error": None, "is_admin": is_adm}
 
 

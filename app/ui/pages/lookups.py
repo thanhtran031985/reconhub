@@ -18,6 +18,7 @@ Bố cục Master–Detail 2 cột theo chuẩn designs/components/Screen12-Look
 
 Phân quyền: Chỉ ADMIN truy cập; VIEWER/OPERATOR thấy thông báo không có quyền.
 """
+
 from __future__ import annotations
 
 import json
@@ -28,7 +29,6 @@ import dash_mantine_components as dmc
 from dash import Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
 
-from app.core.context import Role
 from app.core.session import get_current_ctx
 from app.services.lookup import (
     create_lookup_code,
@@ -40,6 +40,7 @@ from app.services.lookup import (
     update_lookup_code,
     update_lookup_type,
 )
+from app.services.perm import page_gate
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.empty_state import empty_state
@@ -47,16 +48,26 @@ from app.ui.components.modal_confirm import modal_confirm
 
 # Màu sắc cho badge DMC (gồm "warn" là màu theme của app, dùng trong seed
 # cho mã DATA_INPUT; nếu thiếu, sửa mã đó sẽ thấy ô chọn màu trống).
-BADGE_COLORS = [
-    "blue", "teal", "red", "yellow", "gray", "purple", "green", "orange", "cyan", "violet", "warn"
-]
+BADGE_COLORS = ["blue", "teal", "red", "yellow", "gray", "purple", "green", "orange", "cyan", "violet", "warn"]
 
 # Icon Lucide thường dùng
 COMMON_ICONS = [
-    "lucide:check-circle", "lucide:clock", "lucide:loader", "lucide:check-circle-2",
-    "lucide:calculator", "lucide:bug", "lucide:pencil", "lucide:shield",
-    "lucide:more-horizontal", "lucide:flag", "lucide:alert-triangle",
-    "lucide:database", "lucide:file", "lucide:users", "lucide:list", "lucide:circle",
+    "lucide:check-circle",
+    "lucide:clock",
+    "lucide:loader",
+    "lucide:check-circle-2",
+    "lucide:calculator",
+    "lucide:bug",
+    "lucide:pencil",
+    "lucide:shield",
+    "lucide:more-horizontal",
+    "lucide:flag",
+    "lucide:alert-triangle",
+    "lucide:database",
+    "lucide:file",
+    "lucide:users",
+    "lucide:list",
+    "lucide:circle",
 ]
 
 # Các nhóm cố định (closed policy): không cho thêm/xóa mã hệ thống
@@ -100,6 +111,7 @@ def _error_state(title: str, message: str, retry_id: str) -> Any:
 
 # ─── Hàm render thành phần ───────────────────────────────────────────────────
 
+
 def render_type_list(
     ctx: Any,
     selected_type: str | None = None,
@@ -119,9 +131,7 @@ def render_type_list(
     q = (search_query or "").strip().lower()
     if q:
         filtered_types = [
-            t for t in types
-            if q in (t.get("lookup_type") or "").lower()
-            or q in (t.get("type_name") or "").lower()
+            t for t in types if q in (t.get("lookup_type") or "").lower() or q in (t.get("type_name") or "").lower()
         ]
     else:
         filtered_types = types
@@ -130,7 +140,9 @@ def render_type_list(
         return (
             empty_state(
                 title="Không có loại khớp tìm kiếm" if q else "Chưa có loại danh mục",
-                description="Thử đổi từ khóa tìm kiếm hoặc bấm '+ Thêm loại'." if q else "Bấm '+ Thêm loại' để tạo nhóm đầu tiên.",
+                description="Thử đổi từ khóa tìm kiếm hoặc bấm '+ Thêm loại'."
+                if q
+                else "Bấm '+ Thêm loại' để tạo nhóm đầu tiên.",
             ),
             total_count,
         )
@@ -157,7 +169,9 @@ def render_type_list(
                     color="gray",
                     fullWidth=True,
                     justify="flex-start",
-                    **{"aria-label": f"Chọn loại {t.get('type_name') or lt} ({lt}), {code_total} giá trị, {code_count} đang dùng"},
+                    **{
+                        "aria-label": f"Chọn loại {t.get('type_name') or lt} ({lt}), {code_total} giá trị, {code_count} đang dùng"
+                    },
                     style={
                         "height": "auto",
                         "textAlign": "left",
@@ -190,7 +204,9 @@ def render_type_list(
                                         tt="none",
                                     ),
                                     dmc.Badge("Hệ thống", size="sm", color="blue", variant="light") if is_sys else None,
-                                    dmc.Badge("Ngừng dùng", size="sm", color="gray", variant="light") if not is_type_active else None,
+                                    dmc.Badge("Ngừng dùng", size="sm", color="gray", variant="light")
+                                    if not is_type_active
+                                    else None,
                                 ],
                             ),
                         ],
@@ -335,7 +351,9 @@ def render_code_table(
                     color="primary",
                     size="xl",
                     **{"aria-label": f"Sửa mã {code}"},
-                ) if can_edit else None,
+                )
+                if can_edit
+                else None,
                 dmc.ActionIcon(
                     DashIconify(icon="lucide:trash-2", width=18),
                     id={"type": "lookups-delete-code-btn", "index": f"{lookup_type}|{code}"},
@@ -345,7 +363,9 @@ def render_code_table(
                     size="xl",
                     disabled=is_sys,
                     **{"aria-label": f"Mã hệ thống, không thể xóa mã {code}" if is_sys else f"Xóa mã {code}"},
-                ) if can_edit else None,
+                )
+                if can_edit
+                else None,
             ],
         )
 
@@ -374,7 +394,11 @@ def render_code_table(
                                     checked=is_active,
                                     size="md",
                                     disabled=is_sys or not can_edit,
-                                    **{"aria-label": f"Mã hệ thống, không thể tắt mã {code}" if is_sys else f"Bật hoặc tắt mã {code}"},
+                                    **{
+                                        "aria-label": f"Mã hệ thống, không thể tắt mã {code}"
+                                        if is_sys
+                                        else f"Bật hoặc tắt mã {code}"
+                                    },
                                 ),
                                 dmc.Text("Bật" if is_active else "Tắt", size="xs", c="dimmed"),
                             ],
@@ -586,7 +610,10 @@ def _modal_code_form(
                     ],
                 ),
                 # Hidden để truyền lookup_type xuống callback
-                dcc.Store(id=f"{modal_id}-context-store", data={"lookup_type": lookup_type_val, "lookup_code": lookup_code_val}),
+                dcc.Store(
+                    id=f"{modal_id}-context-store",
+                    data={"lookup_type": lookup_type_val, "lookup_code": lookup_code_val},
+                ),
             ],
             gap="sm",
         ),
@@ -604,6 +631,8 @@ try:
 except Exception:
     pass
 
+MENU_CODE = "lookup"
+
 
 def layout(**kwargs: Any) -> Any:
     """Layout chính màn hình Quản lý Lookup Code & Type theo Screen12."""
@@ -616,10 +645,11 @@ def layout(**kwargs: Any) -> Any:
             ]
         )
 
-    if Role.ADMIN not in ctx.roles:
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
         return html.Div(
             [
-                dcc.Location(id="lookups-forbidden-redirect", href="/forbidden"),
+                dcc.Location(id="lookups-forbidden-redirect", href=gate),
                 alert_box("Chỉ quản trị viên mới có quyền quản lý danh mục Lookups.", tone="crit"),
             ]
         )
@@ -631,7 +661,6 @@ def layout(**kwargs: Any) -> Any:
         [
             dcc.Store(id="lookups-selected-type-store", data=None),
             dcc.Store(id="lookups-refresh-store", data=0),
-
             # Tiêu đề & mô tả màn hình
             dmc.Group(
                 justify="space-between",
@@ -651,11 +680,9 @@ def layout(**kwargs: Any) -> Any:
                     ),
                 ],
             ),
-
             # Vùng thông báo chung của trang (lỗi xóa, aria-live cho
             # trình đọc màn hình). Mặc định trống.
             html.Div(id="lookups-page-alert", **{"aria-live": "polite"}),
-
             # Layout 2 cột
             dmc.Grid(
                 gutter="md",
@@ -719,7 +746,6 @@ def layout(**kwargs: Any) -> Any:
                             style={"minHeight": "520px"},
                         ),
                     ),
-
                     # Cột phải (Detail ~65%): Bảng Lookup Code
                     dmc.GridCol(
                         span={"base": 12, "md": 8},
@@ -774,7 +800,6 @@ def layout(**kwargs: Any) -> Any:
                                 ),
                                 # Alert policy
                                 html.Div(id="lookups-policy-alert-container", children=render_policy_alert(None)),
-
                                 # Toolbar: Tìm kiếm Code & Lọc trạng thái
                                 dmc.Group(
                                     align="flex-end",
@@ -816,19 +841,14 @@ def layout(**kwargs: Any) -> Any:
                     ),
                 ],
             ),
-
             # Modal Thêm Lookup Type
             _modal_type_form("lookups-add-type-modal", "Thêm loại danh mục mới"),
-
             # Modal Sửa Lookup Type
             _modal_type_form("lookups-edit-type-modal", "Sửa loại danh mục", readonly_code=True),
-
             # Modal Thêm Lookup Code
             _modal_code_form("lookups-add-code-modal", "Thêm giá trị mới"),
-
             # Modal Sửa Lookup Code
             _modal_code_form("lookups-edit-code-modal", "Sửa giá trị", readonly_code=True),
-
             # Modal Xác nhận xóa
             modal_confirm(
                 id="lookups-delete-code-modal",
@@ -846,6 +866,7 @@ def layout(**kwargs: Any) -> Any:
 
 
 # ─── Callbacks ───────────────────────────────────────────────────────────────
+
 
 def handle_select_type(selected_type: str | None) -> tuple[Any, str | None]:
     """Hàm thuần xử lý chọn Lookup Type ở cột trái — trả (code_table_ui, selected_store)."""
@@ -960,6 +981,7 @@ def cb_master_detail_sync(
 
 # --- Modal Thêm Lookup Type ---
 
+
 @callback(
     Output("lookups-add-type-modal", "opened"),
     Output("lookups-add-type-modal-alert", "children"),
@@ -999,6 +1021,7 @@ def cb_add_type_modal(
 
 
 # --- Modal Sửa Lookup Type ---
+
 
 @callback(
     Output("lookups-edit-type-modal", "opened"),
@@ -1050,8 +1073,12 @@ def cb_edit_type_modal(
     if "save" in triggered:
         ctx = get_current_ctx()
         if not ctx or not selected_type or not name_val:
-            return True, selected_type or "", name_val or "", desc_val or "", alert_box(
-                "Chưa lưu được", "Vui lòng nhập tên hiển thị.", tone="crit"
+            return (
+                True,
+                selected_type or "",
+                name_val or "",
+                desc_val or "",
+                alert_box("Chưa lưu được", "Vui lòng nhập tên hiển thị.", tone="crit"),
             )
         res = update_lookup_type(ctx, lookup_type=selected_type, type_name=name_val, description=desc_val)
         err = _service_message(res)
@@ -1063,6 +1090,7 @@ def cb_edit_type_modal(
 
 
 # --- Refresh Store Trigger ---
+
 
 @callback(
     Output("lookups-refresh-store", "data"),
@@ -1142,6 +1170,7 @@ def cb_edit_code_preview(meaning_val: str | None, color_val: str | None, icon_va
 
 # --- Modal Thêm Lookup Code ---
 
+
 @callback(
     Output("lookups-add-code-modal", "opened"),
     Output("lookups-add-code-modal-context-store", "data"),
@@ -1180,9 +1209,7 @@ def cb_add_code_modal(
     if "save" in triggered:
         ctx = get_current_ctx()
         if not ctx or not lookup_type or not code_val or not meaning_val:
-            return True, context, alert_box(
-                "Chưa lưu được", "Vui lòng nhập mã giá trị và nhãn hiển thị.", tone="crit"
-            )
+            return True, context, alert_box("Chưa lưu được", "Vui lòng nhập mã giá trị và nhãn hiển thị.", tone="crit")
         res = create_lookup_code(
             ctx,
             lookup_type=lookup_type,
@@ -1201,6 +1228,7 @@ def cb_add_code_modal(
 
 
 # --- Modal Sửa Lookup Code ---
+
 
 @callback(
     Output("lookups-edit-code-modal", "opened"),
@@ -1283,8 +1311,16 @@ def cb_edit_code_modal(
         lt = ctx_data.get("lookup_type")
         code = ctx_data.get("lookup_code")
         if not user_ctx or not lt or not code:
-            return True, code or "", meaning_val or "", int(order_val or 0), color_val or "gray", icon_val or "lucide:circle", desc_val or "", ctx_data, alert_box(
-                "Chưa lưu được", "Không xác định được mã cần sửa.", tone="crit"
+            return (
+                True,
+                code or "",
+                meaning_val or "",
+                int(order_val or 0),
+                color_val or "gray",
+                icon_val or "lucide:circle",
+                desc_val or "",
+                ctx_data,
+                alert_box("Chưa lưu được", "Không xác định được mã cần sửa.", tone="crit"),
             )
         res = update_lookup_code(
             user_ctx,
@@ -1298,8 +1334,16 @@ def cb_edit_code_modal(
         )
         err = _service_message(res)
         if err:
-            return True, code, meaning_val or "", int(order_val or 0), color_val or "gray", icon_val or "lucide:circle", desc_val or "", ctx_data, alert_box(
-                "Chưa lưu được", err, tone="crit"
+            return (
+                True,
+                code,
+                meaning_val or "",
+                int(order_val or 0),
+                color_val or "gray",
+                icon_val or "lucide:circle",
+                desc_val or "",
+                ctx_data,
+                alert_box("Chưa lưu được", err, tone="crit"),
             )
         return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None, None
 
@@ -1307,6 +1351,7 @@ def cb_edit_code_modal(
 
 
 # --- Switch Toggle Active ---
+
 
 @callback(
     Output({"type": "lookups-toggle-code-switch", "index": dash.MATCH}, "checked"),
@@ -1333,6 +1378,7 @@ def cb_toggle_code(checked: bool) -> bool:
 
 
 # --- Nút Xóa Code ---
+
 
 @callback(
     Output("lookups-delete-code-modal", "opened"),

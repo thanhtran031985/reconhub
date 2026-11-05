@@ -14,6 +14,7 @@ ReconHub là ứng dụng nội bộ phục vụ công tác đối soát dữ li
 7. [Xác nhận "Đã kiểm tra xong" & Xuất báo cáo Excel](#7-xác-nhận-đã-kiểm-tra-xong--xuất-báo-cáo-excel)
 8. [Lịch sử đối soát & Xóa dữ liệu tạm hàng loạt (History)](#8-lịch-sử-đối-soát--xóa-dữ-liệu-tạm-hàng-loạt-history)
 9. [Bảng điều khiển Tổng quan (Dashboard)](#9-bảng-điều-khiển-tổng-quan-dashboard)
+10. [Vai trò và phân quyền (`/roles`, chỉ Admin)](#10-vai-trò-và-phân-quyền-roles-chỉ-admin)
 
 ---
 
@@ -22,12 +23,16 @@ ReconHub là ứng dụng nội bộ phục vụ công tác đối soát dữ li
 ReconHub hỗ trợ giải quyết bài toán so lệch dữ liệu quy mô lớn với tốc độ cao, xử lý dung lượng file từ hàng chục ngàn đến hàng triệu dòng.
 
 ### Phân quyền người dùng
+Quyền được tính theo menu: vai trò có menu nào thì người dùng thấy menu đó ở thanh bên và thao tác được trong màn đó. Admin tự tạo thêm vai trò và bật/tắt menu cho từng vai trò ở màn **Vai trò và phân quyền** (`/roles`, xem mục 10).
+
 | Vai trò | Ký hiệu | Quyền hạn chính |
 |---|---|---|
-| **Admin** | `ADMIN` | Toàn quyền hệ thống: quản lý tài khoản người dùng, cấu hình nguồn Oracle, giám sát dung lượng và xóa dữ liệu tạm hàng loạt. |
+| **Admin** | `ADMIN` | Toàn quyền hệ thống: quản lý tài khoản người dùng, vai trò và phân quyền, cấu hình nguồn Oracle, giám sát dung lượng và xóa dữ liệu tạm hàng loạt. |
 | **Template Owner** | `TEMPLATE_OWNER` | Tạo mới, cấu hình, kiểm thử (dry-run) và kích hoạt các mẫu đối soát (Templates). |
 | **Operator** | `OPERATOR` | Tải file Excel lên, chọn khoảng thời gian tìm kiếm, chạy đối soát, tra cứu dòng lệch, xuất file kết quả và xác nhận hoàn thành kiểm tra. |
 | **Viewer** | `VIEWER` | Xem danh sách templates, theo dõi dashboard, xem lịch sử và kết quả đối soát ở chế độ chỉ đọc. |
+
+> **Phạm vi dữ liệu:** Admin xem tất cả run. Vai trò thường chỉ thấy run do mình chạy ở Dashboard, Lịch sử và Kết quả; mở link run của người khác sẽ báo không tìm thấy. File Excel gốc chỉ tải được khi do mình tải lên, thuộc run của mình, hoặc là file mẫu của template mình có quyền xem.
 
 ---
 
@@ -190,6 +195,7 @@ Truy cập menu **Lịch sử** (`/history`) để quản lý toàn bộ các l�
 - **Chạy lại**: Tự động chuyển sang màn hình Chạy đối soát với các tham số cũ được điền sẵn.
 
 ### Xóa dữ liệu tạm hàng loạt (Chỉ dành cho Admin)
+> Xóa 1 run của mình thì không cần Admin; xóa nhiều run cùng lúc mới cần Admin.
 Theo quy tắc nghiệp vụ cốt lõi của ReconHub, **dữ liệu tạm chỉ bị xóa khi người dùng chủ động yêu cầu**:
 1. Tài khoản Admin tích chọn các ô checkbox ở đầu các dòng run cần xóa (hoặc tích ô **Chọn tất cả** trên tiêu đề cột).
 2. Thanh thông báo xuất hiện: `Đã chọn N run.` kèm nút màu đỏ **Xóa dữ liệu tạm**.
@@ -205,12 +211,29 @@ Theo quy tắc nghiệp vụ cốt lõi của ReconHub, **dữ liệu tạm ch�
 
 Truy cập biểu tượng trang chủ hoặc đường dẫn `/` để theo dõi tình hình vận hành:
 
-- **Thẻ Run trong kỳ**: Tổng số run đã chạy trong tháng hiện tại, kèm phân loại hoàn thành / lỗi / đang chạy.
+- **Thẻ Run trong kỳ**: Tổng số run đã chạy trong tháng hiện tại, kèm phân loại hoàn thành / lỗi / đang chạy. Vai trò thường chỉ tính run do mình chạy.
 - **Tỉ lệ khớp trung bình**: Tỷ lệ phần trăm khớp dữ liệu chung của toàn đơn vị.
 - **Chưa kiểm tra**: Số lượng run đối soát xong nhưng chưa được chuyên viên xác nhận hoàn thành, kèm dung lượng dữ liệu tạm tương ứng.
 - **Việc của tôi**: Tổng hợp số run của chính bạn đang chờ xử lý hoặc bị lỗi cần kiểm tra lại.
 - **Bảng Run gần đây**: Liệt kê 5-10 lượt đối soát mới nhất kèm đường dẫn nhanh đến màn hình kết quả và nút **Xem lịch sử**.
 - **Cảnh báo dung lượng (Admin)**: Hiển thị thanh banner cảnh báo màu vàng khi tổng dung lượng dữ liệu tạm vượt quá ngưỡng cho phép hoặc có run giữ tạm quá số ngày quy định.
+
+---
+
+## 10. Vai trò và phân quyền (`/roles`, chỉ Admin)
+
+### Tab Vai trò
+- Danh sách vai trò bên trái, chi tiết bên phải: tên, mã, mô tả, trạng thái đang dùng.
+- **Thêm vai trò**: nhập mã (chữ hoa, số, gạch dưới) và tên; có thể sao chép menu từ một vai trò có sẵn.
+- **Menu được truy cập**: tick menu theo nhóm (Đối soát / Cấu hình / Quản trị). Menu gắn nhãn **Mới** là menu vừa thêm vào hệ thống; menu **Đang ẩn** vẫn gán được và có hiệu lực khi Admin bỏ ẩn ở màn Danh sách menu.
+- **Lưu vai trò**: hộp thoại liệt kê menu thêm/bỏ và số người dùng bị ảnh hưởng. Quyền mới có hiệu lực trong tối đa 5 giây, người đang mở app không cần đăng xuất.
+- Vai trò hệ thống **Admin** luôn có toàn bộ menu, không sửa, không tắt, không xóa được. Không xóa vai trò đang gán cho người dùng (gỡ vai trò khỏi họ ở màn Người dùng trước).
+
+### Tab Quyền thực tế của người dùng
+- Chọn một người dùng để xem menu thực tế của họ (hợp các vai trò đang mang), vai trò nào cấp menu nào, và thanh bên họ sẽ thấy.
+
+### Tab Mô phỏng phạm vi dữ liệu
+- Chọn một người dùng để xem họ thấy những run nào ở màn Lịch sử: Admin thấy tất cả, vai trò thường chỉ thấy run do mình chạy.
 
 ---
 *ReconHub — Hệ thống Đối soát Dữ liệu Doanh nghiệp.*

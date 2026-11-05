@@ -10,7 +10,7 @@ from app.core.auth import hash_password
 from app.core.config import get_settings
 from app.core.context import Ctx, Role
 from app.core.session import invalidate_user_session_cache
-from app.db.metadata import metadata, recon_user, recon_user_role
+from app.db.metadata import metadata, recon_user
 from app.services.file_service import upload_file
 from app.ui.app import create_app
 
@@ -29,6 +29,11 @@ def test_setup(tmp_path, monkeypatch):
     engine = create_engine(db_url)
     metadata.create_all(engine)
 
+    # Đồng bộ menu + vai trò seed (task 19) trước khi chèn user
+    from tests.conftest import seed_perm_basics
+
+    seed_perm_basics(engine)
+
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     with engine.begin() as conn:
         res = conn.execute(
@@ -45,13 +50,7 @@ def test_setup(tmp_path, monkeypatch):
             )
         )
         user_id = res.inserted_primary_key[0]
-        conn.execute(
-            recon_user_role.insert().values(
-                USER_ID=user_id,
-                ROLE="OPERATOR",
-                CREATED_AT=now,
-            )
-        )
+        seed_perm_basics(engine, {user_id: ["OPERATOR"]}, conn=conn)
 
     app = create_app()
     app.server.config["TESTING"] = True

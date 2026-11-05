@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 
 from app.core.auth import hash_password
 from app.core.context import Ctx, Role
-from app.db.metadata import metadata, recon_user, recon_user_role
+from app.db.metadata import metadata, recon_user
 from app.schemas.template_config import TemplateConfig
 from app.ui.pages.template_wizard import (
     config_to_form_state,
@@ -38,6 +38,11 @@ def wizard_env(monkeypatch, tmp_path):
     engine = create_engine(db_url)
     metadata.create_all(engine)
 
+    # Đồng bộ menu + vai trò seed (task 19) trước khi chèn user
+    from tests.conftest import seed_perm_basics
+
+    seed_perm_basics(engine)
+
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -57,13 +62,7 @@ def wizard_env(monkeypatch, tmp_path):
                 UPDATED_AT=now,
             )
         )
-        conn.execute(
-            recon_user_role.insert().values(
-                USER_ID=1,
-                ROLE="TEMPLATE_OWNER",
-                CREATED_AT=now,
-            )
-        )
+        seed_perm_basics(engine, {1: ["TEMPLATE_OWNER"]}, conn=conn)
 
     return db_url
 

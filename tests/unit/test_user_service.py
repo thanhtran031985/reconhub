@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, select
 
 from app.core.auth import hash_password
 from app.core.context import Ctx, Role
-from app.db.metadata import metadata, recon_audit_log, recon_user, recon_user_role
+from app.db.metadata import metadata, recon_audit_log, recon_user
 from app.schemas.errors import ErrorCode
 from app.schemas.user import UserCreateDTO, UserUpdateDTO
 from app.services.user import (
@@ -49,13 +49,9 @@ def user_service_env(monkeypatch, tmp_path):
             )
         )
         admin_id = res.inserted_primary_key[0]
-        conn.execute(
-            recon_user_role.insert().values(
-                USER_ID=admin_id,
-                ROLE="ADMIN",
-                CREATED_AT=now,
-            )
-        )
+    from tests.conftest import seed_perm_basics
+
+    seed_perm_basics(engine, {int(admin_id): ["ADMIN"]})
 
     admin_ctx = Ctx(user_id=admin_id, username="rootadmin", full_name="Root Admin", roles=[Role.ADMIN])
     viewer_ctx = Ctx(user_id=99, username="viewer", full_name="Viewer", roles=[Role.VIEWER])

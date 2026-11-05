@@ -42,6 +42,28 @@ def migration_env(tmp_path: Path, monkeypatch):
     src_engine = create_engine(db_url)
     metadata.create_all(src_engine)
 
+    # Admin (ID 1) phải tồn tại trong DB kèm vai trò ADMIN để qua kiểm tra
+    # menu/quyền (task 19); nếu không, user nguồn chèn sau sẽ chiếm ID 1.
+    from tests.conftest import seed_perm_basics
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with src_engine.begin() as conn:
+        conn.execute(
+            recon_user.insert().values(
+                ID=1,
+                USERNAME="admin_tester",
+                FULL_NAME="Admin Tester",
+                PASSWORD_HASH="hash",
+                IS_ACTIVE="Y",
+                MUST_CHANGE_PW="N",
+                SESSION_VERSION=1,
+                CREATED_BY="system",
+                CREATED_AT=now,
+                UPDATED_AT=now,
+            )
+        )
+    seed_perm_basics(src_engine, {1: ["ADMIN"]})
+
     admin_ctx = Ctx(
         user_id=1,
         username="admin_tester",

@@ -15,7 +15,6 @@ from app.db.metadata import (
     recon_template,
     recon_template_version,
     recon_user,
-    recon_user_role,
 )
 from app.ui.pages.template_diagram import layout, render_diagram_card
 
@@ -31,6 +30,11 @@ def diagram_env(tmp_path, monkeypatch):
 
     engine = create_engine(db_url)
     metadata.create_all(engine)
+
+    # Đồng bộ menu + vai trò seed (task 19) trước khi chèn user
+    from tests.conftest import seed_perm_basics
+
+    seed_perm_basics(engine)
 
     with open(SAMPLE_PATH, "r", encoding="utf-8") as f:
         sample_cfg = json.load(f)
@@ -51,7 +55,7 @@ def diagram_env(tmp_path, monkeypatch):
             )
         )
         adm_id = res_adm.inserted_primary_key[0]
-        conn.execute(recon_user_role.insert().values(USER_ID=adm_id, ROLE=Role.ADMIN.value, CREATED_AT=now))
+        seed_perm_basics(engine, {adm_id: ["ADMIN"]}, conn=conn)
 
         res_tpl = conn.execute(
             recon_template.insert().values(

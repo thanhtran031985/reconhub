@@ -13,17 +13,19 @@ from app.engine.template_sample import build_template_preview_excel
 from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.template_config import TemplateConfig
 from app.services import service
+from app.services.perm import requires_menu
 from app.services.template import get_template, save_draft_template
 
 
 @service
+@requires_menu("template")
 def export_template(
     ctx: Ctx,
     template_id: int,
     version: int | None = None,
 ) -> dict[str, Any]:
     """Xuất thông tin template và cấu hình CONFIG_JSON ra định dạng JSON."""
-    require_role(ctx)
+
     tmpl_res = get_template(ctx, template_id=template_id, version=version)
     if not tmpl_res.ok or tmpl_res.data is None:
         raise ServiceError(tmpl_res.code or ErrorCode.NOT_FOUND, tmpl_res.message or "Không tìm thấy template")
@@ -41,6 +43,7 @@ def export_template(
 
 
 @service
+@requires_menu("template")
 def export_template_sample_excel(
     ctx: Ctx,
     template_id: int,
@@ -52,7 +55,7 @@ def export_template_sample_excel(
     ở trang sửa template, không tự sinh giá trị ví dụ. Template chưa có file
     mẫu hoặc file mẫu đã mất thì báo lỗi rõ, không trả file ví dụ thay thế.
     """
-    require_role(ctx)
+
     tmpl_res = get_template(ctx, template_id=template_id, version=version)
     if not tmpl_res.ok or tmpl_res.data is None:
         raise ServiceError(tmpl_res.code or ErrorCode.NOT_FOUND, tmpl_res.message or "Không tìm thấy template")
@@ -100,6 +103,7 @@ def export_template_sample_excel(
 
 
 @service
+@requires_menu("template")
 def import_template(
     ctx: Ctx,
     data: dict[str, Any],
