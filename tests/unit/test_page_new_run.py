@@ -16,7 +16,10 @@ from app.ui.pages.new_run import (
     compute_quick_range,
     layout,
     process_uploaded_file,
+    render_execution_section,
     render_file_section,
+    render_params_section,
+    render_sql_preview_section,
     validate_run_params,
 )
 
@@ -111,10 +114,10 @@ def test_validate_run_params() -> None:
     err_rev = validate_run_params("2026-02-05T00:00:00", "2026-02-01T00:00:00")
     assert err_rev == "Từ ngày giờ phải nhỏ hơn hoặc bằng Đến ngày giờ."
 
-    # Quá 93 ngày
+    # Không còn giới hạn số ngày: khoảng 95 ngày vẫn hợp lệ
     f_94 = "2026-01-01T00:00:00"
     t_94 = (datetime(2026, 1, 1) + timedelta(days=95)).isoformat()
-    assert validate_run_params(f_94, t_94) == "Khoảng tìm kiếm tối đa 93 ngày."
+    assert validate_run_params(f_94, t_94) is None
 
     # Hợp lệ
     assert validate_run_params("2026-02-01T00:00:00", "2026-02-05T23:59:59") is None
@@ -126,6 +129,7 @@ def test_render_file_section_empty() -> None:
     s = str(empty_ui)
     assert "1. File dữ liệu" in s
     assert "new-run-upload" in s
+    assert "new-run-manual-template-select" not in s
 
 
 def test_process_uploaded_file_and_render(new_run_env) -> None:
@@ -149,11 +153,10 @@ def test_process_uploaded_file_and_render(new_run_env) -> None:
     assert "200 dòng hợp lệ" in s
     assert "1 dòng tổng đã loại" in s
     assert "Control total khớp" in s
+    assert "new-run-manual-template-select" not in s
 
 
 def test_render_params_and_execution_section(new_run_env) -> None:
-    from app.ui.pages.new_run import render_execution_section, render_params_section
-
     # 1. Render params section
     ds_list = [
         {"id": 1, "name": "ORACLE_TEST", "env": "DEV", "label": "ORACLE_TEST (DEV)"},
@@ -175,6 +178,8 @@ def test_render_params_and_execution_section(new_run_env) -> None:
     )
     s_params = str(params_ui)
     assert "2. Profile và tham số tìm kiếm" in s_params
+    assert "new-run-manual-template-select" in s_params
+    assert "Chỉ định template đối soát" in s_params
     assert "new-run-p-from" in s_params
     assert "new-run-p-to" in s_params
     assert "new-run-p-org" in s_params
@@ -200,6 +205,30 @@ def test_render_params_and_execution_section(new_run_env) -> None:
     assert "3/5 Truy vấn Oracle (qua VPN)" in s_running
 
 
+def test_render_sql_preview_section() -> None:
+    import json
+
+    # 1. Khi chưa có template
+    empty_sql_ui = render_sql_preview_section(None)
+    assert "Câu lệnh SQL đối soát DB" in str(empty_sql_ui)
+    assert "Vui lòng tải lên file hoặc chọn template" in str(empty_sql_ui)
+
+    # 2. Khi có cấu hình template
+    tmpl_cfg = json.loads(Path("samples/templates/DTP_HOA_DON_TAC_NGHIEP.json").read_text(encoding="utf-8"))
+    template_info = {"code": "DTP_HOA_DON_TAC_NGHIEP", "config": tmpl_cfg}
+    params = {"p_from": "2026-02-01 00:00:00", "p_to": "2026-02-05 23:59:59", "p_org": "BDP"}
+
+    sql_ui = render_sql_preview_section(template_info, profile_code="BY_INVOICE", params=params)
+    s_sql = str(sql_ui)
+    assert "Câu lệnh SQL đối soát DB" in s_sql
+    assert "Đẩy phép gộp xuống DB" in s_sql
+    assert "INVOICE_NO" in s_sql
+    assert "SRC_FACT_INVOICE_DTP" in s_sql
+    assert ":p_from" in s_sql
+    assert ":p_to" in s_sql
+    assert ":p_org" in s_sql
+
+
 def test_handle_progress_tick_stages_and_redirect() -> None:
     from app.ui.pages.new_run import handle_progress_tick
 
@@ -217,6 +246,122 @@ def test_handle_progress_tick_stages_and_redirect() -> None:
     assert redirect_done == "/runs/999"
 
 
+def test_handle_execute_run_ignores_remount_with_n_clicks_zero(monkeypatch) -> None:
+    """Nút dựng lại với n_clicks=0 (sau khi Card bị thay) không được tạo run mới."""
+    from types import SimpleNamespace
+
+    import app.ui.pages.new_run as new_run_page
+    from app.ui.pages.new_run import handle_execute_run
+
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "new-run-execute-btn.n_clicks", "value": 0}]),
+    )
+    monkeypatch.setattr(
+        new_run_page,
+        "create_run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_run must not be called on remount")),
+    )
+    result = handle_execute_run(
+        0, None, None, None, None, None, None, None, None, None, None, None
+    )
+    assert result == (dash.no_update, dash.no_update, dash.no_update, dash.no_update)
+
+
+def test_handle_execute_run_ignores_click_while_running(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import app.ui.pages.new_run as new_run_page
+    from app.ui.pages.new_run import handle_execute_run
+
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "new-run-execute-btn.n_clicks", "value": 2}]),
+    )
+    monkeypatch.setattr(
+        new_run_page,
+        "create_run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_run must not be called while running")),
+    )
+    result = handle_execute_run(
+        2, None, None, None, None, None, None, None, None, None, None,
+        {"is_running": True, "run_id": 123},
+    )
+    assert result == (dash.no_update, dash.no_update, dash.no_update, dash.no_update)
+
+
+def test_handle_progress_tick_unchanged_returns_no_update(monkeypatch) -> None:
+    """Tiến độ không đổi thì không dựng lại Card, tránh giật và remount nút."""
+    import app.ui.pages.new_run as new_run_page
+    from app.ui.pages.new_run import handle_progress_tick
+
+    row = {"STATUS": "QUEUED", "STAGE": "READ", "PROGRESS_PCT": 10, "ERROR_MSG": None}
+
+    class _Mappings:
+        def first(self):
+            return row
+
+    class _Result:
+        def mappings(self):
+            return _Mappings()
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, *args, **kwargs):
+            return _Result()
+
+    class _Engine:
+        def connect(self):
+            return _Conn()
+
+    monkeypatch.setattr(new_run_page, "get_recon_engine", lambda: _Engine())
+    ui, state, redirect = handle_progress_tick(
+        5, {"is_running": True, "run_id": 999, "stage": 1, "pct": 10}
+    )
+    assert ui is dash.no_update
+    assert state is dash.no_update
+    assert redirect is dash.no_update
+
+
+def test_apply_excel_time_switch_defaults_unchecked() -> None:
+    params_ui = render_params_section(
+        template_info={
+            "code": "DTP",
+            "config": {"profiles": [{"code": "BY_INVOICE", "name": "Theo số hóa đơn", "is_default": True}]},
+        },
+        data_sources=[],
+        active_templates=[],
+    )
+    assert "new-run-apply-excel-time" in str(params_ui)
+    # Tìm component switch và kiểm tra checked=False
+    import dash_mantine_components as dmc
+
+    def _find(node):
+        if getattr(node, "id", None) == "new-run-apply-excel-time":
+            return node
+        for child in getattr(node, "children", []) or []:
+            if isinstance(child, (list, tuple)):
+                for c in child:
+                    found = _find(c)
+                    if found is not None:
+                        return found
+            else:
+                found = _find(child)
+                if found is not None:
+                    return found
+        return None
+
+    switch = _find(params_ui)
+    assert switch is not None
+    assert isinstance(switch, dmc.Switch)
+    assert switch.checked is False
+
+
 def test_layout_renders_with_active_templates(new_run_env, monkeypatch) -> None:
     ctx = Ctx(user_id=3, username="operator", full_name="Operator", roles=[Role.OPERATOR])
     monkeypatch.setattr("app.ui.pages.new_run.get_current_ctx", lambda: ctx)
@@ -227,3 +372,7 @@ def test_layout_renders_with_active_templates(new_run_env, monkeypatch) -> None:
     assert "new-run-root" in s
     assert "Chạy đối soát" in s
     assert "new-run-upload" in s
+    assert "Câu lệnh SQL đối soát DB" in s
+    # Card Thực thi phải đứng trên Card SQL để không phải kéo xuống
+    # mỗi lần chạy.
+    assert s.index("new-run-exec-container") < s.index("new-run-sql-container")

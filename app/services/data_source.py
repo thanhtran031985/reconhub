@@ -6,14 +6,14 @@ from pathlib import Path
 from typing import Any
 
 import oracledb
-from sqlalchemy import Engine, create_engine, select, text, update
+from sqlalchemy import Engine, create_engine, func, select, text, update
 
 from app.core.audit import write_audit_log
 from app.core.config import get_settings
 from app.core.context import Ctx, Role, require_role
 from app.core.crypto import decrypt_secret, encrypt_secret
 from app.db.engine import get_recon_engine
-from app.db.metadata import recon_data_source
+from app.db.metadata import recon_data_source, recon_template_version
 from app.schemas.data_source import (
     DataSourceCreateDTO,
     DataSourceOption,
@@ -24,7 +24,7 @@ from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
 
 
-def _build_ds_response(row: Any) -> DataSourceResponse:
+def _build_ds_response(row: Any, template_count: int = 0) -> DataSourceResponse:
     """Tạo đối tượng DataSourceResponse từ dòng dữ liệu DB (không chứa mật khẩu)."""
     return DataSourceResponse(
         id=int(row["ID"]),
@@ -46,6 +46,7 @@ def _build_ds_response(row: Any) -> DataSourceResponse:
         last_test_ok=row["LAST_TEST_OK"],
         last_test_msg=row["LAST_TEST_MSG"],
         last_test_ms=row["LAST_TEST_MS"],
+        template_count=template_count,
         created_by=str(row["CREATED_BY"]),
         created_at=row["CREATED_AT"],
         updated_at=row["UPDATED_AT"],
@@ -67,7 +68,22 @@ def list_data_sources(
             stmt = stmt.where(recon_data_source.c.PURPOSE == purpose.upper())
 
         rows = conn.execute(stmt).mappings().all()
-        return [_build_ds_response(r) for r in rows]
+
+        # Đếm số template đang liên kết với từng data source
+        tmpl_stmt = (
+            select(
+                recon_template_version.c.DATA_SOURCE_ID,
+                func.count(func.distinct(recon_template_version.c.TEMPLATE_ID)),
+            )
+            .where(recon_template_version.c.STATUS == "ACTIVE")
+            .group_by(recon_template_version.c.DATA_SOURCE_ID)
+        )
+        tmpl_map: dict[int, int] = {}
+        for r_id, count in conn.execute(tmpl_stmt).all():
+            if r_id is not None:
+                tmpl_map[int(r_id)] = int(count)
+
+        return [_build_ds_response(r, template_count=tmpl_map.get(int(r["ID"]), 0)) for r in rows]
 
 
 @service
@@ -248,6 +264,67 @@ def update_data_source(
 
 
 @service
+def activate_data_source(
+    ctx: Ctx,
+    ds_id: int,
+) -> DataSourceResponse:
+    """Kích hoạt Data Source (chỉ Admin)."""
+    require_role(ctx, Role.ADMIN)
+    engine = get_recon_engine()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    with engine.begin() as conn:
+        row = conn.execute(select(recon_data_source).where(recon_data_source.c.ID == ds_id)).mappings().first()
+
+        if row is None:
+            raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy Data Source")
+
+        if row["PURPOSE"] == "SOURCE":
+            conn.execute(
+                update(recon_data_source)
+                .where(recon_data_source.c.PURPOSE == "SOURCE")
+                .where(recon_data_source.c.ID != ds_id)
+                .values(IS_ACTIVE="N", UPDATED_AT=now)
+            )
+
+        conn.execute(
+            update(recon_data_source).where(recon_data_source.c.ID == ds_id).values(IS_ACTIVE="Y", UPDATED_AT=now)
+        )
+
+        write_audit_log(
+            conn=conn,
+            entity="DATA_SOURCE",
+            entity_id=ds_id,
+            action="ACTIVATE_DATA_SOURCE",
+            actor=ctx.username,
+            old_data={"is_active": "N"},
+            new_data={"is_active": "Y"},
+            now=now,
+        )
+
+        updated_row = conn.execute(select(recon_data_source).where(recon_data_source.c.ID == ds_id)).mappings().one()
+        return _build_ds_response(updated_row)
+
+
+def get_active_environment() -> str:
+    """Lấy môi trường nguồn đang active (ví dụ DEV, TEST, UAT, PROD)."""
+    try:
+        engine = get_recon_engine()
+        with engine.connect() as conn:
+            row = conn.execute(
+                select(recon_data_source.c.ENV)
+                .where(recon_data_source.c.IS_ACTIVE == "Y")
+                .where(recon_data_source.c.PURPOSE == "SOURCE")
+                .order_by(recon_data_source.c.UPDATED_AT.desc())
+            ).fetchone()
+            if row and row[0]:
+                return str(row[0])
+    except Exception:
+        pass
+    return get_settings().APP_ENV
+
+
+@service
 def deactivate_data_source(
     ctx: Ctx,
     ds_id: int,
@@ -292,6 +369,85 @@ def deactivate_data_source(
         return _build_ds_response(updated_row)
 
 
+def _test_oracle_connection(
+    host: str,
+    port: int,
+    service_name: str,
+    username: str,
+    password: str,
+    call_timeout_s: int = 600,
+    purpose: str = "SOURCE",
+) -> tuple[bool, str, dict[str, Any], int]:
+    """Hàm nội bộ kiểm tra kết nối tới Oracle server qua Thin mode."""
+    start = time.perf_counter()
+    dsn = f"{host}:{port}/{service_name}"
+    extra_details: dict[str, Any] = {}
+
+    ora_conn = oracledb.connect(
+        user=username,
+        password=password,
+        dsn=dsn,
+    )
+    try:
+        ora_conn.call_timeout = call_timeout_s * 1000
+        version = str(getattr(ora_conn, "version", "19c"))
+        cursor = ora_conn.cursor()
+
+        if purpose.upper() == "SOURCE":
+            # Kiểm tra quyền ghi: SOURCE chỉ nên là Read-Only
+            try:
+                cursor.execute(
+                    "SELECT PRIVILEGE FROM USER_SYS_PRIVS "
+                    "WHERE PRIVILEGE IN ('CREATE TABLE', 'DROP ANY TABLE', 'ALTER ANY TABLE', 'INSERT ANY TABLE', 'UPDATE ANY TABLE', 'DELETE ANY TABLE')"
+                )
+                write_privs = [str(r[0]) for r in cursor.fetchall()]
+            except Exception:
+                write_privs = []
+
+            is_read_only = len(write_privs) == 0
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+
+            extra_details["read_only"] = is_read_only
+            extra_details["write_privileges"] = write_privs
+            extra_details["version"] = version
+            extra_details["latency_ms"] = elapsed_ms
+
+            if is_read_only:
+                msg = f"Kết nối Oracle {version} thành công ({elapsed_ms}ms). Tài khoản chỉ đọc hợp lệ"
+                status = "RO_OK"
+            else:
+                msg = (
+                    f"Kết nối Oracle {version} thành công ({elapsed_ms}ms). "
+                    f"Cảnh báo: Tài khoản có quyền ghi ({', '.join(write_privs)})"
+                )
+                status = "RO_WARN"
+            extra_details["status"] = status
+            return True, msg, extra_details, elapsed_ms
+
+        elif purpose.upper() == "METADATA":
+            cursor.execute("SELECT count(*) FROM USER_TABLES WHERE TABLE_NAME LIKE 'RECON_%'")
+            recon_count = int(cursor.fetchone()[0])
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            extra_details["recon_tables_count"] = recon_count
+            extra_details["version"] = version
+            extra_details["latency_ms"] = elapsed_ms
+            extra_details["status"] = "OK"
+
+            if recon_count == 0:
+                msg = f"Kết nối Oracle {version} thành công ({elapsed_ms}ms). Schema trống, sẵn sàng tiếp nhận metadata"
+            else:
+                msg = f"Kết nối Oracle {version} thành công ({elapsed_ms}ms). Schema đã có {recon_count} bảng RECON_*"
+            return True, msg, extra_details, elapsed_ms
+
+        else:
+            raise ValueError(f"Mục đích '{purpose}' không hợp lệ")
+    finally:
+        try:
+            ora_conn.close()
+        except Exception:
+            pass
+
+
 @service
 def test_data_source(ctx: Ctx, ds_id: int) -> dict[str, Any]:
     """Kiểm tra kết nối Data Source theo mục đích (SOURCE hoặc METADATA)."""
@@ -312,9 +468,10 @@ def test_data_source(ctx: Ctx, ds_id: int) -> dict[str, Any]:
     is_ok = False
     msg = ""
     extra_details: dict[str, Any] = {}
+    ms = 0
 
-    try:
-        if db_type == "SQLITE":
+    if db_type == "SQLITE":
+        try:
             file_path = row["FILE_PATH"]
             if not file_path:
                 raise ValueError("Đường dẫn file SQLite không được để trống")
@@ -322,93 +479,59 @@ def test_data_source(ctx: Ctx, ds_id: int) -> dict[str, Any]:
             p = Path(file_path)
             size_mb = (p.stat().st_size / (1024 * 1024)) if p.exists() else 0.0
 
-            # Thử execute query
             sq_engine = create_engine(f"sqlite:///{p.as_posix()}")
             with sq_engine.connect() as sq_conn:
                 sq_conn.execute(text("SELECT 1"))
 
             is_ok = True
+            ms = int((time.perf_counter() - start) * 1000)
             msg = f"Kết nối SQLite thành công. Kích thước file: {size_mb:.2f} MB"
             extra_details["size_mb"] = size_mb
+            extra_details["status"] = "OK"
+            extra_details["latency_ms"] = ms
+        except Exception as exc:
+            is_ok = False
+            ms = int((time.perf_counter() - start) * 1000)
+            msg = f"Kết nối thất bại: {exc}"
+            extra_details["status"] = "FAILED"
+            extra_details["latency_ms"] = ms
 
-        elif db_type == "ORACLE":
-            host = row["HOST"]
-            port = int(row["PORT"] or 1521)
-            service_name = row["SERVICE_NAME"]
-            username = row["USERNAME"]
-            plain_password = decrypt_secret(row["PASSWORD_ENC"]) if row["PASSWORD_ENC"] else ""
+    elif db_type == "ORACLE":
+        host = row["HOST"] or ""
+        port = int(row["PORT"] or 1521)
+        service_name = row["SERVICE_NAME"] or ""
+        username = row["USERNAME"] or ""
+        plain_password = decrypt_secret(row["PASSWORD_ENC"]) if row["PASSWORD_ENC"] else ""
+        call_timeout = int(row["CALL_TIMEOUT_S"] or 600)
 
-            dsn = f"{host}:{port}/{service_name}"
-            call_timeout = int(row["CALL_TIMEOUT_S"] or 600)
-
-            ora_conn = oracledb.connect(
-                user=username,
+        try:
+            is_ok, msg, extra_details, ms = _test_oracle_connection(
+                host=host,
+                port=port,
+                service_name=service_name,
+                username=username,
                 password=plain_password,
-                dsn=dsn,
+                call_timeout_s=call_timeout,
+                purpose=purpose,
             )
-            ora_conn.call_timeout = call_timeout * 1000
-            version = str(getattr(ora_conn, "version", "19c"))
-            cursor = ora_conn.cursor()
-
-            if purpose == "SOURCE":
-                # Kiểm tra quyền ghi: SOURCE chỉ nên là Read-Only
-                try:
-                    cursor.execute(
-                        "SELECT PRIVILEGE FROM USER_SYS_PRIVS "
-                        "WHERE PRIVILEGE IN ('CREATE TABLE', 'DROP ANY TABLE', 'ALTER ANY TABLE', 'INSERT ANY TABLE', 'UPDATE ANY TABLE', 'DELETE ANY TABLE')"
-                    )
-                    write_privs = [r[0] for r in cursor.fetchall()]
-                except Exception:
-                    write_privs = []
-
-                is_read_only = len(write_privs) == 0
-                extra_details["read_only"] = is_read_only
-                extra_details["write_privileges"] = write_privs
-
-                elapsed_ms = int((time.perf_counter() - start) * 1000)
-                if is_read_only:
-                    msg = f"Kết nối Oracle {version} thành công ({elapsed_ms}ms). Tài khoản chỉ đọc hợp lệ"
-                else:
-                    msg = (
-                        f"Kết nối Oracle {version} thành công ({elapsed_ms}ms). "
-                        f"Cảnh báo: Tài khoản có quyền ghi ({', '.join(write_privs)})"
-                    )
-                is_ok = True
-
-            elif purpose == "METADATA":
-                # Kiểm tra quyền và số lượng bảng RECON_*
-                cursor.execute("SELECT count(*) FROM USER_TABLES WHERE TABLE_NAME LIKE 'RECON_%'")
-                recon_count = int(cursor.fetchone()[0])
-                extra_details["recon_tables_count"] = recon_count
-
-                elapsed_ms = int((time.perf_counter() - start) * 1000)
-                if recon_count == 0:
-                    msg = f"Kết nối Oracle {version} thành công ({elapsed_ms}ms). Schema trống, sẵn sàng tiếp nhận metadata"
-                else:
-                    msg = (
-                        f"Kết nối Oracle {version} thành công ({elapsed_ms}ms). Schema đã có {recon_count} bảng RECON_*"
-                    )
-                is_ok = True
-
-            ora_conn.close()
-
-        else:
-            raise ValueError(f"Loại cơ sở dữ liệu '{db_type}' chưa được hỗ trợ")
-
-    except Exception as exc:
-        is_ok = False
-        msg = f"Kết nối thất bại: {exc}"
-
-    ms = int((time.perf_counter() - start) * 1000)
+        except Exception as exc:
+            is_ok = False
+            ms = int((time.perf_counter() - start) * 1000)
+            msg = f"Kết nối thất bại: {exc}"
+            extra_details["status"] = "FAILED"
+            extra_details["latency_ms"] = ms
+    else:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, f"Loại cơ sở dữ liệu '{db_type}' chưa được hỗ trợ")
 
     # Cập nhật kết quả test vào DB
+    test_ok_flag = "W" if (is_ok and extra_details.get("status") == "RO_WARN") else ("Y" if is_ok else "N")
     with engine.begin() as conn:
         conn.execute(
             update(recon_data_source)
             .where(recon_data_source.c.ID == ds_id)
             .values(
                 LAST_TEST_AT=now,
-                LAST_TEST_OK="Y" if is_ok else "N",
+                LAST_TEST_OK=test_ok_flag,
                 LAST_TEST_MSG=msg[:400],
                 LAST_TEST_MS=ms,
             )
@@ -416,8 +539,78 @@ def test_data_source(ctx: Ctx, ds_id: int) -> dict[str, Any]:
 
     return {
         "ok": is_ok,
+        "status": extra_details.get("status", "OK" if is_ok else "FAILED"),
         "message": msg,
         "ms": ms,
+        "latency_ms": ms,
+        **extra_details,
+    }
+
+
+@service
+def test_data_source_config(
+    ctx: Ctx,
+    host: str,
+    port: int,
+    service_name: str,
+    username: str,
+    password: str | None = None,
+    ds_id: int | None = None,
+    call_timeout_s: int = 600,
+    purpose: str = "SOURCE",
+) -> dict[str, Any]:
+    """Kiểm tra kết nối trực tiếp với các thông số cấu hình."""
+    require_role(ctx, Role.ADMIN)
+    engine = get_recon_engine()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    plain_password = password
+    if (not plain_password or not plain_password.strip()) and ds_id is not None:
+        with engine.connect() as conn:
+            row = conn.execute(select(recon_data_source).where(recon_data_source.c.ID == ds_id)).mappings().first()
+            if row and row["PASSWORD_ENC"]:
+                plain_password = decrypt_secret(row["PASSWORD_ENC"])
+
+    if not plain_password:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Mật khẩu không được để trống khi kiểm tra kết nối")
+
+    try:
+        is_ok, msg, extra_details, ms = _test_oracle_connection(
+            host=host.strip(),
+            port=port,
+            service_name=service_name.strip(),
+            username=username.strip(),
+            password=plain_password,
+            call_timeout_s=call_timeout_s,
+            purpose=purpose,
+        )
+    except Exception as exc:
+        is_ok = False
+        ms = 0
+        msg = f"Kết nối thất bại: {exc}"
+        extra_details = {"status": "FAILED", "latency_ms": 0}
+
+    # Nếu đang sửa một Data Source đã có ID, cập nhật luôn kết quả test vào DB
+    if ds_id is not None:
+        test_ok_flag = "W" if (is_ok and extra_details.get("status") == "RO_WARN") else ("Y" if is_ok else "N")
+        with engine.begin() as conn:
+            conn.execute(
+                update(recon_data_source)
+                .where(recon_data_source.c.ID == ds_id)
+                .values(
+                    LAST_TEST_AT=now,
+                    LAST_TEST_OK=test_ok_flag,
+                    LAST_TEST_MSG=msg[:400],
+                    LAST_TEST_MS=ms,
+                )
+            )
+
+    return {
+        "ok": is_ok,
+        "status": extra_details.get("status", "OK" if is_ok else "FAILED"),
+        "message": msg,
+        "ms": ms,
+        "latency_ms": ms,
         **extra_details,
     }
 

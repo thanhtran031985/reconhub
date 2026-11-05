@@ -1,0 +1,31 @@
+/* ReconHub - Custom CSS for Code & SQL Display Blocks */
+.mantine-Code-root,
+pre.mantine-Code-root,
+.mantine-CodeHighlight-root,
+.mantine-CodeHighlight-code,
+.mantine-CodeHighlight-code pre,
+.mantine-CodeHighlight-code code,
+pre[class*="mantine-Code"] {
+  background-color: var(--code-bg, #0F1B33) !important;
+  color: var(--code-ink, #D6E2FF) !important;
+  font-family: var(--font-mono, "JetBrains Mono", Consolas, monospace) !important;
+}
+
+.mantine-Code-root *,
+.mantine-CodeHighlight-root pre,
+.mantine-CodeHighlight-root code,
+.mantine-CodeHighlight-root span:not([class*="token"]) {
+  color: var(--code-ink, #D6E2FF);
+}
+
+
+/* Bảng kết quả run: kẻ ngang từng dòng và hover chọn dòng.
+   Dòng dùng html.Tr nên kẻ ngang/highlight của Mantine không áp dụng
+   chắc chắn, vì vậy kẻ ngang và hover được định nghĩa tường minh ở đây. */
+.run-res-row td {
+  border-bottom: 1px solid var(--line, #e2e8f0);
+}
+
+.run-res-row:hover {
+  background-color: var(--surface-2, #f8fafc);
+}

@@ -20,3 +20,4 @@ samples/private/*
 *.finalize.json
 *.finalize-summary.json
 *.delivery.json
+samples/*.xlsx

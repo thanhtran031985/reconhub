@@ -106,6 +106,11 @@ def aggregate(
             is_inconsistent = False
             for m in profile.measures:
                 m_val = r.get(m.name)
+                # Dự phòng: nếu cột measure đã bị đổi tên thành tên trường
+                # nguồn (ví dụ TOTAL_AMOUNT -> SO_TIEN) ở một tầng trước,
+                # giá trị gộp sẵn nằm ở cột tên trường, không phải tên measure.
+                if m_val is None and m.field and m.field != m.name and m.field in r:
+                    m_val = r.get(m.field)
                 # Kiểm tra cờ inconsistent từ pushdown
                 dist_col = f"{m.name}__CNT_DIST"
                 if dist_col in r:

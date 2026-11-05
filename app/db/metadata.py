@@ -423,7 +423,33 @@ recon_issue = Table(
     UniqueConstraint("TEMPLATE_ID", "PROFILE_CODE", "KEY_HASH", name="uq_recon_issue_tmpl_profile_key"),
 )
 
-# 7. Xóa dữ liệu tạm và chuyển metadata
+# 7. Lookup Code — Danh mục dùng chung [GĐ3]
+recon_lookup_type = Table(
+    "RECON_LOOKUP_TYPE",
+    metadata,
+    Column("LOOKUP_TYPE", String(50), primary_key=True),
+    Column("TYPE_NAME", String(200), nullable=False),
+    Column("DESCRIPTION", String(500), nullable=True),
+    Column("IS_SYSTEM", String(1), nullable=False, default="N"),
+    Column("IS_ACTIVE", String(1), nullable=False, default="Y"),
+)
+
+recon_lookup_code = Table(
+    "RECON_LOOKUP_CODE",
+    metadata,
+    Column("LOOKUP_TYPE", String(50), ForeignKey("RECON_LOOKUP_TYPE.LOOKUP_TYPE"), primary_key=True),
+    Column("LOOKUP_CODE", String(50), primary_key=True),
+    Column("MEANING", String(200), nullable=False),
+    Column("DESCRIPTION", String(500), nullable=True),
+    Column("DISPLAY_ORDER", Integer, nullable=False, default=0),
+    Column("COLOR_BADGE", String(30), nullable=True),
+    Column("ICON_NAME", String(60), nullable=True),
+    Column("IS_DEFAULT", String(1), nullable=False, default="N"),
+    Column("IS_SYSTEM", String(1), nullable=False, default="N"),
+    Column("IS_ACTIVE", String(1), nullable=False, default="Y"),
+)
+
+# 8. Xóa dữ liệu tạm và chuyển metadata
 recon_purge_log = Table(
     "RECON_PURGE_LOG",
     metadata,

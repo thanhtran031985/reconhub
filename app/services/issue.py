@@ -36,9 +36,7 @@ DEFAULT_ISSUE_REASONS = [
 def ensure_default_reasons(conn: Connection) -> None:
     """Nạp các lý do chênh lệch chuẩn nếu chưa có (idempotent)."""
     for code, label in DEFAULT_ISSUE_REASONS:
-        exists = conn.execute(
-            select(recon_issue_reason.c.CODE).where(recon_issue_reason.c.CODE == code)
-        ).scalar()
+        exists = conn.execute(select(recon_issue_reason.c.CODE).where(recon_issue_reason.c.CODE == code)).scalar()
         if not exists:
             conn.execute(
                 recon_issue_reason.insert().values(
@@ -135,11 +133,7 @@ def update_issue_by_id(
     engine = get_recon_engine()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     with engine.begin() as conn:
-        issue = (
-            conn.execute(select(recon_issue).where(recon_issue.c.ID == issue_id))
-            .mappings()
-            .first()
-        )
+        issue = conn.execute(select(recon_issue).where(recon_issue.c.ID == issue_id)).mappings().first()
         if not issue:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Issue với ID {issue_id}.")
 
@@ -157,11 +151,7 @@ def update_issue_by_id(
         if note is not None:
             upd_values["NOTE"] = note
 
-        conn.execute(
-            update(recon_issue)
-            .where(recon_issue.c.ID == issue_id)
-            .values(**upd_values)
-        )
+        conn.execute(update(recon_issue).where(recon_issue.c.ID == issue_id).values(**upd_values))
 
         write_audit_log(
             conn=conn,
@@ -216,11 +206,7 @@ def bulk_update_issues_by_ids(
         upd_values["NOTE"] = note
 
     with engine.begin() as conn:
-        conn.execute(
-            update(recon_issue)
-            .where(recon_issue.c.ID.in_(issue_ids))
-            .values(**upd_values)
-        )
+        conn.execute(update(recon_issue).where(recon_issue.c.ID.in_(issue_ids)).values(**upd_values))
 
         write_audit_log(
             conn=conn,
@@ -277,18 +263,24 @@ def get_issue_for_row(ctx: Ctx, run_id: int, row_no: int) -> dict[str, Any] | No
     engine = get_recon_engine()
     with engine.connect() as conn:
         # Lấy thông tin run và dòng kết quả
-        run_row = conn.execute(
-            select(recon_run.c.TEMPLATE_ID, recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id)
-        ).mappings().first()
+        run_row = (
+            conn.execute(select(recon_run.c.TEMPLATE_ID, recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id))
+            .mappings()
+            .first()
+        )
         if not run_row:
             return None
 
-        result_row = conn.execute(
-            select(recon_result_row.c.KEY_HASH).where(
-                recon_result_row.c.RUN_ID == run_id,
-                recon_result_row.c.ROW_NO == row_no,
+        result_row = (
+            conn.execute(
+                select(recon_result_row.c.KEY_HASH).where(
+                    recon_result_row.c.RUN_ID == run_id,
+                    recon_result_row.c.ROW_NO == row_no,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if not result_row:
             return None
 
@@ -332,24 +324,33 @@ def upsert_issue_for_row(
             f"Trạng thái '{status}' không hợp lệ. Phải là một trong: {', '.join(VALID_ISSUE_STATUSES)}.",
         )
 
+    if reason_code is not None and not str(reason_code).strip():
+        reason_code = None
+
     engine = get_recon_engine()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     with engine.begin() as conn:
         ensure_default_reasons(conn)
 
-        run_row = conn.execute(
-            select(recon_run.c.TEMPLATE_ID, recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id)
-        ).mappings().first()
+        run_row = (
+            conn.execute(select(recon_run.c.TEMPLATE_ID, recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id))
+            .mappings()
+            .first()
+        )
         if not run_row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Run #{run_id}.")
 
-        r_row = conn.execute(
-            select(recon_result_row.c.KEY_TEXT, recon_result_row.c.KEY_HASH).where(
-                recon_result_row.c.RUN_ID == run_id,
-                recon_result_row.c.ROW_NO == row_no,
+        r_row = (
+            conn.execute(
+                select(recon_result_row.c.KEY_TEXT, recon_result_row.c.KEY_HASH).where(
+                    recon_result_row.c.RUN_ID == run_id,
+                    recon_result_row.c.ROW_NO == row_no,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if not r_row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy dòng kết quả #{row_no} trong Run #{run_id}.")
 
@@ -358,13 +359,17 @@ def upsert_issue_for_row(
         key_hash = r_row["KEY_HASH"]
         key_text = r_row["KEY_TEXT"]
 
-        existing_issue = conn.execute(
-            select(recon_issue).where(
-                recon_issue.c.TEMPLATE_ID == template_id,
-                recon_issue.c.PROFILE_CODE == profile_code,
-                recon_issue.c.KEY_HASH == key_hash,
+        existing_issue = (
+            conn.execute(
+                select(recon_issue).where(
+                    recon_issue.c.TEMPLATE_ID == template_id,
+                    recon_issue.c.PROFILE_CODE == profile_code,
+                    recon_issue.c.KEY_HASH == key_hash,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
 
         old_data = dict(existing_issue) if existing_issue else None
 
@@ -463,9 +468,11 @@ def bulk_upsert_issues(
     with engine.begin() as conn:
         ensure_default_reasons(conn)
 
-        run_row = conn.execute(
-            select(recon_run.c.TEMPLATE_ID, recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id)
-        ).mappings().first()
+        run_row = (
+            conn.execute(select(recon_run.c.TEMPLATE_ID, recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id))
+            .mappings()
+            .first()
+        )
         if not run_row:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Run #{run_id}.")
 
@@ -473,12 +480,16 @@ def bulk_upsert_issues(
         profile_code = run_row["PROFILE_CODE"]
 
         # Lấy toàn bộ các dòng kết quả theo lô
-        res_rows = conn.execute(
-            select(recon_result_row.c.ROW_NO, recon_result_row.c.KEY_TEXT, recon_result_row.c.KEY_HASH).where(
-                recon_result_row.c.RUN_ID == run_id,
-                recon_result_row.c.ROW_NO.in_(row_nos),
+        res_rows = (
+            conn.execute(
+                select(recon_result_row.c.ROW_NO, recon_result_row.c.KEY_TEXT, recon_result_row.c.KEY_HASH).where(
+                    recon_result_row.c.RUN_ID == run_id,
+                    recon_result_row.c.ROW_NO.in_(row_nos),
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
 
         if not res_rows:
             return {"count": 0, "updated_issues": []}
@@ -487,13 +498,17 @@ def bulk_upsert_issues(
         key_text_by_hash = {r["KEY_HASH"]: r["KEY_TEXT"] for r in res_rows}
 
         # Tra cứu các issue hiện có
-        existing_issues = conn.execute(
-            select(recon_issue).where(
-                recon_issue.c.TEMPLATE_ID == template_id,
-                recon_issue.c.PROFILE_CODE == profile_code,
-                recon_issue.c.KEY_HASH.in_(key_hashes),
+        existing_issues = (
+            conn.execute(
+                select(recon_issue).where(
+                    recon_issue.c.TEMPLATE_ID == template_id,
+                    recon_issue.c.PROFILE_CODE == profile_code,
+                    recon_issue.c.KEY_HASH.in_(key_hashes),
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
 
         existing_by_hash = {r["KEY_HASH"]: dict(r) for r in existing_issues}
 
@@ -520,11 +535,7 @@ def bulk_upsert_issues(
                 if note is not None:
                     upd_values["NOTE"] = note
 
-                conn.execute(
-                    update(recon_issue)
-                    .where(recon_issue.c.ID == iss_id)
-                    .values(**upd_values)
-                )
+                conn.execute(update(recon_issue).where(recon_issue.c.ID == iss_id).values(**upd_values))
                 updated_ids.append(iss_id)
             else:
                 ins = conn.execute(

@@ -20,7 +20,7 @@ def _render_field_db_expr(f_name: str, config: TemplateConfig) -> str:
                 ErrorCode.COLUMN_NOT_FOUND,
                 f"Trường '{f_name}' không có ánh xạ cột cơ sở dữ liệu.",
             )
-        base = f'"src".{quote_identifier(f.db)}'
+        base = f"src.{quote_identifier(f.db)}"
 
         # Áp dụng các phép chuẩn hóa text (trim, upper, lower, value_map)
         for op in f.norm:
@@ -71,6 +71,11 @@ def build_source_sql(
     """Sinh câu truy vấn SELECT nguồn cho Oracle dựa trên cấu hình template và tham số chạy."""
     db_source = config.db_source
     binds: dict[str, Any] = {}
+    # Mặc định khai báo trong db_source.params (ví dụ p_org = "BDP") được
+    # dùng khi lần chạy không truyền giá trị đó. Trước đây chỉ giá trị
+    # truyền lúc chạy mới vào binds, nên SQL có :p_org mà lần chạy không
+    # truyền p_org thì check_sql báo SQL_NOT_ALLOWED dù p_org đã khai báo.
+    param_defaults: dict[str, Any] = {p.name: p.default for p in db_source.params if p.default not in (None, "")}
 
     if db_source.kind == "table":
         # 1. Thu thập danh sách cột trong whitelist (các trường có mapping DB)
@@ -97,6 +102,10 @@ def build_source_sql(
         # Filters động gắn với params
         for flt in db_source.filters:
             param_val = params.get(flt.param) if params else None
+            if (
+                param_val is None or (isinstance(param_val, str) and not param_val.strip())
+            ) and flt.param in param_defaults:
+                param_val = param_defaults[flt.param]
             # Nếu param rỗng và có cờ skip_if_empty thì bỏ qua
             if (param_val is None or (isinstance(param_val, str) and not param_val.strip())) and flt.skip_if_empty:
                 continue
@@ -138,10 +147,11 @@ def build_source_sql(
         if not db_source.sql:
             raise ServiceError(ErrorCode.SQL_PARAM_MISSING, "Chưa chỉ định câu lệnh SQL nguồn.")
         base_sql = db_source.sql.strip().rstrip(";")
-        if params:
-            for p in db_source.params:
-                if p.name in params:
-                    binds[p.name] = params[p.name]
+        for p in db_source.params:
+            if params and p.name in params:
+                binds[p.name] = params[p.name]
+            elif p.name in param_defaults:
+                binds[p.name] = param_defaults[p.name]
     else:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, f"Loại nguồn '{db_source.kind}' không được hỗ trợ.")
 

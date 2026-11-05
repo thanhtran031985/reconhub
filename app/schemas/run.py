@@ -40,7 +40,7 @@ class CreateRunParams(BaseModel):
     p_from: datetime
     p_to: datetime
     params: dict[str, Any] | None = None
-    apply_range_excel: bool = True
+    apply_range_excel: bool = False
     confirm_prod: bool = False
 
 

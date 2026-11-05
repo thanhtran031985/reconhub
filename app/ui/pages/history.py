@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 from datetime import datetime, timezone
 from typing import Any
 
@@ -68,16 +69,30 @@ def render_filter_bar(
     templates_options: list[dict[str, str]],
     users_options: list[dict[str, str]],
 ) -> dmc.Group:
-    """Thanh bộ lọc 5 tiêu chí theo thiết kế Screen07."""
+    """Thanh bộ lọc 6 tiêu chí theo thiết kế Screen07 (có tìm kiếm theo thời gian chạy)."""
+    now = datetime.now()
+    first_day = now.replace(day=1).strftime("%Y-%m-%d")
+    _, last_day_num = calendar.monthrange(now.year, now.month)
+    last_day = now.replace(day=last_day_num).strftime("%Y-%m-%d")
+
     return dmc.Group(
         [
+            dmc.DatePickerInput(
+                id="history-filter-date-range",
+                type="range",
+                label="Thời gian chạy",
+                value=[first_day, last_day],
+                valueFormat="DD/MM/YYYY",
+                clearable=True,
+                w=220,
+            ),
             dmc.Select(
                 id="history-filter-template",
                 label="Template",
                 placeholder="Tất cả",
                 data=[{"label": "Tất cả", "value": "ALL"}, *templates_options],
                 value="ALL",
-                w=220,
+                w=200,
                 clearable=False,
             ),
             dmc.Select(
@@ -89,7 +104,7 @@ def render_filter_bar(
                     {"label": "Đã kiểm tra", "value": "CHECKED"},
                 ],
                 value="ALL",
-                w=170,
+                w=160,
                 clearable=False,
             ),
             dmc.Select(
@@ -101,7 +116,7 @@ def render_filter_bar(
                     {"label": "Đã xóa", "value": "PURGED"},
                 ],
                 value="ALL",
-                w=160,
+                w=150,
                 clearable=False,
             ),
             dmc.Select(
@@ -110,7 +125,7 @@ def render_filter_bar(
                 placeholder="Tất cả",
                 data=[{"label": "Tất cả", "value": "ALL"}, *users_options],
                 value="ALL",
-                w=170,
+                w=160,
                 clearable=False,
             ),
             dmc.TextInput(
@@ -118,7 +133,7 @@ def render_filter_bar(
                 label="Tên file",
                 placeholder="Tìm theo tên file",
                 leftSection=DashIconify(icon="lucide:search", width=14),
-                w=240,
+                w=200,
             ),
         ],
         gap="md",
@@ -128,11 +143,10 @@ def render_filter_bar(
 
 def render_bulk_alert(selected_count: int, is_admin: bool) -> html.Div:
     """Thanh cảnh báo thông tin chọn nhiều run kèm nút xóa dữ liệu tạm."""
-    if not is_admin or selected_count == 0:
-        return html.Div(id="history-bulk-alert", style={"display": "none"})
-
+    is_visible = is_admin and selected_count > 0
     return html.Div(
         id="history-bulk-alert",
+        style={"display": "block" if is_visible else "none"},
         children=[
             dmc.Alert(
                 id="history-bulk-alert-box",
@@ -167,8 +181,12 @@ def render_runs_table(
     items: list[dict[str, Any]],
     is_admin: bool,
     selected_ids: set[int],
+    total: int = 0,
+    current_page: int = 1,
+    page_size: int = 20,
+    total_pages: int = 1,
 ) -> Any:
-    """Dựng bảng lịch sử run theo thiết kế Screen07."""
+    """Dựng bảng lịch sử run kèm phân trang theo thiết kế Screen07."""
     if not items:
         return empty_state(
             title="Chưa có run nào",
@@ -187,30 +205,42 @@ def render_runs_table(
         all_checked = bool(unpurged_runs) and all(r_id in selected_ids for r_id in unpurged_runs)
         headers.append(
             dmc.TableTh(
-                dmc.Checkbox(
-                    id="history-select-all-cb",
-                    checked=all_checked,
-                    disabled=len(unpurged_runs) == 0,
-                    **{"aria-label": "Chọn tất cả run chưa xóa dữ liệu tạm"},
+                dmc.Center(
+                    dmc.Checkbox(
+                        id="history-select-all-cb",
+                        checked=all_checked,
+                        disabled=len(unpurged_runs) == 0,
+                        size="sm",
+                        style={"cursor": "pointer" if unpurged_runs else "default"},
+                        **{"aria-label": "Chọn tất cả run chưa xóa dữ liệu tạm"},
+                    )
                 ),
-                w=40,
+                w=44,
+                style={
+                    "width": "44px",
+                    "minWidth": "44px",
+                    "maxWidth": "44px",
+                    "textAlign": "center",
+                    "verticalAlign": "middle",
+                    "padding": "0 8px",
+                },
             )
         )
 
     headers.extend(
         [
-            dmc.TableTh("Run"),
-            dmc.TableTh("Thời gian chạy"),
-            dmc.TableTh("Template"),
-            dmc.TableTh("Profile"),
-            dmc.TableTh("Khoảng tìm kiếm"),
-            dmc.TableTh("File"),
-            dmc.TableTh("Người chạy"),
-            dmc.TableTh("Trạng thái"),
-            dmc.TableTh("Khớp", style={"textAlign": "right"}),
-            dmc.TableTh("Kiểm tra"),
-            dmc.TableTh("Dữ liệu tạm"),
-            dmc.TableTh("", style={"textAlign": "right"}),
+            dmc.TableTh("Run", style={"minWidth": "80px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Thời gian chạy", style={"minWidth": "110px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Template", style={"minWidth": "150px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Profile", style={"minWidth": "110px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Khoảng tìm kiếm", style={"minWidth": "160px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("File", style={"minWidth": "160px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Người chạy", style={"minWidth": "100px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Trạng thái", style={"minWidth": "120px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Khớp", style={"minWidth": "80px", "textAlign": "right", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Kiểm tra", style={"minWidth": "130px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Dữ liệu tạm", style={"minWidth": "150px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Thao tác", style={"minWidth": "110px", "textAlign": "right", "whiteSpace": "nowrap"}),
         ]
     )
 
@@ -226,12 +256,25 @@ def render_runs_table(
         if is_admin:
             tds.append(
                 dmc.TableTd(
-                    dmc.Checkbox(
-                        id={"type": "history-run-cb", "index": r_id},
-                        checked=is_selected and not is_purged,
-                        disabled=is_purged,
-                        **{"aria-label": f"Chọn run #{r_id}"},
-                    )
+                    dmc.Center(
+                        dmc.Checkbox(
+                            id={"type": "history-run-cb", "index": r_id},
+                            checked=is_selected and not is_purged,
+                            disabled=is_purged,
+                            size="sm",
+                            style={"cursor": "pointer" if not is_purged else "default"},
+                            **{"aria-label": f"Chọn run #{r_id}"},
+                        )
+                    ),
+                    w=44,
+                    style={
+                        "width": "44px",
+                        "minWidth": "44px",
+                        "maxWidth": "44px",
+                        "textAlign": "center",
+                        "verticalAlign": "middle",
+                        "padding": "0 8px",
+                    },
                 )
             )
 
@@ -244,36 +287,80 @@ def render_runs_table(
                     className="rh-code",
                     fw=600,
                     underline="hover",
-                )
+                ),
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
             )
         )
 
         # Thời gian chạy
-        tds.append(dmc.TableTd(format_short_dt(r.get("created_at"))))
+        tds.append(
+            dmc.TableTd(
+                format_short_dt(r.get("created_at")),
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+            )
+        )
 
         # Template code + ver
         ver_text = f" v{r['template_version']}" if r.get("template_version") else ""
         t_code = r.get("template_code") or r.get("template_name") or "Template"
-        tds.append(dmc.TableTd(f"{t_code}{ver_text}", className="rh-code"))
+        tds.append(
+            dmc.TableTd(
+                f"{t_code}{ver_text}",
+                className="rh-code",
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+            )
+        )
 
         # Profile code
-        tds.append(dmc.TableTd(r.get("profile_code") or "—"))
+        tds.append(
+            dmc.TableTd(
+                r.get("profile_code") or "—",
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+            )
+        )
 
         # Khoảng tìm kiếm
         tds.append(
             dmc.TableTd(
                 format_date_range(r.get("p_from"), r.get("p_to")),
                 className="rh-code",
-                style={"whiteSpace": "nowrap"},
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
             )
         )
 
         # File gốc
         f_name = r.get("filename") or "—"
-        tds.append(dmc.TableTd(f_name, style={"maxWidth": 180, "overflow": "hidden", "textOverflow": "ellipsis"}))
+        tds.append(
+            dmc.TableTd(
+                dmc.Tooltip(
+                    label=f_name,
+                    children=dmc.Text(
+                        f_name,
+                        size="sm",
+                        style={
+                            "maxWidth": "180px",
+                            "overflow": "hidden",
+                            "textOverflow": "ellipsis",
+                            "whiteSpace": "nowrap",
+                        },
+                    ),
+                    multiline=True,
+                    withArrow=True,
+                )
+                if f_name != "—"
+                else dmc.Text("—", size="sm", c="dimmed"),
+                style={"maxWidth": "180px", "verticalAlign": "middle"},
+            )
+        )
 
         # Người chạy
-        tds.append(dmc.TableTd(r.get("created_by") or "—", className="rh-code"))
+        tds.append(
+            dmc.TableTd(
+                r.get("created_by") or "—",
+                className="rh-code",
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+            )
+        )
 
         # Trạng thái run
         status_val = r.get("status", "QUEUED")
@@ -294,7 +381,7 @@ def render_runs_table(
             chip_node = status_chip("FAILED", label="Lỗi", icon="lucide:alert-triangle")
         else:
             chip_node = status_chip(status_val)
-        tds.append(dmc.TableTd(chip_node))
+        tds.append(dmc.TableTd(chip_node, style={"whiteSpace": "nowrap", "verticalAlign": "middle"}))
 
         # % Khớp
         match_pct = r.get("match_pct")
@@ -303,7 +390,7 @@ def render_runs_table(
             pct_node = dmc.Text(pct_fmt, size="sm", fw=500, style={"textAlign": "right"})
         else:
             pct_node = dmc.Text("—", size="sm", c="dimmed", style={"textAlign": "right"})
-        tds.append(dmc.TableTd(pct_node))
+        tds.append(dmc.TableTd(pct_node, style={"whiteSpace": "nowrap", "verticalAlign": "middle"}))
 
         # Trạng thái kiểm tra
         if r.get("checked_at"):
@@ -312,7 +399,7 @@ def render_runs_table(
             chk_chip = status_chip("CHECKED", label=label_chk, icon="lucide:check")
         else:
             chk_chip = status_chip("UNCHECKED", label="Chưa kiểm tra", icon="lucide:circle")
-        tds.append(dmc.TableTd(chk_chip))
+        tds.append(dmc.TableTd(chk_chip, style={"whiteSpace": "nowrap", "verticalAlign": "middle"}))
 
         # Trạng thái dữ liệu tạm
         if is_purged:
@@ -320,7 +407,6 @@ def render_runs_table(
             temp_chip = status_chip("PURGED", label=f"Đã xóa {purged_date}", icon="lucide:trash-2")
         else:
             sz_fmt = format_bytes(r.get("file_size") or (1024 * 1024 * 3))
-            # Kiểm tra xem có quá hạn 30 ngày không
             created_dt = None
             if r.get("created_at"):
                 try:
@@ -333,7 +419,7 @@ def render_runs_table(
             else:
                 temp_label = f"Còn · {sz_fmt}"
             temp_chip = status_chip("RETAINED", label=temp_label, icon="lucide:database")
-        tds.append(dmc.TableTd(temp_chip))
+        tds.append(dmc.TableTd(temp_chip, style={"whiteSpace": "nowrap", "verticalAlign": "middle"}))
 
         # Nút thao tác
         actions_group = [
@@ -350,26 +436,60 @@ def render_runs_table(
                 )
             )
 
-        tds.append(dmc.TableTd(dmc.Group(actions_group, gap=4, justify="flex-end")))
+        tds.append(
+            dmc.TableTd(
+                dmc.Group(actions_group, gap=4, justify="flex-end"),
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+            )
+        )
         rows.append(dmc.TableTr(tds))
 
-    return html.Div(
-        dmc.Card(
-            dmc.Table(
-                [
-                    dmc.TableThead(dmc.TableTr(headers)),
-                    dmc.TableTbody(rows),
-                ],
-                striped=False,
-                highlightOnHover=True,
-                withTableBorder=False,
-                withColumnBorders=False,
+    # Thanh phân trang ở chân bảng
+    start_idx = (current_page - 1) * page_size + 1 if total > 0 else 0
+    end_idx = min(current_page * page_size, total)
+
+    pagination_bar = dmc.Group(
+        justify="space-between",
+        align="center",
+        p="md",
+        style={"borderTop": "1px solid var(--border-subtle, #e2e8f0)"},
+        children=[
+            dmc.Text(
+                f"Hiển thị {start_idx} – {end_idx} trong tổng số {total} run",
+                size="sm",
+                c="dimmed",
+                fw=500,
             ),
-            withBorder=True,
-            padding=0,
-            radius="sm",
-        ),
-        style={"overflowX": "auto"},
+            dmc.Pagination(
+                id="history-pagination",
+                total=max(total_pages, 1),
+                value=current_page,
+                size="sm",
+            ),
+        ],
+    )
+
+    return dmc.Card(
+        [
+            dmc.TableScrollContainer(
+                minWidth=1320,
+                children=dmc.Table(
+                    [
+                        dmc.TableThead(dmc.TableTr(headers)),
+                        dmc.TableTbody(rows),
+                    ],
+                    striped=False,
+                    highlightOnHover=True,
+                    withTableBorder=False,
+                    withColumnBorders=False,
+                    verticalSpacing="sm",
+                ),
+            ),
+            pagination_bar,
+        ],
+        withBorder=True,
+        padding=0,
+        radius="sm",
     )
 
 
@@ -381,6 +501,9 @@ def render_bulk_purge_modal() -> dmc.Modal:
         title=dmc.Text("Xóa dữ liệu tạm của run đã chọn", fw=700, size="lg"),
         centered=True,
         size="md",
+        withCloseButton=True,
+        closeOnClickOutside=True,
+        closeOnEscape=True,
         children=[
             dmc.Stack(
                 [
@@ -468,7 +591,6 @@ def render_bulk_purge_modal() -> dmc.Modal:
 def layout() -> html.Div:
     """Giao diện chính màn hình Lịch sử run."""
     ctx = get_current_ctx()
-    # Danh sách template cho dropdown bộ lọc
     tpl_options: list[dict[str, str]] = []
     usr_options: list[dict[str, str]] = []
     if ctx:
@@ -485,16 +607,22 @@ def layout() -> html.Div:
         except Exception:
             pass
 
+    is_admin = bool(ctx and Role.ADMIN in ctx.roles)
+
     return html.Div(
         [
             dcc.Store(id="history-selected-runs-store", data=[]),
+            dcc.Store(id="history-page-store", data=1),
             dcc.Store(id="history-refresh-trigger", data=0),
             html.Div(id="history-notification-area"),
             dmc.Stack(
                 [
                     render_header(count=0),
                     render_filter_bar(tpl_options, usr_options),
-                    html.Div(id="history-bulk-alert-container"),
+                    html.Div(
+                        id="history-bulk-alert-container",
+                        children=render_bulk_alert(0, is_admin),
+                    ),
                     dcc.Loading(
                         id="history-loading",
                         type="circle",
@@ -510,6 +638,38 @@ def layout() -> html.Div:
 
 
 @callback(
+    Output("history-page-store", "data"),
+    Input("history-pagination", "value"),
+    Input("history-filter-date-range", "value"),
+    Input("history-filter-template", "value"),
+    Input("history-filter-checked", "value"),
+    Input("history-filter-purged", "value"),
+    Input("history-filter-user", "value"),
+    Input("history-filter-filename", "value"),
+    State("history-page-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_history_page(
+    page_val: int | None,
+    _dt: Any,
+    _tpl: Any,
+    _chk: Any,
+    _purge: Any,
+    _usr: Any,
+    _fn: Any,
+    current_page: int,
+) -> int:
+    """Xử lý chuyển trang hoặc reset về trang 1 khi thay đổi bộ lọc."""
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return 1
+    trigger_prop = ctx_dash.triggered[0]["prop_id"]
+    if "history-pagination" in trigger_prop and page_val:
+        return int(page_val)
+    return 1
+
+
+@callback(
     Output("history-table-container", "children"),
     Output("history-title", "children"),
     Input("history-filter-template", "value"),
@@ -517,19 +677,23 @@ def layout() -> html.Div:
     Input("history-filter-purged", "value"),
     Input("history-filter-user", "value"),
     Input("history-filter-filename", "value"),
+    Input("history-filter-date-range", "value"),
+    Input("history-page-store", "data"),
     Input("history-refresh-trigger", "data"),
-    Input("history-selected-runs-store", "data"),
+    State("history-selected-runs-store", "data"),
 )
 def update_history_table(
-    tpl_val: str | None,
-    chk_val: str | None,
-    purge_val: str | None,
-    usr_val: str | None,
-    file_val: str | None,
-    _refresh: int,
-    selected_data: list[int] | None,
+    tpl_val: str | None = "ALL",
+    chk_val: str | None = "ALL",
+    purge_val: str | None = "ALL",
+    usr_val: str | None = "ALL",
+    file_val: str | None = "",
+    date_range_or_refresh: Any = None,
+    page_or_selected: Any = 1,
+    refresh_val: int = 0,
+    selected_data: list[int] | None = None,
 ) -> tuple[Any, str]:
-    """Cập nhật bảng danh sách run theo các bộ lọc tiêu chí."""
+    """Cập nhật bảng danh sách run theo các bộ lọc tiêu chí và phân trang."""
     ctx = get_current_ctx()
     if ctx is None:
         return (
@@ -540,8 +704,19 @@ def update_history_table(
             "Lịch sử run",
         )
 
+    # Tương thích nếu hàm được gọi trực tiếp với 7 tham số từ test cũ:
+    # update_history_table(tpl, chk, purge, usr, file, _refresh, selected_data)
+    if isinstance(date_range_or_refresh, int):
+        date_range = None
+        current_page = 1
+        selected_ids_input = page_or_selected if isinstance(page_or_selected, (list, set)) else []
+    else:
+        date_range = date_range_or_refresh
+        current_page = int(page_or_selected) if page_or_selected else 1
+        selected_ids_input = selected_data or []
+
     is_admin = Role.ADMIN in ctx.roles
-    selected_ids = set(selected_data or [])
+    selected_ids = set(selected_ids_input)
 
     # Xây dựng filter object
     template_id = int(tpl_val) if tpl_val and tpl_val != "ALL" and str(tpl_val).isdigit() else None
@@ -560,14 +735,43 @@ def update_history_table(
     elif purge_val == "RETAINED":
         is_temp_purged = False
 
+    # Xử lý lọc theo khoảng thời gian chạy
+    from_date: datetime | None = None
+    to_date: datetime | None = None
+    date_title_suffix = ""
+
+    if date_range and isinstance(date_range, (list, tuple)) and len(date_range) > 0:
+        start_str = date_range[0]
+        end_str = date_range[1] if len(date_range) > 1 else None
+        if start_str:
+            try:
+                from_date = datetime.strptime(start_str, "%Y-%m-%d").replace(hour=0, minute=0, second=0)
+            except Exception:
+                pass
+        if end_str:
+            try:
+                to_date = datetime.strptime(end_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            except Exception:
+                pass
+
+        if from_date and to_date:
+            if from_date.month == to_date.month and from_date.year == to_date.year:
+                date_title_suffix = f"trong tháng {from_date.strftime('%m/%Y')}"
+            else:
+                date_title_suffix = f"({from_date.strftime('%d/%m/%Y')} → {to_date.strftime('%d/%m/%Y')})"
+        elif from_date:
+            date_title_suffix = f"(từ {from_date.strftime('%d/%m/%Y')})"
+
     filter_obj = RunListFilter(
         template_id=template_id,
         created_by=created_by,
         filename=filename_search,
         is_checked=is_checked,
         is_temp_purged=is_temp_purged,
-        page=1,
-        page_size=100,
+        from_date=from_date,
+        to_date=to_date,
+        page=current_page,
+        page_size=20,
     )
 
     try:
@@ -584,11 +788,21 @@ def update_history_table(
 
         items = res.data.get("items", []) if res.data else []
         total = res.data.get("total", len(items)) if res.data else 0
+        total_pages = res.data.get("total_pages", 1) if res.data else 1
 
-        my = datetime.now().strftime("tháng %m/%Y")
-        title_text = f"Lịch sử: {total} run trong {my}"
+        if not date_title_suffix:
+            date_title_suffix = datetime.now().strftime("trong tháng %m/%Y")
+        title_text = f"Lịch sử: {total} run {date_title_suffix}".strip()
 
-        table_node = render_runs_table(items, is_admin=is_admin, selected_ids=selected_ids)
+        table_node = render_runs_table(
+            items,
+            is_admin=is_admin,
+            selected_ids=selected_ids,
+            total=total,
+            current_page=current_page,
+            page_size=20,
+            total_pages=total_pages,
+        )
         return table_node, title_text
 
     except Exception as e:
@@ -636,7 +850,6 @@ def handle_run_selection(
     # Nếu trigger là "history-select-all-cb"
     if "history-select-all-cb" in trigger_id:
         if select_all_val:
-            # Lấy tất cả IDs từ inputs
             all_inputs = ctx_dash.inputs_list[0]
             ids = [item["id"]["index"] for item in all_inputs]
             return ids
@@ -661,26 +874,34 @@ def handle_run_selection(
     Output("history-bulk-confirm-error", "children"),
     Input("history-open-bulk-modal-btn", "n_clicks"),
     Input("history-bulk-cancel-btn", "n_clicks"),
+    State("history-bulk-purge-modal", "opened"),
     State("history-selected-runs-store", "data"),
     prevent_initial_call=True,
 )
 def toggle_bulk_purge_modal(
     open_clicks: int | None,
     cancel_clicks: int | None,
+    is_opened: bool,
     selected_data: list[int] | None,
-) -> tuple[bool, str, str, dict[str, str], str]:
+) -> tuple[Any, ...]:
     """Mở hoặc đóng hộp thoại xác nhận xóa dữ liệu tạm của các run đã chọn."""
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
         return False, "", "", {"display": "none"}, ""
 
-    trigger = ctx_dash.triggered[0]["prop_id"]
-    if "history-bulk-cancel-btn" in trigger:
+    trigger_id = ctx_dash.triggered[0]["prop_id"]
+
+    # Đóng modal khi bấm Hủy
+    if "history-bulk-cancel-btn" in trigger_id:
         return False, "", "", {"display": "none"}, ""
 
-    count = len(selected_data or [])
-    summary = f"Đã chọn {count} run. Dữ liệu tạm của các run này sẽ được giải phóng khỏi ổ đĩa."
-    return True, summary, "", {"display": "none"}, ""
+    # Mở modal khi người dùng bấm thật sự vào nút "Xóa dữ liệu tạm"
+    if "history-open-bulk-modal-btn" in trigger_id and open_clicks and open_clicks > 0:
+        count = len(selected_data or [])
+        summary = f"Đã chọn {count} run. Dữ liệu tạm của các run này sẽ được giải phóng khỏi ổ đĩa."
+        return True, summary, "", {"display": "none"}, ""
+
+    return False, "", "", {"display": "none"}, ""
 
 
 @callback(
@@ -703,7 +924,7 @@ def handle_confirm_bulk_purge(
     refresh_count: int,
 ) -> tuple[Any, ...]:
     """Thực thi xóa dữ liệu tạm của danh sách run khi nhập đúng từ khóa 'XOA'."""
-    if not n_clicks:
+    if not n_clicks or n_clicks <= 0:
         return {"display": "none"}, "", dash.no_update, dash.no_update, dash.no_update, None
 
     if not confirm_text or confirm_text.strip() != "XOA":

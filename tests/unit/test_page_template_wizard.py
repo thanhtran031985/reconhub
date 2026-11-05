@@ -230,3 +230,631 @@ def test_render_diagrams_tab(wizard_env) -> None:
     assert diag_content["display"] == "block"
     assert ft_nav["display"] == "none"
     assert diag_children is not None
+
+
+def test_handle_wizard_file_upload(wizard_env, monkeypatch) -> None:
+    import base64
+
+    from app.ui.pages.template_wizard import handle_wizard_file_upload, render_step_1, render_step_2
+
+    owner_ctx = Ctx(user_id=1, username="owner", full_name="Owner", roles=[Role.TEMPLATE_OWNER])
+    monkeypatch.setattr("app.ui.pages.template_wizard.get_current_ctx", lambda: owner_ctx)
+
+    sample_bytes = Path("samples/dtp_sample_200.xlsx").read_bytes()
+    b64_content = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64," + base64.b64encode(
+        sample_bytes
+    ).decode("ascii")
+
+    sample_file_data, cfg, err, notif = handle_wizard_file_upload(
+        b64_content,
+        "dtp_sample_200.xlsx",
+        {},
+    )
+
+    assert err is None
+    assert notif is not None
+    assert sample_file_data is not None
+    assert sample_file_data["filename"] == "dtp_sample_200.xlsx"
+    assert sample_file_data["sheet"] == "BÁO CÁO DTP"
+    assert sample_file_data["total_rows"] >= 200
+    assert sample_file_data["total_cols"] >= 18
+    assert len(sample_file_data["preview_rows"]) == 5
+    assert len(sample_file_data["candidate_total_rows"]) >= 1
+
+    assert cfg["file"]["sheet"] == "BÁO CÁO DTP"
+    assert len(cfg["fields"]) >= 18
+
+    # Render Step 1 with uploaded sample file data
+    step1_ui = render_step_1(cfg, sample_data=sample_file_data)
+    assert step1_ui is not None
+    s1 = str(step1_ui)
+    assert "dtp_sample_200.xlsx" in s1
+    assert "BÁO CÁO DTP" in s1
+    assert "Xem trước 5 dòng" in s1
+
+    # Render Step 2 with populated fields
+    step2_ui = render_step_2(cfg)
+    assert step2_ui is not None
+    s2 = str(step2_ui)
+    assert "Cột Excel → Trường logic" in s2
+    assert "SO_HOA_DON" in s2
+
+
+def test_step_3_switch_db_mode() -> None:
+    from app.ui.pages.template_wizard import handle_switch_db_mode
+
+    # Switch to SQL mode
+    t_style, s_style, gen_style, cfg = handle_switch_db_mode("sql", {"db_source": {}})
+    assert t_style == {"display": "none"}
+    assert s_style == {"display": "block"}
+    assert gen_style == {"display": "none"}
+    assert cfg["db_source"]["kind"] == "sql"
+
+    # Switch back to Table mode
+    t_style, s_style, gen_style, cfg = handle_switch_db_mode("table", cfg)
+    assert t_style == {"display": "block"}
+    assert s_style == {"display": "none"}
+    assert gen_style == {"display": "block"}
+    assert cfg["db_source"]["kind"] == "table"
+
+
+def test_step_3_auto_match_db_columns() -> None:
+    from app.ui.pages.template_wizard import _auto_match_db_columns
+
+    fields = [
+        {"name": "INVOICE_NO", "label": "Số hóa đơn", "excel": "Số hóa đơn", "db": None},
+        {"name": "INV_DATETIME", "label": "Ngày lập", "excel": "Ngày lập hóa đơn", "db": None},
+        {"name": "AMOUNT", "label": "Thành tiền", "excel": "Thành tiền", "db": None},
+        {"name": "UNKNOWN_FIELD", "label": "Trường lạ", "excel": "Trường lạ", "db": None},
+    ]
+
+    db_cols = [
+        ("INVOICE_NO", "VARCHAR2(30)"),
+        ("INVOICE_DATE", "DATE"),
+        ("AMOUNT", "NUMBER(18,2)"),
+        ("CUSTOMER_ID", "NUMBER(10)"),
+    ]
+
+    updated = _auto_match_db_columns(fields, db_cols)
+    matched_map = {f["name"]: f.get("db") for f in updated}
+    assert matched_map["INVOICE_NO"] == "INVOICE_NO"
+    assert matched_map["INV_DATETIME"] == "INVOICE_DATE"
+    assert matched_map["AMOUNT"] == "AMOUNT"
+    assert matched_map["UNKNOWN_FIELD"] is None
+
+
+def test_step_3_handle_check_custom_sql(monkeypatch) -> None:
+    from app.core.context import Ctx, Role
+    from app.ui.pages.template_wizard import handle_check_custom_sql
+
+    owner_ctx = Ctx(user_id=1, username="owner", full_name="Owner", roles=[Role.TEMPLATE_OWNER])
+    monkeypatch.setattr("app.ui.pages.template_wizard.get_current_ctx", lambda: owner_ctx)
+
+    # 1. Invalid SQL (disallowed command: DELETE)
+    alert, chips, mapping, filters, cfg = handle_check_custom_sql(
+        1,
+        "DELETE FROM DATARAW.FACT_BILL",
+        "GMD_DEV",
+        {"fields": []},
+    )
+    assert alert is not None
+    assert "không hợp lệ" in str(alert) or "Chỉ chấp nhận lệnh SELECT" in str(alert)
+
+    # 2. Empty SQL
+    alert, _, _, _, _ = handle_check_custom_sql(
+        1,
+        "   ",
+        "GMD_DEV",
+        {"fields": []},
+    )
+    assert alert is not None
+    assert "Vui lòng nhập câu lệnh SQL" in str(alert)
+
+
+def test_step_4_grain_and_sql_helpers() -> None:
+    from app.ui.pages.template_wizard import _calculate_grain_info, _render_profile_grouped_sql
+
+    tot, grp, desc = _calculate_grain_info(["INVOICE_NO"], {"total_rows": 200})
+    assert tot == 200
+    # Không có cột mẫu để khớp thì không tự điền số nhóm giả.
+    assert grp == 0
+    assert "Chưa tính được" in desc
+    tot2, grp2, _desc2 = _calculate_grain_info(
+        ["INVOICE_NO"],
+        {
+            "total_rows": 200,
+            "columns": [{"name": "INVOICE_NO", "suggested_field_name": "INVOICE_NO", "unique_count": 190}],
+        },
+    )
+    assert tot2 == 200
+    assert grp2 == 190
+
+    config = {
+        "db_source": {
+            "source_id": "GMD_DEV",
+            "table": "DATARAW.FACT_BILL",
+            "params": [
+                {"name": "p_from", "db_col": "INVOICE_DATE", "op": ">=", "type": "datetime"},
+                {"name": "p_to", "db_col": "INVOICE_DATE", "op": "<=", "type": "datetime"},
+            ],
+        }
+    }
+    sql = _render_profile_grouped_sql(
+        config,
+        ["INVOICE_NO"],
+        [{"name": "TOTAL_AMOUNT", "agg": "sum", "field": "AMOUNT"}],
+    )
+    assert "GROUP BY" in sql
+    assert 'UPPER(TRIM(src."INVOICE_NO"))' in sql
+    assert 'SUM(src."AMOUNT")' in sql
+    assert "FROM" in sql and ") src" in sql
+
+
+def test_step_4_callbacks(monkeypatch) -> None:
+    import json
+    from types import SimpleNamespace
+
+    from app.ui.pages.template_wizard import handle_step4_interaction, handle_step4_measure_edits
+
+    cfg = {
+        "fields": [
+            {"name": "INVOICE_NO", "label": "Số HĐ", "type": "text"},
+            {"name": "AMOUNT", "label": "Tiền", "type": "number"},
+            {"name": "LINE_NO", "label": "Dòng", "type": "integer"},
+        ],
+        "profiles": [
+            {
+                "code": "BY_INVOICE",
+                "name": "Theo số hóa đơn",
+                "group_by": ["INVOICE_NO"],
+                "measures": [
+                    {
+                        "name": "TOTAL_AMOUNT",
+                        "label": "Tổng tiền",
+                        "agg": "sum",
+                        "field": "AMOUNT",
+                        "compare": "abs_tol",
+                        "tolerance": 1,
+                    }
+                ],
+                "main_measure": "TOTAL_AMOUNT",
+            }
+        ],
+    }
+
+    # 1. Test adding a profile
+    mock_ctx = SimpleNamespace(triggered=[{"prop_id": "wizard-add-profile-btn.n_clicks", "value": 1}])
+    monkeypatch.setattr("dash.callback_context", mock_ctx)
+    right_ui, cfg_out, active_store, left_ui, tabs_ui, tab_val = handle_step4_interaction(
+        None, 1, None, None, None, None, None, [], [], [], [], cfg, "BY_INVOICE", None
+    )
+    assert len(cfg_out["profiles"]) == 2
+    assert active_store == cfg_out["profiles"][1]["code"]
+
+    # 2. Test toggling group_by key
+    key_prop = json.dumps({"type": "wizard-field-key-btn", "index": "AMOUNT"}) + ".n_clicks"
+    mock_ctx = SimpleNamespace(triggered=[{"prop_id": key_prop, "value": 1}])
+    monkeypatch.setattr("dash.callback_context", mock_ctx)
+    right_ui2, cfg_out2, _, _, _, _ = handle_step4_interaction(
+        None, None, None, None, None, None, None, [1], [], [], [], cfg, "BY_INVOICE", None
+    )
+    assert "AMOUNT" in cfg_out2["profiles"][0]["group_by"]
+
+    # 3. Test renaming profile name
+    mock_ctx = SimpleNamespace(triggered=[{"prop_id": "wizard-profile-name-input.value", "value": "Theo đơn hàng"}])
+    monkeypatch.setattr("dash.callback_context", mock_ctx)
+    _, cfg_out3, _, _, tabs_ui3, _ = handle_step4_interaction(
+        None, None, None, "Theo đơn hàng", None, None, None, [], [], [], [], cfg_out2, "BY_INVOICE", None
+    )
+    assert cfg_out3["profiles"][0]["name"] == "Theo đơn hàng"
+    assert "Theo đơn hàng" in str(tabs_ui3)
+
+    # 4. Test renaming profile code
+    mock_ctx = SimpleNamespace(triggered=[{"prop_id": "wizard-profile-code-input.value", "value": "BY_ORDER"}])
+    monkeypatch.setattr("dash.callback_context", mock_ctx)
+    _, cfg_out4, act_store4, _, _, tab_v4 = handle_step4_interaction(
+        None, None, None, None, "BY_ORDER", None, None, [], [], [], [], cfg_out3, "BY_INVOICE", None
+    )
+    assert cfg_out4["profiles"][0]["code"] == "BY_ORDER"
+    assert act_store4 == "BY_ORDER"
+    assert tab_v4 == "BY_ORDER"
+
+    # 5. Test deleting profile (when 2 profiles exist)
+    cfg_2profs = {
+        **cfg_out4,
+        "profiles": [
+            *cfg_out4["profiles"],
+            {"code": "BY_DATE", "name": "Theo ngày", "group_by": ["INV_DATE"], "measures": []},
+        ],
+    }
+    mock_ctx = SimpleNamespace(triggered=[{"prop_id": "wizard-delete-profile-btn.n_clicks", "value": 1}])
+    monkeypatch.setattr("dash.callback_context", mock_ctx)
+    right_ui5, cfg_out5, act_store5, _, _, tab_v5 = handle_step4_interaction(
+        None, None, 1, None, None, None, None, [], [], [], [], cfg_2profs, "BY_DATE", None
+    )
+    assert len(cfg_out5["profiles"]) == 1
+    assert cfg_out5["profiles"][0]["code"] == "BY_ORDER"
+    assert act_store5 == "BY_ORDER"
+    assert tab_v5 == "BY_ORDER"
+
+    # 6. Test measure edits
+    edit_prop = json.dumps({"type": "wizard-m-tol", "index": 0}) + ".value"
+    mock_ctx = SimpleNamespace(triggered=[{"prop_id": edit_prop, "value": 5}])
+    monkeypatch.setattr("dash.callback_context", mock_ctx)
+    cfg_edit, sql_code = handle_step4_measure_edits(
+        ["TOTAL_AMOUNT"],
+        ["Tổng tiền"],
+        ["sum"],
+        ["AMOUNT"],
+        ["abs_tol"],
+        [5],
+        [0],
+        None,
+        None,
+        cfg,
+        "BY_INVOICE",
+    )
+    assert cfg_edit["profiles"][0]["measures"][0]["tolerance"] == 5
+    assert 'SUM(src."AMOUNT")' in str(sql_code)
+
+
+def test_step_1_clean_state_when_no_sample_file() -> None:
+    from app.ui.pages.template_wizard import build_default_config, render_step_1
+
+    default_cfg = build_default_config()
+    assert default_cfg["file"]["sheet"] == ""
+    assert default_cfg["fields"] == []
+    assert default_cfg["profiles"][0]["code"] == "PROFILE_1"
+
+    # Render Step 1 with empty config and no sample_data
+    step1_ui = render_step_1(default_cfg, sample_data=None)
+    assert step1_ui is not None
+    s1 = str(step1_ui)
+    assert "Kéo thả file Excel hoặc CSV vào đây" in s1
+    assert "Chưa có dữ liệu xem trước" in s1
+    assert "dtp_sample_200.xlsx" not in s1
+
+
+def test_wizard_layout_edit_existing_template_by_code(wizard_env: object, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.context import Ctx, Role
+    from app.services.template import save_draft_template
+    from app.ui.pages.template_wizard import layout
+
+    admin_ctx = Ctx(user_id=1, username="admin", full_name="Admin", roles=[Role.ADMIN])
+    monkeypatch.setattr("app.ui.pages.template_wizard.get_current_ctx", lambda: admin_ctx)
+
+    cfg = load_sample_config()
+    res = save_draft_template(admin_ctx, code="BILL_SMART_PORT_BDP", name="Doanh thu smartport BDP", config=cfg)
+    assert res.ok
+
+    page = layout(template_id="BILL_SMART_PORT_BDP")
+    assert page is not None
+    page_str = str(page)
+
+    assert "Sửa template: BILL_SMART_PORT_BDP" in page_str
+
+
+def test_code_block_contrast() -> None:
+    from app.ui.components.code_block import code_block
+
+    cb = code_block("SELECT * FROM FACT_BILL", language="sql")
+    assert cb is not None
+    style = getattr(cb, "style", {})
+    assert style.get("backgroundColor") == "var(--code-bg, #0F1B33)"
+    assert style.get("color") == "var(--code-ink, #D6E2FF)"
+
+
+def test_step3_sql_input_change() -> None:
+    from app.ui.pages.template_wizard import handle_sql_input_change
+
+    cfg = {"db_source": {"kind": "sql", "sql": "SELECT 1"}}
+    updated = handle_sql_input_change("SELECT 2 FROM DUAL", cfg)
+    assert updated["db_source"]["sql"] == "SELECT 2 FROM DUAL"
+
+
+def test_validate_wizard_step_blocks_each_step() -> None:
+    from app.ui.pages.template_wizard import validate_wizard_step
+
+    assert validate_wizard_step({}, 0)
+    assert validate_wizard_step({"template_code": "T1", "name": "Test", "fields": []}, 0)
+    assert (
+        validate_wizard_step(
+            {"template_code": "T1", "name": "Test", "fields": [{"name": "AMOUNT", "excel": "AMOUNT"}]},
+            1,
+        )
+        == []
+    )
+    assert validate_wizard_step(
+        {"fields": [{"name": "AMOUNT", "excel": "AMOUNT"}, {"name": "AMOUNT", "excel": "AMOUNT2"}]},
+        1,
+    )
+    assert validate_wizard_step({"db_source": {"kind": "table", "table": "", "filters": []}}, 2)
+    assert (
+        validate_wizard_step(
+            {
+                "db_source": {
+                    "source_id": "TEST_DS",
+                    "kind": "table",
+                    "table": "SCHEMA.TBL",
+                    "filters": [
+                        {"param": "p_from", "column": "CREATED_AT"},
+                        {"param": "p_to", "column": "CREATED_AT"},
+                    ],
+                }
+            },
+            2,
+        )
+        == []
+    )
+    assert validate_wizard_step({"profiles": [{"code": "P1", "group_by": [], "measures": []}]}, 3)
+
+
+def test_step2_field_edits_save_and_rename_propagates() -> None:
+    from app.ui.pages.template_wizard import handle_step2_field_edits
+
+    cfg = {
+        "fields": [
+            {"name": "AMOUNT", "label": "Tiền", "excel": "AMOUNT", "type": "number"},
+            {"name": "QTY", "label": "SL", "excel": "QTY", "type": "number"},
+        ],
+        "derived": [],
+        "profiles": [
+            {
+                "code": "P1",
+                "group_by": ["AMOUNT"],
+                "measures": [{"name": "M1", "field": "AMOUNT"}],
+                "main_measure": "M1",
+            }
+        ],
+    }
+    updated = handle_step2_field_edits(
+        ["TOTAL_AMT", "QTY"],
+        ["Tổng tiền", "SL"],
+        ["number", "number"],
+        [True, False],
+        [],
+        [],
+        [],
+        cfg,
+    )
+    assert updated["fields"][0]["name"] == "TOTAL_AMT"
+    assert updated["fields"][0]["label"] == "Tổng tiền"
+    assert updated["fields"][1]["excel"] is None
+    assert updated["fields"][1]["_unused_excel"] == "QTY"
+    assert updated["profiles"][0]["group_by"] == ["TOTAL_AMT"]
+    assert updated["profiles"][0]["measures"][0]["field"] == "TOTAL_AMT"
+
+
+def test_step3_no_dtp_fallback_for_empty_config(wizard_env, monkeypatch) -> None:
+    from app.core.context import Ctx, Role
+    from app.ui.pages.template_wizard import build_default_config, render_step_3
+
+    owner_ctx = Ctx(user_id=1, username="owner", full_name="Owner", roles=[Role.TEMPLATE_OWNER])
+    monkeypatch.setattr("app.ui.pages.template_wizard.get_current_ctx", lambda: owner_ctx)
+    ui = render_step_3(build_default_config())
+    s = str(ui)
+    assert "FACT_BILL" not in s
+    assert "INVOICE_DATE" not in s
+    assert "Chưa chọn bảng nguồn" in s or "Chưa có thông tin cột nguồn" in s
+
+
+def test_dry_run_no_longer_returns_simulated_numbers() -> None:
+    import dash
+
+    from app.ui.pages.template_wizard import handle_run_dry_run
+
+    err, data, _meta = handle_run_dry_run(
+        1,
+        "2026-02-01 00:00:00",
+        "2026-02-05 23:59:59",
+        "",
+        {},
+        {},
+        None,
+    )
+    assert "190" not in str(data)
+    assert data is dash.no_update or (data or {}).get("dry_run_ok") is not True
+
+
+def test_step4_available_fields_only_mapped_db_columns() -> None:
+    from app.ui.pages.template_wizard import _mapped_fields_info, render_step_4, validate_wizard_step
+
+    cfg = {
+        "fields": [
+            {"name": "INVOICE_NO", "label": "Số HĐ", "excel": "Số HĐ", "db": "INVOICE_NO", "type": "text"},
+            {"name": "SERVICE_NAME", "label": "Dịch vụ", "excel": "Dịch vụ", "db": None, "type": "text"},
+            {"name": "QTY", "label": "SL", "excel": "SL", "db": "QUANTITY", "type": "number"},
+            {"name": "UNUSED", "label": "Không dùng", "excel": None, "db": "UNUSED_COL", "type": "text"},
+        ],
+        "derived": [
+            {
+                "name": "INV_DATE",
+                "label": "Ngày HĐ",
+                "type": "date",
+                "expr": {"fn": "trunc_day", "args": ["INV_DATETIME"]},
+            },
+            {
+                "name": "BAD_DERIVED",
+                "label": "Xấu",
+                "type": "date",
+                "expr": {"fn": "trunc_day", "args": ["SERVICE_NAME"]},
+            },
+        ],
+        "profiles": [{"code": "PROFILE_1", "name": "Profile 1", "is_default": True, "group_by": [], "measures": []}],
+    }
+    # INV_DATETIME chưa có trong fields nên INV_DATE không đủ điều kiện map.
+    names = [f["name"] for f in _mapped_fields_info(cfg)]
+    assert names == ["INVOICE_NO", "QTY"]
+    # Thêm trường gốc đã map cho derived thì derived mới vào danh sách.
+    cfg["fields"].append(
+        {"name": "INV_DATETIME", "label": "Ngày", "excel": "Ngày", "db": "INVOICE_DATE", "type": "datetime"}
+    )
+    names = [f["name"] for f in _mapped_fields_info(cfg)]
+    assert "INV_DATE" in names
+    assert "SERVICE_NAME" not in names
+    assert "BAD_DERIVED" not in names
+    assert "UNUSED" not in names
+
+    ui = render_step_4(cfg)
+    s = str(ui)
+    assert "SERVICE_NAME" not in s or "chưa map" in s
+
+    # Validate chặn Group by / measure dùng trường chưa map.
+    cfg["profiles"][0]["group_by"] = ["SERVICE_NAME"]
+    cfg["profiles"][0]["measures"] = [{"name": "M1", "field": "SERVICE_NAME"}]
+    errs = validate_wizard_step(cfg, 3)
+    assert any("SERVICE_NAME" in e and "chưa map cột DB" in e for e in errs)
+
+
+def test_step4_left_fields_show_excel_db_mapping() -> None:
+    from app.ui.pages.template_wizard import _mapped_fields_info, _render_step_4_left_fields
+
+    cfg = {
+        "fields": [
+            {"name": "SO_HD", "label": "Số HĐ", "excel": "Số HĐ", "db": "INVOICE_NO", "type": "text"},
+            {"name": "INV_DATETIME", "label": "Ngày", "excel": "Ngày", "db": "INVOICE_DATE", "type": "datetime"},
+        ],
+        "derived": [
+            {
+                "name": "NGAY_HD",
+                "label": "Ngày HĐ",
+                "type": "date",
+                "expr": {"fn": "trunc_day", "args": ["INV_DATETIME"]},
+            },
+        ],
+        "profiles": [],
+    }
+    info = _mapped_fields_info(cfg)
+    by_name = {f["name"]: f for f in info}
+    assert by_name["SO_HD"]["excel"] == "Số HĐ"
+    assert by_name["SO_HD"]["db"] == "INVOICE_NO"
+    assert by_name["NGAY_HD"]["derived_from"] == ["INV_DATETIME"]
+    assert by_name["NGAY_HD"]["source_db"] == ["INVOICE_DATE"]
+
+    # Cột trái hiện mapping 2 dòng, không chỉ tên trường.
+    ui = _render_step_4_left_fields(info, ["SO_HD"], ["NGAY_HD"])
+    s = str(ui)
+    assert "Excel: Số HĐ → DB: INVOICE_NO" in s
+    assert "Dẫn xuất từ: INV_DATETIME → DB: INVOICE_DATE" in s
+    # Chìa khóa của trường trong Group by và sigma của trường là
+    # measure đều tô đậm (filled) ở profile đang xem.
+    assert s.count("filled") >= 2
+
+
+def test_default_profile_is_empty_not_guessed() -> None:
+    from app.ui.pages.template_wizard import _build_default_profiles_from_fields
+
+    profs = _build_default_profiles_from_fields([{"name": "INVOICE_NO"}, {"name": "AMOUNT"}, {"name": "QTY"}])
+    assert len(profs) == 1
+    assert profs[0]["group_by"] == []
+    assert profs[0]["measures"] == []
+    assert profs[0]["main_measure"] is None
+    assert "BY_INVOICE" not in str(profs)
+    assert "TOTAL_AMOUNT" not in str(profs)
+
+
+def test_dry_run_error_survives_step5_rerender() -> None:
+    from app.ui.pages.template_wizard import handle_run_dry_run, render_step_5
+
+    err_box, store, _meta = handle_run_dry_run(
+        1,
+        "2026-02-01 00:00:00",
+        "2026-02-05 23:59:59",
+        "",
+        {},
+        {},
+        None,
+    )
+    assert store["stage"] == "validate"
+    assert store["error"]
+    assert "Kiểm tra cấu hình" in str(err_box)
+    # Render lại Bước 5 từ store vẫn phải hiện đúng lỗi, không bị xóa.
+    ui = render_step_5({}, dry_run_data=store)
+    s = str(ui)
+    assert store["error"] in s
+    assert "Tiến trình Dry-run" in s
+
+
+def test_step5_timeline_shows_failed_dry_run_stage() -> None:
+    from app.ui.pages.template_wizard import render_step_5
+
+    store = {
+        "dry_run_ok": False,
+        "stage": "dry_run",
+        "stage_label": "3. Chạy đối soát thật",
+        "error": "Dry-run thất bại: ORA-00942: table or view does not exist (mã: SOURCE_QUERY_FAILED)",
+        "summary": {},
+        "grain_warnings": [],
+    }
+    ui = render_step_5({}, dry_run_data=store)
+    s = str(ui)
+    assert "ORA-00942" in s
+    assert "Chạy đối soát thật" in s
+
+
+def test_dry_run_p_org_required_when_sql_uses_p_org() -> None:
+    from app.ui.pages.template_wizard import _p_org_required, handle_run_dry_run
+
+    cfg_sql = {
+        "template_code": "T1",
+        "name": "Test",
+        "fields": [{"name": "AMOUNT", "excel": "AMOUNT", "db": "AMOUNT"}],
+        "db_source": {
+            "kind": "sql",
+            "source_id": "GMD_DEV",
+            "sql": "SELECT * FROM T WHERE x >= :p_from AND y <= :p_to AND org_code = :p_org",
+            "params": [{"name": "p_org", "type": "text", "source": "default", "default": "", "label": "Đơn vị"}],
+        },
+        "profiles": [{"code": "P1", "group_by": ["AMOUNT"], "measures": [{"name": "M1", "field": "AMOUNT"}]}],
+    }
+    assert _p_org_required(cfg_sql) is True
+    # Chưa nhập p_org và không có mặc định thì chặn ở bước kiểm tra, không
+    # để pipeline báo SQL_NOT_ALLOWED khó hiểu.
+    _err, store, _meta = handle_run_dry_run(
+        1,
+        "2026-02-01 00:00:00",
+        "2026-02-05 23:59:59",
+        "",
+        cfg_sql,
+        {},
+        {"file_id": 1},
+    )
+    assert store["stage"] == "validate"
+    assert ":p_org" in store["error"]
+    assert "Mã đơn vị" in store["error"]
+
+
+def test_build_source_sql_uses_p_org_default() -> None:
+    from app.engine.sql_builder import build_source_sql
+    from app.schemas.template_config import TemplateConfig
+
+    cfg = TemplateConfig.model_validate(
+        {
+            "file": {"sheet": "S", "header_row": 1, "data_start_row": 2},
+            "fields": [{"name": "AMOUNT", "label": "Tiền", "excel": "AMOUNT", "db": "AMOUNT", "type": "number"}],
+            "db_source": {
+                "kind": "sql",
+                "sql": "SELECT AMOUNT FROM T WHERE d >= :p_from AND d <= :p_to AND org_code = :p_org",
+                "params": [
+                    {"name": "p_from", "type": "datetime", "source": "user", "label": "Từ"},
+                    {"name": "p_to", "type": "datetime", "source": "user", "label": "Đến"},
+                    {"name": "p_org", "type": "text", "source": "default", "default": "BDP", "label": "Đơn vị"},
+                ],
+            },
+            "profiles": [
+                {
+                    "code": "P1",
+                    "name": "P1",
+                    "is_default": True,
+                    "group_by": ["AMOUNT"],
+                    "measures": [{"name": "M1", "label": "M1", "agg": "sum", "field": "AMOUNT", "compare": "exact"}],
+                    "aggregate": False,
+                }
+            ],
+        }
+    )
+    sql, binds = build_source_sql(cfg, None, {"p_from": "2026-02-01", "p_to": "2026-02-05"})
+    assert binds["p_org"] == "BDP"
+    # Truyền p_org lúc chạy thì ưu tiên giá trị lúc chạy, không phải mặc định.
+    _sql, binds2 = build_source_sql(cfg, None, {"p_from": "2026-02-01", "p_to": "2026-02-05", "p_org": "HCM"})
+    assert binds2["p_org"] == "HCM"

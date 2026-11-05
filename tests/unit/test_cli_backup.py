@@ -77,6 +77,7 @@ def test_backup_rotation_keeps_max_files(backup_env):
         # Set mtime
         mtime = now_ts + i * 10
         import os
+
         os.utime(dummy_file, (mtime, mtime))
 
     assert len(list(b_dir.glob("recon_app_*.db"))) == 16
@@ -108,6 +109,7 @@ def test_restore_database(backup_env):
 
     engine.dispose()
     import gc
+
     gc.collect()
 
     # 3. Chạy restore_cmd

@@ -114,10 +114,7 @@ def render_filter_bar(
     assignee_options = [
         {"value": "ALL", "label": "Tất cả người xử lý"},
         {"value": "UNASSIGNED", "label": "Chưa giao"},
-    ] + [
-        {"value": str(u["ID"]), "label": f"{u['FULL_NAME'] or u['USERNAME']} (@{u['USERNAME']})"}
-        for u in assignees
-    ]
+    ] + [{"value": str(u["ID"]), "label": f"{u['FULL_NAME'] or u['USERNAME']} (@{u['USERNAME']})"} for u in assignees]
 
     return dmc.Paper(
         withBorder=True,
@@ -167,7 +164,7 @@ def render_issues_table(
     selected_ids: list[int],
     can_edit: bool,
 ) -> Any:
-    """Dựng bảng dữ liệu chênh lệch với checkbox chọn và nút hành động."""
+    """Dựng bảng dữ liệu chênh lệch với checkbox chọn và nút hành động theo chuẩn Screen09."""
     if not issues:
         return empty_state(
             title="Không tìm thấy chênh lệch nào",
@@ -175,27 +172,43 @@ def render_issues_table(
             icon="lucide:check-circle-2",
         )
 
-    all_selected = len(issues) > 0 and all(it["ID"] in selected_ids for it in issues)
-
-    th_checkbox = html.Th(
-        dmc.Checkbox(id="issues-select-all", checked=all_selected) if can_edit else None,
-        style={"width": 40, "textAlign": "center"},
-    )
-
-    thead = html.Thead(
-        html.Tr(
-            [
-                th_checkbox,
-                html.Th("Khóa đối soát"),
-                html.Th("Template & Profile"),
-                html.Th("Trạng thái xử lý"),
-                html.Th("Nguyên nhân"),
-                html.Th("Người xử lý"),
-                html.Th("Lần đầu / Gần nhất"),
-                html.Th("Thao tác", style={"textAlign": "center", "width": 100}),
-            ],
-            style={"background": "var(--bg-subtle, #f8fafc)"},
+    headers = []
+    if can_edit:
+        all_selected = len(issues) > 0 and all(it["ID"] in selected_ids for it in issues)
+        headers.append(
+            dmc.TableTh(
+                dmc.Center(
+                    dmc.Checkbox(
+                        id="issues-select-all",
+                        checked=all_selected,
+                        disabled=len(issues) == 0,
+                        size="sm",
+                        style={"cursor": "pointer" if issues else "default"},
+                        **{"aria-label": "Chọn tất cả chênh lệch"},
+                    )
+                ),
+                w=44,
+                style={
+                    "width": "44px",
+                    "minWidth": "44px",
+                    "maxWidth": "44px",
+                    "textAlign": "center",
+                    "verticalAlign": "middle",
+                    "padding": "0 8px",
+                },
+            )
         )
+
+    headers.extend(
+        [
+            dmc.TableTh("Khóa đối soát", style={"minWidth": "160px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Template & Profile", style={"minWidth": "180px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Trạng thái xử lý", style={"minWidth": "140px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Nguyên nhân", style={"minWidth": "150px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Người xử lý", style={"minWidth": "140px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Lần đầu / Gần nhất", style={"minWidth": "130px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Thao tác", style={"minWidth": "90px", "textAlign": "right", "whiteSpace": "nowrap"}),
+        ]
     )
 
     tbody_rows = []
@@ -203,53 +216,148 @@ def render_issues_table(
         i_id = int(it["ID"])
         is_checked = i_id in selected_ids
 
-        checkbox_cell = html.Td(
-            dmc.Checkbox(
-                id={"type": "issues-row-select", "index": i_id},
-                checked=is_checked,
-            ) if can_edit else None,
-            style={"textAlign": "center"},
-        )
-
-        st = str(it.get("STATUS", "OPEN"))
-        tmpl_label = f"{it.get('TEMPLATE_CODE') or it.get('TEMPLATE_NAME') or '—'} · {it.get('PROFILE_CODE') or 'DEFAULT'}"
-        runs_label = f"#{it.get('FIRST_RUN_ID', '—')} / #{it.get('LAST_RUN_ID', '—')}"
-
-        tbody_rows.append(
-            html.Tr(
-                [
-                    checkbox_cell,
-                    html.Td(html.Span(it.get("KEY_TEXT", "—"), className="mono", style={"fontWeight": 600})),
-                    html.Td(dmc.Text(tmpl_label, size="sm")),
-                    html.Td(status_chip(st)),
-                    html.Td(dmc.Text(it.get("REASON_LABEL") or it.get("REASON_CODE") or "—", size="sm")),
-                    html.Td(
-                        dmc.Text(
-                            it.get("ASSIGNEE_NAME") or (f"@{it.get('ASSIGNEE_USERNAME')}" if it.get("ASSIGNEE_USERNAME") else "—"),
+        tds = []
+        if can_edit:
+            tds.append(
+                dmc.TableTd(
+                    dmc.Center(
+                        dmc.Checkbox(
+                            id={"type": "issues-row-select", "index": i_id},
+                            checked=is_checked,
                             size="sm",
+                            style={"cursor": "pointer"},
+                            **{"aria-label": f"Chọn chênh lệch #{i_id}"},
                         )
                     ),
-                    html.Td(html.Span(runs_label, className="mono", style={"fontSize": "0.85rem", "color": "var(--text-muted)"})),
-                    html.Td(
-                        dmc.Button(
-                            "Xử lý",
-                            id={"type": "issues-row-action", "index": i_id},
-                            variant="subtle",
-                            size="xs",
-                            leftSection=DashIconify(icon="lucide:pencil", width=14),
-                        ),
-                        style={"textAlign": "center"},
-                    ),
-                ],
-                style={"backgroundColor": "rgba(59, 130, 246, 0.04)" if is_checked else "transparent"},
+                    w=44,
+                    style={
+                        "width": "44px",
+                        "minWidth": "44px",
+                        "maxWidth": "44px",
+                        "textAlign": "center",
+                        "verticalAlign": "middle",
+                        "padding": "0 8px",
+                    },
+                )
+            )
+
+        # Khóa đối soát
+        tds.append(
+            dmc.TableTd(
+                dmc.Text(it.get("KEY_TEXT", "—"), fw=600, className="rh-code", size="sm"),
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
             )
         )
 
-    return dmc.Table(
-        striped=True,
-        highlightOnHover=True,
-        withTableBorder=True,
-        children=[thead, html.Tbody(tbody_rows)],
+        # Template & Profile
+        tmpl_label = (
+            f"{it.get('TEMPLATE_CODE') or it.get('TEMPLATE_NAME') or '—'} · {it.get('PROFILE_CODE') or 'DEFAULT'}"
+        )
+        tds.append(
+            dmc.TableTd(
+                dmc.Text(tmpl_label, size="sm"),
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+            )
+        )
+
+        # Trạng thái xử lý
+        st = str(it.get("STATUS", "OPEN"))
+        tds.append(
+            dmc.TableTd(
+                status_chip(st),
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+            )
+        )
+
+        # Nguyên nhân
+        reason_label = it.get("REASON_LABEL") or it.get("REASON_CODE") or "—"
+        tds.append(
+            dmc.TableTd(
+                dmc.Text(reason_label, size="sm"),
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+            )
+        )
+
+        # Người xử lý
+        assignee_label = it.get("ASSIGNEE_NAME") or (
+            f"@{it.get('ASSIGNEE_USERNAME')}" if it.get("ASSIGNEE_USERNAME") else "—"
+        )
+        tds.append(
+            dmc.TableTd(
+                dmc.Text(assignee_label, size="sm", className="rh-code" if it.get("ASSIGNEE_USERNAME") else None),
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+            )
+        )
+
+        # Lần đầu / Gần nhất
+        runs_label = f"#{it.get('FIRST_RUN_ID', '—')} / #{it.get('LAST_RUN_ID', '—')}"
+        tds.append(
+            dmc.TableTd(
+                dmc.Text(runs_label, size="sm", className="rh-code", c="dimmed"),
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+            )
+        )
+
+        # Thao tác
+        action_btn = button_subtle(
+            "Xử lý",
+            id={"type": "issues-row-action", "index": i_id},
+            size="xs",
+            icon="lucide:pencil",
+        )
+        tds.append(
+            dmc.TableTd(
+                dmc.Group([action_btn], justify="flex-end"),
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+            )
+        )
+
+        tbody_rows.append(
+            dmc.TableTr(
+                tds,
+                style={
+                    "backgroundColor": "var(--mantine-color-blue-light)" if is_checked else "transparent",
+                },
+            )
+        )
+
+    # Thanh thống kê ở chân bảng
+    pagination_bar = dmc.Group(
+        justify="space-between",
+        align="center",
+        p="md",
+        style={"borderTop": "1px solid var(--border-subtle, #e2e8f0)"},
+        children=[
+            dmc.Text(
+                f"Hiển thị {len(issues)} chênh lệch",
+                size="sm",
+                c="dimmed",
+                fw=500,
+            ),
+        ],
+    )
+
+    return dmc.Card(
+        [
+            dmc.TableScrollContainer(
+                minWidth=1100,
+                children=dmc.Table(
+                    [
+                        dmc.TableThead(dmc.TableTr(headers)),
+                        dmc.TableTbody(tbody_rows),
+                    ],
+                    striped=False,
+                    highlightOnHover=True,
+                    withTableBorder=False,
+                    withColumnBorders=False,
+                    verticalSpacing="sm",
+                ),
+            ),
+            pagination_bar,
+        ],
+        withBorder=True,
+        padding=0,
+        radius="sm",
     )
 
 
@@ -285,8 +393,7 @@ def layout(**kwargs: Any) -> Any:
     ]
     reason_options = [{"value": r["CODE"], "label": r["LABEL"]} for r in reasons]
     assignee_options = [
-        {"value": str(u["ID"]), "label": f"{u['FULL_NAME'] or u['USERNAME']} (@{u['USERNAME']})"}
-        for u in assignees
+        {"value": str(u["ID"]), "label": f"{u['FULL_NAME'] or u['USERNAME']} (@{u['USERNAME']})"} for u in assignees
     ]
 
     return dmc.Stack(
@@ -303,10 +410,7 @@ def layout(**kwargs: Any) -> Any:
             # Thanh hành động hàng loạt (khi có chọn dòng)
             html.Div(id="issues-bulk-bar-container"),
             # Bảng dữ liệu chênh lệch
-            dmc.Paper(
-                withBorder=True,
-                radius="sm",
-                p=0,
+            html.Div(
                 id="issues-table-container",
                 children=dmc.Center(dmc.Loader(size="md", my="xl")),
             ),
@@ -364,7 +468,9 @@ def layout(**kwargs: Any) -> Any:
                             ],
                             justify="flex-end",
                             mt="sm",
-                        ) if can_edit else None,
+                        )
+                        if can_edit
+                        else None,
                     ],
                     gap="sm",
                 ),
@@ -497,8 +603,7 @@ def render_bulk_action_bar(selected_ids: list[int] | None) -> Any:
     ]
     reason_options = [{"value": r["CODE"], "label": r["LABEL"]} for r in reasons]
     assignee_options = [
-        {"value": str(u["ID"]), "label": f"{u['FULL_NAME'] or u['USERNAME']} (@{u['USERNAME']})"}
-        for u in assignees
+        {"value": str(u["ID"]), "label": f"{u['FULL_NAME'] or u['USERNAME']} (@{u['USERNAME']})"} for u in assignees
     ]
 
     return alert_box(
@@ -571,6 +676,7 @@ def handle_bulk_apply(
     )
 
     import time
+
     return int(time.time()), []
 
 
@@ -596,6 +702,7 @@ def open_issue_edit_drawer(
 
     trigger_prop = ctx_dash.triggered[0]["prop_id"]
     import json
+
     row_meta = json.loads(trigger_prop.split(".")[0])
     issue_id = int(row_meta["index"])
 
@@ -682,4 +789,5 @@ def save_issue_detail(
         return alert_box(f"Lỗi cập nhật: {res.message}", tone="crit"), dash.no_update
 
     import time
+
     return alert_box("Đã lưu cập nhật xử lý chênh lệch.", tone="ok"), int(time.time())

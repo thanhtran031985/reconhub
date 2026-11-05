@@ -88,9 +88,7 @@ def set_maintenance_mode(ctx: Ctx, enabled: bool) -> dict[str, Any]:
     val = "Y" if enabled else "N"
 
     with engine.begin() as conn:
-        exists = conn.execute(
-            select(recon_app_setting.c.KEY).where(recon_app_setting.c.KEY == "MAINTENANCE")
-        ).scalar()
+        exists = conn.execute(select(recon_app_setting.c.KEY).where(recon_app_setting.c.KEY == "MAINTENANCE")).scalar()
         if exists:
             conn.execute(
                 update(recon_app_setting)
@@ -140,9 +138,9 @@ def precheck(
 
     # 1. Kiểm tra Data Source đích
     with src_engine.connect() as conn:
-        ds_row = conn.execute(
-            select(recon_data_source).where(recon_data_source.c.ID == target_ds_id)
-        ).mappings().first()
+        ds_row = (
+            conn.execute(select(recon_data_source).where(recon_data_source.c.ID == target_ds_id)).mappings().first()
+        )
 
     if ds_row is None:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Data Source đích ID {target_ds_id}.")
@@ -156,9 +154,7 @@ def precheck(
     # 2. Kiểm tra không có run nào đang chạy hoặc trong hàng đợi
     with src_engine.connect() as conn:
         busy_runs = conn.execute(
-            select(recon_run.c.ID).where(
-                recon_run.c.STATUS.in_(["QUEUED", "PROCESSING", "RUNNING"])
-            )
+            select(recon_run.c.ID).where(recon_run.c.STATUS.in_(["QUEUED", "PROCESSING", "RUNNING"]))
         ).fetchall()
         if busy_runs:
             busy_ids = [r[0] for r in busy_runs]
@@ -253,9 +249,9 @@ def start_migration(
     precheck(ctx, target_ds_id, mode=mode, mock_target_engine=mock_target_engine)
 
     with src_engine.connect() as conn:
-        ds_row = conn.execute(
-            select(recon_data_source).where(recon_data_source.c.ID == target_ds_id)
-        ).mappings().first()
+        ds_row = (
+            conn.execute(select(recon_data_source).where(recon_data_source.c.ID == target_ds_id)).mappings().first()
+        )
     assert ds_row is not None
 
     target_engine = mock_target_engine or create_engine_for_ds(ds_row)
@@ -356,9 +352,7 @@ def start_migration(
 
         # Bước 4: Checksum trên 3 bảng lớn nhất
         with src_engine.connect() as src_conn, target_engine.connect() as tgt_conn:
-            sorted_tables = sorted(
-                report_rows.items(), key=lambda item: item[1]["source_rows"], reverse=True
-            )[:3]
+            sorted_tables = sorted(report_rows.items(), key=lambda item: item[1]["source_rows"], reverse=True)[:3]
             for t_name, _ in sorted_tables:
                 tbl = metadata.tables[t_name]
                 cs_src = _calculate_table_checksum(src_conn, tbl)
@@ -432,9 +426,9 @@ def clean_target_schema(
     src_engine = get_recon_engine()
 
     with src_engine.connect() as conn:
-        ds_row = conn.execute(
-            select(recon_data_source).where(recon_data_source.c.ID == target_ds_id)
-        ).mappings().first()
+        ds_row = (
+            conn.execute(select(recon_data_source).where(recon_data_source.c.ID == target_ds_id)).mappings().first()
+        )
 
     if ds_row is None:
         raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy Data Source đích.")
@@ -471,9 +465,11 @@ def get_migration_status(ctx: Ctx, migration_id: int) -> dict[str, Any]:
     require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
     with engine.connect() as conn:
-        row = conn.execute(
-            select(recon_metadata_migration).where(recon_metadata_migration.c.ID == migration_id)
-        ).mappings().first()
+        row = (
+            conn.execute(select(recon_metadata_migration).where(recon_metadata_migration.c.ID == migration_id))
+            .mappings()
+            .first()
+        )
     if not row:
         raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy phiên chuyển dữ liệu.")
     return dict(row)
@@ -485,9 +481,11 @@ def list_migrations(ctx: Ctx) -> list[dict[str, Any]]:
     require_role(ctx, Role.ADMIN)
     engine = get_recon_engine()
     with engine.connect() as conn:
-        rows = conn.execute(
-            select(recon_metadata_migration).order_by(recon_metadata_migration.c.ID.desc())
-        ).mappings().all()
+        rows = (
+            conn.execute(select(recon_metadata_migration).order_by(recon_metadata_migration.c.ID.desc()))
+            .mappings()
+            .all()
+        )
     return [dict(r) for r in rows]
 
 
@@ -516,14 +514,18 @@ def delete_old_sqlite(
         target_file = Path(target_sqlite_path)
     else:
         with engine.connect() as conn:
-            mig_row = conn.execute(
-                select(recon_metadata_migration)
-                .where(
-                    recon_metadata_migration.c.STATUS == "DONE",
-                    recon_metadata_migration.c.OLD_SQLITE_DELETED_AT.is_(None),
+            mig_row = (
+                conn.execute(
+                    select(recon_metadata_migration)
+                    .where(
+                        recon_metadata_migration.c.STATUS == "DONE",
+                        recon_metadata_migration.c.OLD_SQLITE_DELETED_AT.is_(None),
+                    )
+                    .order_by(recon_metadata_migration.c.ID.desc())
                 )
-                .order_by(recon_metadata_migration.c.ID.desc())
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
 
         if mig_row is None or not mig_row.get("OLD_SQLITE_PATH"):
             raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy bản lưu SQLite cũ cần xóa.")

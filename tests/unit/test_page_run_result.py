@@ -261,6 +261,269 @@ def test_render_result_grid_and_filters() -> None:
     assert "Tổng tiền" in s
     assert "rh-diff" in s
 
+    # Bảng kết quả chính phải bật kẻ dọc giữa các cột
+    import dash_mantine_components as dmc
+
+    def _find_table(node):
+        if isinstance(node, dmc.Table):
+            return node
+        children = getattr(node, "children", None)
+        if isinstance(children, (list, tuple)):
+            items = children
+        elif children is not None and not isinstance(children, str):
+            items = [children]
+        else:
+            items = []
+        for child in items:
+            found = _find_table(child)
+            if found is not None:
+                return found
+        return None
+
+    table = _find_table(grid_ui)
+    assert table is not None
+    assert table.withColumnBorders is True
+
+
+def test_grid_measures_follow_profile_main_measure_not_hardcoded_total_amount(monkeypatch) -> None:
+    """Lưới phải lấy measure chính của profile đã chạy, không hardcode TOTAL_AMOUNT.
+
+    Tái hiện ảnh /runs/1012: profile BILL_VTOS dùng TOTAL_TONG_TIEN nên
+    tra TOTAL_AMOUNT trong EXCEL_JSON/DB_JSON/DIFF_JSON ra None và hiện
+    toàn "—", trong khi drawer chi tiết tự suy khóa nên vẫn có số.
+    """
+    from types import SimpleNamespace
+
+    from app.ui.pages.run_result import _resolve_grid_measures
+
+    run_info = {"template_id": 8, "template_version": 9, "profile_code": "BILL_VTOS"}
+
+    # Đường config: ngay cả khi trang kết quả đang trống vẫn ra đúng measure.
+    fake_res = SimpleNamespace(
+        ok=True,
+        data={
+            "config": {
+                "profiles": [
+                    {
+                        "code": "BILL_VTOS",
+                        "main_measure": "TOTAL_TONG_TIEN",
+                        "measures": [{"name": "TOTAL_TONG_TIEN", "label": "Tổng tiền"}],
+                    }
+                ]
+            }
+        },
+    )
+    monkeypatch.setattr("app.ui.pages.run_result.get_template", lambda *a, **k: fake_res)
+    ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+    measures = _resolve_grid_measures(ctx, run_info, [])
+    assert measures == [{"name": "TOTAL_TONG_TIEN", "label": "Tổng tiền", "type": "number"}]
+
+    # Đường dự phòng khi không lấy được config: suy từ khóa JSON của dòng.
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.get_template",
+        lambda *a, **k: SimpleNamespace(ok=False, data=None),
+    )
+    rows = [
+        {
+            "key": "C26TBD0149467",
+            "status": "MISSING_IN_DB",
+            "excel": {"x__TOTAL_TONG_TIEN": 1425000},
+            "db": {"d__TOTAL_TONG_TIEN": None},
+            "diff": {"diff__TOTAL_TONG_TIEN": 1425000},
+        }
+    ]
+    assert _resolve_grid_measures(None, run_info, rows)[0]["name"] == "TOTAL_TONG_TIEN"
+    assert _resolve_grid_measures(None, {}, []) == [{"name": "TOTAL_AMOUNT", "label": "Tổng tiền", "type": "number"}]
+
+    # Lưới với measure đúng phải hiện số, kể cả giá trị 0 (không rơi thành "—").
+    grid_ui = render_result_grid(
+        measures=[{"name": "TOTAL_TONG_TIEN", "label": "Tổng tiền", "type": "number"}],
+        rows=rows
+        + [
+            {
+                "key": "C26TBD0000000",
+                "status": "MATCHED",
+                "excel": {"x__TOTAL_TONG_TIEN": 0},
+                "db": {"d__TOTAL_TONG_TIEN": 0},
+                "diff": {"diff__TOTAL_TONG_TIEN": 0},
+            }
+        ],
+    )
+    s = str(grid_ui)
+    assert "1.425.000" in s
+    assert "Tổng tiền" in s
+    # Dòng 0 phải hiện "0" ở cột Excel, không bị `or` đẩy thành "—".
+    assert s.count("1.425.000") >= 2
+
+
+def test_other_status_tabs_and_detail_drawer_use_profile_measure() -> None:
+    """Các tab trạng thái khác và drawer chi tiết phải cùng hiện số Excel/DB.
+
+    Tất cả tab trạng thái dùng chung render_result_grid nên chỉ cần measure
+    đúng là đủ; riêng drawer trước đây hardcode TOTAL_AMOUNT ở 2 chỗ: dòng
+    Excel gốc (Thành tiền ra 0) và bản ghi DB (ra 0, tiêu đề TOTAL_AMOUNT).
+    """
+    # Lưới: 4 trạng thái, cùng measure TOTAL_TONG_TIEN, đều phải hiện số.
+    measures = [{"name": "TOTAL_TONG_TIEN", "label": "Tổng tiền", "type": "number"}]
+    rows = [
+        {
+            "key": "K1",
+            "status": "MATCHED",
+            "excel": {"x__TOTAL_TONG_TIEN": 1000000},
+            "db": {"d__TOTAL_TONG_TIEN": 1000000},
+            "diff": {"diff__TOTAL_TONG_TIEN": 0},
+        },
+        {
+            "key": "K2",
+            "status": "MISMATCH",
+            "excel": {"x__TOTAL_TONG_TIEN": 2000000},
+            "db": {"d__TOTAL_TONG_TIEN": 1900000},
+            "diff": {"diff__TOTAL_TONG_TIEN": 100000},
+        },
+        {
+            "key": "K3",
+            "status": "MISSING_IN_DB",
+            "excel": {"x__TOTAL_TONG_TIEN": 1425000},
+            "db": {"d__TOTAL_TONG_TIEN": None},
+            "diff": {"diff__TOTAL_TONG_TIEN": 1425000},
+        },
+        {
+            "key": "K4",
+            "status": "MISSING_IN_EXCEL",
+            "excel": {"x__TOTAL_TONG_TIEN": None},
+            "db": {"d__TOTAL_TONG_TIEN": 900000},
+            "diff": {"diff__TOTAL_TONG_TIEN": -900000},
+        },
+    ]
+    s_grid = str(render_result_grid(measures=measures, rows=rows))
+    for key in ("K1", "K2", "K3", "K4"):
+        assert key in s_grid
+    for amount in ("1.000.000", "2.000.000", "1.425.000", "900.000"):
+        assert amount in s_grid
+
+    # Drawer: dòng Excel gốc lấy theo trường của measure chính, bản ghi DB
+    # lấy theo tên measure chính, không còn 0 do tra sai tên.
+    drawer_ui = render_detail_drawer(
+        row_detail={
+            "key_text": "C26TBD0149467 | 2026-06-23 13:43:30",
+            "status": "MISSING_IN_DB",
+            "row_no": 1,
+            "run_id": 1012,
+            "issue": {},
+            "excel_raw_rows": [
+                {
+                    "excel_row_no": 1525,
+                    "data": {"HOA_DON": "C26TBD0149467", "TONG_TIEN": 1425000},
+                }
+            ],
+            "excel": {"x__TOTAL_TONG_TIEN": 1425000},
+            "db": {"d__TOTAL_TONG_TIEN": None},
+            "diff": {"diff__TOTAL_TONG_TIEN": 1425000},
+        },
+        reasons_list=[],
+        main_measure_name="TOTAL_TONG_TIEN",
+        main_measure_field="TONG_TIEN",
+        group_by_fields=["HOA_DON"],
+    )
+    s_drawer = str(drawer_ui)
+    assert "1.425.000" in s_drawer
+    assert "TOTAL_TONG_TIEN (DB)" in s_drawer
+    # Dòng Excel gốc phải hiện đúng 1.425.000, không phải 0 do tra TOTAL_AMOUNT.
+    assert s_drawer.count("1.425.000") >= 2
+
+    # KPI: khi truyền tên measure chính thì lấy đúng chỉ tiêu đó, không lấy
+    # measure đầu tiên trong dict (ở đây là số lượng).
+    kpi_ui = render_kpi_cards(
+        {"MEASURE_TOTALS_JSON": {"TOTAL_QTY": {"excel": 5, "db": 5, "diff": 0}, "TOTAL_TONG_TIEN": {"excel": 1425000, "db": 0, "diff": 1425000}}},
+        main_measure_name="TOTAL_TONG_TIEN",
+    )
+    assert "1.425.000" in str(kpi_ui)
+
+
+def test_result_grid_headers_centered_rows_hoverable_and_tabs_xs() -> None:
+    from pathlib import Path
+
+    import dash_mantine_components as dmc
+
+    # Header: 3 header tầng trên canh giữa
+    from app.ui.pages.run_result import build_grid_headers
+
+    thead = build_grid_headers([{"name": "TOTAL_AMOUNT", "label": "Tổng tiền"}])
+    top_row = thead.children[0]
+    for th in top_row.children[:3]:
+        assert th.style.get("textAlign") == "center"
+
+    # Dòng kết quả mang class run-res-row để CSS kẻ ngang + hover áp dụng
+    grid_ui = render_result_grid(
+        measures=[{"name": "TOTAL_AMOUNT", "label": "Tổng tiền"}],
+        rows=[{"key": "X1", "status": "DIFF", "excel": {"TOTAL_AMOUNT": 1}, "db": {"TOTAL_AMOUNT": 2}, "diff": {"TOTAL_AMOUNT": 1}}],
+    )
+    assert "run-res-row" in str(grid_ui)
+    css = Path("app/ui/assets/custom.css").read_text(encoding="utf-8")
+    assert ".run-res-row td" in css
+    assert ".run-res-row:hover" in css
+
+    # Tab: nút và badge đều xuống xs
+    tabs_ui = render_ratio_bar_and_tabs({"CNT_MATCHED": 1, "CNT_MISMATCH": 2})
+    tab_group = tabs_ui.children[1]
+    first_btn = tab_group.children[0]
+    assert isinstance(first_btn, dmc.Button)
+    assert first_btn.size == "xs"
+    badge = first_btn.children[1]
+    assert isinstance(badge, dmc.Badge)
+    assert badge.size == "xs"
+
+
+def test_render_header_badges_moved_to_right() -> None:
+    header = render_header(
+        {
+            "id": 1010,
+            "template_name": "Doanh thu Vtos",
+            "profile_code": "BY_INVOICE",
+            "p_from": "2026-01-01",
+            "p_to": "2026-07-31",
+            "data_source_id": 2,
+            "template_version": 3,
+            "created_by": "admin",
+            "created_at": "2026-11-04",
+            "file_size": 1600000,
+        }
+    )
+    left, right = header.children
+    # Cột trái chỉ còn tiêu đề + metadata, không còn badge
+    assert len(left.children) == 2
+    assert "Chưa kiểm tra" not in str(left)
+    # Cột phải chứa badge, canh phải
+    assert "Chưa kiểm tra" in str(right)
+    assert "Dữ liệu tạm còn" in str(right)
+
+
+def test_render_header_xs_sizes() -> None:
+    import dash_mantine_components as dmc
+
+    header = render_header(
+        {
+            "id": 1010,
+            "template_name": "Doanh thu Vtos",
+            "profile_code": "BY_INVOICE",
+            "p_from": "2026-01-01",
+            "p_to": "2026-07-31",
+            "data_source_id": 2,
+            "template_version": 3,
+            "created_by": "admin",
+            "created_at": "2026-11-04",
+            "file_size": 1600000,
+        }
+    )
+    left, right = header.children
+    # Dòng phụ giảm từ sm xuống xs để đỡ rớt dòng ở màn hình nhỏ
+    assert left.children[1].size == "xs"
+    btn_group, badge_group = right.children
+    assert btn_group.gap == "xs"
+    visible_btns = [b for b in btn_group.children if isinstance(b, dmc.Button)]
+    assert visible_btns and all(b.size == "xs" for b in visible_btns)
+    assert all(b.size == "xs" for b in badge_group.children)
+
 
 def test_render_detail_drawer_temp_purged_and_active() -> None:
     # 1. Dữ liệu tạm còn
@@ -390,10 +653,111 @@ def test_handle_compare_runs_callback(monkeypatch) -> None:
         "summary": {},
         "rows": [],
     }
-    opened, ui, data, current_filter = handle_compare_runs(
-        1, [], data_store, None, None
-    )
+    opened, ui, data, current_filter = handle_compare_runs(1, [], data_store, None, None)
     assert opened is True
     assert ui is not None
     assert current_filter == "ALL"
     assert data is not None
+
+
+def test_handle_save_issue_from_drawer(run_result_env, monkeypatch) -> None:
+    from app.schemas.errors import ServiceResult
+    from app.ui.pages.run_result import handle_save_issue_from_drawer
+
+    ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+    monkeypatch.setattr("app.ui.pages.run_result.get_current_ctx", lambda: ctx)
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.upsert_issue_for_row", lambda *a, **kw: ServiceResult(ok=True, data={"issue_id": 1})
+    )
+
+    # 1. Test when no click or no meta
+    fb, trig = handle_save_issue_from_drawer(None, "OPEN", None, None, None)
+    assert trig == 0
+
+    # 2. Test saving with valid meta
+    meta = {"run_id": 1042, "row_no": 1}
+    fb, trig = handle_save_issue_from_drawer(
+        n_clicks=1,
+        status_val="IN_PROGRESS",
+        reason_code=None,
+        note_val="Dang kiem tra chenh lech",
+        meta=meta,
+    )
+    assert trig == 1
+    assert "Đã lưu trạng thái đối soát" in str(fb)
+
+    # 3. Test saving with meta as json string
+    import json
+
+    meta_str = json.dumps(meta)
+    fb, trig = handle_save_issue_from_drawer(
+        n_clicks=2,
+        status_val="ACCEPTED",
+        reason_code=None,
+        note_val="Chap nhan lech",
+        meta=meta_str,
+    )
+    assert trig == 2
+    assert "Đã lưu trạng thái đối soát" in str(fb)
+
+
+def test_handle_export_excel(run_result_env, monkeypatch, tmp_path) -> None:
+    from app.schemas.errors import ServiceResult
+    from app.ui.pages.run_result import handle_export_excel
+
+    dummy_export = tmp_path / "export.xlsx"
+    dummy_export.write_text("dummy")
+
+    ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+    monkeypatch.setattr("app.ui.pages.run_result.get_current_ctx", lambda: ctx)
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.export_run",
+        lambda *a, **kw: ServiceResult(ok=True, data={"export_path": str(dummy_export)}),
+    )
+
+    data_store = {"run": {"id": 1042}}
+    res = handle_export_excel(1, data_store)
+    assert res is not None
+    assert "filename" in res
+    assert "ReconHub_Run_1042.xlsx" in res["filename"]
+
+
+def test_handle_row_click_open_drawer(run_result_env: Any, monkeypatch: Any) -> None:
+    from app.schemas.errors import ServiceResult
+    from app.ui.pages.run_result import handle_row_click_open_drawer
+
+    ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+    monkeypatch.setattr("app.ui.pages.run_result.get_current_ctx", lambda: ctx)
+
+    mock_row_detail = {
+        "run_id": 1042,
+        "row_no": 2,
+        "key_text": "C26TBD0031312 | 2026-02-01",
+        "status": "MATCHED",
+        "issue": {"STATUS": "OPEN"},
+        "excel": {"TOTAL_AMOUNT": 1390000},
+        "db": {"TOTAL_AMOUNT": 1390000},
+        "diff": {"TOTAL_AMOUNT": 0},
+    }
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.get_row_detail",
+        lambda *a, **kw: ServiceResult(ok=True, data=mock_row_detail),
+    )
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.list_reasons",
+        lambda *a, **kw: ServiceResult(ok=True, data=[]),
+    )
+
+    data_store = {"run": {"id": 1042}}
+
+    import dash
+    monkeypatch.setattr(
+        dash,
+        "callback_context",
+        type("Obj", (), {"triggered": [{"prop_id": '{"index":2,"type":"run-res-row"}.n_clicks', "value": 1}]}),
+    )
+
+    opened, drawer_ui = handle_row_click_open_drawer([1], data_store)
+    assert opened is True
+    assert drawer_ui is not None
+    assert "C26TBD0031312" in str(drawer_ui)

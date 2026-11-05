@@ -231,12 +231,16 @@ def test_upsert_issue_for_row(issue_env):
 
     # Kiểm tra audit log
     with engine.connect() as conn:
-        audits = conn.execute(
-            select(recon_audit_log).where(
-                recon_audit_log.c.ENTITY == "ISSUE",
-                recon_audit_log.c.ENTITY_ID == str(issue_id),
+        audits = (
+            conn.execute(
+                select(recon_audit_log).where(
+                    recon_audit_log.c.ENTITY == "ISSUE",
+                    recon_audit_log.c.ENTITY_ID == str(issue_id),
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         assert len(audits) >= 2
 
 

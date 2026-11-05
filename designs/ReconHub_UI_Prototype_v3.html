@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReconHub – UI/UX Prototype v3</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--line:#e3e8f0;--text:#1d2939;--muted:#667085;--pri:#2563eb;--pri-l:#eaf1ff;
+--ok:#12b76a;--ok-l:#e8f8f0;--warn:#f79009;--warn-l:#fff4e5;--err:#e5484d;--err-l:#fdecec;--pur:#7a5af8;--pur-l:#f1edff;--gray-l:#f2f4f7}
+*{box-sizing:border-box}body{margin:0;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+.app{display:flex;min-height:100vh}
+aside{width:232px;background:#0f1b33;color:#cfd8ea;flex-shrink:0;display:flex;flex-direction:column}
+.logo{padding:18px 20px;font-weight:700;font-size:18px;color:#fff;display:flex;gap:10px;align-items:center}
+.logo span{background:var(--pri);border-radius:8px;width:30px;height:30px;display:grid;place-items:center;font-size:14px}
+nav a{display:flex;gap:10px;align-items:center;padding:10px 20px;color:#cfd8ea;text-decoration:none;cursor:pointer;border-left:3px solid transparent}
+nav a:hover{background:#18284a}nav a.active{background:#1b2f57;color:#fff;border-left-color:#5b8cff}
+.navsec{padding:16px 20px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#7d8bab}
+.user{margin-top:auto;padding:16px 20px;border-top:1px solid #22355c;font-size:13px}
+main{flex:1;min-width:0}
+header{background:#fff;border-bottom:1px solid var(--line);padding:12px 28px;display:flex;align-items:center;gap:12px}
+.crumb{color:var(--muted)}.crumb b{color:var(--text)}
+.env{padding:4px 10px;border-radius:20px;background:var(--warn-l);color:#b54708;font-weight:600;font-size:12px}
+.content{padding:24px 28px}
+h1{font-size:22px;margin:0 0 4px}.sub{color:var(--muted);margin-bottom:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:18px}
+.card h3{margin:0 0 12px;font-size:15px}
+.grid{display:grid;gap:16px}.g4{grid-template-columns:repeat(4,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:1fr 1fr}
+.kpi{padding:16px;border-radius:12px;background:#fff;border:1px solid var(--line)}
+.kpi .l{color:var(--muted);font-size:12px}.kpi .v{font-size:24px;font-weight:700;margin-top:6px}.kpi .s{font-size:12px;margin-top:4px}
+.btn{border:1px solid var(--line);background:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font:inherit;font-weight:600;color:var(--text)}
+.btn:hover{background:var(--gray-l)}.btn.pri{background:var(--pri);color:#fff;border-color:var(--pri)}.btn.pri:hover{background:#1d4fd8}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.sm{padding:5px 10px;font-size:12px}.btn:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,.tab:focus-visible{outline:2px solid var(--pri);outline-offset:2px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.sp{flex:1}
+table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{background:#f8fafc;font-size:12px;color:var(--muted);font-weight:600;position:sticky;top:0}
+td.n,th.n{text-align:right}tr:hover td{background:#fafcff}
+.tag{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600}
+.t-ok{background:var(--ok-l);color:#027a48}.t-err{background:var(--err-l);color:#b42318}.t-warn{background:var(--warn-l);color:#b54708}
+.t-pur{background:var(--pur-l);color:#5925dc}.t-gray{background:var(--gray-l);color:#475467}.t-blue{background:var(--pri-l);color:#1d4fd8}
+.diff{background:#fff1f0!important;color:#b42318;font-weight:600}
+input,select{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--text)}
+input.bad{border-color:var(--err);background:var(--err-l)}
+label.f{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:600}
+.steps{display:flex;margin-bottom:20px;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.step{flex:1;padding:12px 14px;display:flex;gap:10px;align-items:center;cursor:pointer;border-right:1px solid var(--line);color:var(--muted)}
+.step:last-child{border-right:0}.step .c{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--gray-l);font-weight:700;flex-shrink:0}
+.step.active{color:var(--pri);background:var(--pri-l)}.step.active .c{background:var(--pri);color:#fff}
+.step.done .c{background:var(--ok);color:#fff}
+.drop{border:2px dashed #b9c6dc;border-radius:12px;padding:30px;text-align:center;background:#fafcff;color:var(--muted);cursor:pointer}
+.hint{padding:10px 12px;border-radius:8px;font-size:13px;margin:8px 0}
+.h-info{background:var(--pri-l);color:#1d4fd8}.h-warn{background:var(--warn-l);color:#b54708}.h-ok{background:var(--ok-l);color:#027a48}.h-err{background:var(--err-l);color:#b42318}
+.zone{border:1px dashed #b9c6dc;border-radius:10px;padding:10px;min-height:60px;background:#fafcff}
+.chip{display:inline-flex;gap:6px;align-items:center;padding:5px 10px;border-radius:20px;background:#fff;border:1px solid var(--line);margin:4px;font-size:13px}
+.chip.k{border-color:#9db8ff;background:var(--pri-l)}.chip.m{border-color:#c8b9ff;background:var(--pur-l)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:12px;flex-wrap:wrap}
+.tab{padding:9px 14px;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted);font-weight:600}
+.tab.active{color:var(--pri);border-color:var(--pri)}
+.scroll{overflow:auto;max-height:430px;border:1px solid var(--line);border-radius:10px}
+.bar{height:8px;border-radius:8px;background:var(--gray-l);overflow:hidden;display:flex}
+.drawer{position:fixed;top:0;right:-560px;width:540px;max-width:100%;height:100vh;background:#fff;box-shadow:-8px 0 30px rgba(0,0,0,.12);transition:right .25s;z-index:20;display:flex;flex-direction:column}
+.drawer.open{right:0}.drawer .hd{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center}.drawer .bd{padding:16px 20px;overflow:auto}
+.mask{position:fixed;inset:0;background:rgba(15,27,51,.35);display:none;z-index:10}.mask.show{display:block}
+.note{position:fixed;bottom:16px;right:16px;background:#0f1b33;color:#fff;padding:10px 14px;border-radius:10px;font-size:12px;opacity:.9;z-index:5}
+.ux{border-left:4px solid var(--pur);background:var(--pur-l);padding:8px 12px;border-radius:6px;font-size:12px;color:#5925dc;margin-top:10px}
+.prog{height:10px;background:var(--gray-l);border-radius:10px;overflow:hidden}.prog div{height:100%;background:var(--pri);transition:width .3s}
+.mono{font-family:Consolas,monospace;font-size:12px}
+textarea{width:100%;font-family:Consolas,monospace;font-size:12px;border:1px solid var(--line);border-radius:8px;padding:10px;min-height:120px;color:var(--text)}
+.hidden{display:none!important}
+.new{display:inline-block;font-size:10px;font-weight:700;background:var(--pur);color:#fff;border-radius:8px;padding:1px 6px;margin-left:6px;vertical-align:middle}
+/* review */
+.rv{border:1px solid #d9cffd;background:#fbfaff;border-radius:12px;padding:16px 18px;margin:0 0 18px}
+.rv h3{margin:0 0 10px;font-size:15px;color:#5925dc}.rv .cols{display:grid;grid-template-columns:1fr 1.4fr;gap:18px}
+.rv ul{margin:0;padding-left:18px}.rv li{margin:5px 0;line-height:1.45}.rv .lb{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.pri-h{color:#b42318}.pri-l{color:#027a48}.pt{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:10px;margin-right:6px}
+.pt.h{background:var(--err-l);color:#b42318}.pt.m{background:var(--warn-l);color:#b54708}.pt.l{background:var(--ok-l);color:#027a48}
+body.norv .rv{display:none}
+/* diagram tab */
+.mtabs{display:flex;gap:6px;margin-bottom:16px}.mtabs .tab{border:1px solid var(--line);border-radius:8px;background:#fff}
+.mtabs .tab.active{background:var(--pri);color:#fff;border-color:var(--pri)}
+.dg{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:18px}
+.dg h3{margin:0 0 4px;font-size:15px}.dg .sub{margin-bottom:12px}
+.dg .mm{overflow:auto;text-align:center;min-height:80px}
+.dg pre.src{background:#0f1b33;color:#d6e2ff;padding:12px;border-radius:8px;overflow:auto;font-size:12px;text-align:left}
+.dg ol{margin:10px 0 0;padding-left:20px;color:#344054}.dg li{margin:4px 0}
+@media(max-width:1000px){.g4{grid-template-columns:1fr 1fr}.g3,.g2{grid-template-columns:1fr}aside{width:64px}.logo b,nav a span,.navsec,.user{display:none}.rv .cols{grid-template-columns:1fr}}
+@media(prefers-color-scheme:dark){.dg .mm{background:#fff;border-radius:8px}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside>
+  <div class="logo"><span>RH</span><b>ReconHub</b></div>
+  <nav id="nav">
+    <div class="navsec">Đối soát</div>
+    <a data-p="dash" class="active">📊 <span>Dashboard</span></a>
+    <a data-p="run">▶️ <span>Chạy đối soát</span></a>
+    <a data-p="result">📋 <span>Kết quả run</span></a>
+    <a data-p="history">🕘 <span>Lịch sử</span></a>
+    <div class="navsec">Cấu hình</div>
+    <a data-p="tpl">🧩 <span>Templates</span></a>
+    <a data-p="wiz">✏️ <span>Đăng ký template</span></a>
+    <a data-p="ds">🗄️ <span>Data Sources</span></a>
+  </nav>
+  <div class="user">👤 CDS/ThanhTran<br><small>Template Owner</small></div>
+</aside>
+
+<main>
+<header><div class="crumb" id="crumb">ReconHub / <b>Dashboard</b></div><span class="sp"></span>
+<button type="button" class="btn sm" id="rvToggle">💬 Ẩn nhận xét</button><div class="env">ENV: UAT</div></header>
+<div class="content">
+
+<!-- ================= DASHBOARD ================= -->
+<section id="p-dash">
+  <h1>Dashboard</h1><div class="sub">Tổng quan các lần đối soát gần đây</div>
+  <div class="grid g4">
+    <div class="kpi"><div class="l">Run trong tháng</div><div class="v">38</div><div class="s" style="color:var(--ok)">▲ 12 so với tháng trước</div></div>
+    <div class="kpi"><div class="l">Tỉ lệ khớp trung bình</div><div class="v">98.6%</div><div class="s" style="color:var(--muted)">theo số bản ghi</div></div>
+    <div class="kpi"><div class="l">Chênh lệch đang mở</div><div class="v" style="color:var(--err)">214</div><div class="s">7 template</div></div>
+    <div class="kpi"><div class="l">Template active</div><div class="v">12</div><div class="s">3 có version mới</div></div>
+  </div>
+  <div class="grid g2" style="margin-top:18px">
+    <div class="card"><div class="row"><h3>Run gần đây</h3><span class="sp"></span><button type="button" class="btn sm pri" data-go="run">+ Run mới</button></div>
+      <table><thead><tr><th>Run</th><th>Template</th><th>Profile</th><th>Trạng thái</th><th class="n">Khớp</th></tr></thead>
+      <tbody>
+        <tr data-go="result" style="cursor:pointer"><td>#1042</td><td>DTP – HĐ tác nghiệp</td><td>Theo số HĐ</td><td><span class="tag t-warn">Có lệch</span></td><td class="n">98.9%</td></tr>
+        <tr><td>#1041</td><td>DT phí DV khối cảng</td><td>Theo ORG × App</td><td><span class="tag t-ok">Khớp</span></td><td class="n">100%</td></tr>
+        <tr><td>#1040</td><td>Sản lượng tàu – BDP</td><td>Chi tiết</td><td><span class="tag t-blue">Đang chạy</span></td><td class="n">–</td></tr>
+        <tr><td>#1039</td><td>DTP – HĐ tác nghiệp</td><td>Ngày × điểm thu</td><td><span class="tag t-err">Lỗi file</span></td><td class="n">–</td></tr>
+      </tbody></table>
+    </div>
+    <div class="card"><h3>Tỉ lệ lệch theo template (30 ngày)</h3><div id="chart"></div>
+      <div class="ux">UX: click vào template để lọc danh sách run/issue tương ứng.</div></div>
+  </div>
+</section>
+
+<!-- ================= TEMPLATES ================= -->
+<section id="p-tpl" class="hidden">
+  <div class="row"><div><h1>Templates</h1><div class="sub">Mỗi template = Excel mapping + DB mapping + 1..n Recon Profile</div></div><span class="sp"></span>
+  <input placeholder="🔍 Tìm template…" aria-label="Tìm template"><button type="button" class="btn pri" data-go="wiz">+ Đăng ký template</button></div>
+  <div class="card" style="padding:0">
+  <table><thead><tr><th>Mã</th><th>Tên</th><th>Nhận diện file</th><th class="n">Trường</th><th>Profiles</th><th>Version</th><th>Owner</th><th>Trạng thái</th><th></th></tr></thead>
+  <tbody>
+    <tr><td class="mono">DTP_HOA_DON_TAC_NGHIEP</td><td>Báo cáo HĐ theo tác nghiệp (DTP)</td><td>Sheet "BÁO CÁO DTP"</td><td class="n">10</td><td><span class="tag t-blue">Theo số HĐ</span> <span class="tag t-gray">Ngày × điểm thu</span></td><td>v3</td><td>ThanhTran</td><td><span class="tag t-ok">Active</span></td><td><button type="button" class="btn sm" data-go="wiz">Sửa</button> <button type="button" class="btn sm">Clone</button></td></tr>
+    <tr><td class="mono">DT_PHI_DV_KHOI_CANG</td><td>Doanh thu phí DV khối cảng</td><td>Header: ORG, Application…</td><td class="n">8</td><td><span class="tag t-blue">ORG × App</span></td><td>v2</td><td>MinhVH</td><td><span class="tag t-ok">Active</span></td><td><button type="button" class="btn sm">Sửa</button> <button type="button" class="btn sm">Clone</button></td></tr>
+    <tr><td class="mono">SL_TAU_BDP</td><td>Sản lượng tàu BDP</td><td>Tên file *SAN_LUONG*</td><td class="n">12</td><td><span class="tag t-blue">Chi tiết</span></td><td>v1</td><td>ThanhTran</td><td><span class="tag t-warn">Draft</span></td><td><button type="button" class="btn sm">Sửa</button> <button type="button" class="btn sm">Clone</button></td></tr>
+  </tbody></table></div>
+</section>
+
+<!-- ================= WIZARD ================= -->
+<section id="p-wiz" class="hidden">
+  <h1>Đăng ký template</h1><div class="sub">DTP_HOA_DON_TAC_NGHIEP · bản nháp v4</div>
+
+  <div class="mtabs" role="tablist">
+    <div class="tab active" data-wt="cfg" tabindex="0" role="tab">⚙️ Cấu hình template</div>
+    <div class="tab" data-wt="dgm" tabindex="0" role="tab">🧭 Sơ đồ diễn giải<span class="new">MỚI</span></div>
+  </div>
+
+  <!-- ===== CẤU HÌNH ===== -->
+  <div id="wt-cfg">
+  <div class="steps" id="steps">
+    <div class="step active" data-s="1"><div class="c">1</div>File mẫu</div>
+    <div class="step" data-s="2"><div class="c">2</div>Định nghĩa trường</div>
+    <div class="step" data-s="3"><div class="c">3</div>Nguồn DB</div>
+    <div class="step" data-s="4"><div class="c">4</div>Profile so sánh</div>
+    <div class="step" data-s="5"><div class="c">5</div>Dry-run</div>
+  </div>
+
+  <div id="s1" class="ws">
+    <div class="grid g2">
+      <div class="card"><h3>File mẫu</h3>
+        <div class="drop">📄 <b>2026_02_BDP_THU_NGAY_SMP_BÁO_CÁO_HÓA_ĐƠN_THEO_TÁC_NGHIỆP_(DTP)_DONE.xlsx</b><br><small>Kéo thả file khác để thay</small></div>
+        <div class="grid g3" style="margin-top:14px">
+          <div><label class="f">Sheet</label><select style="width:100%"><option>BÁO CÁO DTP (12.447 dòng)</option><option>Sheet1</option><option>Sheet2</option></select></div>
+          <div><label class="f">Dòng header</label><input value="1" style="width:100%"></div>
+          <div><label class="f">Dữ liệu từ dòng</label><input value="2" style="width:100%"></div>
+        </div>
+        <div style="margin-top:12px"><label class="f">Nhận diện file theo header bắt buộc</label>
+          <span class="chip">Số hóa đơn ✕</span><span class="chip">Ngày lập hóa đơn ✕</span><span class="chip">Thành tiền ✕</span></div>
+      </div>
+      <div class="card"><h3>Hệ thống tự phát hiện</h3>
+        <div class="hint h-ok">✔ 19 cột, 12.445 dòng dữ liệu</div>
+        <div class="hint h-warn">⚠ Dòng cuối là dòng tổng: <b>Dịch vụ = "Tổng tiền"</b>, Thành tiền = 24.114.547.250 → đề xuất <b>loại khỏi dữ liệu</b> và dùng làm <b>control total</b></div>
+        <div class="hint h-info">ℹ "Số hóa đơn" có 12.221 giá trị duy nhất / 12.445 dòng → 1 HĐ có nhiều dòng, nên so ở mức <b>gộp theo HĐ</b></div>
+        <div class="hint h-info">ℹ "Mã giao dịch" lẫn số và chuỗi (PAYMENTGW-…) → đọc dạng Text</div>
+        <label class="row" style="margin-top:8px"><input type="checkbox" checked> Áp dụng các đề xuất</label>
+      </div>
+    </div>
+    <div class="card"><h3>Xem trước (5 dòng đầu)</h3><div class="scroll" style="max-height:220px"><table id="prevTbl"></table></div></div>
+  </div>
+
+  <div id="s2" class="ws hidden">
+    <div class="card"><div class="row"><h3>Mapping cột Excel → Trường logic</h3><span class="sp"></span><button type="button" class="btn sm">✨ Gợi ý lại</button><button type="button" class="btn sm">+ Trường dẫn xuất</button></div>
+    <div class="scroll"><table><thead><tr><th>Dùng</th><th>Cột Excel</th><th>Trường logic</th><th>Nhãn hiển thị</th><th>Kiểu</th><th>Chuẩn hóa</th><th>Giá trị mẫu</th></tr></thead><tbody id="mapTbl"></tbody></table></div>
+    <div class="ux">UX: cột không dùng để mờ; trường dẫn xuất <b>INV_DATE = trunc_day(INV_DATETIME)</b> hiển thị ở cuối bảng, có thể dùng làm group-by.</div></div>
+  </div>
+
+  <div id="s3" class="ws hidden">
+    <div class="grid g2">
+      <div class="card"><h3>Nguồn dữ liệu DB</h3>
+        <div class="grid g2"><div><label class="f">Data Source</label><select style="width:100%"><option>DWH_FIN (UAT) – read-only</option><option>ODS (UAT)</option></select></div>
+        <div><label class="f">Kiểu nguồn</label><select style="width:100%"><option>SQL có bind param</option><option>Table / View</option></select></div></div>
+        <label class="f" style="margin-top:12px">SQL (dữ liệu chi tiết, chưa gộp)</label>
+<textarea>SELECT invoice_no, invoice_date, collect_point, txn_id,
+       pin_no, service_code, quantity, amount, invoice_status
+FROM   fact_invoice_dtp
+WHERE  invoice_date >= :p_from     -- từ ngày giờ tìm kiếm
+AND    invoice_date <= :p_to       -- đến ngày giờ tìm kiếm
+AND    org_code = :p_org</textarea>
+        <div class="row" style="margin-top:8px"><button type="button" class="btn sm pri" id="btnCols">Kiểm tra & lấy cột</button><span class="hint h-ok hidden" id="sqlOk" style="margin:0">✔ SELECT hợp lệ · 9 cột · read-only</span></div>
+        <h3 style="margin-top:16px">Tham số <span class="new">ĐÃ CHỈNH</span></h3>
+        <table><thead><tr><th>Tham số</th><th>Kiểu</th><th>Nguồn giá trị</th><th>Bắt buộc</th></tr></thead><tbody>
+          <tr><td class="mono">:p_from</td><td>datetime</td><td><b>Người dùng nhập "Từ ngày giờ"</b> khi chạy</td><td>✔</td></tr>
+          <tr><td class="mono">:p_to</td><td>datetime</td><td><b>Người dùng nhập "Đến ngày giờ"</b> khi chạy</td><td>✔</td></tr>
+          <tr><td class="mono">:p_org</td><td>text</td><td>Mặc định <b>BDP</b>, sửa được khi chạy</td><td>✔</td></tr></tbody></table>
+        <div class="hint h-info">ℹ <b>p_from / p_to không lấy từ min/max ngày trong Excel.</b> Khoảng thời gian do người dùng nhập là phạm vi chung cho cả 2 phía: DB lọc theo SQL, Excel lọc theo trường được chọn bên dưới.</div>
+        <div class="grid g2">
+          <div><label class="f">Trường thời gian để lọc Excel</label><select style="width:100%"><option>INV_DATETIME (Ngày lập hóa đơn)</option><option>– không lọc Excel –</option></select></div>
+          <div><label class="f">Gợi ý mặc định khi chạy</label><select style="width:100%"><option>Hôm qua 00:00:00 → 23:59:59</option><option>Tháng trước (ngày 1 → cuối tháng)</option><option>Để trống, bắt buộc nhập</option></select></div>
+        </div>
+      </div>
+      <div class="card"><h3>Mapping cột DB → Trường logic</h3>
+        <table><thead><tr><th>Trường logic</th><th>Cột DB</th><th>Kiểu DB</th><th></th></tr></thead><tbody id="dbMap"></tbody></table>
+        <div class="hint h-warn">⚠ SERVICE_NAME chưa có cột DB → chỉ dùng để lọc/hiển thị phía Excel</div>
+        <label class="row"><input type="checkbox" checked> Đẩy phép gộp (SUM/COUNT) xuống Oracle</label>
+      </div>
+    </div>
+  </div>
+
+  <div id="s4" class="ws hidden">
+    <div class="tabs" id="profTabs"><div class="tab active">Theo số hóa đơn ★</div><div class="tab">Ngày × điểm thu</div><div class="tab">+ Thêm profile</div></div>
+    <div class="grid" style="grid-template-columns:260px 1fr">
+      <div class="card"><h3>Trường có sẵn</h3><div id="avail"></div><div class="ux">UX: kéo thả trường vào Group by / Measures (bản prototype: click để thêm).</div></div>
+      <div>
+        <div class="card"><h3>Group by (khóa so sánh)</h3><div class="zone" id="zKey"></div>
+          <div class="hint h-info" id="grainInfo"></div></div>
+        <div class="card"><h3>Measures & quy tắc so sánh</h3>
+          <table><thead><tr><th>Tên</th><th>Hàm</th><th>Trường</th><th>So sánh</th><th>Sai số</th><th></th></tr></thead><tbody id="measTbl"></tbody></table>
+          <div class="row" style="margin-top:10px"><label class="f" style="margin:0">Drill-down tới</label><select><option>– không –</option><option>Chi tiết dòng</option></select></div>
+        </div>
+        <div class="card"><h3>SQL sinh tự động (phía DB)</h3><pre class="mono" id="genSql" style="background:#0f1b33;color:#d6e2ff;padding:12px;border-radius:8px;overflow:auto;margin:0"></pre></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="s5" class="ws hidden">
+    <div class="card"><h3>Dry-run trên file mẫu</h3>
+      <div class="grid g4">
+        <div><label class="f">Từ ngày giờ (p_from)</label><input type="datetime-local" id="dFrom" step="1" value="2026-02-01T00:00:00" style="width:100%"></div>
+        <div><label class="f">Đến ngày giờ (p_to)</label><input type="datetime-local" id="dTo" step="1" value="2026-02-25T23:59:59" style="width:100%"></div>
+        <div><label class="f">p_org</label><input value="BDP" style="width:100%"></div>
+        <div style="align-self:end"><button type="button" class="btn pri" id="btnDry" style="width:100%">▶ Chạy thử</button></div>
+      </div>
+      <div class="hint h-err hidden" id="dErr" role="alert"></div>
+      <div class="prog" style="margin-top:12px"><div id="dryBar" style="width:0"></div></div>
+      <div id="dryOut" class="hidden" style="margin-top:14px">
+        <div class="grid g4">
+          <div class="kpi"><div class="l">Control total</div><div class="v" style="font-size:18px;color:var(--ok)">✔ Khớp</div><div class="s">24.114.547.250</div></div>
+          <div class="kpi"><div class="l">Nhóm Excel / DB</div><div class="v" style="font-size:18px">12.221 / 12.230</div></div>
+          <div class="kpi"><div class="l">Khớp</div><div class="v" style="font-size:18px;color:var(--ok)">12.104</div></div>
+          <div class="kpi"><div class="l">Thời gian</div><div class="v" style="font-size:18px">6.4s</div></div>
+        </div>
+        <div class="hint h-info" style="margin-top:12px" id="dryRange"></div>
+        <div class="hint h-info">Số liệu dry-run là minh họa cho prototype.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row"><button type="button" class="btn" id="prev">← Quay lại</button><span class="sp"></span><button type="button" class="btn">Lưu nháp</button><button type="button" class="btn pri" id="next">Tiếp →</button></div>
+  </div>
+
+  <!-- ===== SƠ ĐỒ DIỄN GIẢI ===== -->
+  <div id="wt-dgm" class="hidden">
+    <div class="hint h-info">Các sơ đồ dưới đây diễn giải cách đăng ký template và cách hệ thống dùng template khi chạy đối soát. Sơ đồ render bằng Mermaid (cần mạng để tải thư viện; nếu không tải được sẽ hiển thị mã nguồn Mermaid).</div>
+
+    <div class="dg"><h3>① Quy trình đăng ký template (5 bước)</h3><div class="sub">Mỗi bước tạo ra một phần cấu hình; Dry-run đạt mới được kích hoạt version mới.</div>
+<pre class="mermaid">
+flowchart LR
+  S1["1. File mẫu<br/>sheet · header · dòng tổng"] --> S2["2. Định nghĩa trường<br/>cột Excel → trường logic"]
+  S2 --> S3["3. Nguồn DB<br/>SQL + tham số + map cột DB"]
+  S3 --> S4["4. Profile so sánh<br/>Group by + Measures + sai số"]
+  S4 --> S5{"5. Dry-run<br/>đạt?"}
+  S5 -- "Có" --> A["Lưu & kích hoạt<br/>version mới"]
+  S5 -- "Không" --> FIX["Quay lại chỉnh<br/>bước 2 / 3 / 4"]
+  FIX --> S2
+</pre>
+      <ol><li><b>File mẫu</b>: chỉ dùng để học cấu trúc file (sheet, header, dòng tổng), không quyết định khoảng thời gian.</li>
+      <li><b>Định nghĩa trường</b>: đặt tên chung (trường logic) cho các cột Excel cần dùng.</li>
+      <li><b>Nguồn DB</b>: câu SQL chi tiết với tham số <span class="mono">:p_from / :p_to / :p_org</span>, map cột DB về cùng trường logic.</li>
+      <li><b>Profile</b>: chọn mức gộp và cách so sánh.</li><li><b>Dry-run</b>: người dùng nhập khoảng ngày giờ để chạy thử trước khi lưu.</li></ol>
+    </div>
+
+    <div class="dg"><h3>② Ba lớp mapping: Excel và DB gặp nhau ở trường logic</h3><div class="sub">Profile chỉ làm việc trên trường logic, không phụ thuộc tên cột vật lý.</div>
+<pre class="mermaid">
+flowchart LR
+  subgraph EX["Excel – sheet BÁO CÁO DTP"]
+    E1["Số hóa đơn"]
+    E2["Ngày lập hóa đơn"]
+    E3["Điểm thu phí"]
+    E4["Thành tiền"]
+  end
+  subgraph LG["Trường logic"]
+    L1(["INVOICE_NO"])
+    L2(["INV_DATETIME → INV_DATE"])
+    L3(["POINT"])
+    L4(["AMOUNT"])
+  end
+  subgraph DB["DB – fact_invoice_dtp"]
+    D1["INVOICE_NO"]
+    D2["INVOICE_DATE"]
+    D3["COLLECT_POINT"]
+    D4["AMOUNT"]
+  end
+  E1 --> L1
+  E2 --> L2
+  E3 --> L3
+  E4 --> L4
+  D1 --> L1
+  D2 --> L2
+  D3 --> L3
+  D4 --> L4
+  LG --> P["Profile:<br/>Group by INVOICE_NO<br/>SUM AMOUNT · Ngày HĐ"]
+</pre>
+    </div>
+
+    <div class="dg"><h3>③ Tham số thời gian: lấy từ ngày giờ tìm kiếm người dùng nhập<span class="new">ĐÃ CHỈNH</span></h3><div class="sub">Một khoảng thời gian duy nhất áp dụng cho cả DB và Excel, không lấy min/max ngày trong file.</div>
+<pre class="mermaid">
+flowchart TB
+  U["Người dùng nhập khi chạy<br/>Từ ngày giờ · Đến ngày giờ · ORG"] --> V{"Kiểm tra<br/>p_from ≤ p_to ?"}
+  V -- "Sai" --> ERR["Báo lỗi, không cho chạy"]
+  V -- "Đúng" --> B["Bind tham số<br/>:p_from · :p_to · :p_org"]
+  B --> DBQ["DB: WHERE invoice_date<br/>BETWEEN :p_from AND :p_to<br/>AND org_code = :p_org"]
+  B --> XF["Excel: giữ dòng có<br/>INV_DATETIME trong khoảng"]
+  XF --> OUT["Dòng Excel ngoài khoảng<br/>→ loại khỏi so sánh + cảnh báo số lượng"]
+  DBQ --> CMP["So sánh trên cùng<br/>phạm vi thời gian"]
+  XF --> CMP
+</pre>
+      <ol><li>p_from / p_to luôn do người dùng nhập (có gợi ý mặc định cấu hình ở Bước 3), bắt buộc và phải hợp lệ.</li>
+      <li>Cùng một khoảng được áp cho cả hai phía, nên <b>Thiếu trong Excel</b> và <b>Thiếu trong DB</b> phản ánh đúng chênh lệch thật, không do lệch phạm vi.</li>
+      <li>Dòng Excel nằm ngoài khoảng không bị âm thầm bỏ qua: hệ thống hiển thị số dòng bị loại để người dùng kiểm tra lại khoảng nhập.</li></ol>
+    </div>
+
+    <div class="dg"><h3>④ Profile so sánh: gộp → ghép → so</h3><div class="sub">Cả hai phía được gộp theo cùng Group by rồi mới so từng measure.</div>
+<pre class="mermaid">
+flowchart LR
+  XE["Excel đã lọc<br/>12.445 dòng"] --> GX["GROUP BY INVOICE_NO<br/>SUM AMOUNT · SUM QTY<br/>ngày HĐ duy nhất"]
+  QD["DB đã lọc<br/>theo p_from/p_to"] --> GD["Oracle GROUP BY<br/>(SQL sinh tự động)"]
+  GX --> J{"Ghép theo<br/>INVOICE_NO"}
+  GD --> J
+  J -- "Chỉ có Excel" --> M1["Thiếu trong DB"]
+  J -- "Chỉ có DB" --> M2["Thiếu trong Excel"]
+  J -- "Có cả hai" --> C{"So từng measure<br/>theo sai số"}
+  C -- "Trong sai số" --> OK["Khớp"]
+  C -- "Vượt sai số" --> MM["Lệch giá trị"]
+  GX -. "nhóm có ≥ 2 ngày" .-> IN["Không nhất quán"]
+</pre>
+    </div>
+
+    <div class="dg"><h3>⑤ Trình tự khi chạy đối soát với template đã đăng ký</h3>
+<pre class="mermaid">
+sequenceDiagram
+  actor U as Người dùng
+  participant UI as ReconHub UI
+  participant API as API
+  participant W as Worker
+  participant DB as Oracle (read-only)
+  U->>UI: Upload file + nhập Từ/Đến ngày giờ, ORG
+  UI->>API: Tạo run (file, template, p_from, p_to, p_org)
+  API->>API: Validate tham số và header file
+  API-->>UI: run_id (READY)
+  W->>API: Lấy run READY
+  W->>W: Đọc Excel, chuẩn hóa, lọc theo p_from/p_to
+  W->>W: Kiểm tra control total
+  W->>DB: SQL gộp với :p_from, :p_to, :p_org
+  DB-->>W: Dữ liệu đã GROUP BY
+  W->>W: Ghép theo khóa, so measure
+  W->>API: Lưu kết quả + file export
+  UI->>API: Poll trạng thái
+  API-->>UI: DONE → mở màn hình kết quả
+</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ================= NEW RUN ================= -->
+<section id="p-run" class="hidden">
+  <h1>Chạy đối soát</h1><div class="sub">Upload file → hệ thống nhận diện template → nhập khoảng ngày giờ tìm kiếm → chạy</div>
+  <div class="grid g2">
+    <div class="card"><h3>1. File dữ liệu</h3>
+      <div class="drop" id="runDrop" tabindex="0" role="button">⬆️ <b>Kéo thả file Excel vào đây</b> hoặc <u>chọn file</u><br><small>.xlsx · .xls · .csv · tối đa 50MB</small></div>
+      <div id="runFile" class="hidden">
+        <div class="hint h-ok">📄 2026_02_BDP_THU_NGAY_SMP_BÁO_CÁO_HÓA_ĐƠN_THEO_TÁC_NGHIỆP_(DTP)_DONE.xlsx · 2.1MB</div>
+        <div class="hint h-info">🎯 Nhận diện template: <b>DTP_HOA_DON_TAC_NGHIEP v3</b> (khớp 3/3 header) <a href="#" style="margin-left:6px">đổi</a></div>
+        <div class="hint h-ok">✔ Validate: 12.445 dòng hợp lệ · 1 dòng tổng đã loại · 0 lỗi</div>
+      </div>
+    </div>
+    <div class="card"><h3>2. Profile & tham số tìm kiếm</h3>
+      <label class="f">Profile</label>
+      <select style="width:100%"><option>Theo số hóa đơn (INVOICE_NO)</option><option>Ngày × điểm thu (INV_DATE, POINT)</option></select>
+      <div class="grid g3" style="margin-top:12px">
+        <div><label class="f" for="rFrom">Từ ngày giờ (p_from) *</label><input type="datetime-local" id="rFrom" step="1" value="2026-02-01T00:00:00" style="width:100%"></div>
+        <div><label class="f" for="rTo">Đến ngày giờ (p_to) *</label><input type="datetime-local" id="rTo" step="1" value="2026-02-25T23:59:59" style="width:100%"></div>
+        <div><label class="f">p_org *</label><input value="BDP" style="width:100%"></div>
+      </div>
+      <div class="row" style="margin-top:6px"><span class="f" style="margin:0">Chọn nhanh:</span>
+        <button type="button" class="btn sm" data-q="yday">Hôm qua</button><button type="button" class="btn sm" data-q="lmonth">Tháng trước</button><button type="button" class="btn sm" data-q="feb">Tháng 02/2026</button></div>
+      <div class="hint h-err hidden" id="rErr" role="alert"></div>
+      <div class="hint h-info" id="rInfo" aria-live="polite"></div>
+      <label class="row"><input type="checkbox" id="rApply" checked> Áp dụng cùng khoảng thời gian cho dữ liệu Excel (theo Ngày lập hóa đơn)</label>
+      <label class="f" style="margin-top:10px">Measures so sánh (tùy chỉnh lần chạy)</label>
+      <div><label class="chip m"><input type="checkbox" checked> SUM Thành tiền</label><label class="chip m"><input type="checkbox" checked> SUM Số lượng</label><label class="chip m"><input type="checkbox" checked> Ngày HĐ</label><label class="chip"><input type="checkbox"> COUNT dòng</label></div>
+    </div>
+  </div>
+  <div class="card"><div class="row"><h3 style="margin:0">3. Thực thi</h3><span class="sp"></span><button type="button" class="btn pri" id="btnRun" disabled>▶ Chạy đối soát</button></div>
+    <div id="runProg" class="hidden" style="margin-top:14px"><div class="prog"><div id="runBar" style="width:0"></div></div><div id="runStep" class="sub" style="margin:8px 0 0" aria-live="polite"></div></div>
+  </div>
+</section>
+
+<!-- ================= RESULT ================= -->
+<section id="p-result" class="hidden">
+  <div class="row"><div><h1>Run #1042 · DTP – HĐ tác nghiệp</h1><div class="sub" id="resSub">Profile: Theo số hóa đơn · 01/02/2026 00:00:00 → 25/02/2026 23:59:59 · BDP · chạy bởi ThanhTran lúc 31/10/2026 18:20</div></div>
+    <span class="sp"></span><button type="button" class="btn">🔁 Chạy lại</button><button type="button" class="btn">⇄ So với run trước</button><button type="button" class="btn pri" id="btnExp">⬇ Export Excel</button></div>
+  <div class="grid g4">
+    <div class="kpi"><div class="l">Control total file</div><div class="v" style="font-size:18px;color:var(--ok)">✔ 24.114.547.250</div><div class="s">Σ dòng chi tiết = dòng Tổng tiền</div></div>
+    <div class="kpi"><div class="l">Tổng tiền Excel (trong khoảng)</div><div class="v" style="font-size:18px">24.114.547.250</div></div>
+    <div class="kpi"><div class="l">Tổng tiền DB</div><div class="v" style="font-size:18px">24.098.317.250</div></div>
+    <div class="kpi"><div class="l">Chênh lệch</div><div class="v" style="font-size:18px;color:var(--err)">16.230.000</div><div class="s">0.067%</div></div>
+  </div>
+  <div class="card" style="margin-top:18px">
+    <div class="bar" id="stBar"></div>
+    <div class="tabs" id="resTabs" style="margin-top:14px"></div>
+    <div class="row" style="margin-bottom:10px"><input id="q" placeholder="🔍 Tìm số hóa đơn…" aria-label="Tìm số hóa đơn" style="width:240px"><select id="fCol" aria-label="Lọc measure"><option value="">Tất cả measure lệch</option><option>TOTAL_AMOUNT</option><option>TOTAL_QTY</option><option>INV_DATE</option></select>
+      <label class="row" style="gap:6px"><input type="checkbox" id="onlyDiff"> Chỉ hiện cột lệch</label><span class="sp"></span><span class="sub" style="margin:0" id="cnt"></span></div>
+    <div class="scroll"><table id="resTbl"></table></div>
+    <div class="ux">UX: click 1 dòng để mở panel chi tiết (dòng Excel gốc ↔ dòng DB). Ô lệch tô đỏ; cột chia nhóm Excel | DB | Chênh.</div>
+  </div>
+  <div class="hint h-info">Dữ liệu kết quả trên màn hình là minh họa cho prototype, không phải kết quả đối soát thực tế.</div>
+</section>
+
+<!-- ================= HISTORY ================= -->
+<section id="p-history" class="hidden">
+  <h1>Lịch sử run</h1><div class="sub">Truy vết: file gốc, template version, khoảng thời gian tìm kiếm, người chạy</div>
+  <div class="card" style="padding:0"><table><thead><tr><th>Run</th><th>Thời gian chạy</th><th>Template (ver)</th><th>Profile</th><th>Khoảng tìm kiếm</th><th>File</th><th>Người chạy</th><th>Trạng thái</th><th class="n">Khớp</th><th></th></tr></thead><tbody>
+    <tr><td>#1042</td><td>31/10 18:20</td><td>DTP v3</td><td>Theo số HĐ</td><td class="mono">01/02 00:00 → 25/02 23:59</td><td>…(DTP)_DONE.xlsx</td><td>ThanhTran</td><td><span class="tag t-warn">Có lệch</span></td><td class="n">98.9%</td><td><button type="button" class="btn sm" data-go="result">Xem</button> <button type="button" class="btn sm">⬇ File gốc</button></td></tr>
+    <tr><td>#1041</td><td>31/10 15:02</td><td>DT_PHI v2</td><td>ORG × App</td><td class="mono">01/09 00:00 → 30/09 23:59</td><td>Mapping DT phí….xlsx</td><td>MinhVH</td><td><span class="tag t-ok">Khớp</span></td><td class="n">100%</td><td><button type="button" class="btn sm">Xem</button> <button type="button" class="btn sm">⬇ File gốc</button></td></tr>
+    <tr><td>#1039</td><td>30/10 09:41</td><td>DTP v3</td><td>Ngày × điểm thu</td><td class="mono">01/02 00:00 → 28/02 23:59</td><td>…(DTP).xlsx</td><td>ThanhTran</td><td><span class="tag t-err">Lỗi file</span></td><td class="n">–</td><td><button type="button" class="btn sm">Log lỗi</button></td></tr>
+  </tbody></table></div>
+</section>
+
+<!-- ================= DATA SOURCES ================= -->
+<section id="p-ds" class="hidden">
+  <div class="row"><div><h1>Data Sources</h1><div class="sub">Chỉ Admin được thêm/sửa · user DB bắt buộc read-only</div></div><span class="sp"></span><button type="button" class="btn pri">+ Thêm kết nối</button></div>
+  <div class="card" style="padding:0"><table><thead><tr><th>Tên</th><th>Env</th><th>DSN</th><th>User</th><th>Kiểm tra gần nhất</th><th></th></tr></thead><tbody>
+    <tr><td>DWH_FIN</td><td><span class="tag t-warn">UAT</span></td><td class="mono">dwh-uat:1521/DWHPDB</td><td class="mono">RECON_RO</td><td><span class="tag t-ok">OK · 32ms</span></td><td><button type="button" class="btn sm">Test</button></td></tr>
+    <tr><td>DWH_FIN</td><td><span class="tag t-err">PROD</span></td><td class="mono">dwh-prd:1521/DWHPDB</td><td class="mono">RECON_RO</td><td><span class="tag t-ok">OK · 41ms</span></td><td><button type="button" class="btn sm">Test</button></td></tr>
+    <tr><td>ODS</td><td><span class="tag t-warn">UAT</span></td><td class="mono">ods-uat:1521/ODSPDB</td><td class="mono">RECON_RO</td><td><span class="tag t-err">Timeout</span></td><td><button type="button" class="btn sm">Test</button></td></tr>
+  </tbody></table></div>
+</section>
+
+</div></main></div>
+
+<div class="mask" id="mask"></div>
+<div class="drawer" id="drawer"><div class="hd"><b id="dTitle"></b><span class="sp"></span><button type="button" class="btn sm" id="dClose">✕</button></div><div class="bd" id="dBody"></div></div>
+<div class="note">Prototype UI/UX v3 · dữ liệu minh họa</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+(function(){
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const names={dash:'Dashboard',run:'Chạy đối soát',result:'Kết quả run',history:'Lịch sử',tpl:'Templates',wiz:'Đăng ký template',ds:'Data Sources'};
+function go(p){$$('main section').forEach(s=>s.classList.add('hidden'));$('#p-'+p).classList.remove('hidden');
+  $$('#nav a').forEach(a=>a.classList.toggle('active',a.dataset.p===p));$('#crumb').innerHTML='ReconHub / <b>'+names[p]+'</b>';window.scrollTo(0,0);}
+$$('#nav a').forEach(a=>a.addEventListener('click',()=>go(a.dataset.p)));
+document.addEventListener('click',e=>{const t=e.target.closest('[data-go]');if(t)go(t.dataset.go);});
+const fmt=n=>n==null?'—':(typeof n==='number'?n.toLocaleString('vi-VN'):n);
+const pad=n=>String(n).padStart(2,'0');
+const toLocal=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+const showDT=v=>{if(!v)return '—';const d=new Date(v);return isNaN(d)?'—':`${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;};
+function checkRange(fEl,tEl){const f=new Date(fEl.value),t=new Date(tEl.value);fEl.classList.remove('bad');tEl.classList.remove('bad');
+  if(!fEl.value||isNaN(f)){fEl.classList.add('bad');return 'Vui lòng nhập "Từ ngày giờ".';}
+  if(!tEl.value||isNaN(t)){tEl.classList.add('bad');return 'Vui lòng nhập "Đến ngày giờ".';}
+  if(f>t){fEl.classList.add('bad');tEl.classList.add('bad');return '"Từ ngày giờ" phải nhỏ hơn hoặc bằng "Đến ngày giờ".';}
+  if((t-f)/86400000>93){tEl.classList.add('bad');return 'Khoảng tìm kiếm tối đa 93 ngày.';}
+  return '';}
+
+// chart
+const ch=[['DTP – HĐ tác nghiệp',1.1],['DT phí DV khối cảng',0.4],['Sản lượng tàu',2.3],['BCQT CMMS',0.0]];
+$('#chart').innerHTML=ch.map(c=>`<div style="margin:10px 0"><div class="row"><span>${c[0]}</span><span class="sp"></span><b>${c[1]}%</b></div><div class="bar"><div style="width:${Math.max(c[1]*30,1)}%;background:${c[1]>1?'var(--err)':'var(--warn)'}"></div></div></div>`).join('');
+
+// preview (dữ liệu từ file mẫu)
+const pv=[['1','BD5-SMP','2062699142','C26TBD0031335','HĐ Gốc','01/02/2026 00:45:58','BDP26020116233','NR','Phí nâng container rỗng lạnh','1','2592000'],
+['2','SDC-SMP','2062699850','C26TBD0031336','HĐ Gốc','01/02/2026 00:47:30','BDP26020124924','NR','Phí nâng container rỗng thường','1','1620000'],
+['3','BDP-SMP','2062697121','C26TBD0031337','HĐ Gốc','01/02/2026 00:47:40','BDP26020122722','HH','Phí hạ hàng container thường','1','1620000'],
+['10','BDP-SMP','PAYMENTGW-GMDBDP-Cal0372…','C26TBD0031353','HĐ Gốc','01/02/2026 01:14:46','BDP26013102329','HH','Phí hạ hàng container thường','1','1620000'],
+['13','BDP-SMP','PAYMENTGW-GMDBDP-SuoCYz…','C26TBD0031356','HĐ Gốc','01/02/2026 01:18:39','BDP26013189500','HH','Phí hạ hàng container thường','2','3240000']];
+const ph=['STT','Điểm thu phí','Mã giao dịch','Số hóa đơn','Trạng thái','Ngày lập hóa đơn','Số PIN','Mã dịch vụ','Dịch vụ','Số lượng','Thành tiền'];
+$('#prevTbl').innerHTML='<thead><tr>'+ph.map(h=>`<th>${h}</th>`).join('')+'</tr></thead><tbody>'+pv.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('')+'</tbody>';
+
+// mapping
+const mp=[['STT','—','','number','',false,'1'],['Điểm thu phí','POINT','Điểm thu','text','trim, upper',true,'BD5-SMP'],['Mã giao dịch','TXN_ID','Mã GD','text','trim',true,'2062699142'],
+['Số hóa đơn','INVOICE_NO','Số HĐ','text','trim, upper',true,'C26TBD0031335'],['Trạng thái','STATUS','Trạng thái','text','value_map',true,'HĐ Gốc'],
+['Ngày lập hóa đơn','INV_DATETIME','Ngày lập HĐ','datetime','dd/MM/yyyy HH:mm:ss',true,'01/02/2026 00:45:58'],['Đối tượng thanh toán','—','','text','',false,'CÔNG TY TNHH…'],
+['Số PIN','PIN','Số PIN','text','trim',true,'BDP26020116233'],['Số Container','—','','text','',false,'*'],['Kích cỡ','—','','text','',false,'40'],
+['Mã dịch vụ','SERVICE_CODE','Mã DV','text','trim',true,'NR'],['Dịch vụ','SERVICE_NAME','Dịch vụ','text','',true,'Phí nâng container…'],
+['Số lượng','QTY','Số lượng','number','parse_number',true,'1'],['Thành tiền','AMOUNT','Thành tiền','number','parse_number',true,'2592000'],
+['ƒ trunc_day(INV_DATETIME)','INV_DATE','Ngày HĐ','date','derived',true,'2026-02-01']];
+$('#mapTbl').innerHTML=mp.map(r=>`<tr style="${r[5]?'':'opacity:.45'}"><td><input type="checkbox" ${r[5]?'checked':''}></td><td><b>${r[0]}</b></td><td><input class="mono" value="${r[1]}" style="width:140px"></td><td><input value="${r[2]}" style="width:110px"></td>
+<td><select><option>${r[3]}</option><option>text</option><option>number</option><option>date</option></select></td><td>${r[4]?r[4].split(', ').map(x=>`<span class="tag t-gray">${x}</span>`).join(' '):''}</td><td class="mono">${r[6]}</td></tr>`).join('');
+
+// db map
+const dm=[['INVOICE_NO','INVOICE_NO','VARCHAR2(30)'],['INV_DATETIME','INVOICE_DATE','DATE'],['POINT','COLLECT_POINT','VARCHAR2(20)'],['TXN_ID','TXN_ID','VARCHAR2(60)'],['PIN','PIN_NO','VARCHAR2(30)'],
+['SERVICE_CODE','SERVICE_CODE','VARCHAR2(10)'],['QTY','QUANTITY','NUMBER'],['AMOUNT','AMOUNT','NUMBER(18,2)'],['STATUS','INVOICE_STATUS','VARCHAR2(20)'],['SERVICE_NAME','—','']];
+$('#dbMap').innerHTML=dm.map(r=>`<tr><td class="mono">${r[0]}</td><td><select class="mono"><option>${r[1]}</option></select></td><td class="mono">${r[2]}</td><td>${r[1]==='—'?'<span class="tag t-warn">chưa map</span>':'<span class="tag t-ok">✔</span>'}</td></tr>`).join('');
+$('#btnCols').addEventListener('click',()=>$('#sqlOk').classList.remove('hidden'));
+
+// profile builder
+const fields=['INVOICE_NO','INV_DATE','POINT','TXN_ID','PIN','SERVICE_CODE','STATUS','QTY','AMOUNT'];
+const P1=()=>({k:['INVOICE_NO'],m:[{n:'TOTAL_AMOUNT',a:'sum',f:'AMOUNT',c:'abs_tol',t:'1'},{n:'TOTAL_QTY',a:'sum',f:'QTY',c:'abs_tol',t:'0'},{n:'INV_DATE',a:'first_distinct',f:'INV_DATE',c:'exact',t:''},{n:'LINE_CNT',a:'count',f:'*',c:'display_only',t:''}]});
+const P2=()=>({k:['INV_DATE','POINT'],m:[{n:'TOTAL_AMOUNT',a:'sum',f:'AMOUNT',c:'abs_tol',t:'1'},{n:'INV_CNT',a:'count_distinct',f:'INVOICE_NO',c:'exact',t:''}]});
+let {k:keys,m:meas}=P1();
+const grains={'INVOICE_NO':12221,'INV_DATE|POINT':184,'INV_DATE':25,'POINT':9};
+function renderProf(){
+  $('#avail').innerHTML=fields.map(f=>`<div class="row" style="margin:4px 0"><span class="chip" style="margin:0">${f}</span><span class="sp"></span><button type="button" class="btn sm" data-k="${f}">+Key</button><button type="button" class="btn sm" data-m="${f}">+Σ</button></div>`).join('');
+  $('#zKey').innerHTML=keys.length?keys.map(k=>`<span class="chip k">🔑 ${k} <a href="#" data-rk="${k}">✕</a></span>`).join(''):'<span class="sub">Chọn ít nhất 1 trường làm khóa</span>';
+  const g=grains[keys.join('|')];$('#grainInfo').innerHTML=keys.length?`12.445 dòng Excel → <b>${g?fmt(g):'~?'} nhóm</b> theo (${keys.join(', ')})`:'<span style="color:var(--err)">Chưa có khóa</span>';
+  $('#measTbl').innerHTML=meas.map((m,i)=>`<tr><td class="mono">${m.n}</td><td><select data-i="${i}" data-p="a">${['sum','count','count_distinct','min','max','first_distinct'].map(o=>`<option ${o===m.a?'selected':''}>${o}</option>`).join('')}</select></td><td class="mono">${m.f}</td>
+  <td><select data-i="${i}" data-p="c">${['exact','abs_tol','pct_tol','display_only'].map(o=>`<option ${o===m.c?'selected':''}>${o}</option>`).join('')}</select></td><td><input value="${m.t}" style="width:60px" data-i="${i}" data-p="t"></td><td><a href="#" data-rm="${i}">✕</a></td></tr>`).join('');
+  const sel=keys.map(k=>k.toLowerCase()).concat(meas.map(m=>{const col=m.f==='*'?'*':m.f.toLowerCase();const nm=m.n.toLowerCase();
+    if(m.a==='count_distinct')return `COUNT(DISTINCT ${col}) ${nm}`;if(m.a==='first_distinct')return `MIN(${col}) ${nm}`;return `${m.a.toUpperCase()}(${col}) ${nm}`;}));
+  $('#genSql').textContent=`SELECT ${sel.join(',\n       ')}\nFROM  ( <SQL nguồn với :p_from, :p_to, :p_org> )\nGROUP BY ${keys.map(k=>k.toLowerCase()).join(', ')||'—'}`;
+}
+$('#p-wiz').addEventListener('click',e=>{const t=e.target;
+  if(t.dataset.k&&!keys.includes(t.dataset.k)){keys.push(t.dataset.k);renderProf();}
+  if(t.dataset.m){meas.push({n:'SUM_'+t.dataset.m,a:'sum',f:t.dataset.m,c:'abs_tol',t:'0'});renderProf();}
+  if(t.dataset.rk){e.preventDefault();keys=keys.filter(k=>k!==t.dataset.rk);renderProf();}
+  if(t.dataset.rm){e.preventDefault();meas.splice(+t.dataset.rm,1);renderProf();}});
+$('#p-wiz').addEventListener('change',e=>{const t=e.target;if(t.dataset.i!=null){meas[+t.dataset.i][t.dataset.p]=t.value;renderProf();}});
+$$('#profTabs .tab').forEach((t,i)=>t.addEventListener('click',()=>{if(i===2)return;$$('#profTabs .tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');
+  ({k:keys,m:meas}=i===1?P2():P1());renderProf();}));
+renderProf();
+
+// wizard steps
+let step=1;
+function setStep(s){step=Math.min(5,Math.max(1,s));$$('.ws').forEach(w=>w.classList.add('hidden'));$('#s'+step).classList.remove('hidden');
+  $$('.step').forEach(x=>{const n=+x.dataset.s;x.classList.toggle('active',n===step);x.classList.toggle('done',n<step);x.querySelector('.c').textContent=n<step?'✓':n;});
+  $('#next').textContent=step===5?'✔ Lưu & kích hoạt v4':'Tiếp →';}
+$$('.step').forEach(x=>x.addEventListener('click',()=>setStep(+x.dataset.s)));
+$('#next').addEventListener('click',()=>{if(step===5){alert('Đã lưu template DTP_HOA_DON_TAC_NGHIEP v4 (prototype)');go('tpl');}else setStep(step+1);});
+$('#prev').addEventListener('click',()=>setStep(step-1));
+function animate(bar,done,steps,label){let w=0,i=-1;const id=setInterval(()=>{w+=10;bar.style.width=w+'%';const k=Math.min(Math.floor(w/20),(steps||[]).length-1);
+  if(label&&steps&&k!==i){i=k;label.textContent=steps[k];}if(w>=100){clearInterval(id);done();}},150);}
+$('#btnDry').addEventListener('click',()=>{const er=checkRange($('#dFrom'),$('#dTo'));$('#dErr').textContent=er;$('#dErr').classList.toggle('hidden',!er);if(er)return;
+  $('#dryOut').classList.add('hidden');$('#dryBar').style.width='0';
+  animate($('#dryBar'),()=>{$('#dryRange').innerHTML=`Phạm vi đã dùng: <b>${showDT($('#dFrom').value)} → ${showDT($('#dTo').value)}</b> cho cả DB và Excel.`;$('#dryOut').classList.remove('hidden');});});
+
+// wizard top tabs + mermaid
+let mmDone=false;
+function showWT(w){$$('.mtabs .tab').forEach(t=>t.classList.toggle('active',t.dataset.wt===w));$('#wt-cfg').classList.toggle('hidden',w!=='cfg');$('#wt-dgm').classList.toggle('hidden',w!=='dgm');
+  if(w==='dgm'&&!mmDone){mmDone=true;renderMermaid();}}
+$$('.mtabs .tab').forEach(t=>{t.addEventListener('click',()=>showWT(t.dataset.wt));t.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();showWT(t.dataset.wt);}});});
+function fallback(){$$('#wt-dgm pre.mermaid').forEach(p=>{if(p.querySelector('svg'))return;p.className='src';p.insertAdjacentHTML('beforebegin','<div class="hint h-warn">Không tải được thư viện Mermaid – hiển thị mã nguồn (dán vào mermaid.live để xem).</div>');});}
+function renderMermaid(){
+  if(!window.mermaid){fallback();return;}
+  try{mermaid.initialize({startOnLoad:false,theme:'default',securityLevel:'strict',flowchart:{htmlLabels:true,curve:'basis'}});
+    $$('#wt-dgm pre.mermaid').forEach(p=>{const w=document.createElement('div');w.className='mm';p.parentNode.insertBefore(w,p);w.appendChild(p);});
+    mermaid.run({nodes:$$('#wt-dgm pre.mermaid')}).catch(fallback);}catch(e){fallback();}}
+
+// run
+let fileOk=false;
+function runValidate(){const er=checkRange($('#rFrom'),$('#rTo'));$('#rErr').textContent=er;$('#rErr').classList.toggle('hidden',!er);
+  if(!er){const out=$('#rApply').checked?'Excel: dòng có Ngày lập hóa đơn ngoài khoảng sẽ bị loại khỏi so sánh và được báo số lượng.':'Excel: không lọc theo thời gian (có thể phát sinh "Thiếu trong DB" do khác phạm vi).';
+    $('#rInfo').innerHTML=`ℹ DB truy vấn với <span class="mono">:p_from = ${showDT($('#rFrom').value)}</span>, <span class="mono">:p_to = ${showDT($('#rTo').value)}</span>.<br>${out}`;$('#rInfo').classList.remove('hidden');}
+  else $('#rInfo').classList.add('hidden');
+  $('#btnRun').disabled=!(fileOk&&!er);return !er;}
+['#rFrom','#rTo','#rApply'].forEach(s=>$(s).addEventListener('input',runValidate));
+$$('[data-q]').forEach(b=>b.addEventListener('click',()=>{const now=new Date();let f,t;
+  if(b.dataset.q==='yday'){f=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1,0,0,0);t=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1,23,59,59);}
+  else if(b.dataset.q==='lmonth'){f=new Date(now.getFullYear(),now.getMonth()-1,1,0,0,0);t=new Date(now.getFullYear(),now.getMonth(),0,23,59,59);}
+  else{f=new Date(2026,1,1,0,0,0);t=new Date(2026,1,28,23,59,59);}
+  $('#rFrom').value=toLocal(f);$('#rTo').value=toLocal(t);runValidate();}));
+$('#runDrop').addEventListener('click',()=>{$('#runDrop').classList.add('hidden');$('#runFile').classList.remove('hidden');fileOk=true;runValidate();});
+$('#runDrop').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#runDrop').click();}});
+$('#btnRun').addEventListener('click',()=>{if(!runValidate())return;$('#runProg').classList.remove('hidden');$('#runBar').style.width='0';
+  const r=`${showDT($('#rFrom').value)} → ${showDT($('#rTo').value)}`;
+  const st=['1/5 Đọc & chuẩn hóa file…',`2/5 Lọc Excel theo khoảng ${r} · kiểm tra control total…`,`3/5 Query DB với :p_from/:p_to (GROUP BY invoice_no)…`,'4/5 So sánh theo khóa…','5/5 Ghi kết quả…'];
+  animate($('#runBar'),()=>{$('#runStep').textContent='✔ Hoàn tất – đang mở kết quả';
+    $('#resSub').textContent=`Profile: Theo số hóa đơn · ${r} · BDP · chạy bởi ThanhTran`;setTimeout(()=>go('result'),500);},st,$('#runStep'));});
+runValidate();
+
+// result data (minh họa)
+const S={MATCHED:['Khớp','t-ok','var(--ok)'],MISMATCH:['Lệch giá trị','t-err','var(--err)'],MISSING_DB:['Thiếu trong DB','t-warn','var(--warn)'],MISSING_EXCEL:['Thiếu trong Excel','t-pur','var(--pur)'],INCONSISTENT:['Không nhất quán','t-gray','#98a2b3']};
+const cnt={MATCHED:12104,MISMATCH:78,MISSING_DB:39,MISSING_EXCEL:48,INCONSISTENT:3};
+const rows=[
+{k:'C26TBD0031356',s:'MISMATCH',e:[3240000,2,'2026-02-01',2],d:[1620000,1,'2026-02-01',1],xl:[14,15]},
+{k:'C26TBD0031412',s:'MISMATCH',e:[2592000,1,'2026-02-01',1],d:[2592000,1,'2026-02-02',1],xl:[58]},
+{k:'C26TBD0032728',s:'MISMATCH',e:[1620000,1,'2026-02-07',1],d:[1458000,1,'2026-02-07',1],xl:[2210]},
+{k:'C26TBD0033060',s:'MISSING_DB',e:[1620000,1,'2026-02-09',1],d:null,xl:[3011]},
+{k:'C26TBD0033104',s:'MISSING_DB',e:[1458000,1,'2026-02-09',1],d:null,xl:[3058]},
+{k:'C26TBD0042091',s:'MISSING_EXCEL',e:null,d:[1250000,1,'2026-02-25',1],xl:[]},
+{k:'C26TBD0042095',s:'MISSING_EXCEL',e:null,d:[1620000,1,'2026-02-25',1],xl:[]},
+{k:'C26TBD0035120',s:'INCONSISTENT',e:[3240000,2,'2026-02-12 / 2026-02-13',2],d:[3240000,2,'2026-02-12',2],xl:[5120,5121]},
+{k:'C26TBD0031335',s:'MATCHED',e:[2592000,1,'2026-02-01',1],d:[2592000,1,'2026-02-01',1],xl:[2]},
+{k:'C26TBD0031336',s:'MATCHED',e:[1620000,1,'2026-02-01',1],d:[1620000,1,'2026-02-01',1],xl:[3]},
+{k:'C26TBD0031337',s:'MATCHED',e:[1620000,1,'2026-02-01',1],d:[1620000,1,'2026-02-01',1],xl:[4]}];
+const M=[['TOTAL_AMOUNT','Tổng tiền',1],['TOTAL_QTY','Số lượng',0],['INV_DATE','Ngày HĐ',null],['LINE_CNT','Số dòng','info']];
+let tab='ISSUES';
+const total=Object.values(cnt).reduce((a,b)=>a+b,0);
+$('#stBar').innerHTML=Object.keys(S).map(k=>`<div title="${S[k][0]}" style="width:${Math.max(cnt[k]/total*100,0.6)}%;background:${S[k][2]}"></div>`).join('');
+function renderTabs(){const t=[['ISSUES','Tất cả chênh lệch',total-cnt.MATCHED]].concat(Object.keys(S).map(k=>[k,S[k][0],cnt[k]]));
+  $('#resTabs').innerHTML=t.map(x=>`<div class="tab ${x[0]===tab?'active':''}" data-t="${x[0]}">${x[1]} <span class="tag ${x[0]==='ISSUES'?'t-blue':S[x[0]][1]}">${fmt(x[2])}</span></div>`).join('');}
+function isDiff(r,i){if(!r.e||!r.d||M[i][2]==='info')return false;const a=r.e[i],b=r.d[i];return typeof a==='number'?Math.abs(a-b)>M[i][2]:a!==b;}
+function renderRes(){renderTabs();const q=$('#q').value.trim().toUpperCase(),fc=$('#fCol').value,od=$('#onlyDiff').checked;
+  let list=rows.filter(r=>tab==='ISSUES'?r.s!=='MATCHED':r.s===tab).filter(r=>!q||r.k.includes(q)).filter(r=>!fc||isDiff(r,M.findIndex(m=>m[0]===fc)));
+  let cols=M.map((m,i)=>i);if(od)cols=cols.filter(i=>M[i][2]!=='info'&&list.some(r=>isDiff(r,i)));
+  let h='<thead><tr><th rowspan="2">Số hóa đơn</th><th rowspan="2">Trạng thái</th>'+cols.map(i=>`<th colspan="${M[i][2]==='info'?2:3}" style="text-align:center;border-left:1px solid var(--line)">${M[i][1]}</th>`).join('')+'</tr><tr>'+
+    cols.map(i=>`<th class="n" style="border-left:1px solid var(--line)">Excel</th><th class="n">DB</th>${M[i][2]==='info'?'':'<th class="n">Chênh</th>'}`).join('')+'</tr></thead><tbody>';
+  h+=list.map(r=>`<tr data-k="${r.k}" style="cursor:pointer"><td class="mono"><b>${r.k}</b></td><td><span class="tag ${S[r.s][1]}">${S[r.s][0]}</span></td>`+cols.map(i=>{const a=r.e?r.e[i]:null,b=r.d?r.d[i]:null,df=isDiff(r,i),c=df?'diff':'';
+    const chv=typeof a==='number'&&typeof b==='number'?(a-b):(df?'≠':'');
+    return `<td class="n ${c}" style="border-left:1px solid var(--line)">${fmt(a)}</td><td class="n ${c}">${fmt(b)}</td>${M[i][2]==='info'?'':`<td class="n ${c}">${chv===''||chv===0?'':fmt(chv)}</td>`}`;}).join('')+'</tr>').join('');
+  $('#resTbl').innerHTML=h+'</tbody>';$('#cnt').textContent=`Hiển thị ${list.length} dòng mẫu`;}
+$('#resTabs').addEventListener('click',e=>{const t=e.target.closest('.tab');if(t){tab=t.dataset.t;renderRes();}});
+['#q','#fCol','#onlyDiff'].forEach(s=>$(s).addEventListener('input',renderRes));
+$('#resTbl').addEventListener('click',e=>{const tr=e.target.closest('tr[data-k]');if(!tr)return;openDrawer(rows.find(x=>x.k===tr.dataset.k));});
+function openDrawer(r){$('#dTitle').innerHTML=`${r.k} <span class="tag ${S[r.s][1]}">${S[r.s][0]}</span>`;
+  const xl=r.xl.length?`<table><thead><tr><th>Dòng</th><th>Mã DV</th><th class="n">SL</th><th class="n">Thành tiền</th></tr></thead><tbody>${r.xl.map(x=>`<tr><td>#${x}</td><td>HH</td><td class="n">1</td><td class="n">${fmt(r.e[0]/r.xl.length)}</td></tr>`).join('')}</tbody></table>`:'<div class="sub">Không có dòng Excel trong khoảng thời gian tìm kiếm</div>';
+  const db=r.d?`<table><thead><tr><th>INVOICE_NO</th><th>SERVICE_CODE</th><th class="n">QUANTITY</th><th class="n">AMOUNT</th></tr></thead><tbody><tr><td class="mono">${r.k}</td><td>HH</td><td class="n">${r.d[1]}</td><td class="n">${fmt(r.d[0])}</td></tr></tbody></table>`:'<div class="sub">Không có bản ghi DB trong khoảng thời gian tìm kiếm</div>';
+  $('#dBody').innerHTML=`<h3>Dòng Excel gốc</h3>${xl}<h3 style="margin-top:18px">Dòng DB (query lại theo khóa)</h3>${db}
+  <h3 style="margin-top:18px">Xử lý chênh lệch</h3><div class="grid g2"><div><label class="f">Nguyên nhân</label><select style="width:100%"><option>– chọn –</option><option>DB thiếu</option><option>Mapping thiếu</option><option>Lệch kỳ</option><option>Lỗi nhập liệu</option></select></div>
+  <div><label class="f">Giao cho</label><select style="width:100%"><option>ThanhTran</option><option>MinhVH</option></select></div></div>
+  <label class="f" style="margin-top:10px">Ghi chú</label><textarea style="min-height:70px;font-family:inherit"></textarea>
+  <div class="row" style="margin-top:10px"><button type="button" class="btn">Chấp nhận lệch</button><span class="sp"></span><button type="button" class="btn pri" id="dSave">Lưu</button></div>`;
+  $('#drawer').classList.add('open');$('#mask').classList.add('show');}
+function closeD(){$('#drawer').classList.remove('open');$('#mask').classList.remove('show');}
+$('#dClose').addEventListener('click',closeD);$('#mask').addEventListener('click',closeD);
+$('#dBody').addEventListener('click',e=>{if(e.target.id==='dSave')closeD();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeD();});
+$('#btnExp').addEventListener('click',()=>alert('Export: Summary · Mismatch · Missing in DB · Missing in Excel · Inconsistent (cột mã định dạng Text, ghi kèm khoảng thời gian tìm kiếm)'));
+renderRes();
+
+// ===== REVIEW: nhận xét & đề xuất theo màn hình =====
+const R={
+dash:{ok:['KPI tổng quan rõ, nhìn là biết tình hình','Danh sách run gần đây có trạng thái màu, bấm vào là mở kết quả'],
+ imp:[['h','Thêm bộ lọc kỳ (tháng) và đơn vị (ORG) cho toàn trang; KPI hiện chưa rõ phạm vi'],
+ ['h','Thêm khối "Việc cần làm của tôi": issue được giao, run lỗi, template chờ duyệt'],
+ ['m','KPI "Tỉ lệ khớp" nên đi kèm số tiền chênh lệch, vì lệch 0.1% số dòng có thể là hàng chục triệu đồng'],
+ ['m','Biểu đồ nên là xu hướng theo ngày/tuần cho từng template, để phát hiện lệch tăng dần'],
+ ['l','Run "Đang chạy" cần progress và tự cập nhật, không phải F5']]},
+tpl:{ok:['Thấy được profile, version, owner ngay trên danh sách','Có Clone để nhân bản cho đơn vị khác'],
+ imp:[['h','Thêm cột "Run gần nhất / tỉ lệ khớp" để biết template nào còn được dùng'],
+ ['h','Sửa template cần cảnh báo: tạo version mới, run cũ giữ nguyên version; có màn hình so sánh (diff) giữa các version'],
+ ['m','Thêm quy trình Draft → Chờ duyệt → Active, chỉ Active mới được chọn khi chạy PROD'],
+ ['m','Thêm Export/Import JSON để chuyển template DEV → UAT → PROD'],
+ ['l','Lọc theo nghiệp vụ, owner, trạng thái; vô hiệu hóa (archive) thay vì xóa']]},
+wiz:{ok:['Wizard 5 bước đúng mạch tư duy: File → Trường → DB → Profile → Thử','Tự phát hiện dòng tổng, trùng HĐ, mã lẫn chữ/số giúp người dùng không cần biết kỹ thuật','SQL GROUP BY tự sinh và cập nhật ngay khi chọn khóa/measure','Tab Sơ đồ diễn giải giúp người mới hiểu cách template hoạt động'],
+ imp:[['h','B2: kiểm tra tính duy nhất của trường logic, cảnh báo khi trùng tên; cho khai báo alias tên cột Excel (ví dụ "Thành tiền (VND)")'],
+ ['h','B3: map cột DB nên tự gợi ý theo tên/kiểu và báo lỗi kiểu không tương thích (text ↔ number, date ↔ datetime)'],
+ ['h','B3: kiểm tra SQL bắt buộc có đủ :p_from và :p_to, và đúng cột thời gian đã map'],
+ ['h','B4: kéo thả thật cho Group by/Measures; cảnh báo khi measure không có cột DB tương ứng (như SERVICE_NAME)'],
+ ['h','B4: thêm "Bộ lọc profile" (ví dụ STATUS = ORIGINAL ở cả 2 phía) vì DB có thể có HĐ thay thế/hủy'],
+ ['m','B5: dry-run nên hiển thị 20 dòng lệch mẫu và thời gian query DB riêng, để chỉnh sai số trước khi lưu'],
+ ['m','Mỗi bước hiển thị trạng thái hợp lệ trên thanh steps (✓ / ⚠), chặn "Tiếp" khi còn lỗi bắt buộc'],
+ ['l','Tự lưu nháp; hiện tóm tắt toàn bộ cấu hình (dạng đọc được) trước khi kích hoạt']]},
+run:{ok:['Luồng ngắn: upload → nhận diện → nhập khoảng thời gian → chạy','Khoảng thời gian do người dùng nhập, áp dụng chung cho DB và Excel nên phạm vi so sánh rõ ràng','Có chọn nhanh Hôm qua / Tháng trước và kiểm tra Từ ≤ Đến'],
+ imp:[['h','Hiển thị bước Validate chi tiết khi có lỗi: bảng lỗi theo dòng/cột, tải về file lỗi'],
+ ['h','Hiện số dòng Excel nằm ngoài khoảng tìm kiếm ngay sau khi chọn ngày giờ, trước khi chạy'],
+ ['h','Cảnh báo khi file đã được chạy với cùng khoảng thời gian (trùng hash + tham số)'],
+ ['h','Chọn môi trường DB (UAT/PROD) rõ ràng, PROD cần xác nhận'],
+ ['m','Cho phép upload nhiều file một lần (nhiều điểm thu/ngày) và gộp thành một run'],
+ ['m','Chạy nền: người dùng rời trang vẫn được, nhận thông báo/email khi xong'],
+ ['l','Ghi nhớ profile và khoảng thời gian lần chạy trước theo template']]},
+result:{ok:['Control total đặt đầu trang, biết ngay file có đọc đủ không','Nhóm cột Excel | DB | Chênh và tô ô lệch dễ đọc','Panel chi tiết cho phép xem dòng gốc và ghi nguyên nhân'],
+ imp:[['h','Thêm thống kê chênh lệch tiền theo từng trạng thái (Thiếu DB bao nhiêu tiền, Thiếu Excel bao nhiêu tiền) để ưu tiên xử lý'],
+ ['h','Drill-down: từ profile Ngày × điểm thu bấm vào một nhóm để mở run Theo số HĐ đã lọc sẵn'],
+ ['h','Chọn nhiều dòng để gán nguyên nhân/người xử lý hàng loạt'],
+ ['m','Hiện số dòng Excel bị loại do nằm ngoài khoảng thời gian tìm kiếm, kèm link xem'],
+ ['m','"So với run trước": đánh dấu dòng mới lệch / đã hết lệch'],
+ ['m','Export cho chọn phạm vi: tab hiện tại, dòng đang lọc, toàn bộ'],
+ ['l','Cố định cột khóa khi cuộn ngang; lưu cấu hình cột hiển thị']]},
+history:{ok:['Đủ thông tin truy vết: file, version, khoảng tìm kiếm, người chạy, trạng thái'],
+ imp:[['h','Lọc theo template, khoảng thời gian, người chạy, trạng thái; tìm theo tên file'],
+ ['m','Run lỗi cần hiện lỗi tóm tắt ngay trên dòng và nút "Chạy lại với cùng tham số"'],
+ ['m','Hiển thị thời gian chạy và số dòng để theo dõi hiệu năng'],
+ ['l','Chính sách lưu trữ: hiện ngày hết hạn của file gốc và kết quả']]},
+ds:{ok:['Tách môi trường rõ, user read-only, có test kết nối'],
+ imp:[['h','Kiểm tra quyền thực sự read-only khi test (thử phát hiện quyền DML) và cảnh báo'],
+ ['h','Không hiển thị/chỉnh mật khẩu trực tiếp; lưu mã hóa hoặc dùng wallet/secret store'],
+ ['m','Cấu hình timeout, số dòng tối đa, số kết nối đồng thời cho từng nguồn'],
+ ['m','Hiển thị template nào đang dùng nguồn này trước khi sửa/tắt'],
+ ['l','Lịch sử test kết nối và cảnh báo khi nguồn lỗi liên tục']]}
+};
+const li=a=>a.map(x=>Array.isArray(x)?`<li><span class="pt ${x[0]}">${x[0]==='h'?'Cao':x[0]==='m'?'TB':'Thấp'}</span>${x[1]}</li>`:`<li>${x}</li>`).join('');
+Object.keys(R).forEach(k=>{const sec=document.getElementById('p-'+k);if(!sec)return;const d=document.createElement('div');d.className='rv';
+ d.innerHTML=`<h3>💬 Nhận xét & đề xuất cải tiến</h3><div class="cols"><div><div class="lb pri-l">Điểm tốt</div><ul>${li(R[k].ok)}</ul></div><div><div class="lb pri-h">Đề xuất cải tiến</div><ul>${li(R[k].imp)}</ul></div></div>`;
+ const h=sec.querySelector('h1');const anchor=h.closest('.row')||h.nextElementSibling;anchor.after(d);});
+const b=$('#rvToggle');b.addEventListener('click',()=>{document.body.classList.toggle('norv');b.textContent=document.body.classList.contains('norv')?'💬 Hiện nhận xét':'💬 Ẩn nhận xét';});
+})();
+</script>
+</body>
+</html>

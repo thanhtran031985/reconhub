@@ -189,7 +189,7 @@ def normalize(
                 }
             )
 
-    valid_df = pl.DataFrame(valid_records) if valid_records else pl.DataFrame()
+    valid_df = pl.DataFrame(valid_records, strict=False) if valid_records else pl.DataFrame()
     invalid_df = (
         pl.DataFrame(invalid_records)
         if invalid_records

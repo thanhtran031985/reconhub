@@ -116,4 +116,3 @@ def test_cli_migrate_metadata_missing_target(cli_db) -> None:
     with pytest.raises(SystemExit) as exc:
         migrate_metadata_cmd(args)
     assert exc.value.code != 0
-

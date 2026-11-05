@@ -1,14 +1,28 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 
 from app.core.audit import write_audit_log
 from app.core.context import Ctx, Role, require_role
 from app.db.engine import get_recon_engine
-from app.db.metadata import recon_run, recon_template, recon_template_version
+from app.db.metadata import (
+    recon_excel_load,
+    recon_excel_row,
+    recon_file,
+    recon_invalid_row,
+    recon_issue,
+    recon_result_diff,
+    recon_result_row,
+    recon_run,
+    recon_run_queue,
+    recon_run_summary,
+    recon_template,
+    recon_template_version,
+)
 from app.engine.catalog import describe_sql, list_columns
 from app.engine.sql_builder import build_source_sql
 from app.engine.sql_guard import check_sql
@@ -24,7 +38,7 @@ def list_templates(
     q: str | None = None,
     status: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Liệt kê danh sách template kèm phiên bản hiện hành."""
+    """Liệt kê danh sách template kèm cấu hình và phiên bản hiện hành."""
     require_role(ctx)
     engine = get_recon_engine()
 
@@ -41,18 +55,114 @@ def list_templates(
 
         result: list[dict[str, Any]] = []
         for r in rows:
+            t_id = int(r["ID"])
+            c_ver = r["CURRENT_VERSION"]
+
+            # Lấy phiên bản hiện hành (hoặc phiên bản mới nhất nếu current_version chưa set)
+            ver_stmt = select(recon_template_version).where(recon_template_version.c.TEMPLATE_ID == t_id)
+            if c_ver is not None:
+                ver_stmt = ver_stmt.where(recon_template_version.c.VERSION == c_ver)
+            else:
+                ver_stmt = ver_stmt.order_by(recon_template_version.c.VERSION.desc())
+
+            ver_row = conn.execute(ver_stmt.limit(1)).mappings().first()
+
+            field_count = 0
+            profiles_list: list[dict[str, Any]] = []
+            sheet_name: str | None = None
+            sheet_pattern: str | None = None
+            detect_headers: list[str] = []
+            sample_file_id = ver_row["SAMPLE_FILE_ID"] if ver_row else None
+            data_source_id = ver_row["DATA_SOURCE_ID"] if ver_row else None
+            version_val = ver_row["VERSION"] if ver_row else (c_ver or 1)
+
+            if ver_row and ver_row["CONFIG_JSON"]:
+                cfg = ver_row["CONFIG_JSON"]
+                if isinstance(cfg, str):
+                    try:
+                        cfg = json.loads(cfg)
+                    except Exception:
+                        cfg = {}
+                if isinstance(cfg, dict):
+                    field_count = len(cfg.get("fields", []))
+                    profiles_list = [
+                        {
+                            "code": p.get("code") or p.get("profile_id", ""),
+                            "name": p.get("name") or p.get("code", ""),
+                            "is_default": bool(p.get("is_default", False)),
+                        }
+                        for p in cfg.get("profiles", [])
+                    ]
+                    file_spec = cfg.get("file", {})
+                    sheet_name = file_spec.get("sheet")
+                    sheet_pattern = file_spec.get("sheet_pattern")
+                    detect_headers = file_spec.get("detect_by_headers", [])
+
+            # Lấy tên file mẫu upload nếu có
+            sample_file_name: str | None = None
+            if sample_file_id:
+                sample_file_name = conn.execute(
+                    select(recon_file.c.ORIGINAL_NAME).where(recon_file.c.ID == sample_file_id)
+                ).scalar()
+
+            # Nhận diện file: Ưu tiên tên file mẫu, hoặc sheet_pattern, hoặc f"Sheet: {sheet}"
+            if sample_file_name:
+                file_pattern_val = sample_file_name
+            elif sheet_pattern:
+                file_pattern_val = sheet_pattern
+            elif sheet_name:
+                file_pattern_val = f"Sheet: {sheet_name}"
+            else:
+                file_pattern_val = "—"
+
+            # Lấy run gần nhất
+            last_run = (
+                conn.execute(
+                    select(
+                        recon_run.c.ID,
+                        recon_run.c.STATUS,
+                        recon_run.c.FINISHED_AT,
+                        recon_run.c.CREATED_AT,
+                    )
+                    .where(recon_run.c.TEMPLATE_ID == t_id)
+                    .order_by(recon_run.c.ID.desc())
+                    .limit(1)
+                )
+                .mappings()
+                .first()
+            )
+
+            last_run_dict: dict[str, Any] | None = None
+            if last_run:
+                run_dt = last_run["FINISHED_AT"] or last_run["CREATED_AT"]
+                last_run_dict = {
+                    "id": int(last_run["ID"]),
+                    "status": str(last_run["STATUS"]),
+                    "finished_at": run_dt.strftime("%d/%m/%Y %H:%M") if run_dt else "",
+                }
+
             result.append(
                 {
-                    "id": int(r["ID"]),
+                    "id": t_id,
                     "code": str(r["CODE"]),
                     "name": str(r["NAME"]),
                     "description": r["DESCRIPTION"],
                     "owner": str(r["OWNER"]),
                     "status": str(r["STATUS"]),
-                    "current_version": r["CURRENT_VERSION"],
+                    "current_version": version_val,
+                    "version": version_val,
                     "created_at": r["CREATED_AT"],
                     "updated_at": r["UPDATED_AT"],
                     "row_version": int(r["ROW_VERSION"]),
+                    "field_count": field_count,
+                    "profiles": profiles_list,
+                    "sheet": sheet_name,
+                    "detect_headers": detect_headers,
+                    "sample_file_id": sample_file_id,
+                    "sample_file_name": sample_file_name,
+                    "file_pattern": file_pattern_val,
+                    "data_source_id": data_source_id,
+                    "last_run": last_run_dict,
                 }
             )
         return result
@@ -61,7 +171,7 @@ def list_templates(
 @service
 def get_template(
     ctx: Ctx,
-    template_id: int,
+    template_id: int | str,
     version: int | None = None,
 ) -> dict[str, Any]:
     """Lấy thông tin chi tiết template và cấu hình CONFIG_JSON của phiên bản tương ứng."""
@@ -69,16 +179,22 @@ def get_template(
     engine = get_recon_engine()
 
     with engine.connect() as conn:
-        tmpl = conn.execute(select(recon_template).where(recon_template.c.ID == template_id)).mappings().first()
+        if isinstance(template_id, int) or (isinstance(template_id, str) and str(template_id).isdigit()):
+            tmpl_stmt = select(recon_template).where(recon_template.c.ID == int(template_id))
+        else:
+            tmpl_stmt = select(recon_template).where(recon_template.c.CODE == str(template_id).strip().upper())
+
+        tmpl = conn.execute(tmpl_stmt).mappings().first()
 
         if tmpl is None:
-            raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy template có ID {template_id}")
+            raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy template có ID hoặc mã '{template_id}'")
 
+        t_id = int(tmpl["ID"])
         # Lấy danh sách tất cả các phiên bản
         vers_rows = (
             conn.execute(
                 select(recon_template_version)
-                .where(recon_template_version.c.TEMPLATE_ID == template_id)
+                .where(recon_template_version.c.TEMPLATE_ID == t_id)
                 .order_by(recon_template_version.c.VERSION.desc())
             )
             .mappings()
@@ -96,6 +212,14 @@ def get_template(
             import json
 
             config_data = json.loads(config_data)
+
+        ds_id = target_ver_row["DATA_SOURCE_ID"]
+        if ds_id and isinstance(config_data, dict):
+            from app.db.metadata import recon_data_source
+
+            ds_row = conn.execute(select(recon_data_source.c.NAME).where(recon_data_source.c.ID == ds_id)).scalar()
+            if ds_row:
+                config_data.setdefault("db_source", {})["source_id"] = str(ds_row)
 
         versions_list = [
             {
@@ -123,6 +247,7 @@ def get_template(
             "updated_at": tmpl["UPDATED_AT"],
             "config": config_data,
             "data_source_id": target_ver_row["DATA_SOURCE_ID"],
+            "sample_file_id": target_ver_row["SAMPLE_FILE_ID"],
             "version_status": str(target_ver_row["STATUS"]),
             "dry_run_ok": target_ver_row["DRY_RUN_OK"],
             "versions": versions_list,
@@ -138,6 +263,7 @@ def save_draft_template(
     description: str | None = None,
     data_source_id: int | None = None,
     row_version: int | None = None,
+    sample_file_id: int | None = None,
 ) -> dict[str, Any]:
     """Lưu bản nháp template.
 
@@ -180,6 +306,7 @@ def save_draft_template(
                     STATUS="DRAFT",
                     CONFIG_JSON=config_dict,
                     DATA_SOURCE_ID=data_source_id,
+                    SAMPLE_FILE_ID=sample_file_id,
                     DRY_RUN_OK="N",
                     CREATED_BY=ctx.username,
                     CREATED_AT=now,
@@ -249,6 +376,7 @@ def save_draft_template(
                 .values(
                     CONFIG_JSON=config_dict,
                     DATA_SOURCE_ID=data_source_id,
+                    SAMPLE_FILE_ID=sample_file_id,
                     DRY_RUN_OK="N",
                     DRY_RUN_JSON=None,
                 )
@@ -278,6 +406,7 @@ def save_draft_template(
                     STATUS="DRAFT",
                     CONFIG_JSON=config_dict,
                     DATA_SOURCE_ID=data_source_id,
+                    SAMPLE_FILE_ID=sample_file_id,
                     DRY_RUN_OK="N",
                     CREATED_BY=ctx.username,
                     CREATED_AT=now,
@@ -527,6 +656,78 @@ def archive_template(
 
 
 @service
+def delete_template(
+    ctx: Ctx,
+    template_id: int | str,
+) -> dict[str, Any]:
+    """Xóa vĩnh viễn template và các cấu hình/dữ liệu liên quan (chỉ dành cho Quản trị viên)."""
+    require_role(ctx, Role.ADMIN)
+    engine = get_recon_engine()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    with engine.begin() as conn:
+        if isinstance(template_id, int) or str(template_id).isdigit():
+            target_int_id = int(template_id)
+            tmpl = conn.execute(select(recon_template).where(recon_template.c.ID == target_int_id)).mappings().first()
+        else:
+            tmpl = (
+                conn.execute(select(recon_template).where(recon_template.c.CODE == str(template_id).upper()))
+                .mappings()
+                .first()
+            )
+
+        if tmpl is None:
+            raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy template có ID/Code {template_id}")
+
+        resolved_id = int(tmpl["ID"])
+        code = str(tmpl["CODE"])
+        name = str(tmpl["NAME"])
+
+        # 1. Tìm và xóa các run liên quan nếu có
+        run_ids = conn.execute(select(recon_run.c.ID).where(recon_run.c.TEMPLATE_ID == resolved_id)).scalars().all()
+
+        if run_ids:
+            conn.execute(delete(recon_result_diff).where(recon_result_diff.c.RUN_ID.in_(run_ids)))
+            conn.execute(delete(recon_result_row).where(recon_result_row.c.RUN_ID.in_(run_ids)))
+            conn.execute(delete(recon_invalid_row).where(recon_invalid_row.c.RUN_ID.in_(run_ids)))
+            conn.execute(delete(recon_run_summary).where(recon_run_summary.c.RUN_ID.in_(run_ids)))
+            conn.execute(delete(recon_run_queue).where(recon_run_queue.c.RUN_ID.in_(run_ids)))
+            conn.execute(delete(recon_run).where(recon_run.c.ID.in_(run_ids)))
+
+        # 2. Xóa các issue liên quan
+        conn.execute(delete(recon_issue).where(recon_issue.c.TEMPLATE_ID == resolved_id))
+
+        # 3. Xóa các excel load liên quan
+        load_ids = (
+            conn.execute(select(recon_excel_load.c.ID).where(recon_excel_load.c.TEMPLATE_ID == resolved_id))
+            .scalars()
+            .all()
+        )
+        if load_ids:
+            conn.execute(delete(recon_excel_row).where(recon_excel_row.c.LOAD_ID.in_(load_ids)))
+            conn.execute(delete(recon_excel_load).where(recon_excel_load.c.ID.in_(load_ids)))
+
+        # 4. Xóa các phiên bản template
+        conn.execute(delete(recon_template_version).where(recon_template_version.c.TEMPLATE_ID == resolved_id))
+
+        # 5. Xóa chính template
+        conn.execute(delete(recon_template).where(recon_template.c.ID == resolved_id))
+
+        # 6. Ghi nhật ký audit
+        write_audit_log(
+            conn=conn,
+            entity="TEMPLATE",
+            entity_id=resolved_id,
+            action="DELETE_TEMPLATE",
+            actor=ctx.username,
+            old_data={"code": code, "name": name},
+            now=now,
+        )
+
+        return {"ok": True, "template_id": resolved_id, "code": code, "deleted": True}
+
+
+@service
 def preview_source_sql(
     ctx: Ctx,
     template_id: int,
@@ -572,6 +773,7 @@ def describe_source(
     table_name: str | None = None,
     sql: str | None = None,
     schema: str | None = None,
+    allowed_params: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Phân tích cấu trúc cột của bảng nguồn hoặc câu lệnh SQL tùy biến."""
     require_role(ctx)
@@ -579,7 +781,12 @@ def describe_source(
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "Cần cung cấp table_name hoặc sql để phân tích cấu trúc cột.")
 
     if sql:
-        is_safe, err_msg = check_sql(sql, allowed_params=["p_from", "p_to"])
+        effective_allowed = list(allowed_params) if allowed_params is not None else ["p_from", "p_to", "p_org"]
+        for default_p in ["p_from", "p_to", "p_org"]:
+            if default_p not in effective_allowed:
+                effective_allowed.append(default_p)
+
+        is_safe, err_msg = check_sql(sql, allowed_params=effective_allowed)
         if not is_safe:
             raise ServiceError(ErrorCode.SQL_NOT_ALLOWED, err_msg or "Câu lệnh SQL không an toàn.")
         conn = open_source_connection(data_source_id)

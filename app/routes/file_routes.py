@@ -52,7 +52,7 @@ def download_export(run_id: int) -> Any:
             abort(404)
         abort(403)
 
-    export_path = Path(str(res.data["export_path"]))
+    export_path = Path(str(res.data["export_path"])).resolve()
     if not export_path.exists():
         abort(404)
 
@@ -60,4 +60,5 @@ def download_export(run_id: int) -> Any:
         export_path,
         as_attachment=True,
         download_name=f"ReconHub_Run_{run_id}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )

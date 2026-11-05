@@ -14,6 +14,8 @@ from app.db.metadata import (
     recon_data_source,
     recon_file,
     recon_result_row,
+    recon_run,
+    recon_run_queue,
     recon_template,
     recon_template_version,
 )
@@ -144,6 +146,12 @@ def test_dry_run_and_activate_lifecycle(draft_template_setup, admin_ctx, test_db
     with test_db.connect() as conn:
         res_rows = conn.execute(select(recon_result_row)).all()
         assert len(res_rows) == 0
+
+        # Run tạm của dry-run không được để lại trong hàng đợi (để
+        # worker không nhận và chạy lại nó với persist=True) và
+        # không để lại trong bảng run.
+        assert conn.execute(select(recon_run_queue)).all() == []
+        assert conn.execute(select(recon_run)).all() == []
 
         # RECON_TEMPLATE_VERSION đã lưu DRY_RUN_OK='Y'
         tv = (

@@ -109,12 +109,14 @@ def run_pipeline(
     excel_rows_invalid = len(invalid_df)
     derived_excel = derive(norm_excel, config.derived)
 
-    # 7. Lọc theo thời gian (Excel)
+    # 7. Lọc theo thời gian (Excel) — chỉ khi apply_range_excel bật.
+    # Mặc định pipeline giữ True để các caller trực tiếp cũ không đổi hành
+    # vi; đường chạy qua UI/service luôn truyền giá trị đã lưu của run.
     p_from = _parse_datetime(params_dict.get("p_from"))
     p_to = _parse_datetime(params_dict.get("p_to"))
 
     excel_rows_out_of_range = 0
-    if config.time_filter and p_from and p_to:
+    if config.time_filter and p_from and p_to and params_dict.get("apply_range_excel", True):
         tf_res = apply_time_filter(derived_excel, config.time_filter, p_from, p_to)
         derived_excel = tf_res.df
         excel_rows_out_of_range = tf_res.out_of_range_count
@@ -128,6 +130,18 @@ def run_pipeline(
     excel_groups = len(excel_agg)
 
     # 10. Lấy dữ liệu DB
+    source_sql: str | None = None
+    # Cờ này chỉ đúng khi dữ liệu thật sự lấy qua SQL do build_source_sql
+    # sinh ra (đường chạy qua /runs/new và worker). Khi đó, nếu
+    # pushdown_aggregate bật (mặc định), Oracle đã GROUP BY sẵn và trả về
+    # các cột tên measure (ví dụ TOTAL_TONG_TIEN), không còn cột trường gốc
+    # (ví dụ TONG_TIEN). Giai đoạn gộp phía dưới bắt buộc phải biết điều
+    # này, nếu không nó sẽ gộp lại theo tên trường gốc, không tìm thấy cột
+    # nên tổng SUM ra 0 cho mọi nhóm DB — đúng triệu chứng "Thiếu trong
+    # Excel nhưng cột DB toàn 0" và các nhóm Excel 0 bị khớp giả.
+    # Fetcher dạng DataFrame/callable (test, golden) trả dữ liệu chi tiết,
+    # không qua SQL pushdown nên cờ này phải là False.
+    db_pushdown_applied = False
     if isinstance(fetcher, pl.DataFrame):
         db_raw = fetcher
     elif callable(fetcher):
@@ -137,21 +151,38 @@ def run_pipeline(
         ok, err_msg = check_sql(sql, list(binds.keys()))
         if not ok:
             raise ServiceError(ErrorCode.SQL_NOT_ALLOWED, err_msg or "SQL không hợp lệ.")
+        source_sql = sql
+        db_pushdown_applied = bool(profile.aggregate and config.db_source.pushdown_aggregate)
         db_raw = fetcher.fetch_df(None, sql, binds)
     else:
         db_raw = pl.DataFrame()
 
+    if source_sql is None:
+        try:
+            source_sql, _ = build_source_sql(config, profile, params_dict)
+        except Exception:
+            pass
+
     db_rows = len(db_raw)
 
-    # Đổi tên cột từ DB sang tên trường logic
-    db_col_to_field: dict[str, str] = {}
-    for f in config.fields:
-        if f.db:
-            db_col_to_field[f.db] = f.name
-            db_col_to_field[f.db.upper()] = f.name
-    rename_db = {c: db_col_to_field[c] for c in db_raw.columns if c in db_col_to_field and c != db_col_to_field[c]}
-    if rename_db:
-        db_raw = db_raw.rename(rename_db)
+    # Đổi tên cột từ DB sang tên trường logic — CHỈ khi dữ liệu là chi tiết.
+    # Khi pushdown, các cột Oracle trả về ĐÃ là tên logic (tên group_by và
+    # tên measure), không phải tên cột vật lý, nên không được đổi tên nữa.
+    # Ví dụ profile BY_INVOICE_VTOS: measure TOTAL_AMOUNT có trường nguồn
+    # tên khác (ví dụ SO_TIEN) với cột DB là TOTAL_AMOUNT. Đổi tên lúc này
+    # sẽ đổi cột measure TOTAL_AMOUNT thành SO_TIEN, làm nhánh pushdown
+    # của aggregate không tìm thấy cột TOTAL_AMOUNT nữa, giá trị DB thành
+    # None cho mọi nhóm và KPI "Tổng tiền DB" ra 0 dù Oracle đọc được
+    # hàng nghìn bản ghi.
+    if not db_pushdown_applied:
+        db_col_to_field: dict[str, str] = {}
+        for f in config.fields:
+            if f.db:
+                db_col_to_field[f.db] = f.name
+                db_col_to_field[f.db.upper()] = f.name
+        rename_db = {c: db_col_to_field[c] for c in db_raw.columns if c in db_col_to_field and c != db_col_to_field[c]}
+        if rename_db:
+            db_raw = db_raw.rename(rename_db)
 
     # Lọc thời gian phía DB nếu dữ liệu DB chưa lọc (ví dụ DataFrame thô)
     if config.time_filter and p_from and p_to:
@@ -168,8 +199,8 @@ def run_pipeline(
     if profile.filters:
         derived_db = apply_profile_filters(derived_db, profile.filters)
 
-    # Gộp dữ liệu DB
-    db_agg = aggregate(derived_db, profile)
+    # Gộp dữ liệu DB (dùng đúng nhánh pushdown khi Oracle đã gộp sẵn)
+    db_agg = aggregate(derived_db, profile, is_db_pushdown=db_pushdown_applied)
     db_groups = len(db_agg)
 
     # 11. Ghép và so sánh kết quả
@@ -189,6 +220,7 @@ def run_pipeline(
         control_total_res=ct_res,
         duration_ms=duration_ms,
         config=config,
+        source_sql=source_sql,
     )
 
     return PipelineResult(

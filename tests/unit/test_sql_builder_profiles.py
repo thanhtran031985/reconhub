@@ -33,16 +33,16 @@ def test_build_sql_profile_by_invoice(dtp_template: TemplateConfig) -> None:
     assert ") src" in sql
 
     # Kiểm tra các measures gộp
-    assert 'SUM("src"."AMOUNT") AS "TOTAL_AMOUNT"' in sql
-    assert 'SUM("src"."QUANTITY") AS "TOTAL_QTY"' in sql
+    assert 'SUM(src."AMOUNT") AS "TOTAL_AMOUNT"' in sql
+    assert 'SUM(src."QUANTITY") AS "TOTAL_QTY"' in sql
     assert 'COUNT(*) AS "LINE_CNT"' in sql
     # first_distinct trên INV_DATE
-    assert 'MIN(TRUNC("src"."INVOICE_DATE")) AS "INV_DATE"' in sql
-    assert 'COUNT(DISTINCT TRUNC("src"."INVOICE_DATE")) AS "INV_DATE__CNT_DIST"' in sql
+    assert 'MIN(TRUNC(src."INVOICE_DATE")) AS "INV_DATE"' in sql
+    assert 'COUNT(DISTINCT TRUNC(src."INVOICE_DATE")) AS "INV_DATE__CNT_DIST"' in sql
 
     # Kiểm tra group by
     assert "GROUP BY" in sql
-    assert 'UPPER(TRIM("src"."INVOICE_NO"))' in sql
+    assert 'UPPER(TRIM(src."INVOICE_NO"))' in sql
 
 
 def test_build_sql_profile_by_day_point(dtp_template: TemplateConfig) -> None:
@@ -56,9 +56,9 @@ def test_build_sql_profile_by_day_point(dtp_template: TemplateConfig) -> None:
     sql, binds = build_source_sql(dtp_template, profile=profile, params=params)
 
     assert "GROUP BY" in sql
-    assert 'TRUNC("src"."INVOICE_DATE")' in sql
-    assert 'UPPER(TRIM("src"."COLLECT_POINT"))' in sql
-    assert 'COUNT(DISTINCT UPPER(TRIM("src"."INVOICE_NO"))) AS "INV_CNT"' in sql
+    assert 'TRUNC(src."INVOICE_DATE")' in sql
+    assert 'UPPER(TRIM(src."COLLECT_POINT"))' in sql
+    assert 'COUNT(DISTINCT UPPER(TRIM(src."INVOICE_NO"))) AS "INV_CNT"' in sql
 
 
 def test_build_sql_profile_by_line(dtp_template: TemplateConfig) -> None:
@@ -72,11 +72,11 @@ def test_build_sql_profile_by_line(dtp_template: TemplateConfig) -> None:
     sql, binds = build_source_sql(dtp_template, profile=profile, params=params)
 
     assert "GROUP BY" in sql
-    assert 'UPPER(TRIM("src"."INVOICE_NO"))' in sql
-    assert 'UPPER(TRIM("src"."SERVICE_CODE"))' in sql
-    assert 'TRIM("src"."PIN_NO")' in sql
-    assert 'SUM("src"."AMOUNT") AS "AMOUNT"' in sql
-    assert 'SUM("src"."QUANTITY") AS "QTY"' in sql
+    assert 'UPPER(TRIM(src."INVOICE_NO"))' in sql
+    assert 'UPPER(TRIM(src."SERVICE_CODE"))' in sql
+    assert 'TRIM(src."PIN_NO")' in sql
+    assert 'SUM(src."AMOUNT") AS "AMOUNT"' in sql
+    assert 'SUM(src."QUANTITY") AS "QTY"' in sql
 
 
 def test_build_sql_no_pushdown_aggregate(dtp_template: TemplateConfig) -> None:

@@ -129,7 +129,10 @@ def check_sql(sql: str, allowed_params: list[str]) -> tuple[bool, str | None]:
     unknown = binds - allowed_set
     if unknown:
         unknown_param = sorted(unknown)[0]
-        return False, f"Biến bind ':{unknown_param}' không nằm trong danh sách tham số được phép."
+        return (
+            False,
+            f"Biến bind ':{unknown_param}' chưa được đăng ký trong danh sách tham số lọc (hãy bấm '+ Thêm tham số lọc' bên phải để khai báo).",
+        )
 
     # Bắt buộc phải có :p_from và :p_to
     if "p_from" not in binds:

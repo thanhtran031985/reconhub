@@ -158,6 +158,7 @@ def issues_ui_env(tmp_path: Path, monkeypatch):
         )
 
         from app.services.issue import ensure_default_reasons
+
         ensure_default_reasons(conn)
 
         # Issue

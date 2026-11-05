@@ -14,6 +14,7 @@ from app.db.metadata import (
     metadata,
     recon_data_source,
     recon_file,
+    recon_issue,
     recon_result_row,
     recon_run,
     recon_run_queue,
@@ -22,7 +23,7 @@ from app.db.metadata import (
     recon_template_version,
 )
 from app.schemas.run import CreateRunParams
-from app.services.run_executor import execute_run
+from app.services.run_executor import _update_issues_last_run, execute_run
 from app.services.run_service import create_run
 from worker.runner import ReconWorker
 
@@ -260,6 +261,82 @@ def test_execute_run_failure_cleans_up(test_db, seed_data, admin_ctx):
         # Không có bản ghi dở trong RECON_RESULT_ROW
         res_rows = conn.execute(select(recon_result_row).where(recon_result_row.c.RUN_ID == run_id)).all()
         assert len(res_rows) == 0
+
+
+def test_update_issues_last_run_chunks_over_sqlite_variable_limit(test_db, seed_data):
+    """Danh sách key_hash lớn không được đưa vào một mệnh đề IN duy nhất.
+
+    Tái hiện môi trường của người dùng: giới hạn biến SQLite hạ xuống 999
+    (mức thường gặp trên Windows). Với 1200 issue, câu UPDATE một lần duy
+    nhất sẽ lỗi "too many SQL variables"; helper chia lô 500 phải cập nhật
+    đủ 1200 issue và không chạm vào issue của profile khác.
+    """
+    import sqlite3
+
+    from sqlalchemy import event, update
+
+    template_id = seed_data["template_id"]
+    hashes = [f"hash-{i:05d}" for i in range(1200)]
+    with test_db.begin() as conn:
+        conn.execute(
+            recon_issue.insert(),
+            [
+                {
+                    "TEMPLATE_ID": template_id,
+                    "PROFILE_CODE": "BY_INVOICE",
+                    "KEY_TEXT": f"key-{h}",
+                    "KEY_HASH": h,
+                    "FIRST_RUN_ID": 1,
+                    "LAST_RUN_ID": 0,
+                    "STATUS": "OPEN",
+                }
+                for h in hashes
+            ],
+        )
+        conn.execute(
+            recon_issue.insert().values(
+                TEMPLATE_ID=template_id,
+                PROFILE_CODE="OTHER_PROFILE",
+                KEY_TEXT="key-other",
+                KEY_HASH=hashes[0],
+                FIRST_RUN_ID=1,
+                LAST_RUN_ID=0,
+                STATUS="OPEN",
+            )
+        )
+
+    # Hạ giới hạn biến của mọi kết nối mới xuống 999 rồi mở lại pool.
+    def _limit_999(dbapi_conn, _record):
+        dbapi_conn.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 999)
+
+    event.listen(test_db, "connect", _limit_999)
+    test_db.dispose()
+
+    # Đối chứng: một câu IN với 1200 biến phải lỗi ở giới hạn 999.
+    with test_db.connect() as conn:
+        with pytest.raises(Exception, match="too many SQL variables"):
+            conn.execute(update(recon_issue).where(recon_issue.c.KEY_HASH.in_(hashes)).values(LAST_RUN_ID=9999))
+
+    # Sửa: truyền cả danh sách kèm trùng lặp, helper tự dedupe và chia lô.
+    with test_db.begin() as conn:
+        _update_issues_last_run(conn, template_id, "BY_INVOICE", hashes + hashes[:10], 1011)
+
+    with test_db.connect() as conn:
+        updated = conn.execute(
+            select(recon_issue.c.KEY_HASH).where(
+                recon_issue.c.TEMPLATE_ID == template_id,
+                recon_issue.c.PROFILE_CODE == "BY_INVOICE",
+                recon_issue.c.LAST_RUN_ID == 1011,
+            )
+        ).all()
+        assert len(updated) == 1200
+        other = conn.execute(
+            select(recon_issue.c.LAST_RUN_ID).where(
+                recon_issue.c.TEMPLATE_ID == template_id,
+                recon_issue.c.PROFILE_CODE == "OTHER_PROFILE",
+            )
+        ).scalar_one()
+        assert other == 0
 
 
 def test_worker_reset_stale_jobs(test_db, seed_data):

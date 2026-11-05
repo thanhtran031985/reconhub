@@ -5,7 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 
 from app.core.context import Ctx, Role
 from app.db.engine import get_recon_engine
@@ -105,3 +105,35 @@ def test_excel_load_lifecycle_and_idempotency(op_ctx: Ctx, owner_ctx: Ctx) -> No
             select(func.count()).select_from(recon_excel_row).where(recon_excel_row.c.LOAD_ID == load_id)
         )
         assert row_cnt_after == 200
+
+    # 5. Giả lập xóa dữ liệu tạm: xóa dòng Excel và đánh dấu PURGED_AT
+    # trên bản nạp (như temp_data.purge_run_temp_data làm). Nạp lại
+    # cùng file/template/version trước đây lỗi UNIQUE constraint vì
+    # unique key không trừ PURGED_AT; giờ phải nạp lại thành công trên
+    # đúng bản nạp cũ, không tạo bản nạp mới.
+    from datetime import datetime as _dt
+
+    with engine.begin() as conn:
+        conn.execute(delete(recon_excel_row).where(recon_excel_row.c.LOAD_ID == load_id))
+        conn.execute(update(recon_excel_load).where(recon_excel_load.c.ID == load_id).values(PURGED_AT=_dt.now()))
+
+    load_res_3 = load_excel_to_temp(
+        op_ctx,
+        file_id=file_id,
+        template_id=template_id,
+        template_version=template_version,
+    )
+    assert load_res_3.ok is True
+    assert load_res_3.data["load_id"] == load_id
+    assert load_res_3.data["is_reused"] is False
+    assert load_res_3.data["rows_valid"] == 200
+
+    with engine.connect() as conn:
+        row_cnt_reload = conn.scalar(
+            select(func.count()).select_from(recon_excel_row).where(recon_excel_row.c.LOAD_ID == load_id)
+        )
+        assert row_cnt_reload == 200
+        load_rec_reload = (
+            conn.execute(select(recon_excel_load).where(recon_excel_load.c.ID == load_id)).mappings().one()
+        )
+        assert load_rec_reload["PURGED_AT"] is None

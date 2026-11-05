@@ -134,9 +134,7 @@ def test_precheck_running_run_blocks(migration_env):
 
     # Dọn dẹp run processing
     with src_engine.begin() as conn:
-        conn.execute(
-            recon_run.delete().where(recon_run.c.ID == run_id)
-        )
+        conn.execute(recon_run.delete().where(recon_run.c.ID == run_id))
 
 
 def test_precheck_target_not_empty(migration_env):
@@ -239,9 +237,7 @@ def test_set_maintenance_mode(migration_env):
     assert res_on.data["maintenance"] == "Y"
 
     with src_engine.connect() as conn:
-        val = conn.execute(
-            select(recon_app_setting.c.VALUE).where(recon_app_setting.c.KEY == "MAINTENANCE")
-        ).scalar()
+        val = conn.execute(select(recon_app_setting.c.VALUE).where(recon_app_setting.c.KEY == "MAINTENANCE")).scalar()
         assert val == "Y"
 
     res_off = set_maintenance_mode(admin_ctx, enabled=False)
@@ -344,16 +340,20 @@ def test_start_migration_failure_preserves_source(migration_env):
     assert pre.ok is True
 
     # Giả lập lỗi khi sao chép
-    with patch("app.services.metadata_migration._copy_table_data", side_effect=RuntimeError("Lỗi kết nối giả lập giữa chừng")):
+    with patch(
+        "app.services.metadata_migration._copy_table_data", side_effect=RuntimeError("Lỗi kết nối giả lập giữa chừng")
+    ):
         res = start_migration(admin_ctx, target_ds_id=ds_id, mode="NO_TEMP", mock_target_engine=target_engine)
         assert res.ok is False
         assert res.code == ErrorCode.INTERNAL_ERROR
 
     # Kiểm tra record trong RECON_METADATA_MIGRATION có STATUS = FAILED
     with src_engine.connect() as conn:
-        failed_mig = conn.execute(
-            select(recon_metadata_migration).where(recon_metadata_migration.c.TARGET_DS_ID == ds_id)
-        ).mappings().first()
+        failed_mig = (
+            conn.execute(select(recon_metadata_migration).where(recon_metadata_migration.c.TARGET_DS_ID == ds_id))
+            .mappings()
+            .first()
+        )
         assert failed_mig is not None
         assert failed_mig["STATUS"] == "FAILED"
         assert "Lỗi kết nối giả lập" in str(failed_mig["ERROR_MSG"])

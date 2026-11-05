@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReconHub – Vai trò và phân quyền (prototype)</title>
+<style>
+:root{--bg:#F5F7FB;--surface:#FFFFFF;--surface-2:#F8FAFC;--line:#E3E8F0;--line-strong:#667085;--ink:#1D2939;--ink-soft:#667085;
+--primary:#2563EB;--primary-hover:#1D4ED8;--on-primary:#FFFFFF;--primary-soft:#EAF1FF;--focus:#2563EB;
+--nav-bg:#0F1B33;--nav-ink:#CFD8EA;--nav-active:#1B2F57;--nav-accent:#5B8CFF;
+--ok:#027A48;--ok-soft:#E8F8F0;--crit:#B42318;--crit-soft:#FDECEC;--warn:#B54708;--warn-soft:#FFF4E5;
+--purple:#5925DC;--purple-soft:#F1EDFF;--off:#475467;--off-soft:#F2F4F7;--info:#1D4ED8;--info-soft:#EAF1FF;
+--shadow:0 6px 18px rgba(15,23,42,.12);--mono:"JetBrains Mono",Consolas,ui-monospace,monospace;--ui:"Inter","Segoe UI",Roboto,Arial,sans-serif}
+[data-theme="dark"]{--bg:#0B1220;--surface:#111A2E;--surface-2:#18233A;--line:#26334D;--line-strong:#7C8AA5;--ink:#E2E8F0;--ink-soft:#A3B1C6;
+--primary:#60A5FA;--primary-hover:#93C5FD;--on-primary:#0B1220;--primary-soft:#14223F;--focus:#93C5FD;--nav-bg:#0A1324;
+--ok:#4ADE80;--ok-soft:#0F2E1C;--crit:#F87171;--crit-soft:#3B1418;--warn:#FB923C;--warn-soft:#3A2210;--purple:#C4B5FD;--purple-soft:#2A1F4D;
+--off:#A3B1C6;--off-soft:#1E293B;--info:#93C5FD;--info-soft:#14223F;--shadow:0 6px 18px rgba(0,0,0,.5)}
+*{box-sizing:border-box}html,body{margin:0}
+body{font-family:var(--ui);font-size:14px;line-height:1.5;color:var(--ink);background:var(--bg)}
+.mono{font-family:var(--mono);font-size:12px}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+button,input,select,textarea{font:inherit;color:inherit}
+.app{display:flex;min-height:100vh}
+.nav{width:232px;background:var(--nav-bg);color:var(--nav-ink);flex-shrink:0;padding-bottom:20px}
+.nav__logo{display:flex;gap:10px;align-items:center;padding:18px 20px;color:#fff;font-weight:700;font-size:18px}
+.nav__mark{width:30px;height:30px;border-radius:8px;background:#2563EB;display:grid;place-items:center;font-size:12px;color:#fff}
+.nav__sec{padding:16px 20px 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;opacity:.7}
+.nav button,.nav span.it{display:flex;gap:10px;width:100%;align-items:center;padding:10px 20px;color:var(--nav-ink);background:none;border:0;border-left:3px solid transparent;text-align:left;cursor:pointer}
+.nav button:hover{background:var(--nav-active)}.nav button[aria-current="page"]{background:var(--nav-active);color:#fff;border-left-color:var(--nav-accent)}
+.nav .muted{opacity:.55;cursor:default}
+.new{font-size:10px;font-weight:700;background:#7A5AF8;color:#fff;border-radius:8px;padding:1px 6px;margin-left:auto}
+.main{flex:1;min-width:0}
+.header{min-height:56px;flex-wrap:wrap;background:var(--surface);border-bottom:1px solid var(--line);padding:0 28px;display:flex;align-items:center;gap:12px}
+.crumb{color:var(--ink-soft)}.crumb b{color:var(--ink)}.sp{flex:1}
+.env{padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--warn-soft);color:var(--warn)}
+.demo{padding:8px 28px;background:var(--warn-soft);color:var(--warn);font-size:13px;border-bottom:1px solid var(--line)}
+.content{padding:24px 28px 90px}
+h1{font-size:22px;margin:0 0 4px;line-height:1.3}.sub{color:var(--ink-soft);margin:0 0 18px}
+h2{font-size:15px;margin:0 0 12px}h3{font-size:13px;margin:0 0 8px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.05em}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.grid{display:grid;gap:16px}.g2{grid-template-columns:1fr 1fr}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:18px;min-width:0}
+.btn{display:inline-flex;gap:6px;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border:1px solid var(--line-strong);background:var(--surface);border-radius:8px;font-weight:600;cursor:pointer;white-space:nowrap;color:var(--ink)}
+.btn:hover:not(:disabled){background:var(--surface-2)}
+.btn--primary{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}.btn--primary:hover:not(:disabled){background:var(--primary-hover)}
+.btn--danger{color:var(--crit);border-color:var(--crit)}.btn--ghost{border-color:transparent;background:transparent}
+.btn--sm{min-height:28px;padding:0 10px;font-size:13px}.btn:disabled{opacity:.5;cursor:not-allowed}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.label{font-size:12px;font-weight:600;color:var(--ink-soft)}
+.input,.select,.textarea{min-height:36px;padding:6px 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);width:100%}
+.input[readonly]{background:var(--surface-2)}
+.field--error .input{border-color:var(--crit);background:var(--crit-soft)}
+.msg{font-size:12px;color:var(--ink-soft)}.field--error .msg{color:var(--crit)}
+.chip{display:inline-flex;gap:4px;align-items:center;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap}
+.ok{background:var(--ok-soft);color:var(--ok)}.crit{background:var(--crit-soft);color:var(--crit)}.warn{background:var(--warn-soft);color:var(--warn)}
+.info{background:var(--info-soft);color:var(--info)}.off{background:var(--off-soft);color:var(--off)}.purple{background:var(--purple-soft);color:var(--purple)}
+.plain{background:var(--surface);border:1px solid var(--line);color:var(--ink)}
+.alert{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:8px;font-size:13px;margin:8px 0}
+.ic{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;margin-top:1px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px;flex-wrap:wrap}
+.tab{padding:9px 14px;border:0;border-bottom:2px solid transparent;background:none;color:var(--ink-soft);font-weight:600;cursor:pointer}
+.tab[aria-selected="true"]{color:var(--primary);border-bottom-color:var(--primary)}
+.layout>*{min-width:0}.grid>*{min-width:0}
+.layout{display:grid;grid-template-columns:minmax(260px,32fr) minmax(0,68fr);gap:18px;align-items:start}
+.roles{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.role{display:block;width:100%;text-align:left;border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:12px 14px;cursor:pointer}
+.role:hover{border-color:var(--primary)}.role[aria-pressed="true"]{border-color:var(--primary);background:var(--primary-soft)}
+.role b{display:block}.role .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.groups{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.group{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--surface-2);min-width:0}
+.group__hd{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-weight:700}
+.menu{display:flex;gap:10px;align-items:flex-start;padding:7px 4px;border-radius:6px}
+.menu input{width:18px;height:18px;margin-top:1px;flex-shrink:0;accent-color:var(--primary)}
+.menu:hover{background:var(--surface)}
+.menu small{display:block;color:var(--ink-soft);font-size:12px}
+.menu.lock{opacity:.7}
+.changed{box-shadow:inset 3px 0 0 var(--purple)}
+.side-prev{background:var(--nav-bg);color:var(--nav-ink);border-radius:10px;padding:10px 0;min-height:200px}
+.side-prev .sec{padding:8px 16px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;opacity:.7}
+.side-prev .it{padding:6px 16px;font-size:13px}
+.side-prev .none{padding:12px 16px;font-size:13px;opacity:.75}
+table{width:100%;border-collapse:collapse}th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--surface-2);font-size:12px;font-weight:600;color:var(--ink-soft)}
+.scroll{overflow:auto;border:1px solid var(--line);border-radius:8px;max-width:100%}
+.stick{position:sticky;bottom:0;background:var(--bg);padding:12px 0;border-top:1px solid var(--line);z-index:5}
+.hint{font-size:12px;color:var(--ink-soft)}
+.skel{display:block;height:40px;border-radius:8px;background:var(--surface-2);margin:8px 0;animation:pulse 1.4s infinite}
+@keyframes pulse{50%{opacity:.5}}@media (prefers-reduced-motion:reduce){.skel{animation:none}}
+.empty{text-align:center;padding:30px 16px;color:var(--ink-soft)}.empty b{display:block;color:var(--ink);margin-bottom:4px}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);padding:0;width:min(560px,94vw);box-shadow:var(--shadow)}
+dialog::backdrop{background:rgba(15,27,51,.45)}
+.dlg__hd{padding:16px 20px;border-bottom:1px solid var(--line);font-weight:700}.dlg__bd{padding:16px 20px;max-height:65vh;overflow:auto}
+.dlg__ft{padding:12px 20px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.sim{display:grid;grid-template-columns:220px minmax(0,1fr);border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--bg)}
+.sim .side-prev{border-radius:0}
+.sim__main{padding:16px;min-width:0}
+[hidden]{display:none!important}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+#mnav{display:none}
+@media (max-width:1180px){.groups{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:900px){.nav{display:none}#mnav{display:block}.env,.header .hint{display:none}.content{padding:16px 14px 90px}.header{padding:0 14px}.demo{padding:8px 14px}
+ .layout,.g2,.groups{grid-template-columns:1fr}.sim{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+<nav class="nav" aria-label="Điều hướng chính">
+  <div class="nav__logo"><span class="nav__mark">RH</span>ReconHub</div>
+  <div class="nav__sec">Đối soát</div>
+  <span class="it muted">Dashboard</span><span class="it muted">Chạy đối soát</span><span class="it muted">Chạy bộ đối soát</span><span class="it muted">Lịch sử</span>
+  <div class="nav__sec">Cấu hình</div>
+  <span class="it muted">Templates</span><span class="it muted">Bộ đối soát</span><span class="it muted">Data Sources</span><span class="it muted">Danh mục hệ thống</span>
+  <div class="nav__sec">Quản trị</div>
+  <span class="it muted">Người dùng</span>
+  <button type="button" aria-current="page">Vai trò và phân quyền <span class="new">MỚI</span></button>
+</nav>
+<main class="main">
+  <header class="header"><div class="crumb">ReconHub / Quản trị / <b>Vai trò và phân quyền</b></div><span class="sp"></span>
+    <label class="sr" for="mnav">Chuyển tab</label><select id="mnav" class="select" style="width:auto"><option value="roles">Vai trò</option><option value="users">Quyền thực tế</option><option value="sim">Mô phỏng phạm vi dữ liệu</option></select>
+    <button type="button" class="btn btn--sm" id="theme">Sáng/Tối</button><span class="env">UAT</span><span class="hint">admin · Admin</span></header>
+  <div class="demo">Prototype UI/UX · dữ liệu minh họa trong bộ nhớ, không kết nối DB · tải lại trang để làm lại từ đầu</div>
+  <div class="sr" aria-live="polite" id="live"></div>
+  <div class="content">
+    <div class="row" style="align-items:flex-start"><div><h1>Vai trò và phân quyền</h1>
+      <p class="sub">Phân quyền theo menu: vai trò có menu nào thì người dùng thấy menu đó và thao tác được trong màn đó. Dữ liệu chạy đối soát: Admin xem tất cả, vai trò khác chỉ thấy run do mình chạy.</p></div>
+      <span class="sp"></span><div class="field" style="width:180px"><label class="label" for="state">Trạng thái mô phỏng</label>
+      <select id="state" class="select"><option value="normal">Bình thường</option><option value="loading">Đang tải</option><option value="empty">Trống</option><option value="error">Lỗi</option></select></div></div>
+
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab" role="tab" data-tab="roles" aria-selected="true">Vai trò</button>
+      <button type="button" class="tab" role="tab" data-tab="users" aria-selected="false">Quyền thực tế của người dùng</button>
+      <button type="button" class="tab" role="tab" data-tab="sim" aria-selected="false">Mô phỏng phạm vi dữ liệu</button>
+    </div>
+
+    <div id="st-loading" hidden aria-busy="true"><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
+    <div id="st-error" hidden class="alert crit" role="alert"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg><div>Không tải được danh sách vai trò. Đang hiển thị dữ liệu lúc 08:12:05.</div><button type="button" class="btn btn--sm" id="retry" style="margin-left:auto">Thử lại</button></div>
+
+    <!-- ============ TAB VAI TRÒ ============ -->
+    <section id="t-roles">
+      <div class="layout">
+        <div class="card">
+          <div class="row"><h2 style="margin:0">Vai trò</h2><span class="sp"></span><span class="chip off" id="role-count"></span></div>
+          <div class="field" style="margin-top:12px"><label class="label sr" for="role-q">Tìm vai trò</label><input id="role-q" class="input" placeholder="Tìm vai trò…"></div>
+          <div class="roles" id="roles"></div>
+          <div id="roles-empty" hidden class="empty"><b>Chưa có vai trò tự tạo</b>Chỉ có vai trò Admin. Thêm vai trò để giao quyền cho người dùng khác.</div>
+          <button type="button" class="btn btn--primary" id="add-role" style="width:100%;margin-top:12px">+ Thêm vai trò</button>
+        </div>
+
+        <div id="detail">
+          <div class="card">
+            <div class="row" style="align-items:flex-start">
+              <div style="min-width:0"><h2 style="margin:0" id="d-name"></h2><span class="mono hint" id="d-code"></span></div><span class="sp"></span>
+              <span id="d-chips"></span>
+              <button type="button" class="btn btn--sm" id="clone-role">Nhân bản</button>
+              <button type="button" class="btn btn--sm btn--danger" id="del-role">Xóa vai trò</button>
+            </div>
+            <div class="grid g2" style="margin-top:14px">
+              <div class="field" id="f-name"><label class="label" for="d-name-in">Tên vai trò *</label><input id="d-name-in" class="input" maxlength="100"><span class="msg" id="d-name-msg"></span></div>
+              <div class="field"><label class="label" for="d-desc">Mô tả</label><input id="d-desc" class="input" maxlength="300"></div>
+            </div>
+            <label class="row" style="gap:6px;margin-top:12px"><input type="checkbox" id="d-active"> Đang dùng (tắt thì người có vai trò này mất các menu của vai trò khi đăng nhập lại hoặc trong vài giây)</label>
+            <div id="d-admin-note" class="alert info" hidden><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><div>Vai trò hệ thống Admin luôn có toàn bộ menu, xem tất cả dữ liệu và làm được các thao tác nhạy cảm. Không sửa, không xóa được.</div></div>
+          </div>
+
+          <div class="card">
+            <div class="row"><h2 style="margin:0">Menu được truy cập</h2><span class="sp"></span><span class="hint" id="menu-sum"></span>
+              <button type="button" class="btn btn--sm" id="all-on">Chọn tất cả</button><button type="button" class="btn btn--sm btn--ghost" id="all-off">Bỏ chọn tất cả</button></div>
+            <p class="hint" style="margin:6px 0 12px">Có menu = thấy menu ở thanh bên và thao tác được trong màn đó. Quyền được kiểm ở server, không chỉ ẩn menu.</p>
+            <div class="groups" id="groups"></div>
+          </div>
+
+          <div class="grid g2">
+            <div class="card">
+              <h2>Phạm vi dữ liệu và thao tác đặc biệt</h2>
+              <div class="scroll" style="border:0"><table><tbody>
+                <tr><td>Run, lần chạy bộ, lịch sử, dashboard</td><td id="d-scope"></td></tr>
+                <tr><td>Template, bộ đối soát, Data Source, danh mục</td><td><span class="chip plain">Dùng chung theo menu</span></td></tr>
+                <tr><td>Chạy trên Data Source PROD</td><td id="d-s1"></td></tr>
+                <tr><td>Xóa dữ liệu tạm hàng loạt</td><td id="d-s2"></td></tr>
+                <tr><td>Chuyển RECON_APP sang Oracle, xóa bản lưu SQLite cũ</td><td id="d-s3"></td></tr>
+              </tbody></table></div>
+              <p class="hint">Cố định theo chính sách, không chỉnh ở vai trò.</p>
+            </div>
+            <div class="card">
+              <div class="row"><h2 style="margin:0">Xem trước thanh bên</h2><span class="sp"></span><span class="hint">Người có vai trò này sẽ thấy</span></div>
+              <div class="side-prev" id="side-prev" style="margin-top:10px" aria-label="Xem trước thanh bên"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="row"><h2 style="margin:0">Người dùng có vai trò này (<span id="u-count"></span>)</h2><span class="sp"></span>
+              <span class="hint">Gán vai trò ở màn Người dùng</span></div>
+            <div class="scroll" style="margin-top:10px"><table><thead><tr><th>Username</th><th>Họ tên</th><th>Vai trò khác</th><th>Trạng thái</th></tr></thead><tbody id="u-body"></tbody></table></div>
+          </div>
+        </div>
+      </div>
+      <div class="row stick"><span class="hint" id="dirty">Chưa có thay đổi.</span><span class="sp"></span><button type="button" class="btn" id="discard" disabled>Hủy thay đổi</button><button type="button" class="btn btn--primary" id="save" disabled>Lưu vai trò</button></div>
+    </section>
+
+    <!-- ============ TAB QUYỀN THỰC TẾ ============ -->
+    <section id="t-users" hidden>
+      <div class="layout">
+        <div class="card"><h2>Người dùng</h2>
+          <div class="field"><label class="label" for="pu-q">Tìm người dùng</label><input id="pu-q" class="input" placeholder="Username, họ tên…"></div>
+          <div class="roles" id="pu-list"></div></div>
+        <div>
+          <div class="card"><div class="row"><h2 style="margin:0" id="pu-name"></h2><span class="sp"></span><span id="pu-status"></span></div>
+            <p class="hint" id="pu-roles"></p>
+            <div class="grid g2">
+              <div><h3>Menu thực tế (hợp các vai trò)</h3><div class="scroll"><table><thead><tr><th>Menu</th><th>Có từ vai trò</th></tr></thead><tbody id="pu-menus"></tbody></table></div></div>
+              <div><h3>Thanh bên người này thấy</h3><div class="side-prev" id="pu-side"></div>
+                <h3 style="margin-top:14px">Phạm vi dữ liệu</h3><div id="pu-scope"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ TAB MÔ PHỎNG ============ -->
+    <section id="t-sim" hidden>
+      <div class="card">
+        <div class="row"><div class="field" style="width:260px"><label class="label" for="sim-user">Đăng nhập như</label><select id="sim-user" class="select"></select></div>
+        <span class="hint" style="align-self:flex-end">Minh họa màn Lịch sử: cùng dữ liệu 8 run, mỗi người thấy khác nhau.</span></div>
+      </div>
+      <div class="sim">
+        <div class="side-prev" id="sim-side"></div>
+        <div class="sim__main">
+          <h2 id="sim-title">Lịch sử</h2><p class="hint" id="sim-sub"></p>
+          <div class="scroll"><table><thead><tr><th>Run</th><th>Template / bộ</th><th>Kỳ</th><th>Người chạy</th><th>Trạng thái</th></tr></thead><tbody id="sim-body"></tbody></table></div>
+          <div class="row" style="margin-top:14px"><div class="field" style="width:200px"><label class="label" for="sim-link">Mở link trực tiếp run số</label><input id="sim-link" class="input mono" value="1043"></div>
+            <button type="button" class="btn" id="sim-open" style="align-self:flex-end">Mở</button></div>
+          <div id="sim-res" aria-live="polite"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+</div>
+
+<dialog id="dlg" aria-labelledby="dlg-t"><div class="dlg__hd" id="dlg-t"></div><div class="dlg__bd" id="dlg-b"></div><div class="dlg__ft" id="dlg-f"></div></dialog>
+
+<script>
+(function(){
+'use strict';
+var $=function(i){return document.getElementById(i);};
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function say(t){$('live').textContent='';setTimeout(function(){$('live').textContent=t;},30);}
+function chip(t,x){return '<span class="chip '+t+'">'+esc(x)+'</span>';}
+var LOCK='<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
+
+var MENUS=[
+ {g:'Đối soát',items:[['dashboard','Dashboard','Tổng quan run của mình'],['run','Chạy đối soát','Chạy 1 file theo template'],['result','Kết quả run','Xem, export, đánh dấu đã kiểm tra'],['batch_run','Chạy bộ đối soát','Chạy nhiều template một lần'],['history','Lịch sử','Danh sách run đã chạy']]},
+ {g:'Cấu hình',items:[['template','Templates','Đăng ký, sửa, kích hoạt template'],['batch_def','Bộ đối soát','Khai báo bộ và template trong bộ'],['data_source','Data Sources','Kết nối nguồn, lưu trữ RECON_APP'],['lookup','Danh mục hệ thống','Lookup trạng thái, nguyên nhân']]},
+ {g:'Quản trị',items:[['user','Người dùng','Tạo, khóa, đặt lại mật khẩu'],['role','Vai trò và phân quyền','Màn này']]}
+];
+var ALL=[];MENUS.forEach(function(g){g.items.forEach(function(m){ALL.push(m[0]);});});
+function mname(c){for(var i=0;i<MENUS.length;i++)for(var j=0;j<MENUS[i].items.length;j++)if(MENUS[i].items[j][0]===c)return MENUS[i].items[j][1];return c;}
+
+var ROLES=[
+ {code:'ADMIN',name:'Admin',desc:'Quản trị toàn hệ thống',system:true,active:true,menus:ALL.slice()},
+ {code:'TEMPLATE_OWNER',name:'Template Owner',desc:'Đăng ký template, bộ đối soát và chạy đối soát',system:false,active:true,menus:['dashboard','run','result','batch_run','history','template','batch_def','lookup']},
+ {code:'OPERATOR',name:'Operator',desc:'Chạy đối soát hằng tháng',system:false,active:true,menus:['dashboard','run','result','batch_run','history']},
+ {code:'VIEWER',name:'Viewer',desc:'Chỉ xem cấu hình',system:false,active:true,menus:['template','batch_def']},
+ {code:'KE_TOAN_DOI_SOAT',name:'Kế toán đối soát',desc:'Chạy bộ đối soát cuối tháng, không sửa template',system:false,active:true,menus:['dashboard','result','batch_run','history','batch_def']}
+];
+var USERS=[
+ {u:'admin',n:'Trần Thanh',r:['ADMIN'],st:'ok'},{u:'minhvh',n:'Võ Hoàng Minh',r:['TEMPLATE_OWNER'],st:'ok'},
+ {u:'operator',n:'Nguyễn Văn A',r:['OPERATOR'],st:'lock'},{u:'ketoan01',n:'Lê Thị B',r:['KE_TOAN_DOI_SOAT','VIEWER'],st:'ok'},
+ {u:'ketoan02',n:'Phạm Văn C',r:['KE_TOAN_DOI_SOAT'],st:'ok'},{u:'xem01',n:'Đỗ Thị D',r:['VIEWER'],st:'off'}
+];
+var RUNS=[[1042,'DTP – Hóa đơn tác nghiệp','10/2026','operator','Có lệch'],[1043,'Bộ: Doanh thu cuối tháng (20)','10/2026','ketoan01','Hoàn tất'],
+ [1044,'Cảng B – Phí nâng hạ','10/2026','minhvh','Khớp'],[1045,'Bộ: Doanh thu cuối tháng (20)','10/2026','ketoan02','Một phần'],
+ [1038,'DTP – Hóa đơn tác nghiệp','09/2026','operator','Khớp'],[1039,'Sao kê ngân hàng A','09/2026','ketoan01','Có lệch'],
+ [1040,'Kho CFS – Phí lưu kho','09/2026','admin','Khớp'],[1041,'Bộ: Doanh thu cuối tháng (20)','09/2026','ketoan01','Hoàn tất']];
+
+var S={sel:'TEMPLATE_OWNER',draft:null,dirty:false,tab:'roles',pu:'ketoan01'};
+function role(c){return ROLES.find(function(r){return r.code===c;});}
+function clone(o){return JSON.parse(JSON.stringify(o));}
+function usersOf(c){return USERS.filter(function(u){return u.r.indexOf(c)>=0;});}
+
+/* ---------- Dialog ---------- */
+var lastFocus=null;
+function dialog(t,b,btns){lastFocus=document.activeElement;$('dlg-t').textContent=t;$('dlg-b').innerHTML=b;$('dlg-f').innerHTML='';
+ btns.forEach(function(x){var e=document.createElement('button');e.type='button';e.className='btn'+(x.primary?' btn--primary':'')+(x.danger?' btn--danger':'');e.textContent=x.label;
+  e.addEventListener('click',function(){if(x.run&&x.run()===false)return;$('dlg').close();});$('dlg-f').appendChild(e);});$('dlg').showModal();}
+$('dlg').addEventListener('close',function(){if(lastFocus&&lastFocus.focus)lastFocus.focus();});
+function confirmLeave(next){if(!S.dirty){next();return;}
+ dialog('Bỏ thay đổi chưa lưu?','<p>Vai trò <b>'+esc(S.draft.name)+'</b> có thay đổi chưa lưu.</p>',[{label:'Ở lại'},{label:'Bỏ thay đổi',danger:true,run:function(){S.dirty=false;next();}}]);}
+
+/* ---------- Render vai trò ---------- */
+function sidebar(menus){var h='';MENUS.forEach(function(g){var it=g.items.filter(function(m){return menus.indexOf(m[0])>=0;});
+ if(it.length)h+='<div class="sec">'+esc(g.g)+'</div>'+it.map(function(m){return '<div class="it">'+esc(m[1])+'</div>';}).join('');});
+ return h||'<div class="none">Không có menu nào. Người dùng chỉ thấy trang "Chưa được cấp quyền".</div>';}
+function renderList(){var q=$('role-q').value.trim().toLowerCase();
+ var L=ROLES.filter(function(r){return !q||(r.name+r.code).toLowerCase().indexOf(q)>=0;});
+ $('role-count').textContent=ROLES.length+' vai trò';
+ $('roles').innerHTML=L.map(function(r){var n=usersOf(r.code).length;var m=S.sel===r.code&&S.draft?S.draft.menus.length:r.menus.length;
+  return '<button type="button" class="role" data-role="'+r.code+'" aria-pressed="'+(S.sel===r.code)+'"><b>'+esc(S.sel===r.code&&S.draft?S.draft.name:r.name)+(S.sel===r.code&&S.dirty?' *':'')+'</b><span class="mono hint">'+esc(r.code)+'</span>'+
+  '<div class="meta">'+chip('plain',n+' người dùng')+chip('plain',m+'/'+ALL.length+' menu')+(r.system?chip('info','Hệ thống'):'')+(r.active?'':chip('off','Đã tắt'))+'</div></button>';}).join('')||'<div class="empty"><b>Không có vai trò khớp</b></div>';}
+function renderDetail(){var r=role(S.sel),d=S.draft;var sys=r.system;
+ $('d-name').textContent=d.name;$('d-code').textContent=r.code;
+ $('d-chips').innerHTML=(sys?chip('info','Hệ thống'):'')+(d.active?chip('ok','Đang dùng'):chip('off','Đã tắt'));
+ $('d-name-in').value=d.name;$('d-desc').value=d.desc;$('d-active').checked=d.active;
+ ['d-name-in','d-desc','d-active','all-on','all-off','del-role'].forEach(function(i){$(i).disabled=sys;});
+ $('d-admin-note').hidden=!sys;
+ var bad=!d.name.trim()||ROLES.some(function(x){return x.code!==r.code&&x.name.toLowerCase()===d.name.trim().toLowerCase();});
+ $('f-name').classList.toggle('field--error',bad);$('d-name-msg').textContent=!d.name.trim()?'Nhập tên vai trò.':(bad?'Tên vai trò đã tồn tại.':'');
+ $('menu-sum').textContent=d.menus.length+'/'+ALL.length+' menu';
+ $('groups').innerHTML=MENUS.map(function(g,gi){var on=g.items.filter(function(m){return d.menus.indexOf(m[0])>=0;}).length;
+  return '<fieldset class="group" style="margin:0"><legend class="sr">'+esc(g.g)+'</legend><div class="group__hd"><input type="checkbox" data-grp="'+gi+'" '+(on===g.items.length?'checked':'')+(sys?' disabled':'')+' aria-label="Chọn cả nhóm '+esc(g.g)+'" style="width:18px;height:18px">'+esc(g.g)+'<span class="sp"></span><span class="hint">'+on+'/'+g.items.length+'</span></div>'+
+  g.items.map(function(m){var c=d.menus.indexOf(m[0])>=0;var was=r.menus.indexOf(m[0])>=0;var lock=sys||(m[0]==='role'&&S.sel!=='ADMIN'&&false);
+   return '<label class="menu'+(c!==was?' changed':'')+(sys?' lock':'')+'"><input type="checkbox" data-menu="'+m[0]+'" '+(c?'checked':'')+(lock?' disabled':'')+'><span><b>'+esc(m[1])+'</b><small>'+esc(m[2])+(m[0]==='role'||m[0]==='user'?' · nhạy cảm: giao cẩn thận':'')+'</small></span></label>';}).join('')+'</fieldset>';}).join('');
+ document.querySelectorAll('[data-grp]').forEach(function(el){var g=MENUS[+el.dataset.grp];var on=g.items.filter(function(m){return d.menus.indexOf(m[0])>=0;}).length;el.indeterminate=on>0&&on<g.items.length;});
+ var adm=sys;
+ $('d-scope').innerHTML=adm?chip('ok','Tất cả'):chip('plain','Chỉ run do mình chạy');
+ ['d-s1','d-s2','d-s3'].forEach(function(i){$(i).innerHTML=adm?chip('ok','Được phép'):chip('off','Chỉ Admin');});
+ $('side-prev').innerHTML=sidebar(d.menus);
+ var us=usersOf(r.code);$('u-count').textContent=us.length;
+ $('u-body').innerHTML=us.map(function(u){return '<tr><td class="mono">'+esc(u.u)+'</td><td>'+esc(u.n)+'</td><td>'+(u.r.filter(function(x){return x!==r.code;}).map(function(x){return chip('plain',role(x).name);}).join(' ')||'—')+'</td><td>'+stChip(u.st)+'</td></tr>';}).join('')||'<tr><td colspan="4" class="empty"><b>Chưa có người dùng</b>Gán vai trò ở màn Người dùng.</td></tr>';
+ $('dirty').textContent=S.dirty?'Có thay đổi chưa lưu ở vai trò '+d.name+'.':'Chưa có thay đổi.';
+ $('save').disabled=!S.dirty||bad||sys;$('discard').disabled=!S.dirty;}
+function stChip(s){return s==='ok'?chip('ok','Hoạt động'):(s==='lock'?chip('warn','Tạm khóa'):chip('off','Đã tắt'));}
+function select(code){S.sel=code;S.draft=clone(role(code));S.dirty=false;renderList();renderDetail();}
+function touch(){var r=role(S.sel);S.dirty=JSON.stringify([S.draft.name,S.draft.desc,S.draft.active,S.draft.menus.slice().sort()])!==JSON.stringify([r.name,r.desc,r.active,r.menus.slice().sort()]);renderList();renderDetail();}
+
+$('roles').addEventListener('click',function(e){var b=e.target.closest('[data-role]');if(!b||b.dataset.role===S.sel)return;confirmLeave(function(){select(b.dataset.role);});});
+$('role-q').addEventListener('input',renderList);
+$('d-name-in').addEventListener('input',function(e){S.draft.name=e.target.value;touch();$('d-name-in').focus();});
+$('d-desc').addEventListener('input',function(e){S.draft.desc=e.target.value;touch();$('d-desc').focus();});
+$('d-active').addEventListener('change',function(e){if(!e.target.checked&&usersOf(S.sel).length){var n=usersOf(S.sel).length;
+  dialog('Tắt vai trò '+S.draft.name+'?','<p>'+n+' người dùng sẽ mất các menu của vai trò này (giữ menu từ vai trò khác). Có hiệu lực trong vài giây, không cần đăng xuất.</p>',
+  [{label:'Hủy',run:function(){e.target.checked=true;}},{label:'Tắt vai trò',danger:true,run:function(){S.draft.active=false;touch();}}]);return;}S.draft.active=e.target.checked;touch();});
+$('groups').addEventListener('change',function(e){var el=e.target;
+ if(el.dataset.menu){var i=S.draft.menus.indexOf(el.dataset.menu);if(el.checked&&i<0)S.draft.menus.push(el.dataset.menu);if(!el.checked&&i>=0)S.draft.menus.splice(i,1);touch();var f=document.querySelector('[data-menu="'+el.dataset.menu+'"]');if(f)f.focus();}
+ if(el.dataset.grp){var g=MENUS[+el.dataset.grp];g.items.forEach(function(m){var i=S.draft.menus.indexOf(m[0]);if(el.checked&&i<0)S.draft.menus.push(m[0]);if(!el.checked&&i>=0)S.draft.menus.splice(i,1);});touch();var f2=document.querySelector('[data-grp="'+el.dataset.grp+'"]');if(f2)f2.focus();}});
+$('all-on').addEventListener('click',function(){S.draft.menus=ALL.slice();touch();});
+$('all-off').addEventListener('click',function(){S.draft.menus=[];touch();});
+$('discard').addEventListener('click',function(){select(S.sel);say('Đã hủy thay đổi.');});
+$('save').addEventListener('click',function(){var r=role(S.sel);var add=S.draft.menus.filter(function(m){return r.menus.indexOf(m)<0;}),rem=r.menus.filter(function(m){return S.draft.menus.indexOf(m)<0;});
+ var n=usersOf(r.code).length;var sens=add.filter(function(m){return m==='role'||m==='user';});
+ var body='<p>Lưu vai trò <b>'+esc(S.draft.name)+'</b>, ảnh hưởng <b>'+n+'</b> người dùng. Có hiệu lực trong vài giây, không cần đăng xuất.</p>'+
+  (add.length?'<p>Thêm menu: '+add.map(function(m){return chip('ok',mname(m));}).join(' ')+'</p>':'')+(rem.length?'<p>Bỏ menu: '+rem.map(function(m){return chip('crit',mname(m));}).join(' ')+'</p>':'')+
+  (sens.length?'<div class="alert warn">Menu quản trị cho phép tạo người dùng hoặc tự cấp quyền. Chỉ giao cho người được tin cậy.</div>':'');
+ dialog('Xác nhận lưu vai trò',body,[{label:'Hủy'},{label:'Lưu',primary:true,run:function(){r.name=S.draft.name.trim();r.desc=S.draft.desc;r.active=S.draft.active;r.menus=S.draft.menus.slice();select(r.code);say('Đã lưu vai trò '+r.name+'.');toast('Đã lưu. Ghi nhật ký kiểm toán: thêm '+add.length+', bỏ '+rem.length+' menu.');}}]);});
+$('del-role').addEventListener('click',function(){var r=role(S.sel);var n=usersOf(r.code).length;
+ if(n){dialog('Không xóa được vai trò','<p>Vai trò <b>'+esc(r.name)+'</b> đang gán cho '+n+' người dùng. Gỡ vai trò khỏi họ ở màn Người dùng, hoặc tắt vai trò thay vì xóa.</p>',[{label:'Đóng',primary:true}]);return;}
+ dialog('Xóa vai trò '+r.name+'?','<p>Vai trò chưa gán cho ai. Xóa vĩnh viễn, có ghi nhật ký.</p>',[{label:'Hủy'},{label:'Xóa vai trò',danger:true,run:function(){ROLES=ROLES.filter(function(x){return x!==r;});select('ADMIN');say('Đã xóa vai trò.');}}]);});
+
+function roleForm(title,src){var body='<div class="field" id="nf-code"><label class="label" for="n-code">Mã vai trò *</label><input id="n-code" class="input mono" maxlength="30" placeholder="VD: TRUONG_NHOM"><span class="msg" id="n-code-m">Chữ HOA, số, gạch dưới. Không đổi sau khi tạo.</span></div>'+
+ '<div class="field" id="nf-name" style="margin-top:10px"><label class="label" for="n-name">Tên vai trò *</label><input id="n-name" class="input" maxlength="100"><span class="msg" id="n-name-m"></span></div>'+
+ '<div class="field" style="margin-top:10px"><label class="label" for="n-from">Sao chép menu từ</label><select id="n-from" class="select"><option value="">Không sao chép (bắt đầu trống)</option>'+ROLES.filter(function(r){return !r.system;}).map(function(r){return '<option value="'+r.code+'"'+(src===r.code?' selected':'')+'>'+esc(r.name)+'</option>';}).join('')+'</select></div>'+
+ '<p class="hint">Vai trò mới: phạm vi dữ liệu "chỉ run do mình chạy", không có thao tác nhạy cảm.</p>';
+ dialog(title,body,[{label:'Hủy'},{label:'Tạo vai trò',primary:true,run:function(){var c=$('n-code').value.trim().toUpperCase(),n=$('n-name').value.trim(),ok=true;
+  $('nf-code').classList.remove('field--error');$('nf-name').classList.remove('field--error');
+  if(!/^[A-Z][A-Z0-9_]{1,29}$/.test(c)){ok=false;$('nf-code').classList.add('field--error');$('n-code-m').textContent='Mã 2–30 ký tự, bắt đầu bằng chữ, chỉ chữ HOA, số, gạch dưới.';}
+  else if(role(c)){ok=false;$('nf-code').classList.add('field--error');$('n-code-m').textContent='Mã vai trò đã tồn tại.';}
+  if(!n){ok=false;$('nf-name').classList.add('field--error');$('n-name-m').textContent='Nhập tên vai trò.';}
+  else if(ROLES.some(function(r){return r.name.toLowerCase()===n.toLowerCase();})){ok=false;$('nf-name').classList.add('field--error');$('n-name-m').textContent='Tên vai trò đã tồn tại.';}
+  if(!ok)return false;var f=$('n-from').value;ROLES.push({code:c,name:n,desc:'',system:false,active:true,menus:f?role(f).menus.slice():[]});select(c);say('Đã tạo vai trò '+n+'.');}}]);
+ $('n-code').addEventListener('input',function(e){e.target.value=e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g,'');});
+ if(src){$('n-name').value=role(src).name+' (bản sao)';}$('n-code').focus();}
+$('add-role').addEventListener('click',function(){confirmLeave(function(){roleForm('Thêm vai trò','');});});
+$('clone-role').addEventListener('click',function(){confirmLeave(function(){roleForm('Nhân bản vai trò',role(S.sel).system?'':S.sel);});});
+
+/* ---------- Tab quyền thực tế ---------- */
+function effective(u){if(u.st==='off')return {menus:[],from:{},admin:false};var from={},admin=false;
+ u.r.forEach(function(c){var r=role(c);if(!r||!r.active)return;if(r.system)admin=true;r.menus.forEach(function(m){(from[m]=from[m]||[]).push(r.name);});});
+ return {menus:ALL.filter(function(m){return from[m];}),from:from,admin:admin};}
+function renderUsers(){var q=$('pu-q').value.trim().toLowerCase();
+ $('pu-list').innerHTML=USERS.filter(function(u){return !q||(u.u+u.n).toLowerCase().indexOf(q)>=0;}).map(function(u){return '<button type="button" class="role" data-pu="'+u.u+'" aria-pressed="'+(S.pu===u.u)+'"><b>'+esc(u.n)+'</b><span class="mono hint">'+esc(u.u)+'</span><div class="meta">'+u.r.map(function(c){return chip('plain',role(c)?role(c).name:c);}).join('')+stChip(u.st)+'</div></button>';}).join('')||'<div class="empty"><b>Không có người dùng khớp</b></div>';
+ var u=USERS.find(function(x){return x.u===S.pu;});var e=effective(u);
+ $('pu-name').textContent=u.n+' ('+u.u+')';$('pu-status').innerHTML=stChip(u.st);
+ $('pu-roles').textContent='Vai trò: '+u.r.map(function(c){var r=role(c);return r?r.name+(r.active?'':' (đã tắt)'):c;}).join(', ')+'. Quyền thực tế là hợp các menu của vai trò đang dùng.';
+ $('pu-menus').innerHTML=e.menus.map(function(m){return '<tr><td>'+esc(mname(m))+'</td><td>'+e.from[m].map(function(x){return chip('plain',x);}).join(' ')+'</td></tr>';}).join('')||'<tr><td colspan="2" class="empty"><b>Không có menu</b>'+(u.st==='off'?'Tài khoản đã tắt.':'Gán vai trò ở màn Người dùng.')+'</td></tr>';
+ $('pu-side').innerHTML=sidebar(e.menus);
+ $('pu-scope').innerHTML=e.admin?chip('ok','Tất cả run (Admin)')+' '+chip('ok','Thao tác nhạy cảm: được phép'):chip('plain','Chỉ run do '+u.u+' chạy')+' '+chip('off','Thao tác nhạy cảm: chỉ Admin');}
+$('pu-q').addEventListener('input',renderUsers);
+$('pu-list').addEventListener('click',function(e){var b=e.target.closest('[data-pu]');if(b){S.pu=b.dataset.pu;renderUsers();}});
+
+/* ---------- Tab mô phỏng ---------- */
+function renderSim(){var sel=$('sim-user');if(!sel.options.length)sel.innerHTML=USERS.filter(function(u){return u.st!=='off';}).map(function(u){return '<option value="'+u.u+'">'+esc(u.n)+' ('+esc(u.u)+')</option>';}).join('');
+ var u=USERS.find(function(x){return x.u===sel.value;});var e=effective(u);$('sim-side').innerHTML=sidebar(e.menus);$('sim-res').innerHTML='';
+ if(e.menus.indexOf('history')<0){$('sim-title').textContent='Chưa được cấp quyền';$('sim-sub').textContent='Vai trò của người này không có menu Lịch sử; mở /runs sẽ chuyển tới trang "Chưa được cấp quyền".';$('sim-body').innerHTML='<tr><td colspan="5" class="empty"><b>Không có quyền xem Lịch sử</b></td></tr>';return;}
+ var L=RUNS.filter(function(r){return e.admin||r[3]===u.u;});$('sim-title').textContent='Lịch sử';
+ $('sim-sub').textContent=e.admin?'Admin: thấy tất cả '+RUNS.length+' run của mọi người.':'Chỉ thấy run do '+u.u+' chạy ('+L.length+'/'+RUNS.length+' run trong hệ thống). Dashboard và lần chạy bộ cũng lọc như vậy.';
+ $('sim-body').innerHTML=L.map(function(r){return '<tr><td class="mono">#'+r[0]+'</td><td>'+esc(r[1])+'</td><td>'+r[2]+'</td><td class="mono">'+esc(r[3])+'</td><td>'+chip(r[4]==='Có lệch'||r[4]==='Một phần'?'warn':'ok',r[4])+'</td></tr>';}).join('')||'<tr><td colspan="5" class="empty"><b>Chưa có run nào</b>Run do bạn chạy sẽ hiện ở đây.</td></tr>';}
+$('sim-user').addEventListener('change',renderSim);
+$('sim-open').addEventListener('click',function(){var u=USERS.find(function(x){return x.u===$('sim-user').value;});var e=effective(u);var id=+$('sim-link').value;var r=RUNS.find(function(x){return x[0]===id;});
+ var ok=r&&(e.admin||r[3]===u.u)&&e.menus.indexOf('result')>=0;
+ $('sim-res').innerHTML=ok?'<div class="alert ok">Mở được run #'+id+' ('+esc(r[1])+').</div>':'<div class="alert crit" role="alert">Không tìm thấy run #'+esc($('sim-link').value)+'. <span class="hint" style="margin-left:6px">(Cùng thông báo dù run không tồn tại hay thuộc người khác, để không lộ dữ liệu.)</span></div>';});
+
+/* ---------- Tabs, trạng thái ---------- */
+function tab(t){var go=function(){S.tab=t;document.querySelectorAll('[data-tab]').forEach(function(b){b.setAttribute('aria-selected',b.dataset.tab===t);});
+ ['roles','users','sim'].forEach(function(x){$('t-'+x).hidden=x!==t||$('state').value==='loading';});$('mnav').value=t;if(t==='users')renderUsers();if(t==='sim')renderSim();};
+ if(t!=='roles'&&S.dirty){confirmLeave(function(){select(S.sel);go();});}else go();}
+document.querySelectorAll('[data-tab]').forEach(function(b){b.addEventListener('click',function(){tab(b.dataset.tab);});});
+document.querySelector('[role=tablist]').addEventListener('keydown',function(e){if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft')return;var T=['roles','users','sim'];var i=T.indexOf(S.tab)+(e.key==='ArrowRight'?1:-1);i=(i+3)%3;tab(T[i]);document.querySelector('[data-tab="'+T[i]+'"]').focus();});
+$('mnav').addEventListener('change',function(e){tab(e.target.value);});
+var BACKUP=null;
+$('state').addEventListener('change',function(e){var v=e.target.value;$('st-loading').hidden=v!=='loading';$('st-error').hidden=v!=='error';
+ if(v==='empty'){BACKUP=BACKUP||ROLES;ROLES=[BACKUP[0]];select('ADMIN');$('roles-empty').hidden=false;}else{if(BACKUP){ROLES=BACKUP;BACKUP=null;}$('roles-empty').hidden=true;if(!role(S.sel))S.sel='ADMIN';select(S.sel);}
+ tab(S.tab);});
+$('retry').addEventListener('click',function(){$('state').value='normal';$('state').dispatchEvent(new Event('change'));});
+$('theme').addEventListener('click',function(){var h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark';});
+var toastEl=null;function toast(t){if(!toastEl){toastEl=document.createElement('div');toastEl.setAttribute('role','status');toastEl.style.cssText='position:fixed;right:16px;bottom:72px;max-width:360px;background:#0F1B33;color:#D6E2FF;padding:10px 14px;border-radius:8px;box-shadow:var(--shadow);z-index:50';document.body.appendChild(toastEl);}
+ toastEl.textContent=t;toastEl.hidden=false;clearTimeout(toastEl._t);toastEl._t=setTimeout(function(){toastEl.hidden=true;},3000);}
+window.addEventListener('beforeunload',function(e){if(S.dirty){e.preventDefault();e.returnValue='';}});
+select(S.sel);
+})();
+</script>
+</body>
+</html>

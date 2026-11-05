@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import polars as pl
-from sqlalchemy import desc, func, select
+from sqlalchemy import delete, desc, func, select
 
 from app.core.context import Ctx, Role, require_role
 from app.db.engine import get_recon_engine
@@ -80,16 +81,10 @@ def precheck(
             )
 
         cfg_dict = tv["CONFIG_JSON"]
-        cfg = TemplateConfig.model_validate(cfg_dict)
-
-        # Kiểm tra max_range_days từ time_filter (mặc định 93 ngày)
-        max_days = cfg.time_filter.max_range_days if cfg.time_filter and cfg.time_filter.max_range_days else 93
-        delta_seconds = (params.p_to - params.p_from).total_seconds()
-        if delta_seconds > max_days * 86400:
-            raise ServiceError(
-                ErrorCode.RANGE_TOO_LARGE,
-                f"Khoảng thời gian ({int(delta_seconds / 86400)} ngày) vượt quá giới hạn tối đa cho phép của template ({max_days} ngày).",
-            )
+        # Chỉ validate cấu hình, không dùng max_range_days để chặn nữa:
+        # khoảng tìm kiếm không còn giới hạn số ngày, chỉ còn kiểm tra
+        # Từ <= Đến ở bước 2 trên.
+        TemplateConfig.model_validate(cfg_dict)
 
         # 4. Kiểm tra Data Source và xác nhận PROD
         ds_id = params.data_source_id or tv["DATA_SOURCE_ID"]
@@ -189,6 +184,29 @@ def create_run(
         if f_row["PURGED_AT"] is not None:
             raise ServiceError(ErrorCode.TEMP_DATA_PURGED, "File Excel đã bị xóa theo yêu cầu.")
 
+        # 3b. Chặn trùng: cùng người dùng, cùng template/file/khoảng thời gian
+        # mà đã có run đang chờ hoặc đang chạy thì không tạo run mới. Chỉ
+        # chặn QUEUED/RUNNING, run DONE/FAILED vẫn chạy lại được bình thường.
+        dup = conn.execute(
+            select(recon_run.c.ID)
+            .where(
+                recon_run.c.TEMPLATE_ID == params.template_id,
+                recon_run.c.FILE_ID == params.file_id,
+                recon_run.c.PROFILE_CODE == profile_code,
+                recon_run.c.P_FROM == params.p_from,
+                recon_run.c.P_TO == params.p_to,
+                recon_run.c.CREATED_BY == ctx.username,
+                recon_run.c.STATUS.in_(["QUEUED", "RUNNING"]),
+            )
+            .limit(1)
+        ).first()
+        if dup:
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                f"Đã có run #{dup[0]} đang chờ hoặc đang chạy với cùng template, file và khoảng thời gian. Vui lòng chờ run đó xong hoặc chạy lại sau khi nó kết thúc.",
+                {"existing_run_id": int(dup[0])},
+            )
+
         # 4. Thêm bản ghi RECON_RUN
         run_stmt = recon_run.insert().values(
             TEMPLATE_ID=params.template_id,
@@ -261,8 +279,14 @@ def get_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
                 recon_run,
                 recon_template.c.CODE.label("TEMPLATE_CODE"),
                 recon_template.c.NAME.label("TEMPLATE_NAME"),
+                recon_file.c.ORIGINAL_NAME.label("FILENAME"),
+                recon_file.c.SIZE_BYTES.label("FILE_SIZE"),
             )
-            .select_from(recon_run.outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID))
+            .select_from(
+                recon_run.outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID).outerjoin(
+                    recon_file, recon_run.c.FILE_ID == recon_file.c.ID
+                )
+            )
             .where(recon_run.c.ID == run_id)
         )
         row = conn.execute(stmt).mappings().first()
@@ -302,6 +326,9 @@ def get_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
         "temp_purged_by": row["TEMP_PURGED_BY"],
         "error_code": row["ERROR_CODE"],
         "error_msg": row["ERROR_MSG"],
+        "params_json": row["PARAMS_JSON"],
+        "filename": str(row["FILENAME"]) if row["FILENAME"] else None,
+        "file_size": int(row["FILE_SIZE"]) if row["FILE_SIZE"] else None,
         "summary": summary_dict,
     }
 
@@ -453,9 +480,11 @@ def get_run_rows(ctx: Ctx, run_id: int, filter: RunRowsFilter) -> dict[str, Any]
     """Lấy danh sách các dòng kết quả phân trang theo trạng thái, tìm kiếm và sắp xếp, kèm thông tin issue."""
     engine = get_recon_engine()
     with engine.connect() as conn:
-        run_row = conn.execute(
-            select(recon_run.c.TEMPLATE_ID, recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id)
-        ).mappings().first()
+        run_row = (
+            conn.execute(select(recon_run.c.TEMPLATE_ID, recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id))
+            .mappings()
+            .first()
+        )
 
         tmpl_id = int(run_row["TEMPLATE_ID"]) if run_row else None
         prof_code = str(run_row["PROFILE_CODE"]) if run_row else None
@@ -482,7 +511,16 @@ def get_run_rows(ctx: Ctx, run_id: int, filter: RunRowsFilter) -> dict[str, Any]
         )
 
         if filter.status:
-            base_query = base_query.where(recon_result_row.c.STATUS == filter.status)
+            if filter.status in ("ALL", "DIFF_ALL"):
+                base_query = base_query.where(recon_result_row.c.STATUS != "MATCHED")
+            elif filter.status in ("DIFF", "MISMATCH"):
+                base_query = base_query.where(recon_result_row.c.STATUS == "MISMATCH")
+            elif filter.status in ("MISSING_DB", "MISSING_IN_DB"):
+                base_query = base_query.where(recon_result_row.c.STATUS == "MISSING_IN_DB")
+            elif filter.status in ("MISSING_EXCEL", "MISSING_IN_EXCEL"):
+                base_query = base_query.where(recon_result_row.c.STATUS == "MISSING_IN_EXCEL")
+            else:
+                base_query = base_query.where(recon_result_row.c.STATUS == filter.status)
         if filter.issue_status:
             base_query = base_query.where(recon_issue.c.STATUS == filter.issue_status)
         if filter.search:
@@ -747,6 +785,17 @@ def export_run(
 
     from app.engine.export import write_export
 
+    p_json = run_row["PARAMS_JSON"]
+    if isinstance(p_json, str):
+        try:
+            params_dict = json.loads(p_json)
+        except Exception:
+            params_dict = {}
+    elif isinstance(p_json, dict):
+        params_dict = p_json
+    else:
+        params_dict = {}
+
     write_export(
         output_path=file_dest,
         result_df=result_df,
@@ -754,7 +803,7 @@ def export_run(
         summary=summary_dict,
         profile=profile,
         config=cfg,
-        run_params=dict(run_row["PARAMS_JSON"] or {}),
+        run_params=params_dict,
     )
 
     return {
@@ -774,9 +823,21 @@ def dry_run(
     p_to: datetime,
     profile_code: str | None = None,
     mock_fetcher: Any = None,
+    p_org: str | None = None,
+    params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Chạy thử nghiệm (Dry-run) một phiên bản template trên file mẫu không lưu kết quả vào DB."""
+    """Chạy thử nghiệm (Dry-run) một phiên bản template trên file mẫu không lưu kết quả vào DB.
+
+    p_org phải được truyền xuống run, nếu không SQL có :p_org sẽ bị
+    check_sql chặn ở pipeline với SQL_NOT_ALLOWED, dù p_org đã khai báo
+    ở Bước 3. Trước đây wizard đọc p_org ở Bước 5 nhưng không truyền
+    xuống đây, nên dry-run luôn lỗi với template dùng :p_org.
+    """
     require_role(ctx, Role.OPERATOR, Role.TEMPLATE_OWNER, Role.ADMIN)
+
+    run_params: dict[str, Any] = dict(params or {})
+    if p_org:
+        run_params["p_org"] = p_org
 
     # 1. Tạo run với tham số đã chỉ định
     create_res = create_run(
@@ -788,6 +849,7 @@ def dry_run(
             profile_code=profile_code,
             p_from=p_from,
             p_to=p_to,
+            params=run_params or None,
         ),
     )
     if not create_res.ok:
@@ -797,6 +859,18 @@ def dry_run(
     if not create_res.data:
         raise ServiceError(ErrorCode.INTERNAL_ERROR, "Không thể lấy thông tin run đã tạo.")
     run_id = int(create_res.data["run_id"])
+
+    # 1b. Gỡ run tạm khỏi hàng đợi NGAY trước khi chạy, để worker nền
+    # không nhận nó. Worker quét RECON_RUN_QUEUE mỗi 2 giây và chỉ nhận
+    # STATUS='READY'; nếu để lại, worker sẽ chạy cùng run_id này với
+    # persist=True (ghi RECON_RUN_SUMMARY/RECON_RESULT_ROW) trong khi
+    # wizard đang chạy nó với persist=False. Hậu quả đã gặp thật:
+    # hai bên cùng gọi load_excel_to_temp gây UNIQUE constraint trên
+    # RECON_EXCEL_LOAD, và bước dọn dẹp cuối dry-run xóa RECON_RUN
+    # bị FOREIGN KEY vì worker đã ghi dòng kết quả cho run đó.
+    engine = get_recon_engine()
+    with engine.begin() as conn:
+        conn.execute(recon_run_queue.delete().where(recon_run_queue.c.RUN_ID == run_id))
 
     # 2. Thực thi run với cờ persist=False
     from app.services.run_executor import execute_run
@@ -810,7 +884,6 @@ def dry_run(
 
     summary_dict = exec_res.get("summary") or {}
 
-    engine = get_recon_engine()
     # 3. Cập nhật SAMPLE_FILE_ID vào template version và dọn dẹp run tạm
     with engine.begin() as conn:
         conn.execute(
@@ -821,7 +894,16 @@ def dry_run(
             )
             .values(SAMPLE_FILE_ID=file_id)
         )
-        # Dọn dẹp run tạm khỏi hàng đợi và bảng run vì dry-run không lưu kết quả
+        # Dọn dẹp run tạm khỏi hàng đợi và bảng run vì dry-run không lưu kết quả.
+        # Xóa dòng con trước (summary/result/invalid) rồi mới xóa run,
+        # để không bị FOREIGN KEY nếu vì lý do nào đó đã có dòng kết
+        # quả cho run tạm này (ví dụ worker đã kịp nhận job trước khi
+        # bản sửa ở bước 1b được áp, hoặc một lần chạy persist=True
+        # cùng run_id trong tương lai).
+        conn.execute(delete(recon_run_summary).where(recon_run_summary.c.RUN_ID == run_id))
+        conn.execute(delete(recon_result_diff).where(recon_result_diff.c.RUN_ID == run_id))
+        conn.execute(delete(recon_result_row).where(recon_result_row.c.RUN_ID == run_id))
+        conn.execute(delete(recon_invalid_row).where(recon_invalid_row.c.RUN_ID == run_id))
         conn.execute(recon_run_queue.delete().where(recon_run_queue.c.RUN_ID == run_id))
         conn.execute(recon_run.delete().where(recon_run.c.ID == run_id))
 

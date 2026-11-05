@@ -51,6 +51,8 @@ def test_render_data_sources_table() -> None:
     assert "PROD" in content_str
     assert "10.0.1.50" in content_str
     assert "BILLING" in content_str
+    assert "Kích hoạt" in content_str
+    assert "ds-active-switch" in content_str
 
 
 def test_render_storage_tab() -> None:
