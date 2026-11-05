@@ -350,3 +350,70 @@ class TestRolesDetailRemountGuards:
             SimpleNamespace(triggered_id="roles-deselect-all-menus"),
         )
         assert roles_page.handle_select_all_menus(None, 1) == []
+
+
+class TestRolesSidebarPreview:
+    """Preview thanh bên phải lấy đúng menu hiệu lực (ADMIN hệ thống
+    không lưu dòng role_menu nhưng luôn có mọi menu) và ghi chú các
+    menu đã chọn nhưng không có mục trên thanh bên."""
+
+    def test_admin_detail_preview_shows_all_sidebar_menus(self, roles_env):
+        import app.ui.pages.roles as roles_page
+
+        _, role_ids = roles_env
+        text = _dump(roles_page.render_role_detail(_admin(), role_ids["ADMIN"]))
+        assert "Không thấy menu nào ở thanh bên." not in text
+        for label in ["Dashboard", "Chạy đối soát", "Lịch sử", "Templates", "Người dùng", "Vai trò và phân quyền"]:
+            assert label in text, f"preview ADMIN thiếu {label}"
+
+    def test_admin_detail_preview_notes_non_sidebar_menus(self, roles_env):
+        import app.ui.pages.roles as roles_page
+
+        _, role_ids = roles_env
+        text = _dump(roles_page.render_role_detail(_admin(), role_ids["ADMIN"]))
+        assert "Không hiện ở thanh bên" in text
+        assert "Kết quả run" in text
+
+    def test_preview_lists_only_sidebar_items_and_notes_rest(self, roles_env):
+        import app.ui.pages.roles as roles_page
+
+        comp = roles_page.render_sidebar_preview(_admin(), ["dashboard", "result", "batch_run"])
+        text = _dump(comp)
+        assert "Dashboard" in text
+        assert "Lịch sử" not in text
+        assert "Không hiện ở thanh bên" in text
+        assert "Kết quả run" in text
+        assert "Chạy bộ đối soát" in text
+
+    def test_preview_empty_role_shows_empty_note(self, roles_env):
+        import app.ui.pages.roles as roles_page
+
+        text = _dump(roles_page.render_sidebar_preview(_admin(), []))
+        assert "Không thấy menu nào ở thanh bên." in text
+        assert "Không hiện ở thanh bên" not in text
+
+    def test_preview_follows_live_selection(self, roles_env, monkeypatch):
+        import app.ui.pages.roles as roles_page
+
+        _, role_ids = roles_env
+        monkeypatch.setattr(roles_page, "get_current_ctx", lambda: _admin())
+        res = roles_page.get_role(_admin(), role_ids["OPERATOR"])
+        snapshot = roles_page._role_snapshot(_admin(), res.data)
+        _, _, _, preview = roles_page.handle_role_form_change(
+            "OPERATOR",
+            "",
+            True,
+            ["dashboard", "run", "result", "batch_run", "history", "issue"],
+            snapshot,
+            role_ids["OPERATOR"],
+        )
+        assert "Lịch sử" in _dump(preview)
+        _, _, _, preview2 = roles_page.handle_role_form_change(
+            "OPERATOR",
+            "",
+            True,
+            ["dashboard", "run", "result", "batch_run", "issue"],
+            snapshot,
+            role_ids["OPERATOR"],
+        )
+        assert "Lịch sử" not in _dump(preview2)

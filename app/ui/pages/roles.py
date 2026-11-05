@@ -38,7 +38,7 @@ from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.empty_state import empty_state
 from app.ui.components.modal_confirm import modal_confirm
-from app.ui.layout.shell import get_nav_items_for_menus
+from app.ui.layout.shell import _SIDEBAR_SKIP_CODES, get_nav_items_for_menus
 
 try:
     dash.register_page(  # type: ignore[no-untyped-call]
@@ -80,15 +80,24 @@ def _menu_label_map(ctx: Ctx) -> dict[str, str]:
     return labels
 
 
+def _effective_role_menus(ctx: Ctx, role: dict[str, Any]) -> list[str]:
+    """Menu hiệu lực của một vai trò để xem trước thanh bên.
+
+    Vai trò hệ thống không lưu dòng role_menu nhưng luôn có toàn bộ menu,
+    nên dùng đủ các mã menu thay vì danh sách đã lưu (rỗng).
+    """
+    if role["is_system"]:
+        return sorted({m["code"] for g in _menu_tree(ctx) for m in g["menus"]})
+    return sorted(role["menus"])
+
+
 def _role_snapshot(ctx: Ctx, role: dict[str, Any]) -> dict[str, Any]:
     """Snapshot form để so sánh thay đổi (dirty check).
 
     Vai trò hệ thống không lưu dòng role_menu nhưng luôn có toàn bộ menu,
     nên snapshot ghi đủ các mã menu để tránh báo thay đổi giả.
     """
-    menus = sorted(role["menus"])
-    if role["is_system"]:
-        menus = sorted({m["code"] for g in _menu_tree(ctx) for m in g["menus"]})
+    menus = _effective_role_menus(ctx, role)
     return {
         "menus": menus,
         "name": str(role["name"]),
@@ -220,11 +229,16 @@ def render_menu_checkboxes(ctx: Ctx, role_id: int) -> Any:
 
 
 def render_sidebar_preview(ctx: Ctx, menu_codes: list[str]) -> Any:
-    """Xem trước thanh bên người có các menu này sẽ thấy."""
+    """Xem trước thanh bên người có các menu này sẽ thấy.
+
+    Chỉ menu có mục trên thanh bên mới hiện; menu đã chọn nhưng không
+    có mục thanh bên (trang chi tiết, task chưa làm) được ghi chú riêng
+    để đối chiếu đủ với ô đã tick.
+    """
     groups = get_nav_items_for_menus(set(menu_codes))
+    blocks: list[Any] = []
     if not groups:
-        return dmc.Text("Không thấy menu nào ở thanh bên.", size="sm", c="dimmed")
-    blocks = []
+        blocks.append(dmc.Text("Không thấy menu nào ở thanh bên.", size="sm", c="dimmed"))
     for group in groups:
         blocks.append(dmc.Text(group["title"], size="xs", fw=700, c="dimmed", mt="sm"))
         for item in group["items"]:
@@ -237,6 +251,17 @@ def render_sidebar_preview(ctx: Ctx, menu_codes: list[str]) -> Any:
                     gap="xs",
                 )
             )
+    labels = _menu_label_map(ctx)
+    not_shown = [labels.get(c, c) for c in menu_codes if c in _SIDEBAR_SKIP_CODES and c in labels]
+    if not_shown:
+        blocks.append(
+            dmc.Text(
+                f"Không hiện ở thanh bên: {', '.join(not_shown)}.",
+                size="xs",
+                c="dimmed",
+                mt="sm",
+            )
+        )
     return html.Div(blocks)
 
 
@@ -326,7 +351,10 @@ def render_role_detail(ctx: Ctx, role_id: int) -> Any:
             dmc.Divider(mt="lg", mb="md"),
             dmc.Text("Xem trước thanh bên", fw=600, size="sm"),
             dmc.Text("Người có vai trò này sẽ thấy", size="xs", c="dimmed"),
-            html.Div(id="roles-sidebar-preview", children=render_sidebar_preview(ctx, list(role["menus"]))),
+            html.Div(
+                id="roles-sidebar-preview",
+                children=render_sidebar_preview(ctx, _effective_role_menus(ctx, role)),
+            ),
             dmc.Divider(mt="lg", mb="md"),
             dmc.Text(f"Người dùng có vai trò này ({len(users)})", fw=600, size="sm"),
             dmc.Text("Gán vai trò ở màn Người dùng", size="xs", c="dimmed"),
