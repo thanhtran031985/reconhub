@@ -857,6 +857,9 @@ def handle_save_modal_open(
     menus: list[str] | None,
     snapshot: dict[str, Any] | None,
 ) -> Any:
+    # Nút Lưu nằm trong cột chi tiết, bị tạo lại mỗi lần chọn vai trò.
+    if not _n:
+        raise dash.exceptions.PreventUpdate
     ctx = _ctx_or_none()
     if ctx is None or role_id is None or snapshot is None:
         raise dash.exceptions.PreventUpdate
@@ -964,6 +967,9 @@ def handle_save_role(
     prevent_initial_call=True,
 )
 def handle_discard_role(_n: int | None, role_id: int | None) -> Any:
+    # Nút Hủy thay đổi nằm trong cột chi tiết, bị tạo lại mỗi lần chọn vai trò.
+    if not _n:
+        raise dash.exceptions.PreventUpdate
     ctx = _ctx_or_none()
     if ctx is None or role_id is None:
         raise dash.exceptions.PreventUpdate
@@ -982,6 +988,9 @@ def handle_discard_role(_n: int | None, role_id: int | None) -> Any:
     prevent_initial_call=True,
 )
 def handle_clone_role(_n: int | None, role_id: int | None) -> Any:
+    # Nút Nhân bản nằm trong cột chi tiết, bị tạo lại mỗi lần chọn vai trò.
+    if not _n:
+        raise dash.exceptions.PreventUpdate
     ctx = _ctx_or_none()
     if ctx is None or role_id is None:
         raise dash.exceptions.PreventUpdate
@@ -1025,6 +1034,10 @@ def handle_clone_role(_n: int | None, role_id: int | None) -> Any:
     prevent_initial_call=True,
 )
 def handle_delete_modal(_del: int | None, _cancel: int | None, opened: bool) -> bool:
+    # Nút Xóa nằm trong cột chi tiết, bị tạo lại mỗi lần chọn vai trò:
+    # Dash kích hoạt lại callback với n_clicks=None, phải chặn như handle_create_modal.
+    if not _del and not _cancel:
+        raise dash.exceptions.PreventUpdate
     triggered = dash.callback_context.triggered_id
     if triggered == "roles-delete-btn":
         return True
@@ -1061,6 +1074,9 @@ def handle_delete_role(_n: int | None, role_id: int | None) -> Any:
     prevent_initial_call=True,
 )
 def handle_select_all_menus(_on: int | None, _off: int | None) -> list[str]:
+    # 2 nút nằm trong cột chi tiết, bị tạo lại mỗi lần chọn vai trò.
+    if not _on and not _off:
+        raise dash.exceptions.PreventUpdate
     triggered = dash.callback_context.triggered_id
     if triggered == "roles-select-all-menus":
         ctx = _ctx_or_none()

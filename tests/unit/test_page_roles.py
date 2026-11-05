@@ -246,3 +246,107 @@ class TestSidebarFromMenus:
         text = _dump(create_shell_layout())
         assert "app-perm-revision-check" in text
         assert "app-perm-revision" in text
+
+
+class TestRolesDetailRemountGuards:
+    """Bug /roles: click chọn vai trò vẽ lại cột chi tiết nên các nút trong
+    cột bị tạo lại, Dash kích hoạt lại callback của chúng với n_clicks=None
+    -> mở modal xóa/lưu và nhân bản vai trò dù người dùng không bấm gì.
+    Các callback này phải chặn n_clicks rỗng như handle_create_modal."""
+
+    def test_delete_modal_stays_closed_without_click(self):
+        from dash.exceptions import PreventUpdate
+
+        import app.ui.pages.roles as roles_page
+
+        with pytest.raises(PreventUpdate):
+            roles_page.handle_delete_modal(None, None, False)
+
+    def test_delete_modal_opens_on_real_click(self, monkeypatch):
+        from types import SimpleNamespace
+
+        import app.ui.pages.roles as roles_page
+
+        monkeypatch.setattr(
+            "dash.callback_context",
+            SimpleNamespace(triggered_id="roles-delete-btn"),
+        )
+        assert roles_page.handle_delete_modal(1, None, False) is True
+        monkeypatch.setattr(
+            "dash.callback_context",
+            SimpleNamespace(triggered_id="roles-delete-modal-cancel"),
+        )
+        assert roles_page.handle_delete_modal(None, 1, True) is False
+
+    def test_save_modal_stays_closed_without_click(self, roles_env, monkeypatch):
+        from dash.exceptions import PreventUpdate
+
+        import app.ui.pages.roles as roles_page
+
+        _, role_ids = roles_env
+        monkeypatch.setattr(roles_page, "get_current_ctx", lambda: _admin())
+        res = roles_page.get_role(_admin(), role_ids["OPERATOR"])
+        snapshot = roles_page._role_snapshot(_admin(), res.data)
+        with pytest.raises(PreventUpdate):
+            roles_page.handle_save_modal_open(None, role_ids["OPERATOR"], "OPERATOR", "", True, [], snapshot)
+
+    def test_clone_does_not_run_without_click(self, roles_env, monkeypatch):
+        from dash.exceptions import PreventUpdate
+
+        import app.ui.pages.roles as roles_page
+
+        engine, role_ids = roles_env
+        monkeypatch.setattr(roles_page, "get_current_ctx", lambda: _admin())
+        with engine.connect() as conn:
+            before = conn.execute(text("SELECT COUNT(*) FROM RECON_ROLE")).scalar_one()
+        with pytest.raises(PreventUpdate):
+            roles_page.handle_clone_role(None, role_ids["OPERATOR"])
+        with engine.connect() as conn:
+            after = conn.execute(text("SELECT COUNT(*) FROM RECON_ROLE")).scalar_one()
+        assert after == before
+
+    def test_clone_runs_on_real_click(self, roles_env, monkeypatch):
+        import app.ui.pages.roles as roles_page
+
+        engine, role_ids = roles_env
+        monkeypatch.setattr(roles_page, "get_current_ctx", lambda: _admin())
+        roles_page.handle_clone_role(1, role_ids["OPERATOR"])
+        with engine.connect() as conn:
+            codes = [r[0] for r in conn.execute(text("SELECT CODE FROM RECON_ROLE"))]
+        assert "OPERATOR_2" in codes
+
+    def test_discard_stays_put_without_click(self, roles_env, monkeypatch):
+        from dash.exceptions import PreventUpdate
+
+        import app.ui.pages.roles as roles_page
+
+        _, role_ids = roles_env
+        monkeypatch.setattr(roles_page, "get_current_ctx", lambda: _admin())
+        with pytest.raises(PreventUpdate):
+            roles_page.handle_discard_role(None, role_ids["OPERATOR"])
+
+    def test_select_all_menus_stays_put_without_click(self, monkeypatch):
+        from dash.exceptions import PreventUpdate
+
+        import app.ui.pages.roles as roles_page
+
+        with pytest.raises(PreventUpdate):
+            roles_page.handle_select_all_menus(None, None)
+
+    def test_select_all_menus_runs_on_real_click(self, roles_env, monkeypatch):
+        from types import SimpleNamespace
+
+        import app.ui.pages.roles as roles_page
+
+        monkeypatch.setattr(roles_page, "get_current_ctx", lambda: _admin())
+        monkeypatch.setattr(
+            "dash.callback_context",
+            SimpleNamespace(triggered_id="roles-select-all-menus"),
+        )
+        codes = roles_page.handle_select_all_menus(1, None)
+        assert "dashboard" in codes
+        monkeypatch.setattr(
+            "dash.callback_context",
+            SimpleNamespace(triggered_id="roles-deselect-all-menus"),
+        )
+        assert roles_page.handle_select_all_menus(None, 1) == []
