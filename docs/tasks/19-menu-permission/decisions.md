@@ -64,3 +64,13 @@ Người dùng nhắn "duyệt plan, làm theo đề xuất làm xong task 19 r�
 - Bạn đã push `ae8e3af` "docs(design): add Screen14 Permission and Screen15 MenuAdmin"; clone đã đồng bộ về `ae8e3af`, có đủ `designs/components/Screen14-Permission/README.md` + `preview.html` và `designs/components/Screen15-MenuAdmin/README.md` + `preview.html`.
 - Q2 về mặt file đã gỡ: bước 6 của plan có thể làm theo preview Screen14 thật, không cần làm theo mô tả suông nữa. Vẫn chờ bạn duyệt plan và trả lời các câu còn lại (Q0, Q1, Q3–Q11).
 - Lưu ý: lần đồng bộ này dùng `git reset --hard` nên đã xóa bản decisions.md chưa commit trong clone; bản này đã được viết lại nguyên vẹn từ nội dung đã trình trong chat. Từ nay, trước mỗi lần đồng bộ, cần kiểm tra `git status` trong clone để không mất thay đổi chưa commit.
+
+## Cập nhật 05/11/2026 — Làm lại bố cục /roles theo Screen14
+
+Người dùng yêu cầu rà soát bố cục ("nhìn quá xấu"), đã đối chiếu ảnh chụp thật với prototype Screen14 và duyệt "làm luôn, sửa layout theo đề xuất" 17:31. Chỉ đổi bố cục, không đổi hành vi hay quyền:
+- Mỗi khối thành 1 thẻ card (cột trái, form vai trò, menu, preview, bảng người dùng, tab 2); Tên vai trò + Mô tả xếp 2 cột; đầu trang gọn thành 1 dòng mô tả, ghi chú phạm vi chuyển xuống dưới thẻ preview.
+- Menu xếp lưới 3 cột theo nhóm, mỗi nhóm có số lượng "x/y", tiêu đề card có tổng "X/13 menu".
+- Bỏ nhãn "Mới" khỏi checkbox menu: sau migration mọi menu đều IS_NEW='Y' nên nhãn hiện trên cả 13 mục, mất tác dụng. Cờ IS_NEW vẫn giữ trong DB cho màn quản trị menu (task 20).
+- Preview thành khung mô phỏng thanh bên, nhưng theo thanh bên THẬT của app (nền sáng xám) chứ không phải khung tối navy của prototype — thanh bên thật là nền sáng, preview tối sẽ không giống thứ người dùng thực sự thấy.
+- Thanh Hủy/Lưu dính đáy (sticky), luôn hiện, nút mờ đi khi chưa có thay đổi (trước đây ẩn và nằm cuối trang, phải cuộn xuống mới thấy). Callback form-change giờ trả `disabled` của 2 nút thay vì `style` của thanh.
+- Cột trái thêm chip "N vai trò", mỗi vai trò có chip "X/Y menu" + "Hệ thống"/"Đã tắt"; nút chọn vai trò cao tự động theo nội dung 3 dòng (trước đây tràn đè nhau).

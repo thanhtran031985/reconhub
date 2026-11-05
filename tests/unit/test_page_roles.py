@@ -194,7 +194,8 @@ class TestRolesLayout:
         for code in ["dashboard", "run", "result", "history", "issue", "template", "user", "role"]:
             assert code in text, f"thiếu checkbox menu {code}"
         assert "Đang ẩn" in text  # menu_admin đang ẩn nhưng vẫn gán được
-        assert "Mới" in text
+        # Nhãn "Mới" đã bỏ khỏi màn này (mọi menu đều mới sau seed): xem
+        # TestRolesLayoutCards.test_menu_checkboxes_no_new_badge_but_hidden_badge.
 
     def test_effective_panel(self, roles_env):
         import app.ui.pages.roles as roles_page
@@ -399,7 +400,7 @@ class TestRolesSidebarPreview:
         monkeypatch.setattr(roles_page, "get_current_ctx", lambda: _admin())
         res = roles_page.get_role(_admin(), role_ids["OPERATOR"])
         snapshot = roles_page._role_snapshot(_admin(), res.data)
-        _, _, _, preview = roles_page.handle_role_form_change(
+        _, _, _, _, preview = roles_page.handle_role_form_change(
             "OPERATOR",
             "",
             True,
@@ -408,7 +409,7 @@ class TestRolesSidebarPreview:
             role_ids["OPERATOR"],
         )
         assert "Lịch sử" in _dump(preview)
-        _, _, _, preview2 = roles_page.handle_role_form_change(
+        _, _, _, _, preview2 = roles_page.handle_role_form_change(
             "OPERATOR",
             "",
             True,
@@ -417,3 +418,94 @@ class TestRolesSidebarPreview:
             role_ids["OPERATOR"],
         )
         assert "Lịch sử" not in _dump(preview2)
+
+
+class TestRolesLayoutCards:
+    """Bố cục /roles theo prototype Screen14: thẻ card, lưới menu 3 cột,
+    preview dạng khung thanh bên, thanh Lưu/Hủy dính đáy luôn hiện."""
+
+    def test_layout_has_role_count_badge(self, roles_env, monkeypatch):
+        import app.ui.pages.roles as roles_page
+
+        monkeypatch.setattr(roles_page, "get_current_ctx", lambda: _admin())
+        assert "4 vai trò" in _dump(roles_page.layout())
+
+    def test_roles_list_item_shows_menu_count(self, roles_env):
+        import app.ui.pages.roles as roles_page
+
+        comp = roles_page.render_roles_list(_admin())
+        text = _dump(comp)
+        assert "13/13 menu" in text  # ADMIN: đủ mọi menu
+        assert "6/13 menu" in text  # OPERATOR: 6 menu
+        assert comp.children[0].h == "auto"  # nút cao theo nội dung 3 dòng, không tràn đè nhau
+
+    def test_menu_checkboxes_no_new_badge_but_hidden_badge(self, roles_env):
+        import app.ui.pages.roles as roles_page
+
+        _, role_ids = roles_env
+        text = _dump(roles_page.render_menu_checkboxes(_admin(), role_ids["OPERATOR"]))
+        assert "Mới" not in text  # mọi menu đều mới sau seed nên nhãn mất tác dụng
+        assert "Đang ẩn" in text  # menu lookup đang ẩn trong fixture
+
+    def test_menu_checkboxes_rendered_in_cards(self, roles_env):
+        import dash_mantine_components as dmc
+
+        import app.ui.pages.roles as roles_page
+
+        _, role_ids = roles_env
+        comp = roles_page.render_menu_checkboxes(_admin(), role_ids["OPERATOR"])
+        assert isinstance(comp, dmc.Paper)
+        assert isinstance(comp.children[2], dmc.CheckboxGroup)
+        assert isinstance(comp.children[2].children, dmc.Grid)
+
+    def test_sidebar_preview_is_panel(self, roles_env):
+        import dash_mantine_components as dmc
+
+        import app.ui.pages.roles as roles_page
+
+        comp = roles_page.render_sidebar_preview(_admin(), ["dashboard", "history"])
+        assert isinstance(comp.children[0], dmc.Paper)
+        assert "Dashboard" in _dump(comp)
+        assert "Lịch sử" in _dump(comp)
+
+    def test_dirty_bar_sticky_and_buttons_disabled_when_clean(self, roles_env, monkeypatch):
+        import app.ui.pages.roles as roles_page
+
+        _, role_ids = roles_env
+        monkeypatch.setattr(roles_page, "get_current_ctx", lambda: _admin())
+        res = roles_page.get_role(_admin(), role_ids["OPERATOR"])
+        snapshot = roles_page._role_snapshot(_admin(), res.data)
+        dirty, save_off, discard_off, text, _ = roles_page.handle_role_form_change(
+            "OPERATOR",
+            "",
+            True,
+            ["dashboard", "run", "result", "batch_run", "history", "issue"],
+            snapshot,
+            role_ids["OPERATOR"],
+        )
+        assert dirty is False
+        assert save_off is True
+        assert discard_off is True
+        assert text == "Chưa có thay đổi."
+        dirty2, save_off2, discard_off2, text2, _ = roles_page.handle_role_form_change(
+            "OPERATOR",
+            "",
+            True,
+            ["dashboard", "run", "result", "batch_run", "issue"],
+            snapshot,
+            role_ids["OPERATOR"],
+        )
+        assert dirty2 is True
+        assert save_off2 is False
+        assert discard_off2 is False
+        assert text2 == "Đã có thay đổi chưa lưu."
+        detail_text = _dump(roles_page.render_role_detail(_admin(), role_ids["OPERATOR"]))
+        assert "sticky" in detail_text
+
+    def test_clone_updates_role_count_badge(self, roles_env, monkeypatch):
+        import app.ui.pages.roles as roles_page
+
+        _, role_ids = roles_env
+        monkeypatch.setattr(roles_page, "get_current_ctx", lambda: _admin())
+        *_, count = roles_page.handle_clone_role(1, role_ids["OPERATOR"])
+        assert count == "5 vai trò"
