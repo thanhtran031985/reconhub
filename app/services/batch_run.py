@@ -194,7 +194,26 @@ def _load_items(conn: Connection, run_id: int, with_files: bool = True) -> list[
     files_by_item: dict[int | None, list[dict[str, Any]]] = {}
     for f in file_rows:
         files_by_item.setdefault(f["BATCH_RUN_ITEM_ID"], []).append(_run_file_dict(dict(f)))
-    items = [_run_item_dict(dict(r), files_by_item.get(r["ID"], []) if with_files else []) for r in item_rows]
+    template_ids = sorted({int(r["TEMPLATE_ID"]) for r in item_rows})
+    code_map: dict[int, tuple[str, str]] = {}
+    if template_ids:
+        for t in (
+            conn.execute(
+                select(recon_template.c.ID, recon_template.c.CODE, recon_template.c.NAME).where(
+                    recon_template.c.ID.in_(template_ids)
+                )
+            )
+            .mappings()
+            .all()
+        ):
+            code_map[int(t["ID"])] = (str(t["CODE"]), str(t["NAME"]))
+    items = []
+    for r in item_rows:
+        d = _run_item_dict(dict(r), files_by_item.get(r["ID"], []) if with_files else [])
+        code, name = code_map.get(int(r["TEMPLATE_ID"]), ("", ""))
+        d["template_code"] = code
+        d["template_name"] = name
+        items.append(d)
     return items
 
 
@@ -215,6 +234,9 @@ def _load_run_full(conn: Connection, run: dict[str, Any]) -> dict[str, Any]:
     out = _run_dict(run)
     out["items"] = _load_items(conn, run["ID"])
     out["files"] = _load_files(conn, run["ID"])
+    def_row = _get_def(conn, int(run["BATCH_DEF_ID"]))
+    out["def_code"] = str(def_row["CODE"])
+    out["def_name"] = str(def_row["NAME"])
     return out
 
 
@@ -411,6 +433,34 @@ def create_batch_run(ctx: Ctx, batch_def_id: int, period: str, name: str | None 
         out["files"] = []
         out["period_warning"] = period_warning
         return out
+
+
+@service
+@requires_menu("batch_run")
+def list_active_defs(ctx: Ctx) -> list[dict[str, Any]]:
+    """Bộ đối soát đang ACTIVE để chọn ở bước 1 wizard (mọi role có menu batch_run).
+
+    Không dùng list_batch_defs vì service đó yêu cầu menu batch_def mà
+    OPERATOR không có (spec 11a).
+    """
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        rows = (
+            conn.execute(
+                select(recon_batch_def).where(recon_batch_def.c.STATUS == "ACTIVE").order_by(recon_batch_def.c.CODE)
+            )
+            .mappings()
+            .all()
+        )
+        return [
+            {
+                "id": int(r["ID"]),
+                "code": str(r["CODE"]),
+                "name": str(r["NAME"]),
+                "max_parallel_per_ds": int(r["MAX_PARALLEL_PER_DS"]),
+            }
+            for r in rows
+        ]
 
 
 @service

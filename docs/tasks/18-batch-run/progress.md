@@ -12,10 +12,18 @@ Trạng thái: 🔄 (bắt đầu 06/11/2026, nhánh feat/18-batch-run từ ad98
 | 6 | Precheck, start, worker giới hạn song song | ✅ | 06/11/2026 |  |
 | 7 | Chạy lại, thay file, hủy, ma trận, .zip | ✅ | 06/11/2026 |  |
 | 8 | UI: Bộ đối soát và hộp thoại thêm template | ✅ | 06/11/2026 |  |
-| 9 | UI: Wizard chạy bộ và kết quả | ⬜ |  |  |
+| 9 | UI: Wizard chạy bộ và kết quả | ✅ | 07/11/2026 |  |
 | 10 | Chuyển Oracle, tài liệu, hồi quy | ⬜ |  |  |
 
 ## Nhật ký
+
+### Bước 9 — UI Wizard chạy bộ và kết quả (07/11/2026)
+- `app/ui/pages/batch_run_wizard.py` (`/batch-runs`, `/batch-runs/<id>`, `/batch-runs/new?def=<id>`): form tạo lần chạy (chọn bộ ACTIVE qua `list_active_defs`, kỳ mặc định tháng hiện tại, tên tùy chọn, khối lần chạy gần đây) + wizard 5 bước (Tải file → Ghép file → Tham số → Kiểm tra → Chạy): dcc.Upload giải base64 (`decode_uploads`), ghép theo mẫu tên/header/tay, sửa tham số ghi đè (set None = về mặc định), precheck, xác nhận PROD một lần (modal liệt kê DS PROD từ `res.details`), chạy `n` template, interval 2s khi RUNNING, hủy lần chạy.
+- `app/ui/pages/batch_run_result.py` (`/batch-runs/<id>/result`): KPI + ma trận (tổng Excel/DB, chênh lệch, khớp/lệch/thiếu, tỷ lệ khớp, so tháng trước), chạy lại run lỗi (chung + từng mục), tải file riêng từng mục (export của run con), tải .zip tổng, đánh dấu đã kiểm tra + xóa dữ liệu tạm hàng loạt (modal xác nhận XOA, chỉ ADMIN).
+- `app/ui/pages/history.py`: thêm lọc "Lần chạy bộ" (Tất cả/Chỉ run bộ/Chỉ run đơn lẻ) + chip "Bộ <mã>" trong ô Template của run con; `app/services/run_service.py list_runs` thêm `batch_only` (outerjoin RECON_BATCH_RUN + RECON_BATCH_DEF) và `RunListFilter.batch_only`.
+- Kiểm tra: `tests/unit/test_batch_run_pages.py` 26 pass + `tests/e2e/test_batch_run.py` 6 pass; cụm hồi quy liên quan (history, run_query, owner_scope, e2e batch) 65 pass; cụm batch (def/run/precheck/rerun/zip/claim/e2e def) 93 pass + 1 skip Oracle; full suite 1187 pass, 6 skipped — 6 fail ban đầu toàn ở bước 9, đã sửa xong (xem decisions.md); typecheck 21 = baseline; lint sạch; kiểm chứng đăng ký page: `create_app()` thấy `/batch-runs` và `/batch-runs/1/result`, tổng 26 pages.
+- Ghi chú: xem decisions.md (Stepper chỉ hiển thị, bước lưu ở store; `list_active_defs` vì OPERATOR không có menu batch_def; menu `/batch-runs` mở thẳng form tạo; seed mẫu Q3 đã có sẵn và khớp spec 10a §9).
+- Sự cố môi trường: full suite lần 1 INTERNALERROR + hết dung lượng `/tmp` (tmpfs 512M); lần chạy lại với TMPDIR trên ổ home btrfs chỉ đạt 17% sau 13 phút (pytest kẹt disk sleep chờ btrfs writeback); chạy lại với `TMPDIR=/run/pytest-tmp` (tmpfs 1.6G) xong trong 215s. Ghi vào `~/TOOLS.md`: không đặt TMPDIR trên ổ home, dùng `/run/pytest-tmp` (tạo lại sau mỗi lần VM thay thế).
 
 ### Bước 8 — UI Bộ đối soát và hộp thoại thêm template (06/11/2026)
 - `app/ui/pages/batch_defs.py` (`/batches`): bảng Mã/Tên/Trạng thái/Số mục/Song song/DS/Thao tác, lọc tìm kiếm + trạng thái phía client, modal Tạo bộ (mã/tên/mô tả/max_parallel 1–4) rồi redirect sang trang chi tiết, modal xác nhận lưu trữ, quyền ghi ADMIN/TEMPLATE_OWNER.

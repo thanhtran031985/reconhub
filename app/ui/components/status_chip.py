@@ -78,3 +78,39 @@ def status_chip(
         radius="xl",
         **kwargs,
     )
+
+
+# Trạng thái lần chạy bộ (task 18) — STATUS_MAP chưa có PARTIAL.
+BATCH_RUN_STATUS_BADGE: dict[str, tuple[str, str]] = {
+    "DRAFT": ("gray", "Nháp"),
+    "RUNNING": ("blue", "Đang chạy"),
+    "DONE": ("green", "Đã xong"),
+    "PARTIAL": ("orange", "Chưa trọn vẹn"),
+    "CANCELLED": ("gray", "Đã hủy"),
+}
+
+# Trạng thái mục trong lần chạy bộ (task 18).
+BATCH_ITEM_STATUS_BADGE: dict[str, tuple[str, str]] = {
+    "PENDING": ("gray", "Chờ file"),
+    "READY": ("green", "Sẵn sàng"),
+    "WARN": ("yellow", "Cảnh báo"),
+    "ERROR": ("red", "Lỗi"),
+    "SKIPPED": ("gray", "Bỏ qua"),
+    "QUEUED": ("gray", "Chờ chạy"),
+    "RUNNING": ("blue", "Đang chạy"),
+    "DONE": ("green", "Đã xong"),
+    "FAILED": ("red", "Thất bại"),
+    "NOT_RUN": ("gray", "Không chạy"),
+}
+
+
+def run_status_badge(status: str) -> dmc.Badge:
+    """Chip trạng thái lần chạy bộ (nhãn tiếng Việt)."""
+    color, label = BATCH_RUN_STATUS_BADGE.get(str(status), ("gray", str(status)))
+    return dmc.Badge(label, color=color, variant="light", size="sm")
+
+
+def item_status_badge(status: str) -> dmc.Badge:
+    """Chip trạng thái mục trong lần chạy bộ (nhãn tiếng Việt)."""
+    color, label = BATCH_ITEM_STATUS_BADGE.get(str(status), ("gray", str(status)))
+    return dmc.Badge(label, color=color, variant="light", size="sm")

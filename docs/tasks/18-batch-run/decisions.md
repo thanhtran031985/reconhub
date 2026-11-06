@@ -36,6 +36,16 @@
 | 2026-11-06 | Hủy run con đang chạy: executor kiểm tra batch CANCELLED khi nhận job + sau READ + sau COMPARE, rồi dừng (run con CANCELLED, xóa hàng đợi) | Không có cơ chế dừng giữa chừng khác; run con đã xong trước khi kiểm tra thì giữ DONE | bước 7 |
 | 2026-11-06 | VIEWER không có menu batch_run (spec 11a) nên không xem lần chạy bộ/tải .zip, dù spec 10 §7 ghi VIEWER được xem/tải | Spec 11 là nguồn quyền menu; mọi hàm batch_run yêu cầu menu batch_run nên VIEWER bị FORBIDDEN. Không đổi seed trong task 18 | bước 7 |
 | 2026-11-06 | Bảng bộ đối soát và bảng mục dùng dmc.Table thay vì dag.AgGrid | Spec 10 §9 nói bảng ≥20 dòng dùng AgGrid; dash-ag-grid đã có trong pyproject (35.3.0) nhưng chưa page nào trong app dùng AgGrid — dmc.Table nhất quán với /templates và các trang khác, đủ cho bảng ít cột này | spec 10 §9; bước 8 |
+| 2026-11-06 | Wizard: bước hiện tại lưu ở dcc.Store, Stepper chỉ hiển thị (không callback vào Stepper) | Callback Stepper phát lại bước hiện tại khi remount từng xóa alert ở wizard báo cáo (bản sửa bf3052a); tránh lặp lại lỗi | bước 9 |
+| 2026-11-06 | Thêm service `batch_run.list_active_defs` (menu batch_run) thay vì dùng `list_batch_defs` ở bước 1 wizard | OPERATOR có menu batch_run nhưng không có menu batch_def nên gọi list_batch_defs bị FORBIDDEN | bước 9 |
+| 2026-11-06 | `_load_items` kèm `template_code`/`template_name` từng mục; `_load_run_full` kèm `def_code`/`def_name` | Wizard và trang kết quả cần tên template/bộ để hiển thị; trước đó item/run chỉ có id | bước 9 |
+| 2026-11-06 | Lịch sử: `RunListFilter.batch_only` + chip "Bộ <mã>" trong ô Template của run con | Spec 10 §6: lịch sử thêm lọc lần chạy bộ, run con có chip tên bộ; lọc ở service để phân trang đúng | bước 9 |
+| 2026-11-06 | Menu `/batch-runs` mở thẳng form tạo lần chạy (path mặc định của wizard), `/batch-runs/new` cũng mở form này | Spec không có trang danh sách lần chạy bộ riêng; form đã có khối lần chạy gần đây | bước 9 |
+| 2026-11-06 | Bảng wizard/kết quả dùng dmc.Table thay vì dag.AgGrid (như bước 8) | dash-ag-grid đã có nhưng chưa page nào dùng; bảng ít cột, nhất quán với /templates | spec 10 §9; bước 9 |
+| 2026-11-07 | Test render: so khớp chuỗi con phải nối `" ".join(_texts(node))`, không dùng `chuỗi in _texts(...)` | `in` trên list chỉ khớp đúng phần tử (vd "Người chạy admin · 1/1 mục có kết quả" ≠ "1/1 mục có kết quả"); alert_box hiển thị tiêu đề qua prop `title` nên không có trong children | bước 9 |
+| 2026-11-07 | INSERT thô vào RECON_RUN phải điền `APPLY_RANGE_EXCEL` + `PROGRESS_PCT` | Hai cột NOT NULL chỉ có default phía Python (`default="Y"`/`default=0`), raw `text()` không áp dụng → IntegrityError | bước 9 |
+| 2026-11-07 | Thêm tham số vào `handle_history_page` thì test gọi trực tiếp phải truyền đủ vị trí (thêm `"ALL"` cho lọc batch) | Thêm Input batch vào giữa signature làm lời gọi cũ thiếu 1 tham số → TypeError | bước 9 |
+| 2026-11-07 | Full suite chạy với `TMPDIR=/run/pytest-tmp` (tmpfs 1.6G, tạo lại sau mỗi lần VM thay thế) | `/tmp` 512M từng đầy gây INTERNALERROR; TMPDIR trên ổ home btrfs chậm bất thường do fsync/writeback | bước 9 |
 | 2026-11-06 | Một bộ không có 2 mục cùng template (BATCH_TEMPLATE_EXISTS) — test 2 mục phải dùng 2 template khác nhau | Ràng buộc từ bước 3 | bước 7 |
 
 ## Câu hỏi còn mở

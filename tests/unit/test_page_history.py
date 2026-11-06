@@ -413,7 +413,7 @@ def test_history_pagination(history_env, monkeypatch):
         "dash.callback_context",
         SimpleNamespace(triggered=[{"prop_id": "history-pagination.value", "value": 2}]),
     )
-    res_page = handle_history_page(2, None, "ALL", "ALL", "ALL", "ALL", "", 1)
+    res_page = handle_history_page(2, None, "ALL", "ALL", "ALL", "ALL", "", "ALL", 1)
     assert res_page == 2
 
     # Khi đổi bộ lọc -> reset về trang 1
@@ -421,7 +421,7 @@ def test_history_pagination(history_env, monkeypatch):
         "dash.callback_context",
         SimpleNamespace(triggered=[{"prop_id": "history-filter-template.value", "value": "2"}]),
     )
-    res_reset = handle_history_page(None, None, "2", "ALL", "ALL", "ALL", "", 2)
+    res_reset = handle_history_page(None, None, "2", "ALL", "ALL", "ALL", "", "ALL", 2)
     assert res_reset == 1
 
 

@@ -13,6 +13,8 @@ from app.db.engine import get_recon_engine
 from app.db.metadata import (
     recon_app_setting,
     recon_audit_log,
+    recon_batch_def,
+    recon_batch_run,
     recon_data_source,
     recon_excel_row,
     recon_file,
@@ -367,10 +369,14 @@ def list_runs(ctx: Ctx, filter: RunListFilter) -> dict[str, Any]:
             recon_run_summary.c.CNT_MISSING_IN_DB.label("CNT_MISSING_IN_DB"),
             recon_run_summary.c.CNT_MISSING_IN_EXCEL.label("CNT_MISSING_IN_EXCEL"),
             recon_run_summary.c.EXCEL_ROWS_INVALID.label("CNT_INVALID"),
+            recon_batch_def.c.CODE.label("BATCH_DEF_CODE"),
+            recon_batch_def.c.NAME.label("BATCH_DEF_NAME"),
         ).select_from(
             recon_run.outerjoin(recon_template, recon_run.c.TEMPLATE_ID == recon_template.c.ID)
             .outerjoin(recon_file, recon_run.c.FILE_ID == recon_file.c.ID)
             .outerjoin(recon_run_summary, recon_run.c.ID == recon_run_summary.c.RUN_ID)
+            .outerjoin(recon_batch_run, recon_run.c.BATCH_RUN_ID == recon_batch_run.c.ID)
+            .outerjoin(recon_batch_def, recon_batch_run.c.BATCH_DEF_ID == recon_batch_def.c.ID)
         )
 
         if filter.template_id:
@@ -395,6 +401,11 @@ def list_runs(ctx: Ctx, filter: RunListFilter) -> dict[str, Any]:
                 base_query = base_query.where(recon_run.c.TEMP_PURGED_AT.is_(None))
         if filter.filename:
             base_query = base_query.where(recon_file.c.ORIGINAL_NAME.ilike(f"%{filter.filename.strip()}%"))
+        if filter.batch_only is not None:
+            if filter.batch_only:
+                base_query = base_query.where(recon_run.c.BATCH_RUN_ID.is_not(None))
+            else:
+                base_query = base_query.where(recon_run.c.BATCH_RUN_ID.is_(None))
 
         # Phạm vi dữ liệu (task 19): vai trò thường chỉ thấy run của mình
         scope = owner_filter(ctx, engine)
@@ -450,6 +461,10 @@ def list_runs(ctx: Ctx, filter: RunListFilter) -> dict[str, Any]:
                     "cnt_missing_in_excel": cnt_missing_excel,
                     "cnt_invalid": r["CNT_INVALID"] or 0,
                     "match_pct": match_pct,
+                    "batch_run_id": int(r["BATCH_RUN_ID"]) if r["BATCH_RUN_ID"] else None,
+                    "batch_run_item_id": int(r["BATCH_RUN_ITEM_ID"]) if r["BATCH_RUN_ITEM_ID"] else None,
+                    "batch_def_code": str(r["BATCH_DEF_CODE"]) if r["BATCH_DEF_CODE"] else None,
+                    "batch_def_name": str(r["BATCH_DEF_NAME"]) if r["BATCH_DEF_NAME"] else None,
                 }
             )
 

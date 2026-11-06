@@ -98,6 +98,18 @@ def render_filter_bar(
                 clearable=False,
             ),
             dmc.Select(
+                id="history-filter-batch",
+                label="Lần chạy bộ",
+                data=[
+                    {"label": "Tất cả", "value": "ALL"},
+                    {"label": "Chỉ run thuộc bộ", "value": "BATCH"},
+                    {"label": "Chỉ run đơn lẻ", "value": "SINGLE"},
+                ],
+                value="ALL",
+                w=180,
+                clearable=False,
+            ),
+            dmc.Select(
                 id="history-filter-checked",
                 label="Kiểm tra",
                 data=[
@@ -302,13 +314,30 @@ def render_runs_table(
             )
         )
 
-        # Template code + ver
+        # Template code + ver + chip tên bộ (task 18 bước 9)
         ver_text = f" v{r['template_version']}" if r.get("template_version") else ""
         t_code = r.get("template_code") or r.get("template_name") or "Template"
+        template_cell: Any = dmc.Text(
+            f"{t_code}{ver_text}",
+            className="rh-code",
+            size="sm",
+        )
+        if r.get("batch_def_code"):
+            template_cell = dmc.Stack(
+                [
+                    template_cell,
+                    dmc.Badge(
+                        f"Bộ {r['batch_def_code']}",
+                        size="xs",
+                        variant="light",
+                        color="violet",
+                    ),
+                ],
+                gap=2,
+            )
         tds.append(
             dmc.TableTd(
-                f"{t_code}{ver_text}",
-                className="rh-code",
+                template_cell,
                 style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
             )
         )
@@ -656,6 +685,7 @@ def layout() -> html.Div:
     Input("history-filter-purged", "value"),
     Input("history-filter-user", "value"),
     Input("history-filter-filename", "value"),
+    Input("history-filter-batch", "value"),
     State("history-page-store", "data"),
     prevent_initial_call=True,
 )
@@ -667,6 +697,7 @@ def handle_history_page(
     _purge: Any,
     _usr: Any,
     _fn: Any,
+    _batch: Any,
     current_page: int,
 ) -> int:
     """Xử lý chuyển trang hoặc reset về trang 1 khi thay đổi bộ lọc."""
@@ -690,6 +721,7 @@ def handle_history_page(
     Input("history-filter-date-range", "value"),
     Input("history-page-store", "data"),
     Input("history-refresh-trigger", "data"),
+    Input("history-filter-batch", "value"),
     State("history-selected-runs-store", "data"),
 )
 def update_history_table(
@@ -702,6 +734,7 @@ def update_history_table(
     page_or_selected: Any = 1,
     refresh_val: int = 0,
     selected_data: list[int] | None = None,
+    batch_val: str | None = "ALL",
 ) -> tuple[Any, str]:
     """Cập nhật bảng danh sách run theo các bộ lọc tiêu chí và phân trang."""
     ctx = get_current_ctx()
@@ -745,6 +778,12 @@ def update_history_table(
     elif purge_val == "RETAINED":
         is_temp_purged = False
 
+    batch_only = None
+    if batch_val == "BATCH":
+        batch_only = True
+    elif batch_val == "SINGLE":
+        batch_only = False
+
     # Xử lý lọc theo khoảng thời gian chạy
     from_date: datetime | None = None
     to_date: datetime | None = None
@@ -778,6 +817,7 @@ def update_history_table(
         filename=filename_search,
         is_checked=is_checked,
         is_temp_purged=is_temp_purged,
+        batch_only=batch_only,
         from_date=from_date,
         to_date=to_date,
         page=current_page,

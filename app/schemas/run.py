@@ -63,6 +63,9 @@ class RunListFilter(BaseModel):
     is_checked: bool | None = None
     is_temp_purged: bool | None = None
     filename: str | None = None
+    batch_only: bool | None = None
+    """Lọc theo lần chạy bộ (task 18 bước 9): True chỉ run thuộc bộ,
+    False chỉ run đơn lẻ, None tất cả."""
     page: int = 1
     page_size: int = 20
 
