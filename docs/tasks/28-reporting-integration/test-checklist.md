@@ -9,8 +9,8 @@
 | ☑ | T28-05 | Audit create/edit/activate/run/export/download | pytest | Cao |
 | ☑ | T28-06 | CONFIG_ONLY migration definitions | pytest | Cao |
 | ☑ | T28-07 | Full migration histories optional by scope | pytest | Cao |
-| ☐ | T28-08 | SQL injection suite | pytest | Cao |
-| ☐ | T28-09 | Concurrency activate/run/export | pytest | Cao |
-| ☐ | T28-10 | All prior task tests 01–20 green | pytest | Cao |
-| ☐ | T28-11 | End-to-end Admin registers then user runs/exports | pytest | Cao |
-| ☐ | T28-12 | Performance thresholds documented | pytest | Cao |
+| ☑ | T28-08 | SQL injection suite | pytest | Cao |
+| ☑ | T28-09 | Concurrency activate/run/export | pytest | Cao |
+| ☑ | T28-10 | All prior task tests 01–20 green | pytest | Cao |
+| ☑ | T28-11 | End-to-end Admin registers then user runs/exports | pytest | Cao |
+| ☑ | T28-12 | Performance thresholds documented | pytest | Cao |

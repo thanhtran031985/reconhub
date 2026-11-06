@@ -490,11 +490,7 @@ def _seed_report_data(src_engine, now):
                 CONTROL_TYPE="TEXT",
             )
         ).lastrowid
-        conn.execute(
-            recon_rpt_param_lov.insert().values(
-                PARAM_ID=param_id, LOV_TYPE="NONE"
-            )
-        )
+        conn.execute(recon_rpt_param_lov.insert().values(PARAM_ID=param_id, LOV_TYPE="NONE"))
         conn.execute(
             recon_rpt_column.insert().values(
                 VERSION_ID=ver_id,
@@ -516,11 +512,7 @@ def _seed_report_data(src_engine, now):
                 UPDATED_AT=now,
             )
         )
-        conn.execute(
-            recon_rpt_favorite.insert().values(
-                USER_ID=1, REPORT_ID=rep_id, CREATED_AT=now
-            )
-        )
+        conn.execute(recon_rpt_favorite.insert().values(USER_ID=1, REPORT_ID=rep_id, CREATED_AT=now))
         run_id = conn.execute(
             recon_report_run.insert().values(
                 REPORT_ID=rep_id,
@@ -573,7 +565,9 @@ def test_config_only_includes_report_config_tables(migration_env):
     ds_id = _target_ds_id(src_engine, now)
 
     pre = precheck(
-        admin_ctx, target_ds_id=ds_id, mode="CONFIG_ONLY",
+        admin_ctx,
+        target_ds_id=ds_id,
+        mode="CONFIG_ONLY",
         mock_target_engine=target_engine,
     )
     assert pre.ok is True, pre.message
@@ -601,7 +595,9 @@ def test_no_temp_includes_report_history(migration_env):
     ds_id = _target_ds_id(src_engine, now)
 
     pre = precheck(
-        admin_ctx, target_ds_id=ds_id, mode="NO_TEMP",
+        admin_ctx,
+        target_ds_id=ds_id,
+        mode="NO_TEMP",
         mock_target_engine=target_engine,
     )
     assert pre.ok is True, pre.message
@@ -628,7 +624,9 @@ def test_start_migration_config_only_copies_report_config(migration_env):
     ds_id = _target_ds_id(src_engine, now)
 
     res = start_migration(
-        admin_ctx, target_ds_id=ds_id, mode="CONFIG_ONLY",
+        admin_ctx,
+        target_ds_id=ds_id,
+        mode="CONFIG_ONLY",
         mock_target_engine=target_engine,
     )
     assert res.ok is True, res.message
@@ -638,15 +636,6 @@ def test_start_migration_config_only_copies_report_config(migration_env):
     assert "RECON_REPORT_RUN" not in report
     assert "RECON_RPT_EXPORT" not in report
     with target_engine.connect() as t_conn:
-        assert (
-            t_conn.execute(select(_func.count()).select_from(recon_report)).scalar()
-            == 1
-        )
-        assert (
-            t_conn.execute(select(_func.count()).select_from(recon_report_run)).scalar()
-            == 0
-        )
-        assert (
-            t_conn.execute(select(_func.count()).select_from(recon_rpt_export)).scalar()
-            == 0
-        )
+        assert t_conn.execute(select(_func.count()).select_from(recon_report)).scalar() == 1
+        assert t_conn.execute(select(_func.count()).select_from(recon_report_run)).scalar() == 0
+        assert t_conn.execute(select(_func.count()).select_from(recon_rpt_export)).scalar() == 0

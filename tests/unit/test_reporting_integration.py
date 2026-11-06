@@ -7,6 +7,7 @@ template CUSTOM_SQL ACTIVE + DRAFT, operator/admin/norole.
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import text
 
 from tests.unit.test_report_export_queue import _done_run, _request, export_env
@@ -321,3 +322,334 @@ class TestAudit:
         cancelled = cancel_export(operator_ctx, export2_id)
         assert cancelled.ok, cancelled.message
         assert ("CANCEL_EXPORT", "operator") in _audit_actions(engine, "RECON_RPT_EXPORT", export2_id)
+
+
+class TestSqlInjection:
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT a FROM t UNION SELECT a FROM u",
+            "SELECT a FROM t UNION ALL SELECT a FROM u",
+            "SELECT a FROM t INTERSECT SELECT a FROM u",
+            "SELECT a FROM t MINUS SELECT a FROM u",
+            "SELECT a FROM t; DROP TABLE u",
+            "SELECT a FROM t WHERE x = 1; SELECT * FROM u",
+        ],
+    )
+    def test_guard_rejects_dangerous_sql(self, sql):
+        from app.engine.sql_guard import check_report_sql
+
+        ok, err, _binds = check_report_sql(sql)
+        assert ok is False, f"guard phải chặn: {sql}"
+        assert err
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT a FROM t WHERE x = 'a; DROP TABLE u'",
+            "SELECT a FROM t -- DROP TABLE u\n WHERE 1 = 1",
+            "SELECT a FROM t WHERE b = :p_org",
+        ],
+    )
+    def test_guard_allows_safe_sql(self, sql):
+        from app.engine.sql_guard import check_report_sql
+
+        ok, err, _binds = check_report_sql(sql)
+        assert ok is True, err
+
+    def test_builder_rejects_unknown_identifiers(self):
+        from app.schemas.errors import ServiceError
+        from app.services.report_source import build_report_query
+
+        columns = [{"name": "AMOUNT"}, {"name": "ORG"}]
+        # Owner/object chứa ký tự lạ.
+        with pytest.raises(ServiceError):
+            build_report_query("VIEW", "FIN; DROP TABLE T", "V_REV", columns)
+        with pytest.raises(ServiceError):
+            build_report_query("VIEW", "FIN", 'V_REV" OR 1=1 --', columns)
+        # Cột ngoài whitelist.
+        with pytest.raises(ServiceError):
+            build_report_query("VIEW", "FIN", "V_REV", columns, selected=['AMOUNT" FROM DUAL --'])
+        # Filter cột ngoài whitelist / toán tử lạ.
+        with pytest.raises(ServiceError):
+            build_report_query(
+                "VIEW",
+                "FIN",
+                "V_REV",
+                columns,
+                filters=[{"column": "EVIL", "operator": "=", "code": "p_x", "value": "1"}],
+            )
+        with pytest.raises(ServiceError):
+            build_report_query(
+                "VIEW",
+                "FIN",
+                "V_REV",
+                columns,
+                filters=[{"column": "ORG", "operator": "OR 1=1", "code": "p_x", "value": "1"}],
+            )
+        # Sort cột lạ / hướng lạ.
+        with pytest.raises(ServiceError):
+            build_report_query(
+                "VIEW",
+                "FIN",
+                "V_REV",
+                columns,
+                sorts=[{"column": "EVIL", "direction": "ASC"}],
+            )
+        with pytest.raises(ServiceError):
+            build_report_query(
+                "VIEW",
+                "FIN",
+                "V_REV",
+                columns,
+                sorts=[{"column": "ORG", "direction": "DESC; DROP TABLE T"}],
+            )
+
+    def test_like_prefix_escapes_wildcards(self):
+        from app.services.report_source import build_report_query
+
+        sql, binds = build_report_query(
+            "VIEW",
+            "FIN",
+            "V_REV",
+            [{"name": "AMOUNT"}, {"name": "ORG"}],
+            filters=[{"column": "ORG", "operator": "LIKE_PREFIX", "code": "p_org", "value": "B%D_N\\"}],
+        )
+        assert "ESCAPE" in sql
+        assert binds == {"p_org": "B\\%D\\_N\\\\%"}
+
+    def test_sorts_reject_unknown_field(self, export_env, operator_ctx, monkeypatch):
+        from app.services.report_run import get_report_page
+
+        monkeypatch.setattr("app.services.report_run.get_recon_engine", lambda: export_env["engine"])
+        run = _done_run(operator_ctx, export_env)
+        res = get_report_page(
+            operator_ctx,
+            run["id"],
+            sorts=[{"field": "EVIL_COL", "direction": "ASC"}],
+        )
+        assert not res.ok
+        assert "EVIL_COL" in res.message
+
+
+class TestConcurrency:
+    def test_activate_lock_blocks_second_activate(self, export_env, admin_ctx, monkeypatch):
+        from datetime import datetime, timezone
+
+        from app.db.metadata import recon_app_setting
+        from app.services.report_template import _LOCK_KEY, activate_version
+
+        monkeypatch.setattr(
+            "app.services.report_template.get_recon_engine",
+            lambda: export_env["engine"],
+        )
+        engine = export_env["engine"]
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        with engine.begin() as conn:
+            conn.execute(
+                recon_app_setting.insert().values(
+                    KEY=_LOCK_KEY,
+                    VALUE=now.isoformat(),
+                    UPDATED_BY="test",
+                    UPDATED_AT=now,
+                )
+            )
+        # Version DRAFT (chưa DRY_RUN_OK) — lock chặn trước cả kiểm tra trạng thái.
+        res = activate_version(admin_ctx, export_env["draft_version_id"])
+        assert not res.ok
+        assert res.code == "CONFLICT"
+
+    def test_execute_non_queued_run_rejected(self, export_env, operator_ctx, monkeypatch):
+        from app.services.report_run import execute_report_run
+
+        monkeypatch.setattr("app.services.report_run.get_recon_engine", lambda: export_env["engine"])
+        run = _done_run(operator_ctx, export_env)
+        res = execute_report_run(operator_ctx, run["id"])
+        assert not res.ok
+        assert "QUEUED" in res.message
+
+
+class TestEndToEndFlow:
+    def test_admin_registers_then_operator_runs_and_exports(self, export_env, operator_ctx, admin_ctx, monkeypatch):
+        """T28-11: admin đăng ký → dry-run → activate; operator chạy + export."""
+        from unittest.mock import patch
+
+        from app.services.report import create_report
+        from app.services.report_export import (
+            download_export,
+            execute_export,
+            request_export,
+        )
+        from app.services.report_param import create_param
+        from app.services.report_run import (
+            create_report_run,
+            execute_report_run,
+            get_report_page,
+        )
+        from app.services.report_source import (
+            analyze_version_source,
+            apply_source_diff,
+        )
+        from app.services.report_template import (
+            activate_version,
+            create_template,
+            update_version_source,
+        )
+        from tests.unit.test_report_run_execute import ROWS, _mock_ora_conn
+
+        for mod in (
+            "app.services.report",
+            "app.services.report_template",
+            "app.services.report_source",
+            "app.services.report_param",
+            "app.services.report_run",
+            "app.services.report_export",
+        ):
+            monkeypatch.setattr(f"{mod}.get_recon_engine", lambda: export_env["engine"])
+        engine = export_env["engine"]
+        conn, _ = _mock_ora_conn(ROWS)
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _fake_checked(*_args, **_kwargs):
+            yield conn
+
+        with (
+            patch("app.services.report_source.open_source_connection", return_value=conn),
+            patch(
+                "app.services.report_source.open_checked_connection",
+                side_effect=_fake_checked,
+            ),
+        ):
+            rep = create_report(
+                admin_ctx,
+                {
+                    "code": "E2E_RPT",
+                    "name": "Báo cáo E2E",
+                    "category_code": "FINANCE",
+                    "owner": "FIN",
+                },
+            )
+            assert rep.ok, rep.message
+            tpl = create_template(
+                admin_ctx,
+                rep.data["id"],
+                {"code": "E2E1", "name": "Template E2E"},
+            )
+            assert tpl.ok, tpl.message
+            version = tpl.data["versions"][0]
+            src = update_version_source(
+                admin_ctx,
+                version["id"],
+                {
+                    "data_source_id": export_env["ds_id"],
+                    "source_type": "CUSTOM_SQL",
+                    "sql_text": "SELECT AMOUNT, ORG FROM FIN.V_REVENUE WHERE ORG = :p_org",
+                },
+            )
+            assert src.ok, src.message
+            diff = analyze_version_source(admin_ctx, version["id"])
+            assert diff.ok, diff.message
+            applied = apply_source_diff(admin_ctx, version["id"], diff.data)
+            assert applied.ok, applied.message
+            param = create_param(
+                admin_ctx,
+                version["id"],
+                {
+                    "code": "p_org",
+                    "label": "Đơn vị",
+                    "data_type": "STRING",
+                    "control_type": "TEXT",
+                    "required": True,
+                    "grid_span": 6,
+                },
+            )
+            assert param.ok, param.message
+            # Dry-run + activate bằng chính admin (mock Oracle).
+            from app.services.report_run import dry_run_version
+
+            dry = dry_run_version(admin_ctx, version["id"], values={"p_org": "HN"})
+            assert dry.ok, dry.message
+            activated = activate_version(admin_ctx, version["id"])
+            assert activated.ok, activated.message
+            # Operator chạy + phân trang + export + tải.
+            created = create_report_run(operator_ctx, rep.data["id"], values={"p_org": "HN"})
+            assert created.ok, created.message
+            executed = execute_report_run(operator_ctx, created.data["id"])
+            assert executed.ok, executed.message
+            assert executed.data["run"]["status"] == "DONE"
+            page = get_report_page(
+                operator_ctx,
+                created.data["id"],
+                sorts=[{"field": "AMOUNT", "direction": "DESC"}],
+            )
+            assert page.ok, page.message
+            assert page.data["total"] == len(ROWS)
+            requested = request_export(operator_ctx, created.data["id"], "CSV")
+            assert requested.ok, requested.message
+            export_id = requested.data["id"]
+            from tests.unit.test_report_export_queue import _mock_stream_conn
+
+            stream_conn, _ = _mock_stream_conn(ROWS)
+            with patch(
+                "app.services.report_source.open_source_connection",
+                return_value=stream_conn,
+            ):
+                result = execute_export(export_id, engine=engine)
+            assert result["status"] == "DONE", result
+            downloaded = download_export(operator_ctx, export_id)
+            assert downloaded.ok, downloaded.message
+            # Audit đủ dọc flow.
+            actions = _audit_actions(engine, "RECON_REPORT_RUN", created.data["id"])
+            assert ("CREATE_REPORT_RUN", "operator") in actions
+            assert ("EXECUTE_REPORT_RUN", "operator") in actions
+            assert ("DOWNLOAD_EXPORT", "operator") in _audit_actions(engine, "RECON_RPT_EXPORT", export_id)
+
+
+class TestPerformance:
+    def test_key_operations_under_thresholds(self, export_env, operator_ctx, monkeypatch):
+        """T28-12: ngưỡng hiệu năng trên SQLite + mock Oracle (5 dòng)."""
+        import time
+        from unittest.mock import patch
+
+        from app.services.report import list_reports
+        from app.services.report_export import request_export
+        from app.services.report_run import (
+            create_report_run,
+            execute_report_run,
+            get_report_page,
+        )
+        from tests.unit.test_report_run_execute import ROWS, _mock_ora_conn
+
+        for mod in (
+            "app.services.report",
+            "app.services.report_run",
+            "app.services.report_export",
+        ):
+            monkeypatch.setattr(f"{mod}.get_recon_engine", lambda: export_env["engine"])
+        timings: dict[str, float] = {}
+        t0 = time.monotonic()
+        assert list_reports(operator_ctx).ok
+        timings["list_reports"] = time.monotonic() - t0
+        conn, _ = _mock_ora_conn(ROWS)
+        with patch("app.services.report_source.open_source_connection", return_value=conn):
+            t0 = time.monotonic()
+            created = create_report_run(operator_ctx, export_env["report_id"], values={"p_org": "HN"})
+            executed = execute_report_run(operator_ctx, created.data["id"])
+            timings["create_and_execute_run"] = time.monotonic() - t0
+            assert executed.ok
+            t0 = time.monotonic()
+            page = get_report_page(operator_ctx, created.data["id"])
+            timings["get_report_page"] = time.monotonic() - t0
+            assert page.ok
+            t0 = time.monotonic()
+            requested = request_export(operator_ctx, created.data["id"], "CSV")
+            timings["request_export"] = time.monotonic() - t0
+            assert requested.ok
+        # Ngưỡng (máy ảo, SQLite + mock): list < 1s, chạy run < 2s, page < 1s,
+        # request export < 1s. Ghi số đo vào decisions.md khi đóng task.
+        assert timings["list_reports"] < 1.0, timings
+        assert timings["create_and_execute_run"] < 2.0, timings
+        assert timings["get_report_page"] < 1.0, timings
+        assert timings["request_export"] < 1.0, timings

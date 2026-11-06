@@ -132,8 +132,7 @@ def build_report_query(
     if source_type not in ("VIEW", "TABLE"):
         raise ServiceError(
             ErrorCode.VALIDATION_ERROR,
-            "build_report_query chỉ dùng cho nguồn VIEW/TABLE; "
-            "CUSTOM_SQL dùng trực tiếp SQL snapshot của version.",
+            "build_report_query chỉ dùng cho nguồn VIEW/TABLE; CUSTOM_SQL dùng trực tiếp SQL snapshot của version.",
         )
     if not columns:
         raise ServiceError(
@@ -149,10 +148,7 @@ def build_report_query(
     else:
         select_cols = [str(c["name"]) for c in columns]
     select_clause = ", ".join(quote_identifier(c) for c in select_cols)
-    sql = (
-        f"SELECT {select_clause} "
-        f"FROM {quote_identifier(owner)}.{quote_identifier(object_name)}"
-    )
+    sql = f"SELECT {select_clause} FROM {quote_identifier(owner)}.{quote_identifier(object_name)}"
 
     binds: dict[str, Any] = {}
     conditions: list[str] = []
@@ -191,13 +187,16 @@ def build_report_query(
                     ErrorCode.SQL_NOT_ALLOWED,
                     f"Filter IN của {code!r} cần danh sách giá trị không rỗng.",
                 )
-            placeholders = ", ".join(f":{code}_{i+1}" for i in range(len(value)))
+            placeholders = ", ".join(f":{code}_{i + 1}" for i in range(len(value)))
             conditions.append(f"{col_expr} IN ({placeholders})")
             for i, item in enumerate(value):
-                binds[f"{code}_{i+1}"] = item
+                binds[f"{code}_{i + 1}"] = item
         elif op == "LIKE_PREFIX":
-            conditions.append(f"{col_expr} LIKE :{code}")
-            binds[code] = f"{value}%"
+            # Escape ký tự đại diện trong giá trị người nhập (task 28, T28-08):
+            # không escape thì "%" khớp mọi dòng, "_" khớp 1 ký tự bất kỳ.
+            escaped = str(value).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            conditions.append(f"{col_expr} LIKE :{code} ESCAPE '\\'")
+            binds[code] = f"{escaped}%"
 
     if conditions:
         sql += " WHERE " + " AND ".join(conditions)
@@ -223,11 +222,7 @@ def _ds_timeout_seconds(data_source_id: int) -> int:
     engine = get_recon_engine()
     with engine.connect() as conn:
         row = (
-            conn.execute(
-                select(recon_data_source.c.CALL_TIMEOUT_S).where(
-                    recon_data_source.c.ID == data_source_id
-                )
-            )
+            conn.execute(select(recon_data_source.c.CALL_TIMEOUT_S).where(recon_data_source.c.ID == data_source_id))
             .mappings()
             .first()
         )
@@ -253,10 +248,7 @@ def _assert_read_only(ora_conn: Any) -> None:
     cursor = ora_conn.cursor()
     try:
         placeholders = ", ".join(f"'{p}'" for p in _WRITE_PRIVILEGES)
-        cursor.execute(
-            "SELECT PRIVILEGE FROM USER_SYS_PRIVS "
-            f"WHERE PRIVILEGE IN ({placeholders})"
-        )
+        cursor.execute(f"SELECT PRIVILEGE FROM USER_SYS_PRIVS WHERE PRIVILEGE IN ({placeholders})")
         write_privs = [str(r[0]) for r in cursor.fetchall()]
     except Exception:
         write_privs = []
@@ -268,15 +260,12 @@ def _assert_read_only(ora_conn: Any) -> None:
     if write_privs:
         raise ServiceError(
             ErrorCode.DS_NOT_READ_ONLY,
-            "Tài khoản nguồn dữ liệu có quyền ghi "
-            f"({', '.join(write_privs)}); báo cáo yêu cầu tài khoản chỉ đọc.",
+            f"Tài khoản nguồn dữ liệu có quyền ghi ({', '.join(write_privs)}); báo cáo yêu cầu tài khoản chỉ đọc.",
         )
 
 
 @contextmanager
-def open_checked_connection(
-    data_source_id: int, timeout_sec: int
-) -> Iterator[Any]:
+def open_checked_connection(data_source_id: int, timeout_sec: int) -> Iterator[Any]:
     """Context manager: kết nối Oracle đã kiểm tra read-only, siết timeout (Q4/Q5).
 
     Dùng chung cho report_source và report_param (task 23).
@@ -291,9 +280,7 @@ def open_checked_connection(
         ora_conn.close()
 
 
-def describe_report_sql(
-    data_source_id: int, sql_text: str, timeout_sec: int
-) -> dict[str, Any]:
+def describe_report_sql(data_source_id: int, sql_text: str, timeout_sec: int) -> dict[str, Any]:
     """Describe SQL CUSTOM_SQL qua Oracle (0 dòng); trả {"binds", "columns"}.
 
     Hàm thuần dùng chung cho validate_version_sql, analyze_version_source
@@ -302,9 +289,7 @@ def describe_report_sql(
     """
     ok, reason, binds = check_report_sql(sql_text)
     if not ok:
-        raise ServiceError(
-            ErrorCode.SQL_NOT_ALLOWED, reason or "Câu lệnh SQL không hợp lệ."
-        )
+        raise ServiceError(ErrorCode.SQL_NOT_ALLOWED, reason or "Câu lệnh SQL không hợp lệ.")
     with open_checked_connection(data_source_id, timeout_sec) as conn:
         try:
             columns = describe_sql(conn, sql_text)
@@ -339,40 +324,16 @@ def _discover_object_columns(
     ]
 
 
-def _load_version_source(
-    conn: Connection, version_id: int
-) -> tuple[Any, Sequence[Any], Sequence[Any]]:
+def _load_version_source(conn: Connection, version_id: int) -> tuple[Any, Sequence[Any], Sequence[Any]]:
     """Đọc version + cột + tham số hiện tại; version không có thì NOT_FOUND."""
-    row = (
-        conn.execute(
-            select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == version_id)
-        )
-        .mappings()
-        .first()
-    )
+    row = conn.execute(select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == version_id)).mappings().first()
     if row is None:
         raise ServiceError(
             ErrorCode.NOT_FOUND,
             f"Version báo cáo ID={version_id} không tồn tại",
         )
-    columns = (
-        conn.execute(
-            select(recon_rpt_column).where(
-                recon_rpt_column.c.VERSION_ID == version_id
-            )
-        )
-        .mappings()
-        .all()
-    )
-    params = (
-        conn.execute(
-            select(recon_rpt_param).where(
-                recon_rpt_param.c.VERSION_ID == version_id
-            )
-        )
-        .mappings()
-        .all()
-    )
+    columns = conn.execute(select(recon_rpt_column).where(recon_rpt_column.c.VERSION_ID == version_id)).mappings().all()
+    params = conn.execute(select(recon_rpt_param).where(recon_rpt_param.c.VERSION_ID == version_id)).mappings().all()
     return row, columns, params
 
 
@@ -478,9 +439,7 @@ def analyze_version_source(ctx: Ctx, version_id: int) -> dict[str, Any]:
         ]
         discovered_binds: set[str] | None = set(described["binds"])
     elif source_type in ("VIEW", "TABLE"):
-        discovered = _discover_object_columns(
-            ds_id, ver["SOURCE_OWNER"], ver["SOURCE_OBJECT"], timeout
-        )
+        discovered = _discover_object_columns(ds_id, ver["SOURCE_OWNER"], ver["SOURCE_OBJECT"], timeout)
         discovered_binds = None
     else:
         raise ServiceError(
@@ -500,8 +459,7 @@ def analyze_version_source(ctx: Ctx, version_id: int) -> dict[str, Any]:
         }
         for k in current
         if k in discovered_by_name
-        and str(current[k]["DATA_TYPE"]).upper()
-        != str(discovered_by_name[k]["data_type"]).upper()
+        and str(current[k]["DATA_TYPE"]).upper() != str(discovered_by_name[k]["data_type"]).upper()
     ]
     param_codes = {str(p["CODE"]) for p in params}
     if discovered_binds is not None:
@@ -511,9 +469,7 @@ def analyze_version_source(ctx: Ctx, version_id: int) -> dict[str, Any]:
         removed_upper = {r.upper() for r in removed}
         new_binds = []
         missing_binds = sorted(
-            str(p["CODE"])
-            for p in params
-            if p["FILTER_COLUMN"] and str(p["FILTER_COLUMN"]).upper() in removed_upper
+            str(p["CODE"]) for p in params if p["FILTER_COLUMN"] and str(p["FILTER_COLUMN"]).upper() in removed_upper
         )
     return {
         "added": added,
@@ -526,9 +482,7 @@ def analyze_version_source(ctx: Ctx, version_id: int) -> dict[str, Any]:
 
 @service
 @requires_menu("report_admin")
-def apply_source_diff(
-    ctx: Ctx, version_id: int, diff: dict[str, Any]
-) -> dict[str, Any]:
+def apply_source_diff(ctx: Ctx, version_id: int, diff: dict[str, Any]) -> dict[str, Any]:
     """Áp diff nguồn vào version DRAFT trong một transaction (T22-08).
 
     Cột mới: thêm với WEB/EXCEL_VISIBLE='Y', DISPLAY_ORDER nối tiếp (+10).
@@ -543,8 +497,7 @@ def apply_source_diff(
         if ver["STATUS"] != "DRAFT":
             raise ServiceError(
                 ErrorCode.VALIDATION_ERROR,
-                "Chỉ áp dụng diff nguồn cho version DRAFT; "
-                "version đã khóa cần clone mới (task 21).",
+                "Chỉ áp dụng diff nguồn cho version DRAFT; version đã khóa cần clone mới (task 21).",
             )
         current = {str(c["FIELD_NAME"]).upper(): c for c in columns}
         max_order = max((int(c["DISPLAY_ORDER"]) for c in columns), default=0)

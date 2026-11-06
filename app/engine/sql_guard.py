@@ -111,6 +111,12 @@ def _check_core(sql: str) -> tuple[bool, str | None, str]:
         if re.search(rf"\b{kw}\b", cleaned, re.IGNORECASE):
             return False, f"Không cho phép sử dụng câu lệnh hoặc từ khóa nguy hiểm '{kw}'.", ""
 
+    # 4b. Kiểm tra toán tử tập hợp (task 28, T28-08): chỉ cho phép một
+    # SELECT duy nhất — UNION/INTERSECT/MINUS có thể đọc trộm bảng khác
+    # mà tài khoản read-only vẫn thấy được.
+    if re.search(r"\b(UNION|INTERSECT|MINUS)\b", cleaned, re.IGNORECASE):
+        return False, "Không cho phép sử dụng toán tử tập hợp (UNION/INTERSECT/MINUS).", ""
+
     # 5. Kiểm tra Database link (@)
     if "@" in cleaned:
         return False, "Không cho phép sử dụng liên kết cơ sở dữ liệu (@ - Database Link).", ""
