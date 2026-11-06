@@ -333,8 +333,16 @@ recon_excel_load = Table(
     Column("CONTROL_TOTAL_CALC", DecimalText, nullable=True),
     Column("LOADED_AT", DateTime, nullable=False),
     Column("PURGED_AT", DateTime, nullable=True),
+    # Task 18 (spec 10a §6): UQ đổi sang FILE_SET_HASH; FILE_ID giữ lại
+    # = file đầu tiên. 1 file: FILE_SET_HASH = sha256(SHA256 của file).
+    Column("FILE_SET_HASH", String(64), nullable=False),
+    Column("SOURCE_FILES_JSON", JsonText, nullable=True),
     UniqueConstraint(
-        "FILE_ID", "SHEET_NAME", "TEMPLATE_ID", "TEMPLATE_VERSION", name="uq_recon_excel_load_file_sheet_tmpl_ver"
+        "FILE_SET_HASH",
+        "SHEET_NAME",
+        "TEMPLATE_ID",
+        "TEMPLATE_VERSION",
+        name="uq_recon_excel_load_fileset_sheet_tmpl_ver",
     ),
 )
 
@@ -343,6 +351,12 @@ recon_excel_row = Table(
     metadata,
     Column(
         "LOAD_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_EXCEL_LOAD.ID"), primary_key=True
+    ),
+    Column(
+        "SOURCE_FILE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_FILE.ID"),
+        primary_key=True,
     ),
     Column("EXCEL_ROW_NO", Integer, primary_key=True),
     Column("DATA_JSON", JsonText, nullable=False),
@@ -381,11 +395,25 @@ recon_run = Table(
     Column("CHECKED_AT", DateTime, nullable=True),
     Column("TEMP_PURGED_AT", DateTime, nullable=True),
     Column("TEMP_PURGED_BY", String(60), nullable=True),
+    # Task 18 (spec 10a §6): run con của một lần chạy bộ.
+    Column(
+        "BATCH_RUN_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_BATCH_RUN.ID"),
+        nullable=True,
+    ),
+    Column(
+        "BATCH_RUN_ITEM_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_BATCH_RUN_ITEM.ID"),
+        nullable=True,
+    ),
     Column("CREATED_BY", String(60), nullable=False),
     Column("CREATED_AT", DateTime, nullable=False),
     Column("STARTED_AT", DateTime, nullable=True),
     Column("FINISHED_AT", DateTime, nullable=True),
     CheckConstraint("P_FROM <= P_TO", name="ck_recon_run_time_range"),
+    Index("ix_recon_run_batch", "BATCH_RUN_ID", "STATUS"),
 )
 
 recon_run_queue = Table(
@@ -398,6 +426,199 @@ recon_run_queue = Table(
     Column("HEARTBEAT_AT", DateTime, nullable=True),
     Column("RETRY_COUNT", Integer, nullable=False, default=0),
     Column("ENQUEUED_AT", DateTime, nullable=False),
+)
+
+
+def _audit_columns() -> list[Column[Any]]:
+    return [
+        Column("CREATED_BY", String(60), nullable=False),
+        Column("CREATED_AT", DateTime, nullable=False),
+        Column("UPDATED_BY", String(60), nullable=False),
+        Column("UPDATED_AT", DateTime, nullable=False),
+        Column("ROW_VERSION", Integer, nullable=False, default=1),
+    ]
+
+
+# 4b. Bộ đối soát và chạy theo bộ (task 18, spec 10/10a)
+recon_batch_def = Table(
+    "RECON_BATCH_DEF",
+    metadata,
+    pk_id_column(),
+    Column("CODE", String(60), nullable=False, unique=True),
+    Column("NAME", String(200), nullable=False),
+    Column("DESCRIPTION", String(1000), nullable=True),
+    Column("STATUS", String(10), nullable=False, default="DRAFT"),
+    Column("MAX_PARALLEL_PER_DS", Integer, nullable=False, default=2),
+    Column("OWNER_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_USER.ID"), nullable=False),
+    *_audit_columns(),
+    CheckConstraint("STATUS IN ('DRAFT', 'ACTIVE', 'ARCHIVED')", name="ck_recon_batch_def_status"),
+    CheckConstraint("MAX_PARALLEL_PER_DS BETWEEN 1 AND 4", name="ck_recon_batch_def_max_parallel"),
+    Index("ix_recon_batch_def_status", "STATUS"),
+)
+
+recon_batch_def_item = Table(
+    "RECON_BATCH_DEF_ITEM",
+    metadata,
+    pk_id_column(),
+    Column(
+        "BATCH_DEF_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_BATCH_DEF.ID"),
+        nullable=False,
+    ),
+    Column(
+        "TEMPLATE_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_TEMPLATE.ID"), nullable=False
+    ),
+    Column("SEQ_NO", Integer, nullable=False),
+    Column("PRIORITY", Integer, nullable=False, default=100),
+    Column("PROFILE_CODE", String(60), nullable=True),
+    Column(
+        "DATA_SOURCE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_DATA_SOURCE.ID"),
+        nullable=True,
+    ),
+    Column("FILE_PATTERN", String(400), nullable=False),
+    Column("MULTI_FILE", String(1), nullable=False, default="N"),
+    Column("IS_REQUIRED", String(1), nullable=False, default="Y"),
+    Column("PARAMS_OVERRIDE_JSON", JsonText, nullable=True),
+    Column("IS_ACTIVE", String(1), nullable=False, default="Y"),
+    *_audit_columns(),
+    UniqueConstraint("BATCH_DEF_ID", "TEMPLATE_ID", name="uq_recon_batch_def_item_def_tpl"),
+    CheckConstraint("SEQ_NO >= 1", name="ck_recon_batch_def_item_seq_no"),
+    Index("ix_recon_batch_def_item_def", "BATCH_DEF_ID", "IS_ACTIVE", "SEQ_NO"),
+)
+
+recon_batch_run = Table(
+    "RECON_BATCH_RUN",
+    metadata,
+    pk_id_column(),
+    Column(
+        "BATCH_DEF_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_BATCH_DEF.ID"),
+        nullable=False,
+    ),
+    Column("NAME", String(200), nullable=False),
+    Column("PERIOD", String(7), nullable=False),
+    Column("PERIOD_FROM", DateTime, nullable=False),
+    Column("PERIOD_TO", DateTime, nullable=False),
+    Column("STATUS", String(12), nullable=False, default="DRAFT"),
+    Column("INCLUDE_WARN", String(1), nullable=False, default="Y"),
+    Column("PROD_CONFIRMED_BY", String(60), nullable=True),
+    Column("CNT_ITEMS", Integer, nullable=False, default=0),
+    Column("CNT_DONE", Integer, nullable=False, default=0),
+    Column("CNT_FAILED", Integer, nullable=False, default=0),
+    Column("CNT_SKIPPED", Integer, nullable=False, default=0),
+    Column("CNT_NOT_RUN", Integer, nullable=False, default=0),
+    Column("ZIP_PATH", String(400), nullable=True),
+    Column("ZIP_RUN_SET_HASH", String(64), nullable=True),
+    Column("STARTED_AT", DateTime, nullable=True),
+    Column("FINISHED_AT", DateTime, nullable=True),
+    *_audit_columns(),
+    CheckConstraint("STATUS IN ('DRAFT', 'RUNNING', 'DONE', 'PARTIAL', 'CANCELLED')", name="ck_recon_batch_run_status"),
+    CheckConstraint("PERIOD_FROM <= PERIOD_TO", name="ck_recon_batch_run_period_range"),
+    Index("ix_recon_batch_run_def_period", "BATCH_DEF_ID", "PERIOD", "CREATED_AT"),
+    Index("ix_recon_batch_run_status", "STATUS", "CREATED_AT"),
+)
+
+recon_batch_run_item = Table(
+    "RECON_BATCH_RUN_ITEM",
+    metadata,
+    pk_id_column(),
+    Column(
+        "BATCH_RUN_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_BATCH_RUN.ID"),
+        nullable=False,
+    ),
+    Column(
+        "BATCH_DEF_ITEM_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_BATCH_DEF_ITEM.ID"),
+        nullable=False,
+    ),
+    Column("TEMPLATE_ID", BigInteger().with_variant(Integer, "sqlite"), nullable=False),
+    Column("TEMPLATE_VERSION", Integer, nullable=True),
+    Column("PROFILE_CODE", String(60), nullable=False),
+    Column(
+        "DATA_SOURCE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_DATA_SOURCE.ID"),
+        nullable=False,
+    ),
+    Column("SEQ_NO", Integer, nullable=False),
+    Column("PRIORITY", Integer, nullable=False),
+    Column("MULTI_FILE", String(1), nullable=False),
+    Column("IS_REQUIRED", String(1), nullable=False),
+    Column("STATUS", String(12), nullable=False, default="PENDING"),
+    Column("SKIP_REASON", String(30), nullable=True),
+    Column("SKIPPED_BY", String(60), nullable=True),
+    Column("PARAMS_RUN_OVERRIDE_JSON", JsonText, nullable=True),
+    Column("PARAMS_RESOLVED_JSON", JsonText, nullable=True),
+    Column("PRECHECK_JSON", JsonText, nullable=True),
+    Column("PRECHECK_AT", DateTime, nullable=True),
+    # KHÔNG khai báo FK (decisions.md 04/11): tránh tham chiếu vòng
+    # RECON_RUN <-> RECON_BATCH_RUN_ITEM khi tạo/chép; service đảm bảo
+    # CURRENT_RUN_ID luôn trỏ tới run có BATCH_RUN_ITEM_ID = chính item.
+    Column("CURRENT_RUN_ID", BigInteger().with_variant(Integer, "sqlite"), nullable=True),
+    Column("ATTEMPT_NO", Integer, nullable=False, default=0),
+    Column("ERROR_CODE", String(60), nullable=True),
+    Column("ERROR_MSG", String(2000), nullable=True),
+    *_audit_columns(),
+    UniqueConstraint("BATCH_RUN_ID", "BATCH_DEF_ITEM_ID", name="uq_recon_batch_run_item_run_defitem"),
+    CheckConstraint(
+        "STATUS IN ('PENDING', 'READY', 'WARN', 'ERROR', 'SKIPPED', 'NOT_RUN', 'QUEUED', 'RUNNING', 'DONE', 'FAILED')",
+        name="ck_recon_batch_run_item_status",
+    ),
+    Index("ix_recon_batch_run_item_run", "BATCH_RUN_ID", "STATUS", "SEQ_NO"),
+)
+
+recon_batch_run_file = Table(
+    "RECON_BATCH_RUN_FILE",
+    metadata,
+    pk_id_column(),
+    Column(
+        "BATCH_RUN_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_BATCH_RUN.ID"),
+        nullable=False,
+    ),
+    Column("FILE_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_FILE.ID"), nullable=False),
+    Column("ORIGINAL_NAME", String(400), nullable=False),
+    Column("NORMALIZED_NAME", String(400), nullable=False),
+    Column(
+        "FROM_ZIP_FILE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_FILE.ID"),
+        nullable=True,
+    ),
+    Column(
+        "BATCH_RUN_ITEM_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_BATCH_RUN_ITEM.ID"),
+        nullable=True,
+    ),
+    Column("MATCH_STATE", String(12), nullable=False, default="UNMATCHED"),
+    Column("MATCH_BY", String(10), nullable=True),
+    Column("CANDIDATE_ITEM_IDS", JsonText, nullable=True),
+    Column("SHEET_NAME", String(200), nullable=True),
+    Column("SEQ_IN_ITEM", Integer, nullable=True),
+    Column("CREATED_BY", String(60), nullable=False),
+    Column("CREATED_AT", DateTime, nullable=False),
+    Column("UPDATED_BY", String(60), nullable=False),
+    Column("UPDATED_AT", DateTime, nullable=False),
+    UniqueConstraint("BATCH_RUN_ID", "ORIGINAL_NAME", name="uq_recon_batch_run_file_run_name"),
+    CheckConstraint(
+        "MATCH_STATE IN ('MATCHED', 'AMBIGUOUS', 'UNMATCHED', 'IGNORED', 'REPLACED')",
+        name="ck_recon_batch_run_file_match_state",
+    ),
+    CheckConstraint(
+        "MATCH_BY IS NULL OR MATCH_BY IN ('PATTERN', 'HEADER', 'MANUAL')",
+        name="ck_recon_batch_run_file_match_by",
+    ),
+    Index("ix_recon_batch_run_file_item", "BATCH_RUN_ITEM_ID", "MATCH_STATE"),
+    Index("ix_recon_batch_run_file_hash", "BATCH_RUN_ID", "FILE_ID"),
 )
 
 recon_run_summary = Table(
@@ -671,8 +892,7 @@ recon_rpt_param = Table(
     CheckConstraint("GRID_SPAN BETWEEN 1 AND 12", name="ck_recon_rpt_param_grid_span"),
     CheckConstraint("DISPLAY_ROW >= 1", name="ck_recon_rpt_param_display_row"),
     CheckConstraint(
-        "FILTER_OPERATOR IS NULL OR FILTER_OPERATOR IN "
-        "('=', '>=', '<=', 'BETWEEN', 'IN', 'LIKE_PREFIX', 'IS_NULL')",
+        "FILTER_OPERATOR IS NULL OR FILTER_OPERATOR IN ('=', '>=', '<=', 'BETWEEN', 'IN', 'LIKE_PREFIX', 'IS_NULL')",
         name="ck_recon_rpt_param_filter_operator",
     ),
 )

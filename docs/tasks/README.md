@@ -22,7 +22,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 15 | [15-dashboard-compare](15-dashboard-compare/task.md) — Dashboard đầy đủ và so sánh hai run | ✅ | 12 | feat/15-dashboard-compare |
 | 16 | [16-production-readiness](16-production-readiness/task.md) — Triển khai trên Windows và Linux (không Docker) | ✅ | 00–15 | feat/16-production-readiness |
 | 17 | [17-lookup-codes](17-lookup-codes/task.md) — Quản lý danh mục Lookup Code & Lookup Type dùng chung | ⬜ | 01, 08, 14 | feat/17-lookup-codes |
-| 18 | [18-batch-run](18-batch-run/task.md) — Bộ đối soát và chạy nhiều template một lần | ⬜ | 07, 12 | feat/18-batch-run |
+| 18 | [18-batch-run](18-batch-run/task.md) — Bộ đối soát và chạy nhiều template một lần | 🔄 | 07, 12 | feat/18-batch-run |
 | 19 | [19-menu-permission](19-menu-permission/task.md) — Phân quyền theo menu và phạm vi dữ liệu theo người chạy | ✅ | 01 | feat/19-menu-permission |
 | 20 | [20-menu-admin](20-menu-admin/task.md) — Danh sách menu cho Admin | ✅ | 19 | feat/20-menu-admin |
 | 21 | [21-reporting-core](21-reporting-core/task.md) — Reporting Core và versioning | ✅ | 19, 20 | feat/21-reporting-core |

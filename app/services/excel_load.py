@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core.context import Ctx
@@ -23,6 +24,15 @@ from app.services import service
 from app.services.perm import requires_menu
 
 
+def _single_file_set_hash(file_sha256: str) -> str:
+    """FILE_SET_HASH cho lần nạp 1 file = sha256(SHA256 của file).
+
+    Khớp công thức backfill của migration 0006 (spec 10a §6). Công thức
+    gộp nhiều file (bước 5) sẽ thay bằng compute_file_set_hash.
+    """
+    return hashlib.sha256(file_sha256.encode()).hexdigest()
+
+
 def _serialize_row_dict(d: dict[str, Any]) -> dict[str, Any]:
     """Chuyển đổi các kiểu dữ liệu Decimal và datetime sang chuỗi để lưu JsonText."""
     res: dict[str, Any] = {}
@@ -37,9 +47,24 @@ def _serialize_row_dict(d: dict[str, Any]) -> dict[str, Any]:
 
 
 def _reused_response(existing: Any, file_id: int, template_id: int, template_version: int) -> dict[str, Any]:
-    """Trả về thông tin của một bản nạp đang hoạt động, không nạp lại."""
+    """Trả về thông tin của một bản nạp đang hoạt động, không nạp lại.
+
+    rows_valid đếm dòng IS_VALID='Y' thật trong RECON_EXCEL_ROW (không
+    dùng ROWS_READ - ROWS_INVALID: ROWS_READ còn tính cả dòng tổng
+    control-total vốn không nằm trong valid_df).
+    """
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        counts: dict[str, int] = dict(
+            conn.execute(
+                select(recon_excel_row.c.IS_VALID, func.count())
+                .where(recon_excel_row.c.LOAD_ID == int(existing["ID"]))
+                .group_by(recon_excel_row.c.IS_VALID)
+            ).all()
+        )
+    rows_valid = int(counts.get("Y", 0))
+    rows_invalid = int(counts.get("N", 0))
     rows_read = int(existing["ROWS_READ"])
-    rows_invalid = int(existing["ROWS_INVALID"])
     ex_ct_file = existing["CONTROL_TOTAL_FILE"]
     ex_ct_calc = existing["CONTROL_TOTAL_CALC"]
     ex_ct_matched = ex_ct_file is not None and ex_ct_file == ex_ct_calc
@@ -50,7 +75,7 @@ def _reused_response(existing: Any, file_id: int, template_id: int, template_ver
         "template_id": template_id,
         "template_version": template_version,
         "rows_read": rows_read,
-        "rows_valid": rows_read - rows_invalid,
+        "rows_valid": rows_valid,
         "rows_invalid": rows_invalid,
         "control_total_file": Decimal(str(ex_ct_file)) if ex_ct_file is not None else None,
         "control_total_calc": Decimal(str(ex_ct_calc)) if ex_ct_calc is not None else None,
@@ -86,6 +111,25 @@ def load_excel_to_temp(
 
     if existing:
         return _reused_response(existing, file_id, template_id, template_version)
+
+    # 1b. Cùng nội dung đã nạp dưới FILE_ID khác (upload không dedup theo
+    # SHA-256): UQ mới trên FILE_SET_HASH nên dùng lại bản nạp đó thay vì
+    # đọc lại file rồi lỗi UNIQUE ở bước INSERT.
+    with engine.connect() as conn:
+        sha = conn.execute(select(recon_file.c.SHA256).where(recon_file.c.ID == file_id)).scalar_one_or_none()
+    if sha is not None:
+        with engine.connect() as conn:
+            stmt = select(recon_excel_load).where(
+                recon_excel_load.c.FILE_SET_HASH == _single_file_set_hash(str(sha)),
+                recon_excel_load.c.TEMPLATE_ID == template_id,
+                recon_excel_load.c.TEMPLATE_VERSION == template_version,
+                recon_excel_load.c.PURGED_AT.is_(None),
+            )
+            if sheet_name:
+                stmt = stmt.where(recon_excel_load.c.SHEET_NAME == sheet_name)
+            same_content = conn.execute(stmt).mappings().first()
+        if same_content:
+            return _reused_response(same_content, file_id, template_id, template_version)
 
     # 2. Đọc thông tin file và cấu hình template
     with engine.connect() as conn:
@@ -123,9 +167,11 @@ def load_excel_to_temp(
     selected_sheet = sheet_name or config.file.sheet
 
     # 1b. Bản nạp đã bị xóa dữ liệu tạm (PURGED_AT khác None) vẫn chiếm
-    # khóa duy nhất (FILE_ID, SHEET_NAME, TEMPLATE_ID, TEMPLATE_VERSION)
+    # khóa duy nhất (FILE_SET_HASH, SHEET_NAME, TEMPLATE_ID, TEMPLATE_VERSION)
     # vì unique constraint không trừ PURGED_AT. Nạp lại mà INSERT mới sẽ
-    # lỗi UNIQUE constraint, nên ghi lại ngay trên bản nạp cũ đó.
+    # lỗi UNIQUE constraint, nên ghi lại ngay trên bản nạp cũ đó. Cùng
+    # nội dung dưới FILE_ID khác cũng chiếm UQ mới nên kiểm tra thêm
+    # theo FILE_SET_HASH.
     purged_load_id: int | None = None
     with engine.connect() as conn:
         purged = (
@@ -141,6 +187,20 @@ def load_excel_to_temp(
             .mappings()
             .first()
         )
+        if purged is None:
+            purged = (
+                conn.execute(
+                    select(recon_excel_load).where(
+                        recon_excel_load.c.FILE_SET_HASH == _single_file_set_hash(str(f_rec["SHA256"])),
+                        recon_excel_load.c.SHEET_NAME == selected_sheet,
+                        recon_excel_load.c.TEMPLATE_ID == template_id,
+                        recon_excel_load.c.TEMPLATE_VERSION == template_version,
+                        recon_excel_load.c.PURGED_AT.is_not(None),
+                    )
+                )
+                .mappings()
+                .first()
+            )
         if purged:
             purged_load_id = int(purged["ID"])
 
@@ -191,6 +251,7 @@ def load_excel_to_temp(
             records.append(
                 {
                     "LOAD_ID": load_id_value,
+                    "SOURCE_FILE_ID": file_id,
                     "EXCEL_ROW_NO": int(row_no),
                     "DATA_JSON": _serialize_row_dict(r_copy),
                     "IS_VALID": "Y",
@@ -205,6 +266,7 @@ def load_excel_to_temp(
             records.append(
                 {
                     "LOAD_ID": load_id_value,
+                    "SOURCE_FILE_ID": file_id,
                     "EXCEL_ROW_NO": int(row_no),
                     "DATA_JSON": data_json,
                     "IS_VALID": "N",
@@ -253,6 +315,17 @@ def load_excel_to_temp(
                         CONTROL_TOTAL_CALC=ct_calc,
                         LOADED_AT=now,
                         PURGED_AT=None,
+                        FILE_SET_HASH=_single_file_set_hash(str(f_rec["SHA256"])),
+                        SOURCE_FILES_JSON=[
+                            {
+                                "file_id": file_id,
+                                "name": str(f_rec["ORIGINAL_NAME"]),
+                                "rows": len(raw_df),
+                                "control_total_ok": (
+                                    None if config.control_total is None else ("Y" if ct_matched else "N")
+                                ),
+                            }
+                        ],
                     )
                     .returning(recon_excel_load.c.ID)
                 )
@@ -266,7 +339,9 @@ def load_excel_to_temp(
             # thấy bản nạp, nhưng trong lúc đọc/chuẩn hóa Excel (vài
             # giây với file lớn) bên kia đã nạp xong và commit. Lúc
             # này bản nạp của bên kia đã đầy đủ dòng, dùng lại nó
-            # thay vì báo lỗi UNIQUE constraint ra UI.
+            # thay vì báo lỗi UNIQUE constraint ra UI. UQ mới trên
+            # FILE_SET_HASH nên bản nạp của bên kia có thể mang
+            # FILE_ID khác (cùng nội dung) — kiểm tra thêm theo hash.
             with engine.connect() as conn:
                 raced = (
                     conn.execute(
@@ -281,6 +356,20 @@ def load_excel_to_temp(
                     .mappings()
                     .first()
                 )
+                if raced is None:
+                    raced = (
+                        conn.execute(
+                            select(recon_excel_load).where(
+                                recon_excel_load.c.FILE_SET_HASH == _single_file_set_hash(str(f_rec["SHA256"])),
+                                recon_excel_load.c.SHEET_NAME == selected_sheet,
+                                recon_excel_load.c.TEMPLATE_ID == template_id,
+                                recon_excel_load.c.TEMPLATE_VERSION == template_version,
+                                recon_excel_load.c.PURGED_AT.is_(None),
+                            )
+                        )
+                        .mappings()
+                        .first()
+                    )
             if raced:
                 return _reused_response(raced, file_id, template_id, template_version)
             raise

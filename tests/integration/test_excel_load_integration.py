@@ -58,7 +58,10 @@ def test_excel_load_lifecycle_and_idempotency(op_ctx: Ctx, owner_ctx: Ctx) -> No
     assert up_res.ok is True
     file_id = up_res.data["id"]
 
-    # 3. Nạp dữ liệu tạm lần đầu
+    # 3. Nạp dữ liệu tạm lần đầu. DB dùng chung có thể đã có bản nạp cùng
+    # nội dung từ lần chạy trước — UQ FILE_SET_HASH (task 18 bước 1) nên
+    # dùng lại bản nạp đó; chỉ khẳng định dữ liệu đúng, không khẳng định
+    # is_reused (đường nạp mới được kiểm ở bước 5 sau khi purge).
     load_res = load_excel_to_temp(
         op_ctx,
         file_id=file_id,
@@ -69,7 +72,6 @@ def test_excel_load_lifecycle_and_idempotency(op_ctx: Ctx, owner_ctx: Ctx) -> No
     load_data = load_res.data
     load_id = load_data["load_id"]
     assert load_id > 0
-    assert load_data["is_reused"] is False
     assert load_data["rows_read"] == 201
     assert load_data["rows_valid"] == 200
     assert load_data["rows_invalid"] == 0
@@ -137,3 +139,34 @@ def test_excel_load_lifecycle_and_idempotency(op_ctx: Ctx, owner_ctx: Ctx) -> No
             conn.execute(select(recon_excel_load).where(recon_excel_load.c.ID == load_id)).mappings().one()
         )
         assert load_rec_reload["PURGED_AT"] is None
+
+
+def test_excel_load_reuses_same_content_under_new_file_id(op_ctx: Ctx, owner_ctx: Ctx) -> None:
+    """Task 18 bước 1: cùng nội dung upload 2 lần (2 FILE_ID) chỉ có 1 bản nạp.
+
+    UQ mới trên FILE_SET_HASH nên lần nạp thứ hai dùng lại bản nạp đầu.
+    """
+    tmpl_path = Path("samples/templates/DTP_HOA_DON_TAC_NGHIEP.json")
+    config = TemplateConfig.model_validate(json.loads(tmpl_path.read_text(encoding="utf-8")))
+    save_res = save_draft_template(owner_ctx, code="DTP_LOAD_TEST", name="Template nạp test", config=config)
+    assert save_res.ok is True
+    template_id = save_res.data["id"]
+    template_version = save_res.data["current_version"]
+
+    excel_path = Path("samples/dtp_sample_200.xlsx")
+    content = excel_path.read_bytes()
+    up1 = upload_file(op_ctx, filename="dtp_a.xlsx", content=content)
+    up2 = upload_file(op_ctx, filename="dtp_b.xlsx", content=content)
+    assert up1.ok is True and up2.ok is True
+    assert up1.data["id"] != up2.data["id"]
+
+    load1 = load_excel_to_temp(
+        op_ctx, file_id=up1.data["id"], template_id=template_id, template_version=template_version
+    )
+    assert load1.ok is True
+    load2 = load_excel_to_temp(
+        op_ctx, file_id=up2.data["id"], template_id=template_id, template_version=template_version
+    )
+    assert load2.ok is True
+    assert load2.data["load_id"] == load1.data["load_id"]
+    assert load2.data["is_reused"] is True
