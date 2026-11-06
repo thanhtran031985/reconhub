@@ -1444,7 +1444,56 @@ def render_wizard(state: dict[str, Any], dry_run: dict[str, Any] | None = None) 
 # ─── Handlers (hàm thuần, test được; callback bọc ngoài) ───────────────────
 
 
+_FIELD_LABELS: dict[str, str] = {
+    "code": "Mã",
+    "name": "Tên",
+    "owner": "Chủ sở hữu",
+    "category_code": "Nhóm báo cáo",
+    "description": "Mô tả",
+    "display_order": "Thứ tự",
+    "timeout_sec": "Timeout",
+    "preview_max_rows": "Tối đa dòng xem trước",
+    "export_max_rows": "Tối đa dòng export",
+    "data_source_id": "Data Source",
+    "source_type": "Loại nguồn",
+    "sql_text": "Câu lệnh SQL",
+    "source_owner": "Chủ sở hữu nguồn",
+    "source_object": "Đối tượng nguồn",
+}
+
+
+def _field_error_text(err: dict[str, Any]) -> str:
+    """Một dòng lỗi theo trường, tiếng Việt (details.errors của service)."""
+    raw_field = str(err.get("field", "") or "")
+    field = _FIELD_LABELS.get(raw_field, raw_field or "Dữ liệu")
+    err_type = str(err.get("type", ""))
+    if err_type == "string_pattern_mismatch":
+        return f"{field}: chỉ gồm chữ hoa, số và dấu gạch dưới, bắt đầu bằng chữ hoa."
+    if err_type == "string_too_short":
+        return f"{field}: không được để trống."
+    if err_type == "string_too_long":
+        return f"{field}: quá dài."
+    if err_type == "missing":
+        return f"{field}: bắt buộc nhập."
+    if err_type in ("greater_than_equal", "greater_than"):
+        return f"{field}: giá trị quá nhỏ."
+    if err_type in ("less_than_equal", "less_than"):
+        return f"{field}: giá trị quá lớn."
+    msg = str(err.get("message", "") or "")
+    return f"{field}: {msg}" if msg else f"{field}: không hợp lệ."
+
+
 def _err_alert(res: Any) -> Any:
+    details = getattr(res, "details", None)
+    errors = details.get("errors") if isinstance(details, dict) else None
+    if errors:
+        lines = [_field_error_text(e) for e in errors if isinstance(e, dict)]
+        if lines:
+            return alert_box(
+                res.message or "Có lỗi xảy ra.",
+                [dmc.Text(line, size="sm") for line in lines],
+                tone="crit",
+            )
     return alert_box(res.message or "Có lỗi xảy ra.", tone="crit")
 
 

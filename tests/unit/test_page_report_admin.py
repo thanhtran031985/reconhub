@@ -205,6 +205,43 @@ class TestStep1:
         assert alert is not None
         assert "đã tồn tại" in _dump(alert)
 
+    def test_err_alert_names_the_invalid_field(self):
+        """Lỗi validate hiển thị đúng trường + lý do, không chỉ câu chung.
+
+        Hồi quy: service trả message chung 'Dữ liệu không hợp lệ', chi
+        tiết trường nằm trong details.errors nên người dùng không biết
+        sửa ô nào.
+        """
+        from types import SimpleNamespace
+
+        import app.ui.pages.report_admin as page
+
+        res = SimpleNamespace(
+            message="Dữ liệu không hợp lệ",
+            details={
+                "errors": [
+                    {"field": "code", "message": "String should match pattern", "type": "string_pattern_mismatch"},
+                    {
+                        "field": "owner",
+                        "message": "String should have at least 1 character",
+                        "type": "string_too_short",
+                    },
+                ]
+            },
+        )
+        text = _dump(page._err_alert(res))
+        assert "Dữ liệu không hợp lệ" in text
+        assert "Mã: chỉ gồm chữ hoa, số và dấu gạch dưới, bắt đầu bằng chữ hoa." in text
+        assert "Chủ sở hữu: không được để trống." in text
+
+    def test_err_alert_falls_back_without_details(self):
+        from types import SimpleNamespace
+
+        import app.ui.pages.report_admin as page
+
+        res = SimpleNamespace(message="Lỗi khác.", details=None)
+        assert "Lỗi khác." in _dump(page._err_alert(res))
+
     def test_s1_save_callback_updates_state_on_success(self, run_env, admin_ctx, monkeypatch):
         import app.ui.pages.report_admin as page
 
