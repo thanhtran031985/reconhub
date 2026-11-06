@@ -17,6 +17,7 @@ from app.ui.components.empty_state import empty_state
 from app.ui.components.kpi_card import kpi_card
 from app.ui.components.status_chip import status_chip
 from app.ui.formatters import format_bytes
+from app.ui.layout.shell import first_nav_href
 
 try:
     dash.register_page(__name__, path="/", title="Dashboard – ReconHub")  # type: ignore[no-untyped-call]
@@ -374,6 +375,17 @@ def layout() -> html.Div:
     ctx = get_current_ctx()
     gate = page_gate(ctx, MENU_CODE)
     if gate:
+        if gate == "/suspended":
+            # Q2 (task 20): trang chủ bị ẩn thì về menu đầu tiên người
+            # dùng có, thay vì trang "Chức năng tạm ngưng".
+            first = first_nav_href(ctx)
+            if first:
+                return html.Div(
+                    [
+                        dcc.Location(id="dashboard-forbidden-redirect", href=first),
+                        alert_box("Dashboard đang tạm ẩn, bạn được chuyển tới mục đầu tiên.", tone="warn"),
+                    ]
+                )
         return html.Div(
             [
                 dcc.Location(id="dashboard-forbidden-redirect", href=gate),

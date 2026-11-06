@@ -168,12 +168,13 @@ def get_nav_items_for_roles(roles: set[Role] | set[str]) -> list[dict[str, Any]]
 _SIDEBAR_SKIP_CODES = {"result", "batch_run", "batch_def", "menu_admin"}
 
 
-def get_nav_items_for_menus(menus: set[str], engine: Any = None) -> list[dict[str, Any]]:
+def get_nav_items_for_menus(menus: set[str], engine: Any = None, is_admin: bool = False) -> list[dict[str, Any]]:
     """Nhóm menu thanh bên từ menu hiệu lực của người dùng (task 19).
 
     Thứ tự nhóm/menu và tên/đường dẫn/icon lấy từ `app/ui/menus.py`;
-    menu đang ẩn hoặc đã gỡ không hiện (menu_admin đang ẩn nên cũng
-    không hiện, theo Q7 — tới task 20 mới mở).
+    menu đã gỡ không hiện với ai; menu đang ẩn chỉ hiện với ADMIN, kèm
+    nhãn "Đang ẩn" (task 20 bước 2); `menu_admin` đang ẩn nên cũng
+    không hiện, theo Q7 — tới task 20 bước 4 mới mở.
     """
     visible = set(menus)
     groups: list[dict[str, Any]] = []
@@ -186,13 +187,32 @@ def get_nav_items_for_menus(menus: set[str], engine: Any = None) -> list[dict[st
             if state is None:
                 label = menu.label
             else:
-                if state.get("IS_REMOVED") == "Y" or state.get("IS_HIDDEN") == "Y":
+                if state.get("IS_REMOVED") == "Y":
                     continue
                 label = str(state.get("DISPLAY_LABEL") or menu.label)
+                if state.get("IS_HIDDEN") == "Y":
+                    if not is_admin:
+                        continue
+                    label = f"{label} (Đang ẩn)"
             items.append({"label": label, "href": menu.path, "icon": menu.icon})
         if items:
             groups.append({"title": group.label.upper(), "items": items})
     return groups
+
+
+def first_nav_href(ctx: Ctx | None, engine: Any = None) -> str | None:
+    """Href của mục thanh bên đầu tiên người dùng có (task 20, Q2).
+
+    Dùng khi trang chủ bị ẩn: chuyển tới menu đầu tiên thay vì trang
+    "Chức năng tạm ngưng". Trả None khi người dùng không có menu nào.
+    """
+    if ctx is None:
+        return None
+    groups = get_nav_items_for_menus(effective_menus(ctx, engine=engine), engine=engine, is_admin=is_admin(ctx))
+    for group in groups:
+        for item in group["items"]:
+            return str(item["href"])
+    return None
 
 
 def render_banners(
@@ -382,7 +402,7 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
     if ctx is None:
         nav_groups = get_nav_items_for_roles(set())
     else:
-        nav_groups = get_nav_items_for_menus(effective_menus(ctx))
+        nav_groups = get_nav_items_for_menus(effective_menus(ctx), is_admin=is_admin(ctx))
     active_href = get_active_nav_href(nav_groups, pathname)
 
     content_children: list[Any] = []
