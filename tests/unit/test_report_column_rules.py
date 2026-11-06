@@ -13,7 +13,7 @@ from sqlalchemy import create_engine, select, text
 
 from app.core.context import Ctx
 from app.core.crypto import encrypt_secret
-from app.db.metadata import metadata, recon_rpt_column, recon_rpt_tpl_ver
+from app.db.metadata import metadata, recon_rpt_column
 
 
 @pytest.fixture()

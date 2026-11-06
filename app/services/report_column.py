@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-
 from sqlalchemy import Connection, select
 
 from app.core.audit import write_audit_log
@@ -458,5 +457,111 @@ def reorder_columns(
             "UPDATE_COLUMN_LAYOUT",
             ctx.username,
             new_data={"column_ids": list(ordered_ids)},
+        )
+        return {"columns": _load_columns(conn, version_id)}
+
+
+# ─── Preview và schema diff (bước 4) ─────────────────────────────────────────
+
+
+def _result_layout(
+    conn: Connection, version_id: int, target: str
+) -> dict[str, Any]:
+    """Layout kết quả cho một đích hiển thị (hàm lõi dùng chung web/excel).
+
+    MỘT metadata cho cả hai (T24-10): chỉ khác lọc visibility.
+    """
+    if target == "web":
+        visible_col = recon_rpt_column.c.WEB_VISIBLE
+    elif target == "excel":
+        visible_col = recon_rpt_column.c.EXCEL_VISIBLE
+    else:
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR, "target phải là 'web' hoặc 'excel'."
+        )
+    rows = (
+        conn.execute(
+            select(recon_rpt_column)
+            .where(
+                recon_rpt_column.c.VERSION_ID == version_id,
+                visible_col == "Y",
+            )
+            .order_by(recon_rpt_column.c.DISPLAY_ORDER, recon_rpt_column.c.FIELD_NAME)
+        )
+        .mappings()
+        .all()
+    )
+    columns = [
+        {
+            "field_name": str(r["FIELD_NAME"]),
+            "label": str(r["LABEL"]),
+            "data_type": str(r["DATA_TYPE"]),
+            "format_mask": r["FORMAT_MASK"],
+            "alignment": str(r["ALIGNMENT"]),
+            "width": r["WIDTH"],
+            "is_total": r["IS_TOTAL"] == "Y",
+            "display_order": int(r["DISPLAY_ORDER"]),
+        }
+        for r in rows
+    ]
+    return {
+        "target": target,
+        "columns": columns,
+        "total_row": any(c["is_total"] for c in columns),
+    }
+
+
+@service
+@requires_menu("report_center")
+def get_result_layout(
+    ctx: Ctx, version_id: int, target: str
+) -> dict[str, Any]:
+    """Layout kết quả cho Viewer (web) và Export (excel) — chung metadata (T24-10)."""
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.connect() as conn:
+        _load_version_row(conn, version_id, admin)
+        return _result_layout(conn, version_id, target)
+
+
+@service
+@requires_menu("report_center")
+def preview_result_layout(ctx: Ctx, version_id: int) -> dict[str, Any]:
+    """Preview layout web: đọc trực tiếp từ DB nên đổi ngay sau mỗi lần lưu (T24-08)."""
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.connect() as conn:
+        _load_version_row(conn, version_id, admin)
+        return _result_layout(conn, version_id, "web")
+
+
+@service
+@requires_menu("report_admin")
+def restore_column_order(ctx: Ctx, version_id: int) -> dict[str, Any]:
+    """Đặt lại DISPLAY_ORDER theo ID (thứ tự discover từ nguồn, T24-09)."""
+    engine = get_recon_engine()
+    with engine.begin() as conn:
+        _load_version_draft(conn, version_id)
+        ids = [
+            int(r[0])
+            for r in conn.execute(
+                select(recon_rpt_column.c.ID)
+                .where(recon_rpt_column.c.VERSION_ID == version_id)
+                .order_by(recon_rpt_column.c.ID)
+            ).all()
+        ]
+        for i, cid in enumerate(ids):
+            conn.execute(
+                recon_rpt_column.update()
+                .where(recon_rpt_column.c.ID == cid)
+                .values(DISPLAY_ORDER=(i + 1) * 10)
+            )
+        write_audit_log(
+            conn,
+            "RECON_RPT_TPL_VER",
+            version_id,
+            "UPDATE_COLUMN_LAYOUT",
+            ctx.username,
+            new_data={"restore_db_order": True},
         )
         return {"columns": _load_columns(conn, version_id)}
