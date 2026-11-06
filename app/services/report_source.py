@@ -263,10 +263,13 @@ def _assert_read_only(ora_conn: Any) -> None:
 
 
 @contextmanager
-def _open_checked_connection(
+def open_checked_connection(
     data_source_id: int, timeout_sec: int
 ) -> Iterator[Any]:
-    """Context manager: kết nối Oracle đã kiểm tra read-only, siết timeout (Q4/Q5)."""
+    """Context manager: kết nối Oracle đã kiểm tra read-only, siết timeout (Q4/Q5).
+
+    Dùng chung cho report_source và report_param (task 23).
+    """
     ds_timeout = _ds_timeout_seconds(data_source_id)
     ora_conn = open_source_connection(data_source_id)
     try:
@@ -277,12 +280,13 @@ def _open_checked_connection(
         ora_conn.close()
 
 
-def _describe_custom_sql(
+def describe_report_sql(
     data_source_id: int, sql_text: str, timeout_sec: int
 ) -> dict[str, Any]:
     """Describe SQL CUSTOM_SQL qua Oracle (0 dòng); trả {"binds", "columns"}.
 
-    Hàm thuần dùng chung cho validate_version_sql và analyze_version_source.
+    Hàm thuần dùng chung cho validate_version_sql, analyze_version_source
+    và LOV SQL (task 23).
     Lỗi SQL → SQL_NOT_ALLOWED; describe thất bại → SQL_DESCRIBE_FAILED.
     """
     ok, reason, binds = check_report_sql(sql_text)
@@ -290,7 +294,7 @@ def _describe_custom_sql(
         raise ServiceError(
             ErrorCode.SQL_NOT_ALLOWED, reason or "Câu lệnh SQL không hợp lệ."
         )
-    with _open_checked_connection(data_source_id, timeout_sec) as conn:
+    with open_checked_connection(data_source_id, timeout_sec) as conn:
         try:
             columns = describe_sql(conn, sql_text)
         except Exception as exc:
@@ -307,7 +311,7 @@ def _discover_object_columns(
     """Cột của VIEW/TABLE với kiểu đã map sang kiểu báo cáo (hàm thuần)."""
     # Mở kết nối chỉ để kiểm tra read-only (Q5); list_columns tự mở kết
     # nối riêng của nó (có cache 10 phút).
-    with _open_checked_connection(data_source_id, timeout_sec):
+    with open_checked_connection(data_source_id, timeout_sec):
         pass
     columns = list_columns(data_source_id, owner, object_name)
     return [
@@ -374,7 +378,7 @@ def validate_version_sql(
     Trả về {"binds": [...], "columns": [{"name", "data_type", ...}]}.
     Lỗi SQL → SQL_NOT_ALLOWED; describe thất bại → SQL_DESCRIBE_FAILED.
     """
-    return _describe_custom_sql(data_source_id, sql_text, timeout_sec)
+    return describe_report_sql(data_source_id, sql_text, timeout_sec)
 
 
 @service
@@ -398,7 +402,7 @@ def list_report_objects(
         )
     # Mở kết nối chỉ để kiểm tra read-only (Q5); list_tables tự mở kết
     # nối riêng của nó (có cache 10 phút).
-    with _open_checked_connection(data_source_id, timeout_sec):
+    with open_checked_connection(data_source_id, timeout_sec):
         pass
     return list_tables(data_source_id, q=q, object_type=source_type)
 
@@ -448,7 +452,7 @@ def analyze_version_source(ctx: Ctx, version_id: int) -> dict[str, Any]:
         )
     timeout = int(ver["TIMEOUT_SEC"] or DEFAULT_DESCRIBE_TIMEOUT_SEC)
     if source_type == "CUSTOM_SQL":
-        described = _describe_custom_sql(ds_id, ver["SQL_TEXT"] or "", timeout)
+        described = describe_report_sql(ds_id, ver["SQL_TEXT"] or "", timeout)
         discovered = [
             {
                 "name": c["name"],

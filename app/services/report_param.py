@@ -6,8 +6,10 @@ LOV resolve + layout ở cùng module (bước 2–4).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
@@ -18,9 +20,11 @@ from app.core.context import Ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
     recon_data_source,
+    recon_lookup_code,
     recon_lookup_type,
     recon_report,
     recon_report_template,
+    recon_rpt_lov_cache,
     recon_rpt_param,
     recon_rpt_param_lov,
     recon_rpt_tpl_ver,
@@ -29,6 +33,7 @@ from app.engine.sql_guard import check_report_sql, discover_binds
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
 from app.services.perm import is_admin, requires_menu
+from app.services.report_source import describe_report_sql, open_checked_connection
 
 _CODE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{0,59}$")
 _DATA_TYPES = ("STRING", "NUMBER", "DATE", "DATETIME", "BOOLEAN")
@@ -699,44 +704,270 @@ def resolve_param_values(
 
     values: giá trị người dùng nhập {code: value}. lov_resolver: hàm lấy
     options LOV (version_id, param_id) -> [{value, label}] — dùng cho
-    default FIRST_LOV; bước 2 nối resolver thật vào đây.
-    Trả {code: giá trị đã ép kiểu}; param không bắt buộc và không có giá
-    trị thì vắng mặt.
+    default FIRST_LOV; mặc định dùng resolver thật (bước 2), truyền vào
+    để test hoặc ghi đè. Trả {code: giá trị đã ép kiểu}; param không bắt
+    buộc và không có giá trị thì vắng mặt.
     """
     engine = get_recon_engine()
     admin = is_admin(ctx, engine)
     with engine.connect() as conn:
-        _load_version_for_resolve(conn, version_id, admin)
+        ver = _load_version_for_resolve(conn, version_id, admin)
         params = _load_params_with_lov(conn, version_id)
-    resolved: dict[str, Any] = {}
-    for param in params:
-        code = str(param["code"])
-        raw = values.get(code)
-        has_value = raw is not None and raw != "" and raw != []
-        if not has_value:
-            default_type = param.get("default_type") or "NONE"
-            if default_type == "STATIC":
-                raw = param.get("default_value")
-                has_value = raw is not None and str(raw).strip() != ""
-            elif default_type == "TODAY":
-                today = _now().date().isoformat()
-                raw = (
-                    today
-                    if param["data_type"] == "DATE"
-                    else f"{today}T00:00:00"
-                )
-                has_value = True
-            elif default_type == "FIRST_LOV" and lov_resolver is not None:
-                options = lov_resolver(version_id, int(param["id"]))
-                if options:
-                    raw = options[0]["value"]
+        by_id = {int(p["id"]): p for p in params}
+        resolved: dict[str, Any] = {}
+        for param in params:
+            code = str(param["code"])
+            raw = values.get(code)
+            has_value = raw is not None and raw != "" and raw != []
+            if not has_value:
+                default_type = param.get("default_type") or "NONE"
+                if default_type == "STATIC":
+                    raw = param.get("default_value")
+                    has_value = raw is not None and str(raw).strip() != ""
+                elif default_type == "TODAY":
+                    today = _now().date().isoformat()
+                    raw = (
+                        today
+                        if param["data_type"] == "DATE"
+                        else f"{today}T00:00:00"
+                    )
                     has_value = True
-        if not has_value:
-            if param["required"]:
-                raise ServiceError(
-                    ErrorCode.VALIDATION_ERROR,
-                    f"Tham số {param['label']} ({code}) là bắt buộc.",
-                )
-            continue
-        resolved[code] = _validate_resolved_value(param, raw)
+                elif default_type == "FIRST_LOV":
+                    resolver = lov_resolver or (
+                        lambda vid, pid: _resolve_lov_options(
+                            engine, ver, by_id[pid], resolved
+                        )
+                    )
+                    options = resolver(version_id, int(param["id"]))
+                    if options:
+                        raw = options[0]["value"]
+                        has_value = True
+            if not has_value:
+                if param["required"]:
+                    raise ServiceError(
+                        ErrorCode.VALIDATION_ERROR,
+                        f"Tham số {param['label']} ({code}) là bắt buộc.",
+                    )
+                continue
+            resolved[code] = _validate_resolved_value(param, raw)
     return resolved
+
+
+# ─── LOV (bước 2) ──────────────────────────────────────────────────────────
+
+
+def _lov_cache_key(
+    data_source_id: int, sql_text: str, dep_values: dict[str, Any]
+) -> str:
+    """Key cache SQL LOV: sha256(Data Source + SQL) : sha256(dep params).
+
+    Phần đầu (base) dùng để xóa cache theo LOV khi activate (Q7).
+    """
+    base = hashlib.sha256(f"{data_source_id}|{sql_text}".encode()).hexdigest()
+    dep_hash = hashlib.sha256(
+        json.dumps(dep_values or {}, sort_keys=True, default=str).encode()
+    ).hexdigest()
+    return f"{base}:{dep_hash}"
+
+
+def _read_lov_cache(conn: Connection, cache_key: str) -> list[dict[str, Any]] | None:
+    row = (
+        conn.execute(
+            select(recon_rpt_lov_cache).where(
+                recon_rpt_lov_cache.c.CACHE_KEY == cache_key
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if row is None:
+        return None
+    if row["EXPIRES_AT"] <= _now():
+        return None
+    payload = row["PAYLOAD_JSON"]
+    return list(payload) if isinstance(payload, list) else None
+
+
+def _write_lov_cache(
+    conn: Connection,
+    cache_key: str,
+    options: list[dict[str, Any]],
+    cache_seconds: int,
+) -> None:
+    now = _now()
+    conn.execute(
+        recon_rpt_lov_cache.delete().where(
+            recon_rpt_lov_cache.c.CACHE_KEY == cache_key
+        )
+    )
+    conn.execute(
+        recon_rpt_lov_cache.insert().values(
+            CACHE_KEY=cache_key,
+            PAYLOAD_JSON=options,
+            ROW_COUNT=len(options),
+            EXPIRES_AT=now + timedelta(seconds=cache_seconds),
+            CREATED_AT=now,
+        )
+    )
+
+
+def invalidate_lov_cache_for_version(conn: Connection, version_id: int) -> int:
+    """Xóa cache LOV SQL của version (dùng khi activate — dataflow F, Q7)."""
+    lov_rows = (
+        conn.execute(
+            select(recon_rpt_param_lov.c.DATA_SOURCE_ID, recon_rpt_param_lov.c.SQL_TEXT)
+            .join(
+                recon_rpt_param,
+                recon_rpt_param.c.ID == recon_rpt_param_lov.c.PARAM_ID,
+            )
+            .where(
+                recon_rpt_param.c.VERSION_ID == version_id,
+                recon_rpt_param_lov.c.LOV_TYPE == "SQL",
+            )
+        ).all()
+    )
+    total = 0
+    for ds_id, sql_text in lov_rows:
+        if not sql_text:
+            continue
+        base = hashlib.sha256(f"{ds_id}|{sql_text}".encode()).hexdigest()
+        res = conn.execute(
+            recon_rpt_lov_cache.delete().where(
+                recon_rpt_lov_cache.c.CACHE_KEY.like(f"{base}:%")
+            )
+        )
+        total += res.rowcount or 0
+    return total
+
+
+def _execute_lov_sql(
+    data_source_id: int,
+    sql_text: str,
+    binds: dict[str, Any],
+    timeout_sec: int,
+    max_rows: int,
+) -> list[dict[str, Any]]:
+    """Chạy SQL LOV read-only, lấy tối đa max_rows (fetchmany, T23-03)."""
+    with open_checked_connection(data_source_id, timeout_sec) as ora_conn:
+        cursor = ora_conn.cursor()
+        try:
+            cursor.execute(sql_text, binds)
+            desc = cursor.description or []
+            names = [str(d[0]).upper() for d in desc]
+            if "VALUE" not in names or "LABEL" not in names:
+                raise ServiceError(
+                    ErrorCode.SQL_DESCRIBE_FAILED,
+                    "SQL LOV phải trả về 2 cột VALUE và LABEL.",
+                )
+            value_idx = names.index("VALUE")
+            label_idx = names.index("LABEL")
+            # fetchmany đã giới hạn ở cursor; cắt lại để chắc chắn với mọi driver.
+            rows = (cursor.fetchmany(max_rows) or [])[:max_rows]
+            return [
+                {"value": r[value_idx], "label": r[label_idx]} for r in rows
+            ]
+        finally:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+
+
+def _resolve_lov_options(
+    engine,
+    version_row: Any,
+    param: dict[str, Any],
+    dep_values: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Lấy options LOV của một param (hàm lõi dùng cho resolve_lov và default FIRST_LOV)."""
+    lov = param.get("lov") or {}
+    lov_type = str(lov.get("lov_type") or "NONE")
+    if lov_type == "NONE":
+        return []
+    if lov_type == "STATIC":
+        items = lov.get("static_json") or []
+        return [{"value": i["value"], "label": i["label"]} for i in items]
+    if lov_type == "LOOKUP":
+        with engine.connect() as conn:
+            rows = (
+                conn.execute(
+                    select(recon_lookup_code)
+                    .where(
+                        recon_lookup_code.c.LOOKUP_TYPE == lov.get("lookup_type"),
+                        recon_lookup_code.c.IS_ACTIVE == "Y",
+                    )
+                    .order_by(
+                        recon_lookup_code.c.DISPLAY_ORDER,
+                        recon_lookup_code.c.LOOKUP_CODE,
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [
+            {"value": str(r["LOOKUP_CODE"]), "label": str(r["MEANING"])} for r in rows
+        ]
+    if lov_type == "SQL":
+        ds_id = lov.get("data_source_id")
+        sql_text = str(lov.get("sql_text") or "")
+        cache_seconds = int(lov.get("cache_seconds") or 0)
+        max_rows = int(lov.get("max_rows") or 5000)
+        timeout = int(version_row["TIMEOUT_SEC"] or 300)
+        cache_key = _lov_cache_key(ds_id, sql_text, dep_values)
+        if cache_seconds > 0:
+            with engine.connect() as conn:
+                cached = _read_lov_cache(conn, cache_key)
+            if cached is not None:
+                return cached
+        described = describe_report_sql(ds_id, sql_text, timeout)
+        names = [str(c["name"]).upper() for c in described["columns"]]
+        if "VALUE" not in names or "LABEL" not in names:
+            raise ServiceError(
+                ErrorCode.SQL_DESCRIBE_FAILED,
+                "SQL LOV phải trả về 2 cột VALUE và LABEL.",
+            )
+        _ok, _reason, binds = check_report_sql(sql_text)
+        missing = [b for b in binds if b not in (dep_values or {})]
+        if missing:
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                f"SQL LOV cần giá trị cho bind :{missing[0]}.",
+            )
+        options = _execute_lov_sql(
+            ds_id,
+            sql_text,
+            {b: dep_values[b] for b in binds},
+            timeout,
+            max_rows,
+        )
+        if cache_seconds > 0:
+            with engine.begin() as conn:
+                _write_lov_cache(conn, cache_key, options, cache_seconds)
+        return options
+    raise ServiceError(
+        ErrorCode.VALIDATION_ERROR, f"LOV_TYPE không hỗ trợ: {lov_type}."
+    )
+
+
+@service
+@requires_menu("report_center")
+def resolve_lov(
+    ctx: Ctx,
+    version_id: int,
+    param_id: int,
+    dep_values: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Lấy options LOV của một param (T23-02, T23-03, T23-04).
+
+    NONE → []; STATIC → từ STATIC_JSON; SQL → cache rồi execute read-only
+    với binds (dataflow D); LOOKUP → chỉ mã active.
+    """
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.connect() as conn:
+        ver = _load_version_for_resolve(conn, version_id, admin)
+        params = _load_params_with_lov(conn, version_id)
+        param = next((p for p in params if int(p["id"]) == param_id), None)
+        if param is None:
+            raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy tham số.")
+    return _resolve_lov_options(engine, ver, param, dep_values or {})

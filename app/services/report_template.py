@@ -34,6 +34,7 @@ from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
 from app.services.perm import is_admin, requires_menu
 from app.services.report import load_report_row
+from app.services.report_param import invalidate_lov_cache_for_version
 
 _CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,59}$")
 _LOCK_KEY = "REPORT_ACTIVATE_LOCK"
@@ -662,6 +663,10 @@ def activate_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
                 .where(recon_report_template.c.ID == template_id)
                 .values(ACTIVE_VERSION_ID=version_id, UPDATED_BY=ctx.username, UPDATED_AT=now)
             )
+            # Xóa cache LOV SQL của version mới và version cũ (dataflow F, task 23 Q7).
+            invalidate_lov_cache_for_version(conn, version_id)
+            if old_active_id is not None:
+                invalidate_lov_cache_for_version(conn, int(old_active_id))
             write_audit_log(
                 conn=conn,
                 entity="RECON_RPT_TPL_VER",
