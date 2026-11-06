@@ -27,6 +27,10 @@
 | 2026-11-06 | Gộp file: EXCEL_ROWS_READ của 3 file (204) khác 1 file nối tay (202) vì mỗi file có 1 dòng tổng riêng — so sánh G14 bỏ qua EXCEL_ROWS_READ/DURATION_MS, chỉ so summary còn lại + từng dòng kết quả | Dòng tổng là dòng thô của từng file, không phải dữ liệu trùng | bước 5 |
 | 2026-11-06 | `__row_nos` trong engine mang tên file (`{"f": tên, "r": dòng}`), executor đổi tên → file_id khi ghi RECON_RESULT_ROW qua SOURCE_FILES_JSON của bản nạp | Engine thuần không có file_id; tên hiển thị là cầu nối duy nhất (trùng basename trong .zip vẫn phân biệt được nhờ tên gốc "zip/thư mục/file") | bước 5 |
 | 2026-11-06 | `load_excel_files_to_temp` không tái dùng `load_excel_to_temp` mà viết riêng theo FILE_SET_HASH (dùng lại/ghi lại bản purge/đua IntegrityError) | Đường 1 file có logic dedup theo FILE_ID; đường tập file phải key theo FILE_SET_HASH ngay từ đầu | bước 5 |
+| 2026-11-06 | start() chỉ chạy mục READY (hoặc WARN khi include_warn); mục PENDING chưa precheck → NOT_RUN, không tự chạy | Precheck là bước bắt buộc trong luồng wizard (spec 10 §5.4 → §5.5); chạy mục chưa kiểm sẽ bỏ qua kiểm tra file/DS | bước 6 |
+| 2026-11-06 | Giới hạn song song đếm hàng đợi PROCESSING cùng batch+DS, không đếm RECON_RUN STATUS='RUNNING' | Claim và đếm nguyên tử trong cùng transaction; run vừa claim chưa kịp chuyển RUNNING nên đếm RUNNING sẽ để 2 worker cùng vượt giới hạn | bước 6 |
+| 2026-11-06 | Claim Oracle: chọn ứng viên bằng câu JOIN rồi khóa dòng queue riêng (FOR UPDATE SKIP LOCKED), không khóa trên câu JOIN | Oracle không cho FOR UPDATE trên câu truy vấn có JOIN phức tạp; 2 worker cùng chọn một ứng viên thì một bên khóa trượt và poll lại | bước 6 |
+| 2026-11-06 | Thứ tự claim: PRIORITY/SEQ_NO của mục batch trước, run không thuộc bộ xếp sau (PRIORITY NULL = 999999) | Spec chỉ định thứ tự cho mục batch; run đơn lẻ vẫn được claim sau khi hết run batch chờ | bước 6 |
 
 ## Câu hỏi còn mở
 - Kỳ khác tháng (quý, khoảng ngày)?

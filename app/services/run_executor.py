@@ -14,6 +14,8 @@ from sqlalchemy import delete, select, update
 from app.core.context import Ctx, Role
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
+    recon_batch_run_file,
+    recon_batch_run_item,
     recon_data_source,
     recon_excel_load,
     recon_file,
@@ -99,6 +101,19 @@ def _update_issues_last_run(conn: Any, template_id: int, profile_code: str, key_
         )
 
 
+def _sync_batch_after_run(run_id: int, batch_run_id: int) -> None:
+    """Đồng bộ trạng thái batch sau khi một run con kết thúc (DONE/FAILED).
+
+    Lỗi đồng bộ không làm hỏng kết quả run con đã ghi.
+    """
+    try:
+        from app.services.batch_run import sync_batch_status
+
+        sync_batch_status(get_recon_engine(), batch_run_id)
+    except Exception as exc:  # noqa: BLE001 - đồng bộ batch là phụ, không chặn run
+        logger.error("Lỗi đồng bộ trạng thái batch", run_id=run_id, batch_run_id=batch_run_id, error=str(exc))
+
+
 def execute_run(
     run_id: int,
     mock_fetcher: Any = None,
@@ -118,6 +133,8 @@ def execute_run(
         template_version = int(run_row["TEMPLATE_VERSION"])
         profile_code = str(run_row["PROFILE_CODE"])
         file_id = int(run_row["FILE_ID"]) if run_row["FILE_ID"] else None
+        batch_run_id = int(run_row["BATCH_RUN_ID"]) if run_row["BATCH_RUN_ID"] else None
+        batch_run_item_id = int(run_row["BATCH_RUN_ITEM_ID"]) if run_row["BATCH_RUN_ITEM_ID"] else None
         data_source_id = int(run_row["DATA_SOURCE_ID"])
         p_from = run_row["P_FROM"]
         p_to = run_row["P_TO"]
@@ -162,7 +179,51 @@ def execute_run(
     try:
         # Giai đoạn 1 & 2: READ + FILTER (nạp Excel vào bảng tạm nếu có file)
         excel_load_id = None
-        if file_id and excel_path and excel_path.exists():
+        excel_files: list[tuple[str | Path, str]] | None = None
+        if batch_run_item_id:
+            # Run con của batch: nạp tập file của mục (gộp nhiều file).
+            from app.services.excel_load import load_excel_files_to_temp
+
+            with engine.connect() as conn:
+                batch_files = (
+                    conn.execute(
+                        select(
+                            recon_batch_run_file.c.FILE_ID,
+                            recon_batch_run_file.c.ORIGINAL_NAME,
+                            recon_file.c.STORAGE_PATH,
+                        )
+                        .select_from(
+                            recon_batch_run_file.join(recon_file, recon_batch_run_file.c.FILE_ID == recon_file.c.ID)
+                        )
+                        .where(recon_batch_run_file.c.BATCH_RUN_ITEM_ID == batch_run_item_id)
+                        .where(recon_batch_run_file.c.MATCH_STATE == "MATCHED")
+                        .order_by(recon_batch_run_file.c.ID)
+                    )
+                    .mappings()
+                    .all()
+                )
+            if not batch_files:
+                raise ServiceError(ErrorCode.NOT_FOUND, "Mục chạy bộ không còn file đã ghép để thực hiện đối soát.")
+            excel_files = [(Path(str(f["STORAGE_PATH"])), str(f["ORIGINAL_NAME"])) for f in batch_files]
+            if not all(Path(p).exists() for p, _ in excel_files):
+                raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy file Excel để thực hiện đối soát.")
+            ctx_system = Ctx(user_id=1, username="system", full_name="System Worker", roles=[Role.ADMIN])
+            load_res = load_excel_files_to_temp(
+                ctx_system,
+                file_ids=[int(f["FILE_ID"]) for f in batch_files],
+                template_id=template_id,
+                template_version=template_version,
+                sheet_name=cfg.file.sheet,
+            )
+            if load_res.ok and load_res.data:
+                excel_load_id = load_res.data.get("load_id")
+            with engine.begin() as conn:
+                conn.execute(
+                    recon_batch_run_item.update()
+                    .where(recon_batch_run_item.c.ID == batch_run_item_id)
+                    .values(STATUS="RUNNING", UPDATED_BY="system", UPDATED_AT=now)
+                )
+        elif file_id and excel_path and excel_path.exists():
             # Tạo admin ctx tạm thời để gọi service nạp excel
             ctx_system = Ctx(user_id=1, username="system", full_name="System Worker", roles=[Role.ADMIN])
             load_res = load_excel_to_temp(
@@ -206,17 +267,30 @@ def execute_run(
             timeout_s = int(ds["CALL_TIMEOUT_S"] or 600) if ds else 600
             fetcher = SourceFetcherWrapper(ds_id=data_source_id, max_rows=max_rows, timeout=timeout_s)
 
-        if not excel_path or not excel_path.exists():
-            raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy file Excel để thực hiện đối soát.")
+        pipeline_res: PipelineResult
+        if excel_files is not None:
+            if not excel_files:
+                raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy file Excel để thực hiện đối soát.")
+            # Thực thi pipeline với tập file đã gộp
+            pipeline_res = run_pipeline(
+                excel_files=excel_files,
+                config=cfg,
+                profile_code=profile_code,
+                params=params_combined,
+                fetcher=fetcher,
+            )
+        else:
+            if not excel_path or not excel_path.exists():
+                raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy file Excel để thực hiện đối soát.")
 
-        # Thực thi pipeline
-        pipeline_res: PipelineResult = run_pipeline(
-            excel_path=excel_path,
-            config=cfg,
-            profile_code=profile_code,
-            params=params_combined,
-            fetcher=fetcher,
-        )
+            # Thực thi pipeline
+            pipeline_res = run_pipeline(
+                excel_path=excel_path,
+                config=cfg,
+                profile_code=profile_code,
+                params=params_combined,
+                fetcher=fetcher,
+            )
 
         with engine.begin() as conn:
             conn.execute(
@@ -456,6 +530,9 @@ def execute_run(
                     )
                 )
 
+        if batch_run_id is not None:
+            _sync_batch_after_run(run_id, batch_run_id)
+
         return {"run_id": run_id, "status": "DONE", "summary": summary_dict}
 
     except Exception as exc:
@@ -495,6 +572,9 @@ def execute_run(
                     HEARTBEAT_AT=finished_err_now,
                 )
             )
+
+        if batch_run_id is not None:
+            _sync_batch_after_run(run_id, batch_run_id)
 
         return {
             "run_id": run_id,

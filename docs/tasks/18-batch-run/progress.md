@@ -9,13 +9,22 @@ Trạng thái: 🔄 (bắt đầu 06/11/2026, nhánh feat/18-batch-run từ ad98
 | 3 | Service bộ đối soát | ✅ | 06/11/2026 |  |
 | 4 | Lần chạy bộ: tạo, tải file, ghép, tham số | ✅ | 06/11/2026 |  |
 | 5 | Gộp nhiều file trong engine/executor | ✅ | 06/11/2026 |  |
-| 6 | Precheck, start, worker giới hạn song song | ⬜ |  |  |
+| 6 | Precheck, start, worker giới hạn song song | ✅ | 06/11/2026 |  |
 | 7 | Chạy lại, thay file, hủy, ma trận, .zip | ⬜ |  |  |
 | 8 | UI: Bộ đối soát và hộp thoại thêm template | ⬜ |  |  |
 | 9 | UI: Wizard chạy bộ và kết quả | ⬜ |  |  |
 | 10 | Chuyển Oracle, tài liệu, hồi quy | ⬜ |  |  |
 
 ## Nhật ký
+
+### Bước 6 — Precheck, start, worker giới hạn song song (06/11/2026)
+- `batch_run.precheck` (song song tối đa 4 luồng): template, tham số, đọc/gộp file, control total từng file, dòng ngoài kỳ, dòng không hợp lệ, kết nối DS (cache theo DS); ghi PRECHECK_JSON + READY/WARN/ERROR.
+- `batch_run.start`: PROD xác nhận một lần (PROD_CONFIRM_REQUIRED + PROD_CONFIRMED_BY), tạo run con QUEUED (version Active lúc chạy, tham số từ PARAMS_RESOLVED_JSON, ATTEMPT_NO+1) + enqueue; WARN chạy theo include_warn, ERROR/PENDING → NOT_RUN, mục không file: bắt buộc NOT_RUN / không bắt buộc SKIPPED/NO_FILE; đồng bộ DONE/PARTIAL ngay sau start.
+- `sync_batch_status`: mục theo run con, batch DONE khi mọi mục DONE/SKIPPED, PARTIAL khi có FAILED hoặc NOT_RUN bắt buộc.
+- `dialect.claim_next_queued_job`: giới hạn song song theo DS (đếm queue PROCESSING cùng batch+DS, so với MAX_PARALLEL_PER_DS) + thứ tự PRIORITY/SEQ_NO/ENQUEUED_AT; Oracle chọn ứng viên rồi khóa dòng queue (FOR UPDATE SKIP LOCKED).
+- Executor: run con batch nạp tập file (`load_excel_files_to_temp`) + `run_pipeline(excel_files=...)`, mục → RUNNING khi bắt đầu, đồng bộ batch khi xong (cả DONE lẫn FAILED); worker `reset_stale_jobs` cũng đồng bộ batch của run treo.
+- Kiểm tra: `tests/unit/test_batch_precheck.py` 16 pass (gồm thực thi run con: DONE → batch DONE 184 khớp; FAILED → PARTIAL); `tests/unit/test_claim_job_batch.py` 4 pass + 1 skip Oracle; typecheck 21 = baseline; lint sạch.
+- Ghi chú: xem decisions.md (mục PENDING không precheck thì NOT_RUN khi start; đếm PROCESSING thay vì RUNNING để tránh đua claim).
 
 ### Bước 5 — Gộp nhiều file trong engine/executor (06/11/2026)
 - `app/engine/merge_files.py` mới: `merge_excel_files` (đọc từng file theo cùng FileSpec, thêm `__source_file`, header đã map phải khớp — lệch → BATCH_MERGE_HEADER_MISMATCH chỉ rõ file, control total kiểm từng file) + `sum_control_totals`; `reader.read_sheets` đọc nhiều file.

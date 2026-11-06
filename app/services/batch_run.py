@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import io
 import json
+import threading
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,11 +28,16 @@ from app.db.metadata import (
     recon_batch_run,
     recon_batch_run_file,
     recon_batch_run_item,
+    recon_data_source,
     recon_file,
+    recon_run,
+    recon_run_queue,
     recon_template,
     recon_template_version,
 )
+from app.engine.filters import apply_time_filter
 from app.engine.mapping import detect_template
+from app.engine.merge_files import merge_excel_files, sum_control_totals
 from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.template_config import TemplateConfig
 from app.services import service
@@ -44,6 +51,7 @@ from app.services.perm import (
     owner_filter,
     requires_menu,
 )
+from app.services.source_conn import open_source_connection
 
 MAX_FILES_PER_RUN = 200
 MAX_FILES_PER_ITEM = 50
@@ -956,3 +964,628 @@ def set_param_override(ctx: Ctx, item_id: int, param_name: str, value: Any) -> d
         )
         assert updated is not None
         return _run_item_dict(dict(updated), [])
+
+
+# ─── Bước 6: precheck, start, đồng bộ trạng thái ──────────────────────────
+
+_TERMINAL_ITEM_STATUSES = ("DONE", "FAILED", "SKIPPED", "NOT_RUN")
+
+
+def sync_batch_status(engine: Engine, batch_run_id: int) -> dict[str, Any]:
+    """Đồng bộ trạng thái mục từ run con và kết thúc lần chạy bộ.
+
+    Mục QUEUED/RUNNING có CURRENT_RUN_ID sẽ theo trạng thái run con
+    (DONE/FAILED). Khi mọi mục đã ở trạng thái cuối và batch run đang
+    RUNNING: DONE nếu mọi mục DONE/SKIPPED (không có NOT_RUN bắt buộc),
+    ngược lại PARTIAL. Dùng sau khi worker xong một run con, sau start
+    và sau chạy lại (bước 7).
+    """
+    with engine.begin() as conn:
+        run = _get_run(conn, batch_run_id)
+        items = (
+            conn.execute(select(recon_batch_run_item).where(recon_batch_run_item.c.BATCH_RUN_ID == batch_run_id))
+            .mappings()
+            .all()
+        )
+        for item in items:
+            if item["STATUS"] in ("QUEUED", "RUNNING") and item["CURRENT_RUN_ID"]:
+                child = conn.execute(
+                    select(recon_run.c.STATUS).where(recon_run.c.ID == int(item["CURRENT_RUN_ID"]))
+                ).first()
+                if child is not None and child[0] in ("DONE", "FAILED"):
+                    conn.execute(
+                        update(recon_batch_run_item)
+                        .where(recon_batch_run_item.c.ID == item["ID"])
+                        .values(STATUS=child[0], UPDATED_BY="system", UPDATED_AT=_now())
+                    )
+        items = (
+            conn.execute(select(recon_batch_run_item).where(recon_batch_run_item.c.BATCH_RUN_ID == batch_run_id))
+            .mappings()
+            .all()
+        )
+        counts = {"DONE": 0, "FAILED": 0, "SKIPPED": 0, "NOT_RUN": 0}
+        has_failed = False
+        has_required_not_run = False
+        all_terminal = True
+        for item in items:
+            status = str(item["STATUS"])
+            if status in counts:
+                counts[status] += 1
+            if status == "FAILED":
+                has_failed = True
+            if status == "NOT_RUN" and item["IS_REQUIRED"] == "Y":
+                has_required_not_run = True
+            if status not in _TERMINAL_ITEM_STATUSES:
+                all_terminal = False
+        values: dict[str, Any] = {
+            "CNT_DONE": counts["DONE"],
+            "CNT_FAILED": counts["FAILED"],
+            "CNT_SKIPPED": counts["SKIPPED"],
+            "CNT_NOT_RUN": counts["NOT_RUN"],
+            "UPDATED_BY": "system",
+            "UPDATED_AT": _now(),
+        }
+        new_status = str(run["STATUS"])
+        if run["STATUS"] == "RUNNING" and all_terminal:
+            new_status = "PARTIAL" if (has_failed or has_required_not_run) else "DONE"
+            values["STATUS"] = new_status
+            values["FINISHED_AT"] = _now()
+        conn.execute(update(recon_batch_run).where(recon_batch_run.c.ID == batch_run_id).values(**values))
+        return {
+            "id": batch_run_id,
+            "status": new_status,
+            "cnt_done": counts["DONE"],
+            "cnt_failed": counts["FAILED"],
+            "cnt_skipped": counts["SKIPPED"],
+            "cnt_not_run": counts["NOT_RUN"],
+        }
+
+
+def _check_data_source_cached(ds_id: int, cache: dict[int, tuple[bool, str]], lock: threading.Lock) -> tuple[bool, str]:
+    """Kiểm tra kết nối Data Source, cache kết quả theo DS trong lần precheck."""
+    with lock:
+        if ds_id in cache:
+            return cache[ds_id]
+    try:
+        conn = open_source_connection(ds_id)
+        try:
+            conn.close()
+        except Exception:
+            pass
+        result: tuple[bool, str] = (True, "")
+    except ServiceError as exc:
+        result = (False, exc.message)
+    except Exception as exc:  # noqa: BLE001 - mọi lỗi kết nối đều là ERROR precheck
+        result = (False, str(exc))
+    with lock:
+        cache[ds_id] = result
+    return result
+
+
+def _precheck_one_item(
+    item: dict[str, Any],
+    snapshot: dict[str, Any],
+    ds_cache: dict[int, tuple[bool, str]],
+    ds_lock: threading.Lock,
+) -> dict[str, Any]:
+    """Kiểm tra một mục: template, tham số, file, control total, DS.
+
+    Chạy trong thread pool; chỉ đọc file và mở kết nối DS, không ghi DB.
+    """
+    import polars as pl
+
+    checks: list[dict[str, Any]] = []
+    cfg: TemplateConfig = snapshot["config"]
+    period: str = snapshot["period"]
+    rows_read = 0
+    rows_valid = 0
+    rows_invalid = 0
+    rows_out_of_range = 0
+    ct_summary: dict[str, Any] = {"matched": True, "per_file": []}
+
+    # 1. Template còn Active, lấy version Active.
+    if not snapshot["template_active"] or snapshot["version_row"] is None:
+        checks.append(
+            {
+                "key": "template",
+                "level": "error",
+                "message": "Template không còn hoạt động hoặc không có version Active.",
+            }
+        )
+    else:
+        checks.append({"key": "template", "level": "ok", "message": "Template đang hoạt động."})
+
+    # 2. Tham số hợp lệ (tính lại với kỳ).
+    try:
+        resolve_params(
+            cfg.db_source.params,
+            snapshot["def_override"],
+            snapshot["run_override"],
+            period,
+        )
+        checks.append({"key": "params", "level": "ok", "message": "Tham số hợp lệ."})
+    except ServiceError as exc:
+        checks.append({"key": "params", "level": "error", "message": exc.message})
+
+    # 3. Đọc file + gộp (header, cột bắt buộc) và control total từng file.
+    merged = None
+    try:
+        merged = merge_excel_files(snapshot["files"], cfg)
+        rows_read = sum(m.rows_read for m in merged)
+        rows_valid = sum(m.rows_valid for m in merged)
+        rows_invalid = sum(m.rows_invalid for m in merged)
+        checks.append(
+            {"key": "files", "level": "ok", "message": f"Đọc được {len(merged)} file, {rows_valid} dòng hợp lệ."}
+        )
+    except ServiceError as exc:
+        checks.append({"key": "files", "level": "error", "message": exc.message})
+    except Exception as exc:  # noqa: BLE001 - lỗi đọc file là ERROR precheck
+        checks.append({"key": "files", "level": "error", "message": f"Không đọc được file: {exc}"})
+
+    if merged is not None:
+        # 4. Control total từng file.
+        per_file = []
+        for m in merged:
+            ok = m.control_total.is_matched if m.control_total is not None else None
+            per_file.append(
+                {
+                    "name": m.name,
+                    "file_total": str(m.control_total.file_total)
+                    if m.control_total and m.control_total.file_total is not None
+                    else None,
+                    "calc_total": str(m.control_total.calc_total) if m.control_total else None,
+                    "matched": ok,
+                }
+            )
+        ct_total = sum_control_totals(merged)
+        ct_summary = {
+            "matched": bool(ct_total.is_matched) if ct_total else True,
+            "file_total": str(ct_total.file_total) if ct_total and ct_total.file_total is not None else None,
+            "calc_total": str(ct_total.calc_total) if ct_total else None,
+            "per_file": per_file,
+        }
+        if ct_total is not None and not ct_total.is_matched:
+            bad = [str(p["name"]) for p in per_file if p["matched"] is False]
+            checks.append(
+                {
+                    "key": "control_total",
+                    "level": "warn",
+                    "message": f"Control total lệch ở file: {', '.join(bad)}.",
+                }
+            )
+        else:
+            checks.append({"key": "control_total", "level": "ok", "message": "Control total khớp."})
+
+        # 5. Số dòng ngoài kỳ.
+        resolved = _parse_json(item["PARAMS_RESOLVED_JSON"], {})
+        try:
+            p_from = datetime.fromisoformat(str(resolved.get("p_from"))) if resolved.get("p_from") else None
+            p_to = datetime.fromisoformat(str(resolved.get("p_to"))) if resolved.get("p_to") else None
+        except ValueError:
+            p_from = p_to = None
+        if cfg.time_filter is not None and p_from is not None and p_to is not None:
+            valid_parts = [m.valid_df for m in merged if not m.valid_df.is_empty()]
+            if valid_parts:
+                merged_valid = pl.concat(valid_parts, how="diagonal")
+                tf_res = apply_time_filter(merged_valid, cfg.time_filter, p_from, p_to)
+                rows_out_of_range = int(tf_res.out_of_range_count)
+        if rows_out_of_range > 0:
+            checks.append(
+                {
+                    "key": "out_of_range",
+                    "level": "warn",
+                    "message": f"Có {rows_out_of_range} dòng ngoài kỳ.",
+                }
+            )
+        else:
+            checks.append({"key": "out_of_range", "level": "ok", "message": "Không có dòng ngoài kỳ."})
+
+        # 6. Số dòng không hợp lệ.
+        if rows_invalid > 0:
+            checks.append({"key": "invalid_rows", "level": "warn", "message": f"Có {rows_invalid} dòng không hợp lệ."})
+        else:
+            checks.append({"key": "invalid_rows", "level": "ok", "message": "Không có dòng không hợp lệ."})
+
+    # 7. Kết nối Data Source (cache theo DS).
+    ds_ok, ds_msg = _check_data_source_cached(int(item["DATA_SOURCE_ID"]), ds_cache, ds_lock)
+    if ds_ok:
+        checks.append({"key": "data_source", "level": "ok", "message": "Kết nối Data Source thành công."})
+    else:
+        checks.append({"key": "data_source", "level": "error", "message": ds_msg or "Không kết nối được Data Source."})
+
+    status = "READY"
+    if any(c["level"] == "error" for c in checks):
+        status = "ERROR"
+    elif any(c["level"] == "warn" for c in checks):
+        status = "WARN"
+    precheck_json = {
+        "checks": checks,
+        "rows_read": rows_read,
+        "rows_valid": rows_valid,
+        "rows_invalid": rows_invalid,
+        "rows_out_of_range": rows_out_of_range,
+        "control_total": ct_summary,
+    }
+    return {"item_id": int(item["ID"]), "status": status, "precheck": precheck_json}
+
+
+@service
+@requires_menu("batch_run")
+def precheck(ctx: Ctx, run_id: int, item_ids: list[int] | None = None) -> dict[str, Any]:
+    """Kiểm tra trước cho các mục có file của lần chạy bộ DRAFT (spec 10 §5.4).
+
+    Chạy song song có giới hạn (tối đa 4 luồng) cho các mục; không ghi dữ
+    liệu tạm, không lưu kết quả. Ghi PRECHECK_JSON + STATUS (READY/WARN/
+    ERROR) cho từng mục đã kiểm.
+    """
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        run = _get_run(conn, run_id)
+        _check_run_editor(ctx, run, engine)
+        _require_draft(run)
+        item_rows = (
+            conn.execute(
+                select(recon_batch_run_item)
+                .where(recon_batch_run_item.c.BATCH_RUN_ID == run_id)
+                .where(recon_batch_run_item.c.STATUS.in_(["PENDING", "READY", "WARN", "ERROR"]))
+                .order_by(recon_batch_run_item.c.PRIORITY, recon_batch_run_item.c.ID)
+            )
+            .mappings()
+            .all()
+        )
+        if item_ids is not None:
+            wanted = set(item_ids)
+            item_rows = [r for r in item_rows if int(r["ID"]) in wanted]
+
+        snapshots: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        for item in item_rows:
+            file_rows = (
+                conn.execute(
+                    select(recon_batch_run_file, recon_file.c.STORAGE_PATH, recon_file.c.ORIGINAL_NAME)
+                    .select_from(
+                        recon_batch_run_file.join(recon_file, recon_batch_run_file.c.FILE_ID == recon_file.c.ID)
+                    )
+                    .where(recon_batch_run_file.c.BATCH_RUN_ITEM_ID == item["ID"])
+                    .where(recon_batch_run_file.c.MATCH_STATE == "MATCHED")
+                    .order_by(recon_batch_run_file.c.ID)
+                )
+                .mappings()
+                .all()
+            )
+            if not file_rows:
+                continue
+            tmpl_row = conn.execute(
+                select(recon_template.c.STATUS).where(recon_template.c.ID == item["TEMPLATE_ID"])
+            ).first()
+            version_row = (
+                conn.execute(
+                    select(recon_template_version)
+                    .where(recon_template_version.c.TEMPLATE_ID == item["TEMPLATE_ID"])
+                    .where(recon_template_version.c.STATUS == "ACTIVE")
+                    .order_by(recon_template_version.c.VERSION.desc())
+                    .limit(1)
+                )
+                .mappings()
+                .first()
+            )
+            cfg = None
+            if version_row is not None:
+                cfg = TemplateConfig.model_validate(_parse_config(version_row["CONFIG_JSON"]))
+            def_item = (
+                conn.execute(select(recon_batch_def_item).where(recon_batch_def_item.c.ID == item["BATCH_DEF_ITEM_ID"]))
+                .mappings()
+                .first()
+            )
+            snapshots.append(
+                (
+                    dict(item),
+                    {
+                        "config": cfg,
+                        "template_active": tmpl_row is not None and tmpl_row[0] == "ACTIVE",
+                        "version_row": dict(version_row) if version_row is not None else None,
+                        "period": run["PERIOD"],
+                        "def_override": _parse_json(def_item["PARAMS_OVERRIDE_JSON"], {}) if def_item else {},
+                        "run_override": _parse_json(item["PARAMS_RUN_OVERRIDE_JSON"], {}),
+                        "files": [(Path(str(f["STORAGE_PATH"])), str(f["ORIGINAL_NAME"])) for f in file_rows],
+                    },
+                )
+            )
+
+    ds_cache: dict[int, tuple[bool, str]] = {}
+    ds_lock = threading.Lock()
+    results: list[dict[str, Any]] = []
+    checked = [snap_item for snap_item, snap in snapshots if snap["config"] is not None]
+    # Mục không còn config (template bị xóa version) vẫn cần báo ERROR.
+    for snap_item, snap in snapshots:
+        if snap["config"] is None:
+            results.append(
+                {
+                    "item_id": int(snap_item["ID"]),
+                    "status": "ERROR",
+                    "precheck": {
+                        "checks": [
+                            {
+                                "key": "template",
+                                "level": "error",
+                                "message": "Template không còn version Active.",
+                            }
+                        ],
+                        "rows_read": 0,
+                        "rows_valid": 0,
+                        "rows_invalid": 0,
+                        "rows_out_of_range": 0,
+                        "control_total": {"matched": True, "per_file": []},
+                    },
+                }
+            )
+    if checked:
+        max_workers = min(4, len(checked))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [
+                pool.submit(
+                    _precheck_one_item,
+                    snap_item,
+                    snap,
+                    ds_cache,
+                    ds_lock,
+                )
+                for snap_item, snap in snapshots
+                if snap["config"] is not None
+            ]
+            for fut in futures:
+                results.append(fut.result())
+
+    with engine.begin() as conn:
+        for res in results:
+            conn.execute(
+                update(recon_batch_run_item)
+                .where(recon_batch_run_item.c.ID == res["item_id"])
+                .values(
+                    STATUS=res["status"],
+                    PRECHECK_JSON=json.dumps(res["precheck"], ensure_ascii=False),
+                    PRECHECK_AT=_now(),
+                    UPDATED_BY=ctx.username,
+                    UPDATED_AT=_now(),
+                )
+            )
+        write_audit_log(
+            conn=conn,
+            entity="BATCH_RUN",
+            entity_id=run_id,
+            action="PRECHECK_BATCH_RUN",
+            actor=ctx.username,
+            new_data={"items": len(results)},
+            now=_now(),
+        )
+        run_row = _get_run(conn, run_id)
+        items_out = []
+        for res in results:
+            row = (
+                conn.execute(select(recon_batch_run_item).where(recon_batch_run_item.c.ID == res["item_id"]))
+                .mappings()
+                .first()
+            )
+            assert row is not None
+            items_out.append(_run_item_dict(dict(row), []))
+    out = _run_dict(run_row)
+    out["items"] = items_out
+    return out
+
+
+@service
+@requires_menu("batch_run")
+def start(ctx: Ctx, run_id: int, include_warn: bool = True, confirm_prod: bool = False) -> dict[str, Any]:
+    """Bắt đầu lần chạy bộ DRAFT: tạo run con QUEUED cho từng mục đủ điều
+    kiện (spec 10 §5.5).
+
+    Mục READY chạy; mục WARN chạy khi include_warn=True, ngược lại NOT_RUN;
+    mục ERROR/PENDING (chưa precheck) → NOT_RUN; mục không có file: bắt
+    buộc → NOT_RUN, không bắt buộc → SKIPPED/NO_FILE. Data Source PROD
+    cần confirm_prod (xác nhận một lần cho cả lần chạy, Q4).
+    """
+    engine = get_recon_engine()
+    with engine.begin() as conn:
+        run = _get_run(conn, run_id)
+        _check_run_editor(ctx, run, engine)
+        _require_draft(run)
+        items = (
+            conn.execute(
+                select(recon_batch_run_item)
+                .where(recon_batch_run_item.c.BATCH_RUN_ID == run_id)
+                .order_by(recon_batch_run_item.c.PRIORITY, recon_batch_run_item.c.ID)
+            )
+            .mappings()
+            .all()
+        )
+
+        # PROD: liệt kê các Data Source PROD của mục sẽ chạy.
+        prod_ds: list[str] = []
+        for item in items:
+            if str(item["STATUS"]) in ("READY", "WARN"):
+                ds = (
+                    conn.execute(select(recon_data_source).where(recon_data_source.c.ID == int(item["DATA_SOURCE_ID"])))
+                    .mappings()
+                    .first()
+                )
+                if ds is not None and ds["ENV"] == "PROD":
+                    prod_ds.append(str(ds["NAME"]))
+        prod_ds = sorted(set(prod_ds))
+        if prod_ds and not confirm_prod:
+            raise ServiceError(
+                ErrorCode.PROD_CONFIRM_REQUIRED,
+                "Lần chạy bộ dùng Data Source thuộc môi trường PROD ("
+                + ", ".join(prod_ds)
+                + "). Cần xác nhận trước khi chạy.",
+                {"prod_data_sources": prod_ds},
+            )
+
+        now = _now()
+        started = 0
+        not_run = 0
+        for item in items:
+            status = str(item["STATUS"])
+            if status == "SKIPPED":
+                continue
+            file_rows = (
+                conn.execute(
+                    select(recon_batch_run_file)
+                    .where(recon_batch_run_file.c.BATCH_RUN_ITEM_ID == item["ID"])
+                    .where(recon_batch_run_file.c.MATCH_STATE == "MATCHED")
+                )
+                .mappings()
+                .all()
+            )
+            has_files = len(file_rows) > 0
+
+            def _mark(
+                item_id: int, new_status: str, skip_reason: str | None = None, error_msg: str | None = None
+            ) -> None:
+                conn.execute(
+                    update(recon_batch_run_item)
+                    .where(recon_batch_run_item.c.ID == item_id)
+                    .values(
+                        STATUS=new_status,
+                        SKIP_REASON=skip_reason,
+                        ERROR_MSG=error_msg,
+                        UPDATED_BY=ctx.username,
+                        UPDATED_AT=_now(),
+                    )
+                )
+
+            if status in ("READY", "WARN"):
+                if status == "WARN" and not include_warn:
+                    _mark(int(item["ID"]), "NOT_RUN")
+                    not_run += 1
+                    continue
+                if not has_files:
+                    if item["IS_REQUIRED"] == "Y":
+                        _mark(int(item["ID"]), "NOT_RUN")
+                        not_run += 1
+                    else:
+                        _mark(int(item["ID"]), "SKIPPED", skip_reason="NO_FILE")
+                    continue
+                version_row = (
+                    conn.execute(
+                        select(recon_template_version)
+                        .where(recon_template_version.c.TEMPLATE_ID == item["TEMPLATE_ID"])
+                        .where(recon_template_version.c.STATUS == "ACTIVE")
+                        .order_by(recon_template_version.c.VERSION.desc())
+                        .limit(1)
+                    )
+                    .mappings()
+                    .first()
+                )
+                if version_row is None:
+                    _mark(
+                        int(item["ID"]),
+                        "NOT_RUN",
+                        error_msg="Template không còn version Active lúc chạy.",
+                    )
+                    not_run += 1
+                    continue
+                cfg = TemplateConfig.model_validate(_parse_config(version_row["CONFIG_JSON"]))
+                resolved = _parse_json(item["PARAMS_RESOLVED_JSON"], {})
+                p_from = _parse_dt(resolved.get("p_from")) or run["PERIOD_FROM"]
+                p_to = _parse_dt(resolved.get("p_to")) or run["PERIOD_TO"]
+                child_id = conn.execute(
+                    insert(recon_run)
+                    .values(
+                        TEMPLATE_ID=int(item["TEMPLATE_ID"]),
+                        TEMPLATE_VERSION=int(version_row["VERSION"]),
+                        PROFILE_CODE=str(item["PROFILE_CODE"]),
+                        PROFILE_OVERRIDE=None,
+                        FILE_ID=int(file_rows[0]["FILE_ID"]),
+                        EXCEL_LOAD_ID=None,
+                        SHEET_NAME=cfg.file.sheet,
+                        DATA_SOURCE_ID=int(item["DATA_SOURCE_ID"]),
+                        P_FROM=p_from,
+                        P_TO=p_to,
+                        PARAMS_JSON=resolved,
+                        APPLY_RANGE_EXCEL="Y",
+                        STATUS="QUEUED",
+                        PROGRESS_PCT=0,
+                        BATCH_RUN_ID=run_id,
+                        BATCH_RUN_ITEM_ID=int(item["ID"]),
+                        CREATED_BY=ctx.username,
+                        CREATED_AT=now,
+                    )
+                    .returning(recon_run.c.ID)
+                ).scalar()
+                child_id = int(child_id) if child_id is not None else 0
+                conn.execute(
+                    insert(recon_run_queue).values(
+                        RUN_ID=child_id,
+                        STATUS="READY",
+                        RETRY_COUNT=0,
+                        ENQUEUED_AT=now,
+                    )
+                )
+                conn.execute(
+                    update(recon_batch_run_item)
+                    .where(recon_batch_run_item.c.ID == item["ID"])
+                    .values(
+                        STATUS="QUEUED",
+                        TEMPLATE_VERSION=int(version_row["VERSION"]),
+                        CURRENT_RUN_ID=child_id,
+                        ATTEMPT_NO=int(item["ATTEMPT_NO"] or 0) + 1,
+                        ERROR_MSG=None,
+                        UPDATED_BY=ctx.username,
+                        UPDATED_AT=_now(),
+                    )
+                )
+                started += 1
+            elif status == "PENDING":
+                if not has_files:
+                    if item["IS_REQUIRED"] == "Y":
+                        _mark(int(item["ID"]), "NOT_RUN")
+                        not_run += 1
+                    else:
+                        _mark(int(item["ID"]), "SKIPPED", skip_reason="NO_FILE")
+                else:
+                    _mark(int(item["ID"]), "NOT_RUN")
+                    not_run += 1
+            elif status == "ERROR":
+                _mark(int(item["ID"]), "NOT_RUN")
+                not_run += 1
+
+        conn.execute(
+            update(recon_batch_run)
+            .where(recon_batch_run.c.ID == run_id)
+            .values(
+                STATUS="RUNNING",
+                STARTED_AT=now,
+                PROD_CONFIRMED_BY=ctx.username if (prod_ds and confirm_prod) else None,
+                UPDATED_BY=ctx.username,
+                UPDATED_AT=now,
+            )
+        )
+        write_audit_log(
+            conn=conn,
+            entity="BATCH_RUN",
+            entity_id=run_id,
+            action="START_BATCH_RUN",
+            actor=ctx.username,
+            new_data={"started": started, "not_run": not_run, "prod_data_sources": prod_ds},
+            now=now,
+        )
+
+    sync_batch_status(engine, run_id)
+    with engine.connect() as conn:
+        run_row = _get_run(conn, run_id)
+        out = _load_run_full(conn, run_row)
+    out["started"] = started
+    out["not_run"] = not_run
+    out["prod_data_sources"] = prod_ds
+    out["prod_confirmed_by"] = ctx.username if (prod_ds and confirm_prod) else None
+    return out
+
+
+def _parse_dt(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None

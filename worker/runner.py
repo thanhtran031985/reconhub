@@ -56,6 +56,27 @@ class ReconWorker:
                 )
                 reset_count += 1
 
+        # Run con của batch bị treo -> đồng bộ trạng thái batch (mục FAILED,
+        # batch có thể kết thúc PARTIAL). Lỗi đồng bộ không chặn reset.
+        if stale_run_ids:
+            try:
+                from app.services.batch_run import sync_batch_status
+
+                with self.engine.connect() as conn:
+                    batch_ids = [
+                        int(r[0])
+                        for r in conn.execute(
+                            select(recon_run.c.BATCH_RUN_ID).where(
+                                recon_run.c.ID.in_(stale_run_ids),
+                                recon_run.c.BATCH_RUN_ID.is_not(None),
+                            )
+                        ).fetchall()
+                    ]
+                for batch_id in sorted(set(batch_ids)):
+                    sync_batch_status(self.engine, batch_id)
+            except Exception as exc:  # noqa: BLE001 - đồng bộ batch là phụ
+                logger.warn("Không đồng bộ được trạng thái batch sau khi reset job treo", error=str(exc))
+
         return reset_count
 
     def _start_heartbeat(self, run_id: int, stop_ev: threading.Event) -> threading.Thread:
