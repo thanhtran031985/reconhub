@@ -7,7 +7,9 @@ whitelist và diff cột/tham số khi nguồn đổi. Chỉ ADMIN (menu report_
 
 from __future__ import annotations
 
+import re
 from contextlib import contextmanager
+from typing import Any
 
 from sqlalchemy import select
 
@@ -15,6 +17,7 @@ from app.core.context import Ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_data_source
 from app.engine.catalog import describe_sql, list_columns, list_tables
+from app.engine.sql_dialect import quote_identifier
 from app.engine.sql_guard import check_report_sql
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
@@ -61,6 +64,139 @@ def map_oracle_type(oracle_type: str) -> str:
     """Map kiểu Oracle sang kiểu cột báo cáo; kiểu lạ mặc định STRING."""
     base = oracle_type.strip().upper().split("(")[0].strip()
     return ORACLE_TYPE_MAP.get(base, "STRING")
+
+
+# Operator filter cho phép (khớp check constraint RECON_RPT_PARAM, task 21).
+FILTER_OPERATORS = ("=", ">=", "<=", "BETWEEN", "IN", "LIKE_PREFIX", "IS_NULL")
+
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_$#]{0,127}$")
+
+
+def _validate_identifier(name: str, what: str) -> None:
+    """Chặn identifier lạ (khoảng trắng, dấu nháy, dấu chấm phẩy...) — T22-06."""
+    if not _IDENTIFIER_RE.match(name.strip()):
+        raise ServiceError(
+            ErrorCode.SQL_NOT_ALLOWED,
+            f"Tên {what} không hợp lệ: {name!r}.",
+        )
+
+
+def _whitelist_column(name: str, whitelist: dict[str, str]) -> str:
+    """Trả tên cột chuẩn (theo metadata) nếu nằm trong whitelist — T22-06."""
+    canonical = whitelist.get(name.strip().upper())
+    if canonical is None:
+        raise ServiceError(
+            ErrorCode.SQL_NOT_ALLOWED,
+            f"Cột {name!r} không nằm trong danh sách cột của nguồn dữ liệu.",
+        )
+    return canonical
+
+
+def build_report_query(
+    source_type: str,
+    owner: str,
+    object_name: str,
+    columns: list[dict[str, Any]],
+    selected: list[str] | None = None,
+    filters: list[dict[str, Any]] | None = None,
+    sorts: list[dict[str, str]] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Sinh SELECT cho nguồn VIEW/TABLE từ metadata đã discover (T22-03, T22-06).
+
+    columns: whitelist metadata [{"name": ...}]. selected: cột lấy ra
+    (rỗng = tất cả theo thứ tự metadata). filters: [{"column", "operator",
+    "code", "value"}] — giá trị luôn bind, không nối chuỗi; filter rỗng
+    (None/""/[]) bị bỏ qua. sorts: [{"column", "direction"}].
+    Trả (sql, binds). CUSTOM_SQL không qua builder (dùng SQL snapshot
+    của version sau validate_version_sql).
+    """
+    if source_type not in ("VIEW", "TABLE"):
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR,
+            "build_report_query chỉ dùng cho nguồn VIEW/TABLE; "
+            "CUSTOM_SQL dùng trực tiếp SQL snapshot của version.",
+        )
+    if not columns:
+        raise ServiceError(
+            ErrorCode.SQL_NOT_ALLOWED,
+            "Nguồn dữ liệu không có cột nào trong metadata.",
+        )
+    _validate_identifier(owner, "schema")
+    _validate_identifier(object_name, "đối tượng")
+    whitelist = {str(c["name"]).upper(): str(c["name"]) for c in columns}
+
+    if selected:
+        select_cols = [_whitelist_column(c, whitelist) for c in selected]
+    else:
+        select_cols = [str(c["name"]) for c in columns]
+    select_clause = ", ".join(quote_identifier(c) for c in select_cols)
+    sql = (
+        f"SELECT {select_clause} "
+        f"FROM {quote_identifier(owner)}.{quote_identifier(object_name)}"
+    )
+
+    binds: dict[str, Any] = {}
+    conditions: list[str] = []
+    for flt in filters or []:
+        col = _whitelist_column(str(flt["column"]), whitelist)
+        op = str(flt["operator"]).upper()
+        if op not in FILTER_OPERATORS:
+            raise ServiceError(
+                ErrorCode.SQL_NOT_ALLOWED,
+                f"Toán tử filter không hợp lệ: {op!r}.",
+            )
+        code = str(flt["code"])
+        _validate_identifier(code, "mã tham số")
+        value = flt.get("value")
+        col_expr = quote_identifier(col)
+        if op == "IS_NULL":
+            conditions.append(f"{col_expr} IS NULL")
+            continue
+        if value is None or value == "" or value == []:
+            continue
+        if op in ("=", ">=", "<="):
+            conditions.append(f"{col_expr} {op} :{code}")
+            binds[code] = value
+        elif op == "BETWEEN":
+            if not isinstance(value, (list, tuple)) or len(value) != 2:
+                raise ServiceError(
+                    ErrorCode.SQL_NOT_ALLOWED,
+                    f"Filter BETWEEN của {code!r} cần đúng 2 giá trị.",
+                )
+            conditions.append(f"{col_expr} BETWEEN :{code}_from AND :{code}_to")
+            binds[f"{code}_from"] = value[0]
+            binds[f"{code}_to"] = value[1]
+        elif op == "IN":
+            if not isinstance(value, (list, tuple)) or len(value) == 0:
+                raise ServiceError(
+                    ErrorCode.SQL_NOT_ALLOWED,
+                    f"Filter IN của {code!r} cần danh sách giá trị không rỗng.",
+                )
+            placeholders = ", ".join(f":{code}_{i+1}" for i in range(len(value)))
+            conditions.append(f"{col_expr} IN ({placeholders})")
+            for i, item in enumerate(value):
+                binds[f"{code}_{i+1}"] = item
+        elif op == "LIKE_PREFIX":
+            conditions.append(f"{col_expr} LIKE :{code}")
+            binds[code] = f"{value}%"
+
+    if conditions:
+        sql += " WHERE " + " AND ".join(conditions)
+
+    order_parts: list[str] = []
+    for srt in sorts or []:
+        col = _whitelist_column(str(srt["column"]), whitelist)
+        direction = str(srt["direction"]).upper()
+        if direction not in ("ASC", "DESC"):
+            raise ServiceError(
+                ErrorCode.SQL_NOT_ALLOWED,
+                f"Hướng sắp xếp không hợp lệ: {direction!r}.",
+            )
+        order_parts.append(f"{quote_identifier(col)} {direction}")
+    if order_parts:
+        sql += " ORDER BY " + ", ".join(order_parts)
+
+    return sql, binds
 
 
 def _ds_timeout_seconds(data_source_id: int) -> int:

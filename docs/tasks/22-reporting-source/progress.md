@@ -6,8 +6,12 @@ Trạng thái: 🔄
 |---|---|---|---|
 | 1 | SQL validator SELECT-only và bind discovery | ✅ | 04c8c40 |
 | 2 | Oracle metadata discovery | ✅ | |
-| 3 | VIEW/TABLE object picker và whitelist query builder | ⬜ | |
+| 3 | VIEW/TABLE object picker và whitelist query builder | ✅ | |
 | 4 | Column/parameter diff khi source đổi | ⬜ | |
+
+## Bước 3 — VIEW/TABLE object picker và whitelist query builder (06/11/2026)
+- `app/services/report_source.py`: `build_report_query(source_type, owner, object_name, columns, selected, filters, sorts)` thuần (không DB): sinh `SELECT <cột> FROM <owner.object>` với `quote_identifier` (sql_dialect); cột select/filter/sort phải nằm trong whitelist metadata (so khớp không phân biệt hoa/thường, dùng tên chuẩn); owner/object/mã tham số qua regex identifier (chặn nháy/khoảng trắng/`;`); operator chỉ 7 loại theo check constraint (BETWEEN → 2 bind `_from`/`_to`, IN → 1 bind mỗi phần tử, LIKE_PREFIX cộng `%` vào giá trị bind, IS_NULL không bind); filter rỗng (None/""/[]) bỏ qua; selected rỗng = tất cả cột; giá trị không bao giờ nối vào SQL (T22-03). CUSTOM_SQL không qua builder (dùng SQL snapshot sau validate, lỗi VALIDATION_ERROR nếu gọi nhầm).
+- Test: `tests/unit/test_report_query_builder.py` (T22-03/T22-06). 23 test pass.
 
 ## Bước 2 — Oracle metadata discovery (06/11/2026)
 - `app/engine/catalog.py`: `list_tables` thêm tham số `object_type` (None = UNION cũ, "TABLE" chỉ ALL_TABLES, "VIEW" chỉ ALL_VIEWS); cache key thêm object_type để cache riêng từng loại.
