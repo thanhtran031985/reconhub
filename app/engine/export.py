@@ -193,9 +193,18 @@ def _write_data_sheet(
                     fmt = formats["status_missing"]
                 ws.write(r_idx, c_idx, st, fmt)
 
-            # Cột dòng Excel
+            # Cột dòng Excel: run gộp nhiều file hiện "file · dòng r"
             elif col_name == "__row_nos":
-                row_nos_str = ", ".join(str(x) for x in val) if isinstance(val, list) else str(val or "")
+                if isinstance(val, list):
+                    parts = []
+                    for x in val:
+                        if isinstance(x, dict):
+                            parts.append(f"{x.get('f')} · dòng {x.get('r')}")
+                        else:
+                            parts.append(str(x))
+                    row_nos_str = ", ".join(parts)
+                else:
+                    row_nos_str = str(val or "")
                 ws.write(r_idx, c_idx, row_nos_str, formats["text_center"])
 
             # Cột Measures

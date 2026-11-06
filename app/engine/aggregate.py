@@ -9,6 +9,20 @@ import polars as pl
 from app.schemas.template_config import ProfileSpec
 
 
+def _row_nos_for_row(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Số dòng Excel của một dòng dữ liệu dạng {f, r} (spec 10a §7).
+
+    Dùng khi gộp nhiều file: f là tên hiển thị của file (__source_file),
+    r là số dòng trong file đó (__row_no). Executor đổi f thành file_id
+    khi ghi RECON_RESULT_ROW.
+    """
+    row_no = row.get("__row_no")
+    source = row.get("__source_file")
+    if isinstance(row_no, int) and source is not None:
+        return [{"f": str(source), "r": int(row_no)}]
+    return []
+
+
 def format_key_value(val: Any) -> str:
     """Định dạng một giá trị thành phần khóa sang chuỗi chuẩn."""
     if val is None:
@@ -134,11 +148,14 @@ def aggregate(
             int_key, _, _ = build_key(r, profile.group_by)
             key_counts[int_key] = key_counts.get(int_key, 0) + 1
 
+        has_source_file = "__source_file" in df.columns
         out_rows = []
         for r in rows:
             int_key, key_text, key_dict = build_key(r, profile.group_by)
             row_no = r.get("__row_no")
-            single_row_nos = [int(row_no)] if isinstance(row_no, int) else []
+            single_row_nos = (
+                _row_nos_for_row(r) if has_source_file else ([int(row_no)] if isinstance(row_no, int) else [])
+            )
 
             out_r = {
                 "__key": int_key,
@@ -172,16 +189,19 @@ def aggregate(
         groups[int_key].append(r)
 
     out_rows = []
+    has_source_file = "__source_file" in df.columns
     for int_key, group_rows in groups.items():
         first_r = group_rows[0]
         _, key_text, key_dict = build_key(first_r, profile.group_by)
 
-        row_nos: list[int] = []
+        row_nos: list[Any] = []
         for gr in group_rows:
-            rno = gr.get("__row_no")
-            if isinstance(rno, int):
-                row_nos.append(rno)
-        row_nos.sort()
+            row_nos.extend(
+                _row_nos_for_row(gr)
+                if has_source_file
+                else ([int(gr["__row_no"])] if isinstance(gr.get("__row_no"), int) else [])
+            )
+        row_nos.sort(key=lambda n: (str(n.get("f")), n.get("r")) if isinstance(n, dict) else n)
 
         out_r = {
             "__key": int_key,

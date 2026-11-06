@@ -490,3 +490,141 @@ def test_golden_g12_csv() -> None:
 
     res = run_pipeline(excel_path=tmp_csv, config=cfg, fetcher=db_df)
     assert res.summary["CNT_MATCHED"] == 2
+
+
+# --- G14: gộp nhiều file (task 18, bước 5, spec 10 §5.6) ---------------------
+
+
+def _g14_write_dtp_xlsx(
+    path: Path, header: list[str], data_rows: list[list], total_header: list[str] | None = None
+) -> None:
+    import xlsxwriter
+
+    total_header = total_header or header
+    qty_idx = total_header.index("Số lượng")
+    amt_idx = total_header.index("Thành tiền")
+    svc_idx = total_header.index("Dịch vụ")
+    qty = sum(Decimal(str(r[qty_idx])) for r in data_rows if r[qty_idx] not in (None, ""))
+    amt = sum(Decimal(str(r[amt_idx])) for r in data_rows if r[amt_idx] not in (None, ""))
+    total_row: list = [None] * len(header)
+    total_row[svc_idx] = "Tổng tiền"
+    total_row[qty_idx] = str(qty)
+    total_row[amt_idx] = str(amt)
+    with xlsxwriter.Workbook(str(path)) as wb:
+        ws = wb.add_worksheet("BÁO CÁO DTP")
+        ws.write_row(0, 0, header)
+        for i, row in enumerate(data_rows, start=1):
+            ws.write_row(i, 0, ["" if v is None else str(v) for v in row])
+        ws.write_row(len(data_rows) + 1, 0, ["" if v is None else str(v) for v in total_row])
+
+
+def _g14_split(tmp_path: Path) -> tuple[list[str], list[Path], Path]:
+    df = pl.read_excel(
+        "samples/dtp_sample_200.xlsx",
+        sheet_name="BÁO CÁO DTP",
+        engine="calamine",
+        has_header=False,
+        infer_schema_length=0,
+    )
+    rows = df.rows()
+    header = [str(v) for v in rows[0]]
+    data_rows = [list(r) for r in rows[1:201]]
+    # Trùng khóa giữa 2 file: cùng số hóa đơn ở file 1 và file 2.
+    dup_row = list(data_rows[0])
+    parts = [data_rows[:70], data_rows[70:140] + [dup_row], data_rows[140:]]
+    paths: list[Path] = []
+    for i, part in enumerate(parts, start=1):
+        p = tmp_path / f"g14_part{i}.xlsx"
+        _g14_write_dtp_xlsx(p, header, part)
+        paths.append(p)
+    single = tmp_path / "g14_single.xlsx"
+    _g14_write_dtp_xlsx(single, header, data_rows + [dup_row])
+    return header, paths, single
+
+
+def _g14_result_key(res) -> list[tuple]:
+    rows = res.result_df.sort("KEY_TEXT").to_dicts()
+    return [
+        (
+            r["KEY_TEXT"],
+            r["STATUS"],
+            str(r.get("x__TOTAL_AMOUNT")),
+            str(r.get("d__TOTAL_AMOUNT")),
+        )
+        for r in rows
+    ]
+
+
+def test_golden_g14_merge_files(dtp_config: TemplateConfig, dtp_db_parquet: pl.DataFrame, tmp_path: Path) -> None:
+    _header, parts, single = _g14_split(tmp_path)
+    params = {
+        "p_from": "2026-02-01 00:00:00",
+        "p_to": "2026-02-05 23:59:59",
+        "p_org": "BDP",
+    }
+    single_res = run_pipeline(
+        excel_path=single,
+        config=dtp_config,
+        profile_code="BY_INVOICE",
+        params=params,
+        fetcher=dtp_db_parquet,
+    )
+    merged_res = run_pipeline(
+        excel_files=[(p, p.name) for p in parts],
+        config=dtp_config,
+        profile_code="BY_INVOICE",
+        params=params,
+        fetcher=dtp_db_parquet,
+    )
+    # Kết quả gộp 3 file bằng chạy 1 file đã nối tay. EXCEL_ROWS_READ
+    # khác nhau là đúng: mỗi file có một dòng tổng riêng (3 dòng tổng
+    # so với 1 dòng tổng ở file nối tay); DURATION_MS cũng khác nhau.
+    merged_summary = {k: v for k, v in merged_res.summary.items() if k not in ("EXCEL_ROWS_READ", "DURATION_MS")}
+    single_summary = {k: v for k, v in single_res.summary.items() if k not in ("EXCEL_ROWS_READ", "DURATION_MS")}
+    assert merged_summary == single_summary
+    assert _g14_result_key(merged_res) == _g14_result_key(single_res)
+    # Control total cộng dồn từng file.
+    assert merged_res.control_total is not None
+    assert merged_res.control_total.is_matched is True
+    assert merged_res.control_total.file_total == single_res.control_total.file_total
+    assert merged_res.control_total.calc_total == single_res.control_total.calc_total
+    # __row_nos dạng {f, r} khi gộp nhiều file.
+    row_nos = merged_res.result_df.filter(pl.col("STATUS") == "MISMATCH").to_dicts()[0]["__row_nos"]
+    assert row_nos
+    assert all(isinstance(n, dict) and set(n) == {"f", "r"} for n in row_nos)
+    assert {n["f"] for n in row_nos} <= {p.name for p in parts}
+    # File đơn giữ dạng cũ [r, ...].
+    single_nos = single_res.result_df.filter(pl.col("STATUS") == "MISMATCH").to_dicts()[0]["__row_nos"]
+    assert single_nos and all(isinstance(n, int) for n in single_nos)
+
+
+def test_golden_g14_header_mismatch(dtp_config: TemplateConfig, dtp_db_parquet: pl.DataFrame, tmp_path: Path) -> None:
+    from app.schemas.errors import ErrorCode, ServiceError
+
+    header, parts, _single = _g14_split(tmp_path)
+    bad_header = ["Thanh tien" if h == "Thành tiền" else h for h in header]
+    bad_path = tmp_path / "g14_bad.xlsx"
+    df = pl.read_excel(
+        "samples/dtp_sample_200.xlsx",
+        sheet_name="BÁO CÁO DTP",
+        engine="calamine",
+        has_header=False,
+        infer_schema_length=0,
+    )
+    data_rows = [list(r) for r in df.rows()[1:11]]
+    _g14_write_dtp_xlsx(bad_path, bad_header, data_rows, total_header=header)
+    params = {
+        "p_from": "2026-02-01 00:00:00",
+        "p_to": "2026-02-05 23:59:59",
+        "p_org": "BDP",
+    }
+    with pytest.raises(ServiceError) as exc_info:
+        run_pipeline(
+            excel_files=[(parts[0], parts[0].name), (bad_path, bad_path.name)],
+            config=dtp_config,
+            profile_code="BY_INVOICE",
+            params=params,
+            fetcher=dtp_db_parquet,
+        )
+    assert exc_info.value.code == ErrorCode.BATCH_MERGE_HEADER_MISMATCH
+    assert "g14_bad.xlsx" in exc_info.value.message

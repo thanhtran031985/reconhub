@@ -24,6 +24,9 @@
 | 2026-11-06 | Tạo lần chạy bộ lỗi NOT_FOUND khi template chưa cấu hình Data Source (cả ở bộ lẫn version) | Không có DS thì không thể chạy; lỗi nêu rõ template id để sửa cấu hình | bước 4 |
 | 2026-11-06 | File .zip lưu vào RECON_FILE bằng helper riêng trong batch_run (chỉ kiểm magic `PK`), không dùng `upload_file` | `upload_file` chỉ nhận .xlsx/.xls/.csv, từ chối .zip | bước 4 |
 | 2026-11-06 | File trong .zip không phải Excel/CSV hoặc vượt 50 MB được bỏ qua và báo trong `skipped`, không hủy cả .zip | Lỗi một file không hủy các file khác (spec 10 §9) | bước 4 |
+| 2026-11-06 | Gộp file: EXCEL_ROWS_READ của 3 file (204) khác 1 file nối tay (202) vì mỗi file có 1 dòng tổng riêng — so sánh G14 bỏ qua EXCEL_ROWS_READ/DURATION_MS, chỉ so summary còn lại + từng dòng kết quả | Dòng tổng là dòng thô của từng file, không phải dữ liệu trùng | bước 5 |
+| 2026-11-06 | `__row_nos` trong engine mang tên file (`{"f": tên, "r": dòng}`), executor đổi tên → file_id khi ghi RECON_RESULT_ROW qua SOURCE_FILES_JSON của bản nạp | Engine thuần không có file_id; tên hiển thị là cầu nối duy nhất (trùng basename trong .zip vẫn phân biệt được nhờ tên gốc "zip/thư mục/file") | bước 5 |
+| 2026-11-06 | `load_excel_files_to_temp` không tái dùng `load_excel_to_temp` mà viết riêng theo FILE_SET_HASH (dùng lại/ghi lại bản purge/đua IntegrityError) | Đường 1 file có logic dedup theo FILE_ID; đường tập file phải key theo FILE_SET_HASH ngay từ đầu | bước 5 |
 
 ## Câu hỏi còn mở
 - Kỳ khác tháng (quý, khoảng ngày)?

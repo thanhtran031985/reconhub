@@ -13,6 +13,7 @@ from app.engine.compare import compare
 from app.engine.control_total import ControlTotalResult, check_control_total
 from app.engine.filters import apply_profile_filters, apply_row_filters, apply_time_filter
 from app.engine.mapping import resolve_columns
+from app.engine.merge_files import merge_excel_files, sum_control_totals
 from app.engine.normalize import derive, normalize
 from app.engine.reader import read_sheet
 from app.engine.sql_builder import build_source_sql
@@ -53,13 +54,19 @@ def _parse_datetime(val: Any) -> datetime | None:
 
 
 def run_pipeline(
-    excel_path: str | Path,
+    excel_path: str | Path | None = None,
+    *,
     config: TemplateConfig,
     profile_code: str | None = None,
     params: dict[str, Any] | None = None,
     fetcher: Any = None,
+    excel_files: list[tuple[str | Path, str]] | None = None,
 ) -> PipelineResult:
-    """Chạy trọn vẹn đối soát theo Spec 04 mục 0."""
+    """Chạy trọn vẹn đối soát theo Spec 04 mục 0.
+
+    excel_files: gộp nhiều file [(đường dẫn, tên hiển thị)] — dùng cho
+    chạy theo bộ (spec 10 §5.6). Khi có excel_files thì bỏ qua excel_path.
+    """
     start_time = time.perf_counter()
     params_dict = params or {}
 
@@ -82,32 +89,47 @@ def run_pipeline(
 
     profile = target_profile
 
-    # 2. Đọc file Excel
-    raw_df, _ = read_sheet(excel_path, config.file)
-    excel_rows_read = len(raw_df)
-
-    # 3. Lọc dòng Excel thô (drop_if, keep_if, loại bỏ footer v.v.)
-    filtered_raw = apply_row_filters(raw_df, config.file.row_filters)
-
-    # 4. Kiểm tra Control total (Spec 04 mục 3: trên dữ liệu sau row_filters, trước lọc thời gian)
+    # 2–6. Đọc + lọc + control total + mapping + chuẩn hóa (Excel).
+    # Gộp nhiều file (spec 10 §5.6): mỗi file xử lý riêng theo cùng
+    # FileSpec, header đã map phải khớp, control total kiểm từng file.
     ct_res: ControlTotalResult | None = None
-    if config.control_total:
-        ct_res = check_control_total(
-            raw_df,
-            filtered_raw,
-            config.control_total,
-            config.fields,
-            thousand_sep=config.file.thousand_sep or ",",
-            decimal_sep=config.file.decimal_sep or ".",
-        )
+    if excel_files is not None:
+        merged = merge_excel_files(excel_files, config)
+        excel_rows_read = sum(m.rows_read for m in merged)
+        excel_rows_invalid = sum(m.rows_invalid for m in merged)
+        ct_res = sum_control_totals(merged)
+        valid_parts = [m.valid_df for m in merged if not m.valid_df.is_empty()]
+        invalid_parts = [m.invalid_df for m in merged if not m.invalid_df.is_empty()]
+        derived_excel = pl.concat(valid_parts, how="diagonal") if valid_parts else pl.DataFrame()
+        invalid_df = pl.concat(invalid_parts, how="diagonal") if invalid_parts else pl.DataFrame()
+    else:
+        if excel_path is None:
+            raise ServiceError(ErrorCode.VALIDATION_ERROR, "Thiếu file Excel để đối soát.")
+        # 2. Đọc file Excel
+        raw_df, _ = read_sheet(excel_path, config.file)
+        excel_rows_read = len(raw_df)
 
-    # 5. Mapping cột
-    mapped_df, _ = resolve_columns(filtered_raw, config.fields)
+        # 3. Lọc dòng Excel thô (drop_if, keep_if, loại bỏ footer v.v.)
+        filtered_raw = apply_row_filters(raw_df, config.file.row_filters)
 
-    # 6. Chuẩn hóa & Dẫn xuất (Excel)
-    norm_excel, invalid_df = normalize(mapped_df, config.fields, side="excel")
-    excel_rows_invalid = len(invalid_df)
-    derived_excel = derive(norm_excel, config.derived)
+        # 4. Kiểm tra Control total (Spec 04 mục 3: trên dữ liệu sau row_filters, trước lọc thời gian)
+        if config.control_total:
+            ct_res = check_control_total(
+                raw_df,
+                filtered_raw,
+                config.control_total,
+                config.fields,
+                thousand_sep=config.file.thousand_sep or ",",
+                decimal_sep=config.file.decimal_sep or ".",
+            )
+
+        # 5. Mapping cột
+        mapped_df, _ = resolve_columns(filtered_raw, config.fields)
+
+        # 6. Chuẩn hóa & Dẫn xuất (Excel)
+        norm_excel, invalid_df = normalize(mapped_df, config.fields, side="excel")
+        excel_rows_invalid = len(invalid_df)
+        derived_excel = derive(norm_excel, config.derived)
 
     # 7. Lọc theo thời gian (Excel) — chỉ khi apply_range_excel bật.
     # Mặc định pipeline giữ True để các caller trực tiếp cũ không đổi hành

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
-from sqlalchemy import delete, desc, func, select
+from sqlalchemy import delete, desc, func, select, tuple_
 
 from app.core.context import Ctx, Role
 from app.db.engine import get_recon_engine
@@ -34,6 +34,19 @@ from app.schemas.run import CreateRunParams, PrecheckParams, RunListFilter, RunR
 from app.schemas.template_config import TemplateConfig
 from app.services import service
 from app.services.perm import check_owned, owner_filter, requires_menu
+
+
+def _parse_excel_row_nos(value: Any) -> list[Any]:
+    """Đọc EXCEL_ROW_NOS: dạng cũ "2,5,9" hoặc dạng gộp [{"f": file_id, "r": dòng}]."""
+    text = str(value or "").strip()
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+    return [int(n.strip()) for n in text.split(",") if n.strip().isdigit()]
 
 
 @service
@@ -655,23 +668,43 @@ def get_row_detail(ctx: Ctx, run_id: int, row_no: int) -> dict[str, Any]:
             if iss_row:
                 issue_info = dict(iss_row)
 
-        # Đọc dòng thô từ Excel nếu chưa bị xóa
+        # Đọc dòng thô từ Excel nếu chưa bị xóa. EXCEL_ROW_NOS có 2 dạng:
+        # run 1 file: "2,5,9"; run gộp nhiều file: [{"f": file_id, "r": dòng}]
+        # (spec 10a §7).
         raw_rows = None
         is_purged = run_row and run_row["TEMP_PURGED_AT"] is not None
         if not is_purged and run_row and run_row["EXCEL_LOAD_ID"]:
-            row_nos_str = row["EXCEL_ROW_NOS"] or ""
-            row_nos = [int(n.strip()) for n in row_nos_str.split(",") if n.strip().isdigit()]
+            row_nos = _parse_excel_row_nos(row["EXCEL_ROW_NOS"])
             if row_nos:
-                excel_rows_stmt = (
-                    select(recon_excel_row)
-                    .where(
-                        recon_excel_row.c.LOAD_ID == run_row["EXCEL_LOAD_ID"],
-                        recon_excel_row.c.EXCEL_ROW_NO.in_(row_nos),
+                if isinstance(row_nos[0], dict):
+                    pairs = [
+                        (int(p["f"]), int(p["r"]))
+                        for p in row_nos
+                        if isinstance(p, dict) and p.get("f") is not None and p.get("r") is not None
+                    ]
+                    excel_rows_stmt = (
+                        select(recon_excel_row)
+                        .where(
+                            recon_excel_row.c.LOAD_ID == run_row["EXCEL_LOAD_ID"],
+                            tuple_(recon_excel_row.c.SOURCE_FILE_ID, recon_excel_row.c.EXCEL_ROW_NO).in_(pairs),
+                        )
+                        .order_by(recon_excel_row.c.SOURCE_FILE_ID, recon_excel_row.c.EXCEL_ROW_NO)
                     )
-                    .order_by(recon_excel_row.c.EXCEL_ROW_NO)
-                )
+                else:
+                    excel_rows_stmt = (
+                        select(recon_excel_row)
+                        .where(
+                            recon_excel_row.c.LOAD_ID == run_row["EXCEL_LOAD_ID"],
+                            recon_excel_row.c.EXCEL_ROW_NO.in_([int(n) for n in row_nos]),
+                        )
+                        .order_by(recon_excel_row.c.EXCEL_ROW_NO)
+                    )
                 raw_rows = [
-                    {"excel_row_no": int(er["EXCEL_ROW_NO"]), "data": er["DATA_JSON"]}
+                    {
+                        "excel_row_no": int(er["EXCEL_ROW_NO"]),
+                        "source_file_id": int(er["SOURCE_FILE_ID"]) if er["SOURCE_FILE_ID"] is not None else None,
+                        "data": er["DATA_JSON"],
+                    }
                     for er in conn.execute(excel_rows_stmt).mappings().fetchall()
                 ]
 
@@ -776,7 +809,7 @@ def export_run(
             "STATUS": r["STATUS"],
             "ABS_DIFF_MAIN": r["ABS_DIFF_MAIN"],
             "ABS_DIFF_SORT": r["ABS_DIFF_SORT"],
-            "__row_nos": [int(n) for n in str(r["EXCEL_ROW_NOS"]).split(",") if n.strip().isdigit()],
+            "__row_nos": _parse_excel_row_nos(r["EXCEL_ROW_NOS"]),
         }
         if r["KEY_JSON"]:
             row_dict.update(r["KEY_JSON"])

@@ -39,6 +39,25 @@ def _detect_csv_delimiter(path: Path) -> str:
     return delim if counts[delim] > 0 else ","
 
 
+def read_sheets(
+    paths: list[Path | str],
+    file_spec: FileSpec,
+    names: list[str] | None = None,
+) -> list[tuple[str, pl.DataFrame]]:
+    """Đọc nhiều file theo cùng FileSpec, trả về [(tên hiển thị, raw_df)].
+
+    Mỗi DataFrame giữ __row_no theo từng file. Tên hiển thị mặc định là
+    basename; caller (gộp file theo bộ) truyền tên gốc trong .zip để
+    __source_file không trùng khi hai file cùng tên.
+    """
+    out: list[tuple[str, pl.DataFrame]] = []
+    for i, path in enumerate(paths):
+        name = names[i] if names is not None else Path(path).name
+        raw_df, _ = read_sheet(path, file_spec)
+        out.append((name, raw_df))
+    return out
+
+
 def read_sheet(
     path: Path | str,
     file_spec: FileSpec,

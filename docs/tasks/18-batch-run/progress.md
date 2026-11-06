@@ -8,7 +8,7 @@ Trạng thái: 🔄 (bắt đầu 06/11/2026, nhánh feat/18-batch-run từ ad98
 | 2 | Công thức và ghép file (hàm thuần) | ✅ | 06/11/2026 |  |
 | 3 | Service bộ đối soát | ✅ | 06/11/2026 |  |
 | 4 | Lần chạy bộ: tạo, tải file, ghép, tham số | ✅ | 06/11/2026 |  |
-| 5 | Gộp nhiều file trong engine/executor | ⬜ |  |  |
+| 5 | Gộp nhiều file trong engine/executor | ✅ | 06/11/2026 |  |
 | 6 | Precheck, start, worker giới hạn song song | ⬜ |  |  |
 | 7 | Chạy lại, thay file, hủy, ma trận, .zip | ⬜ |  |  |
 | 8 | UI: Bộ đối soát và hộp thoại thêm template | ⬜ |  |  |
@@ -16,6 +16,14 @@ Trạng thái: 🔄 (bắt đầu 06/11/2026, nhánh feat/18-batch-run từ ad98
 | 10 | Chuyển Oracle, tài liệu, hồi quy | ⬜ |  |  |
 
 ## Nhật ký
+
+### Bước 5 — Gộp nhiều file trong engine/executor (06/11/2026)
+- `app/engine/merge_files.py` mới: `merge_excel_files` (đọc từng file theo cùng FileSpec, thêm `__source_file`, header đã map phải khớp — lệch → BATCH_MERGE_HEADER_MISMATCH chỉ rõ file, control total kiểm từng file) + `sum_control_totals`; `reader.read_sheets` đọc nhiều file.
+- `run_pipeline(excel_files=[(path, tên hiển thị)])`; `aggregate` ghi `__row_nos` dạng `[{"f": tên file, "r": dòng}]` khi có `__source_file`, 1 file giữ `[r, …]`.
+- `load_excel_files_to_temp` (excel_load): FILE_SET_HASH dedup/dùng lại/ghi lại bản nạp đã purge, SOURCE_FILES_JSON từng file, dòng RECON_EXCEL_ROW mang SOURCE_FILE_ID + EXCEL_ROW_NO theo từng file.
+- Executor SAVE ghi EXCEL_ROW_NOS dạng JSON `[{"f": file_id, "r": dòng}]` khi gộp (map tên → id qua SOURCE_FILES_JSON); run_service đọc lại chi tiết/xuất theo cả 2 dạng; export hiện "file · dòng r".
+- Kiểm tra: golden G14 (3 file = 1 file nối tay, trùng khóa giữa 2 file, header lệch) + `tests/integration/test_excel_load_fileset.py` 5 pass; typecheck 21 = baseline; lint sạch.
+- Ghi chú: xem decisions.md (EXCEL_ROWS_READ gộp = 204 vs 202 vì mỗi file có 1 dòng tổng riêng; FILE_ID của bản nạp gộp = file đầu tiên theo comment sẵn trong metadata).
 
 ### Bước 4 — Service lần chạy bộ (06/11/2026)
 - `app/services/batch_run.py`: create/get/list (owner scope Q2), add_files (tải + ghép mẫu tên/header, .zip an toàn, trùng tên/nội dung), assign_file/ignore_file, skip_item (USER_SKIP), set_param_override (giải lại tham số với kỳ).

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -14,6 +15,7 @@ from app.core.context import Ctx, Role
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
     recon_data_source,
+    recon_excel_load,
     recon_file,
     recon_invalid_row,
     recon_issue,
@@ -233,6 +235,23 @@ def execute_run(
         target_profile = pipeline_res.profile
         ct_res = pipeline_res.control_total
 
+        # Map tên file hiển thị -> file_id để ghi EXCEL_ROW_NOS dạng {f, r}
+        # khi run gộp nhiều file (spec 10a §7). Run 1 file giữ dạng cũ.
+        name_to_file_id: dict[str, int] = {}
+        if excel_load_id:
+            with engine.connect() as conn:
+                load_row = (
+                    conn.execute(select(recon_excel_load).where(recon_excel_load.c.ID == excel_load_id))
+                    .mappings()
+                    .first()
+                )
+            if load_row and load_row["SOURCE_FILES_JSON"]:
+                source_files = load_row["SOURCE_FILES_JSON"]
+                if isinstance(source_files, str):
+                    source_files = json.loads(source_files)
+                for sf in source_files or []:
+                    name_to_file_id[str(sf.get("name"))] = int(sf.get("file_id"))
+
         finished_now = datetime.now(timezone.utc).replace(tzinfo=None)
 
         if persist:
@@ -266,7 +285,18 @@ def execute_run(
                     }
 
                     row_nos_list = row.get("__row_nos") or []
-                    row_nos_str = ",".join(str(n) for n in row_nos_list) if isinstance(row_nos_list, list) else ""
+                    if row_nos_list and isinstance(row_nos_list[0], dict):
+                        # Gộp nhiều file: [{f: tên file, r: dòng}] -> [{f: file_id, r: dòng}]
+                        row_nos_str = json.dumps(
+                            [
+                                {"f": name_to_file_id.get(str(d.get("f")), d.get("f")), "r": d.get("r")}
+                                for d in row_nos_list
+                                if isinstance(d, dict)
+                            ],
+                            ensure_ascii=False,
+                        )
+                    else:
+                        row_nos_str = ",".join(str(n) for n in row_nos_list) if isinstance(row_nos_list, list) else ""
 
                     abs_diff_main = row.get("ABS_DIFF_MAIN")
                     abs_diff_sort = float(row.get("ABS_DIFF_SORT") or 0.0)

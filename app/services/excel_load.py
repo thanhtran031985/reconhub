@@ -386,3 +386,258 @@ def load_excel_to_temp(
         "control_total_matched": ct_matched,
         "is_reused": False,
     }
+
+
+def _build_fileset_row_records(
+    valid_df: Any, invalid_df: Any, load_id_value: int, source_file_id: int
+) -> list[dict[str, Any]]:
+    """Dòng RECON_EXCEL_ROW cho một file trong tập gộp."""
+    records: list[dict[str, Any]] = []
+    for r in valid_df.to_dicts():
+        r_copy = dict(r)
+        row_no = r_copy.pop("__row_no", 0)
+        r_copy.pop("__source_file", None)
+        records.append(
+            {
+                "LOAD_ID": load_id_value,
+                "SOURCE_FILE_ID": source_file_id,
+                "EXCEL_ROW_NO": int(row_no),
+                "DATA_JSON": _serialize_row_dict(r_copy),
+                "IS_VALID": "Y",
+            }
+        )
+    for inv in invalid_df.to_dicts():
+        row_no = inv.get("__row_no", 0)
+        data_json = {
+            "raw_data": _serialize_row_dict(inv.get("__raw_data") or {}),
+            "reasons": inv.get("__invalid_reasons") or {},
+        }
+        records.append(
+            {
+                "LOAD_ID": load_id_value,
+                "SOURCE_FILE_ID": source_file_id,
+                "EXCEL_ROW_NO": int(row_no),
+                "DATA_JSON": data_json,
+                "IS_VALID": "N",
+            }
+        )
+    return records
+
+
+def _fileset_response(existing: Any, file_ids: list[int], template_id: int, template_version: int) -> dict[str, Any]:
+    """Thông tin bản nạp theo tập file đã có (dùng lại, không nạp lại)."""
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        counts: dict[str, int] = dict(
+            conn.execute(
+                select(recon_excel_row.c.IS_VALID, func.count())
+                .where(recon_excel_row.c.LOAD_ID == int(existing["ID"]))
+                .group_by(recon_excel_row.c.IS_VALID)
+            ).all()
+        )
+    rows_valid = int(counts.get("Y", 0))
+    rows_invalid = int(counts.get("N", 0))
+    rows_read = int(existing["ROWS_READ"])
+    ex_ct_file = existing["CONTROL_TOTAL_FILE"]
+    ex_ct_calc = existing["CONTROL_TOTAL_CALC"]
+    ex_ct_matched = ex_ct_file is not None and ex_ct_file == ex_ct_calc
+    source_files = existing["SOURCE_FILES_JSON"]
+    if isinstance(source_files, str):
+        source_files = json.loads(source_files)
+    return {
+        "load_id": int(existing["ID"]),
+        "file_ids": file_ids,
+        "file_id": file_ids[0] if file_ids else 0,
+        "file_set_hash": str(existing["FILE_SET_HASH"]),
+        "sheet_name": str(existing["SHEET_NAME"]),
+        "template_id": template_id,
+        "template_version": template_version,
+        "rows_read": rows_read,
+        "rows_valid": rows_valid,
+        "rows_invalid": rows_invalid,
+        "control_total_file": Decimal(str(ex_ct_file)) if ex_ct_file is not None else None,
+        "control_total_calc": Decimal(str(ex_ct_calc)) if ex_ct_calc is not None else None,
+        "control_total_matched": ex_ct_matched,
+        "is_reused": True,
+        "source_files": source_files or [],
+    }
+
+
+@service
+@requires_menu("run")
+def load_excel_files_to_temp(
+    ctx: Ctx,
+    file_ids: list[int],
+    template_id: int,
+    template_version: int,
+    sheet_name: str | None = None,
+) -> dict[str, Any]:
+    """Nạp nhiều file Excel (đã gộp) vào bảng tạm theo FILE_SET_HASH.
+
+    Mỗi file kiểm control total riêng; header đã map phải khớp giữa các
+    file (BATCH_MERGE_HEADER_MISMATCH). Bản nạp dùng lại theo
+    FILE_SET_HASH (hash của danh sách SHA-256 đã sắp xếp + sheet +
+    template + version), kể cả khi cùng nội dung nằm dưới FILE_ID khác.
+    """
+    from app.engine.merge_files import merge_excel_files, sum_control_totals
+
+    if not file_ids:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Cần ít nhất một file để nạp.")
+    engine = get_recon_engine()
+
+    with engine.connect() as conn:
+        f_recs = conn.execute(select(recon_file).where(recon_file.c.ID.in_(file_ids))).mappings().all()
+    f_by_id = {int(r["ID"]): dict(r) for r in f_recs}
+    for fid in file_ids:
+        f_rec = f_by_id.get(fid)
+        if f_rec is None:
+            raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy file với id {fid}.")
+        if f_rec["PURGED_AT"] is not None or not f_rec["STORAGE_PATH"]:
+            raise ServiceError(ErrorCode.TEMP_DATA_PURGED, "File Excel đã bị xóa theo yêu cầu.")
+        if not Path(str(f_rec["STORAGE_PATH"])).exists():
+            raise ServiceError(ErrorCode.TEMP_DATA_PURGED, "File vật lý không còn tồn tại trên ổ cứng.")
+
+    with engine.connect() as conn:
+        tv_rec = (
+            conn.execute(
+                select(recon_template_version).where(
+                    recon_template_version.c.TEMPLATE_ID == template_id,
+                    recon_template_version.c.VERSION == template_version,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not tv_rec:
+            raise ServiceError(
+                ErrorCode.NOT_FOUND,
+                f"Không tìm thấy phiên bản {template_version} của template {template_id}.",
+            )
+        raw_cfg = tv_rec["CONFIG_JSON"]
+        if isinstance(raw_cfg, dict):
+            config = TemplateConfig.model_validate(raw_cfg)
+        else:
+            config = TemplateConfig.model_validate(json.loads(str(raw_cfg)))
+    selected_sheet = sheet_name or config.file.sheet
+
+    shas = [str(f_by_id[fid]["SHA256"]) for fid in file_ids]
+    file_set_hash = compute_file_set_hash(shas, selected_sheet, template_id, template_version)
+
+    def _find_load(purged: bool) -> Any:
+        with engine.connect() as conn:
+            stmt = select(recon_excel_load).where(
+                recon_excel_load.c.FILE_SET_HASH == file_set_hash,
+                recon_excel_load.c.SHEET_NAME == selected_sheet,
+                recon_excel_load.c.TEMPLATE_ID == template_id,
+                recon_excel_load.c.TEMPLATE_VERSION == template_version,
+            )
+            stmt = stmt.where(
+                recon_excel_load.c.PURGED_AT.is_not(None) if purged else recon_excel_load.c.PURGED_AT.is_(None)
+            )
+            return conn.execute(stmt).mappings().first()
+
+    existing = _find_load(purged=False)
+    if existing:
+        return _fileset_response(existing, file_ids, template_id, template_version)
+    purged_load = _find_load(purged=True)
+    purged_load_id = int(purged_load["ID"]) if purged_load else None
+
+    # Đọc + gộp (header lệch hoặc thiếu cột bắt buộc -> lỗi gộp).
+    merged = merge_excel_files(
+        [(Path(str(f_by_id[fid]["STORAGE_PATH"])), str(f_by_id[fid]["ORIGINAL_NAME"])) for fid in file_ids],
+        config,
+    )
+    ct_total = sum_control_totals(merged)
+    ct_file = ct_total.file_total if ct_total else None
+    ct_calc = ct_total.calc_total if ct_total else None
+    ct_matched = bool(ct_total.is_matched) if ct_total else True
+    rows_read = sum(m.rows_read for m in merged)
+    rows_valid = sum(m.rows_valid for m in merged)
+    rows_invalid = sum(m.rows_invalid for m in merged)
+    bytes_est = sum(m.rows_read for m in merged) * 200
+    source_files = [
+        {
+            "file_id": fid,
+            "name": str(f_by_id[fid]["ORIGINAL_NAME"]),
+            "rows": m.rows_read,
+            "control_total_ok": (None if m.control_total is None else ("Y" if m.control_total.is_matched else "N")),
+        }
+        for fid, m in zip(file_ids, merged, strict=True)
+    ]
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if purged_load_id is not None:
+        load_id = purged_load_id
+        with engine.begin() as conn:
+            conn.execute(delete(recon_excel_row).where(recon_excel_row.c.LOAD_ID == load_id))
+            conn.execute(
+                update(recon_excel_load)
+                .where(recon_excel_load.c.ID == load_id)
+                .values(
+                    FILE_ID=file_ids[0],
+                    ROWS_READ=rows_read,
+                    ROWS_INVALID=rows_invalid,
+                    BYTES_EST=bytes_est,
+                    CONTROL_TOTAL_FILE=ct_file,
+                    CONTROL_TOTAL_CALC=ct_calc,
+                    FILE_SET_HASH=file_set_hash,
+                    SOURCE_FILES_JSON=source_files,
+                    LOADED_AT=now,
+                    PURGED_AT=None,
+                )
+            )
+            for fid, m in zip(file_ids, merged, strict=True):
+                records = _build_fileset_row_records(m.valid_df, m.invalid_df, load_id, fid)
+                for i in range(0, len(records), 5000):
+                    conn.execute(recon_excel_row.insert(), records[i : i + 5000])
+    else:
+        try:
+            with engine.begin() as conn:
+                stmt_load = (
+                    recon_excel_load.insert()
+                    .values(
+                        FILE_ID=file_ids[0],
+                        SHEET_NAME=selected_sheet,
+                        TEMPLATE_ID=template_id,
+                        TEMPLATE_VERSION=template_version,
+                        ROWS_READ=rows_read,
+                        ROWS_INVALID=rows_invalid,
+                        BYTES_EST=bytes_est,
+                        CONTROL_TOTAL_FILE=ct_file,
+                        CONTROL_TOTAL_CALC=ct_calc,
+                        LOADED_AT=now,
+                        PURGED_AT=None,
+                        FILE_SET_HASH=file_set_hash,
+                        SOURCE_FILES_JSON=source_files,
+                    )
+                    .returning(recon_excel_load.c.ID)
+                )
+                load_id = conn.scalar(stmt_load)
+                load_id = int(load_id) if load_id else 0
+                for fid, m in zip(file_ids, merged, strict=True):
+                    records = _build_fileset_row_records(m.valid_df, m.invalid_df, load_id, fid)
+                    for i in range(0, len(records), 5000):
+                        conn.execute(recon_excel_row.insert(), records[i : i + 5000])
+        except IntegrityError:
+            raced = _find_load(purged=False)
+            if raced:
+                return _fileset_response(raced, file_ids, template_id, template_version)
+            raise
+
+    return {
+        "load_id": int(load_id),
+        "file_ids": file_ids,
+        "file_id": file_ids[0],
+        "file_set_hash": file_set_hash,
+        "sheet_name": selected_sheet,
+        "template_id": template_id,
+        "template_version": template_version,
+        "rows_read": rows_read,
+        "rows_valid": rows_valid,
+        "rows_invalid": rows_invalid,
+        "control_total_file": ct_file,
+        "control_total_calc": ct_calc,
+        "control_total_matched": ct_matched,
+        "is_reused": False,
+        "source_files": source_files,
+    }
