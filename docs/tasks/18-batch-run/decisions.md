@@ -35,6 +35,7 @@
 | 2026-11-06 | replace_files không đổi trạng thái batch (batch DONE giữ DONE cho tới khi rerun_item chuyển RUNNING) | Không có trạng thái "mở lại"; luồng đúng là thay file → precheck → chạy lại mục | bước 7 |
 | 2026-11-06 | Hủy run con đang chạy: executor kiểm tra batch CANCELLED khi nhận job + sau READ + sau COMPARE, rồi dừng (run con CANCELLED, xóa hàng đợi) | Không có cơ chế dừng giữa chừng khác; run con đã xong trước khi kiểm tra thì giữ DONE | bước 7 |
 | 2026-11-06 | VIEWER không có menu batch_run (spec 11a) nên không xem lần chạy bộ/tải .zip, dù spec 10 §7 ghi VIEWER được xem/tải | Spec 11 là nguồn quyền menu; mọi hàm batch_run yêu cầu menu batch_run nên VIEWER bị FORBIDDEN. Không đổi seed trong task 18 | bước 7 |
+| 2026-11-06 | Bảng bộ đối soát và bảng mục dùng dmc.Table thay vì dag.AgGrid | Spec 10 §9 nói bảng ≥20 dòng dùng AgGrid; dash-ag-grid đã có trong pyproject (35.3.0) nhưng chưa page nào trong app dùng AgGrid — dmc.Table nhất quán với /templates và các trang khác, đủ cho bảng ít cột này | spec 10 §9; bước 8 |
 | 2026-11-06 | Một bộ không có 2 mục cùng template (BATCH_TEMPLATE_EXISTS) — test 2 mục phải dùng 2 template khác nhau | Ràng buộc từ bước 3 | bước 7 |
 
 ## Câu hỏi còn mở

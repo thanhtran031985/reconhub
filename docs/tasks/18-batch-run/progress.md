@@ -11,11 +11,17 @@ Trạng thái: 🔄 (bắt đầu 06/11/2026, nhánh feat/18-batch-run từ ad98
 | 5 | Gộp nhiều file trong engine/executor | ✅ | 06/11/2026 |  |
 | 6 | Precheck, start, worker giới hạn song song | ✅ | 06/11/2026 |  |
 | 7 | Chạy lại, thay file, hủy, ma trận, .zip | ✅ | 06/11/2026 |  |
-| 8 | UI: Bộ đối soát và hộp thoại thêm template | ⬜ |  |  |
+| 8 | UI: Bộ đối soát và hộp thoại thêm template | ✅ | 06/11/2026 |  |
 | 9 | UI: Wizard chạy bộ và kết quả | ⬜ |  |  |
 | 10 | Chuyển Oracle, tài liệu, hồi quy | ⬜ |  |  |
 
 ## Nhật ký
+
+### Bước 8 — UI Bộ đối soát và hộp thoại thêm template (06/11/2026)
+- `app/ui/pages/batch_defs.py` (`/batches`): bảng Mã/Tên/Trạng thái/Số mục/Song song/DS/Thao tác, lọc tìm kiếm + trạng thái phía client, modal Tạo bộ (mã/tên/mô tả/max_parallel 1–4) rồi redirect sang trang chi tiết, modal xác nhận lưu trữ, quyền ghi ADMIN/TEMPLATE_OWNER.
+- `app/ui/pages/batch_def_edit.py` (`/batches/<id>`): form thông tin bộ (mã disabled), bảng mục sửa inline (mẫu tên file, Gộp/Bắt buộc, Ưu tiên, DS, tham số ghi đè JSON) + store theo dõi số mục thay đổi chưa lưu, nút Lưu gọi `update_batch_def`/`update_batch_def_item` kèm row_version; khối Kỳ thử + xem trước tham số (`preview_params`); modal Thêm template (tìm kiếm, lọc chỉ template thêm được, cấu hình từng template đã chọn với mẫu gợi ý `*<MÃ>*`); modal gỡ template + lưu trữ bộ; nút Kích hoạt.
+- Kiểm tra: `tests/e2e/test_batch_def.py` 4 pass + `tests/unit/test_batch_def_pages.py` 5 pass; mypy 2 file sạch; ruff check + format sạch.
+- Ghi chú: xem decisions.md (bảng dùng dmc.Table thay vì AgGrid; kiểm chứng đăng ký page: `create_app()` thấy `/batches` và `/batches/1`, tổng 24 pages).
 
 ### Bước 7 — Chạy lại, thay file, hủy, ma trận, .zip (06/11/2026)
 - `retry_failed` (mục FAILED → run con mới, ATTEMPT_NO+1, batch lại RUNNING), `rerun_item` (DONE/FAILED/NOT_RUN, kể cả DONE sau khi sửa file), `replace_files` (file cũ REPLACED, file mới ghép riêng mục + precheck lại mục đó), `cancel` (DRAFT/RUNNING; run con QUEUED bị hủy ngay, run đang chạy dừng ở bước kiểm tra tiếp theo của executor).
