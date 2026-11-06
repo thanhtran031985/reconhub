@@ -1,13 +1,20 @@
 # Tiến độ – 26-reporting-export
 
-Trạng thái: 🔄
+Trạng thái: ✅
 
 | Bước | Nội dung | Trạng thái | Commit |
 |---|---|---|---|
 | 1 | Queue/worker export | ✅ | 8923ebe |
 | 2 | Streaming fetchmany và write-only XLSX | ✅ | d70c3ca |
 | 3 | Split file/zip/hash/storage | ✅ | |
-| 4 | Download/history/cache/security | ⬜ | |
+| 4 | Download/history/cache/security | ✅ | |
+
+## Ghi chú bước 4
+- `list_exports`/`get_export`/`download_export`: owner scope + ADMIN bypass (luồng G, theo mẫu run task 25). `retry_export`/`cancel_export`: chỉ chủ sở hữu (kể cả ADMIN), theo mẫu preset task 25 — ghi rõ trong decisions.md.
+- `download_export`: chưa DONE → VALIDATION_ERROR; file mất trên đĩa → NOT_FOUND "File xuất đã không còn (đã xóa/hết hạn). Hãy export lại." (T26-11).
+- `retry_export`: chỉ FAILED → QUEUED, reset FILE_PATH/SIZE/HASH/PART_COUNT/ROW_COUNT/ERROR_MESSAGE/FINISHED_AT (T26-09).
+- `cancel_export`: QUEUED/RUNNING → CANCELLED; executor kiểm tra STATUS mỗi 10 batch, dừng + xóa file dở (nửa còn lại của mô hình cancel task 25 Q4).
+- Test: 11 pass mới (T26-09/10/11 + cancel + list owner scope). Tổng 28 pass task 26 (bước 1–4).
 
 ## Ghi chú bước 3
 - Split: xoay part khi đủ ngưỡng (xoay lười — chỉ khi còn dòng để ghi, không tạo part rỗng cuối); đúng 1.000.000 → 1 part.

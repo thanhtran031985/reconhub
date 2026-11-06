@@ -167,7 +167,168 @@ def request_export(
         return _export_dict(row)
 
 
-# ─── Ghi file (bước 1: CSV + XLSX cơ bản; bước 2: ghi theo type) ───────────
+# ─── Bước 4: Download/history/cache/security ────────────────────────────────
+
+
+def _load_export_row_owned(
+    conn: Connection, export_id: int, ctx: Ctx, admin: bool
+) -> Any:
+    row = _load_export_row(conn, export_id)
+    if not admin and row["CREATED_BY"] != ctx.username:
+        raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy export.")
+    return row
+
+
+def _load_export_row_own(conn: Connection, export_id: int, ctx: Ctx) -> Any:
+    """Chỉ chủ sở hữu (kể cả ADMIN cũng chỉ tác động export của mình)."""
+    row = _load_export_row(conn, export_id)
+    if row["CREATED_BY"] != ctx.username:
+        raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy export.")
+    return row
+
+
+@service
+@requires_menu("report_center")
+def list_exports(
+    ctx: Ctx,
+    run_id: int | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    """Lịch sử export, owner scope (luồng G)."""
+    if page < 1 or page_size < 1 or page_size > 200:
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR, "page >= 1, page_size 1..200."
+        )
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.connect() as conn:
+        stmt = select(recon_rpt_export)
+        count_stmt = select(recon_rpt_export.c.ID)
+        if not admin:
+            stmt = stmt.where(recon_rpt_export.c.CREATED_BY == ctx.username)
+            count_stmt = count_stmt.where(
+                recon_rpt_export.c.CREATED_BY == ctx.username
+            )
+        if run_id is not None:
+            stmt = stmt.where(recon_rpt_export.c.RUN_ID == run_id)
+            count_stmt = count_stmt.where(recon_rpt_export.c.RUN_ID == run_id)
+        total = len(conn.execute(count_stmt).fetchall())
+        rows = (
+            conn.execute(
+                stmt.order_by(
+                    recon_rpt_export.c.CREATED_AT.desc(),
+                    recon_rpt_export.c.ID.desc(),
+                )
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+            .mappings()
+            .all()
+        )
+        return {
+            "exports": [_export_dict(r) for r in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+
+@service
+@requires_menu("report_center")
+def get_export(ctx: Ctx, export_id: int) -> dict[str, Any]:
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.connect() as conn:
+        return _export_dict(_load_export_row_owned(conn, export_id, ctx, admin))
+
+
+@service
+@requires_menu("report_center")
+def download_export(ctx: Ctx, export_id: int) -> dict[str, Any]:
+    """Trả thông tin file để tải (T26-10/11)."""
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.connect() as conn:
+        export = _load_export_row_owned(conn, export_id, ctx, admin)
+    if export["STATUS"] != "DONE":
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR, "Export chưa xong, chưa tải được."
+        )
+    file_path = export["FILE_PATH"]
+    if not file_path or not Path(str(file_path)).exists():
+        raise ServiceError(
+            ErrorCode.NOT_FOUND,
+            "File xuất đã không còn (đã xóa/hết hạn). Hãy export lại.",
+        )
+    return {
+        "export_id": int(export["ID"]),
+        "run_id": int(export["RUN_ID"]),
+        "format": str(export["FORMAT"]),
+        "file_path": str(file_path),
+        "file_name": Path(str(file_path)).name,
+        "file_size": export["FILE_SIZE"],
+        "file_hash": export["FILE_HASH"],
+    }
+
+
+@service
+@requires_menu("report_center")
+def retry_export(ctx: Ctx, export_id: int) -> dict[str, Any]:
+    """Chạy lại export FAILED (T26-09); chỉ chủ sở hữu (kể cả ADMIN)."""
+    engine = get_recon_engine()
+    with engine.begin() as conn:
+        export = _load_export_row_own(conn, export_id, ctx)
+        if export["STATUS"] != "FAILED":
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                "Chỉ chạy lại được export FAILED.",
+            )
+        conn.execute(
+            recon_rpt_export.update()
+            .where(recon_rpt_export.c.ID == export_id)
+            .values(
+                STATUS="QUEUED",
+                FILE_PATH=None,
+                FILE_SIZE=None,
+                FILE_HASH=None,
+                PART_COUNT=1,
+                ROW_COUNT=None,
+                ERROR_MESSAGE=None,
+                FINISHED_AT=None,
+            )
+        )
+        return _export_dict(_load_export_row(conn, export_id))
+
+
+@service
+@requires_menu("report_center")
+def cancel_export(ctx: Ctx, export_id: int) -> dict[str, Any]:
+    """Hủy export QUEUED/RUNNING; chỉ chủ sở hữu (kể cả ADMIN)."""
+    engine = get_recon_engine()
+    with engine.begin() as conn:
+        export = _load_export_row_own(conn, export_id, ctx)
+        if export["STATUS"] not in ("QUEUED", "RUNNING"):
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                "Chỉ hủy được export đang chờ hoặc đang chạy.",
+            )
+        conn.execute(
+            recon_rpt_export.update()
+            .where(recon_rpt_export.c.ID == export_id)
+            .values(STATUS="CANCELLED", FINISHED_AT=_now())
+        )
+        return _export_dict(_load_export_row(conn, export_id))
+
+
+def _is_cancelled(engine: Any, export_id: int) -> bool:
+    with engine.connect() as conn:
+        status = conn.execute(
+            select(recon_rpt_export.c.STATUS).where(
+                recon_rpt_export.c.ID == export_id
+            )
+        ).scalar_one_or_none()
+    return bool(status == "CANCELLED")
 
 
 class _CsvWriter:
@@ -415,8 +576,16 @@ def execute_export(
         writer = _make_writer(fmt, part_paths[0], columns)
         written = 0
         written_in_part = 0
+        batch_no = 0
         try:
             for _col_names, batch in _iter_batches(detail, resolved):
+                batch_no += 1
+                # Checkpoint hủy (bước 4): kiểm tra mỗi 10 batch.
+                if batch_no % 10 == 0 and _is_cancelled(eng, export_id):
+                    writer.close()
+                    shutil.rmtree(out_dir, ignore_errors=True)
+                    with eng.connect() as conn:
+                        return _export_dict(_load_export_row(conn, export_id))
                 offset = 0
                 while offset < len(batch):
                     if written_in_part >= max_rows_per_file:
