@@ -537,3 +537,47 @@ def dry_run_version(
         "columns": col_names,
         "query_ms": query_ms,
     }
+
+
+# ─── Bước 2: Server-side count/page/filter/sort ─────────────────────────────
+
+
+@service
+@requires_menu("report_center")
+def get_report_page(
+    ctx: Ctx,
+    run_id: int,
+    page: int = 1,
+    page_size: int = 50,
+    sorts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Lấy một trang kết quả từ snapshot của run (T25-04/05).
+
+    Chạy lại count + page từ PARAMS_JSON + VERSION_ID đã snapshot — không
+    dùng version hiện tại, nên activate sau này không đổi kết quả run cũ.
+    """
+    if page < 1:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "page phải ≥ 1.")
+    if page_size < 1 or page_size > 200:  # Q5
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR, "page_size phải trong khoảng 1..200."
+        )
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.connect() as conn:
+        run = _load_run_row(conn, run_id, ctx, admin)
+        detail = _load_version_detail(conn, int(run["VERSION_ID"]))
+        resolved = dict(run["PARAMS_JSON"] or {})
+    field_names = [c["field_name"] for c in detail["columns"]]
+    valid_sorts = _validate_sorts(sorts, field_names)
+    total, rows, col_names = _execute_count_page(
+        detail, resolved, page, page_size, valid_sorts
+    )
+    return {
+        "run_id": run_id,
+        "total": total,
+        "rows": rows,
+        "columns": col_names,
+        "page": page,
+        "page_size": page_size,
+    }
