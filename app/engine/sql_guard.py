@@ -81,45 +81,62 @@ def strip_comments_and_literals(sql: str) -> str:
     return "".join(res)
 
 
+def _check_core(sql: str) -> tuple[bool, str | None, str]:
+    """Kiểm tra lõi SELECT-only dùng chung cho template đối soát và báo cáo.
+
+    Trả về (ok, lý do lỗi, câu lệnh đã loại bỏ chú thích/literal).
+    """
+    if not sql or not sql.strip():
+        return False, "Câu lệnh SQL không được để trống.", ""
+
+    cleaned = strip_comments_and_literals(sql).strip()
+    if not cleaned:
+        return False, "Câu lệnh SQL không được để trống sau khi loại bỏ chú thích.", ""
+
+    # 1. Kiểm tra dấu chấm phẩy
+    if ";" in cleaned:
+        return False, "Câu lệnh SQL không được chứa dấu chấm phẩy (;).", ""
+
+    # 2. Kiểm tra từ khóa bắt đầu (SELECT hoặc WITH)
+    first_token = cleaned.split()[0].upper()
+    if first_token not in ("SELECT", "WITH"):
+        return False, "Câu lệnh SQL phải bắt đầu bằng SELECT hoặc WITH.", ""
+
+    # 3. Kiểm tra FOR UPDATE
+    if re.search(r"\bFOR\s+UPDATE\b", cleaned, re.IGNORECASE):
+        return False, "Không cho phép sử dụng mệnh đề FOR UPDATE.", ""
+
+    # 4. Kiểm tra các từ khóa DML/DDL/DCL/PL-SQL nguy hiểm
+    for kw in DISALLOWED_KEYWORDS:
+        if re.search(rf"\b{kw}\b", cleaned, re.IGNORECASE):
+            return False, f"Không cho phép sử dụng câu lệnh hoặc từ khóa nguy hiểm '{kw}'.", ""
+
+    # 5. Kiểm tra Database link (@)
+    if "@" in cleaned:
+        return False, "Không cho phép sử dụng liên kết cơ sở dữ liệu (@ - Database Link).", ""
+
+    # 6. Kiểm tra Package hệ thống DBMS_ và UTL_
+    if re.search(r"\bDBMS_[A-Z0-9_]*", cleaned, re.IGNORECASE):
+        return False, "Không cho phép gọi các package hệ thống DBMS_.", ""
+    if re.search(r"\bUTL_[A-Z0-9_]*", cleaned, re.IGNORECASE):
+        return False, "Không cho phép gọi các package hệ thống UTL_.", ""
+
+    return True, None, cleaned
+
+
+def discover_binds(cleaned_sql: str) -> list[str]:
+    """Liệt kê các bind variable :tên trong câu lệnh đã làm sạch (duy nhất, sắp xếp)."""
+    return sorted(set(re.findall(r":([a-zA-Z0-9_]+)", cleaned_sql)))
+
+
 def check_sql(sql: str, allowed_params: list[str]) -> tuple[bool, str | None]:
     """Kiểm tra độ an toàn của câu lệnh SQL tùy biến (SQL guard).
 
     Trả về (True, None) nếu hợp lệ, hoặc (False, lý do tiếng Việt) nếu vi phạm.
     """
-    if not sql or not sql.strip():
-        return False, "Câu lệnh SQL không được để trống."
-
-    cleaned = strip_comments_and_literals(sql).strip()
-    if not cleaned:
-        return False, "Câu lệnh SQL không được để trống sau khi loại bỏ chú thích."
-
-    # 1. Kiểm tra dấu chấm phẩy
-    if ";" in cleaned:
-        return False, "Câu lệnh SQL không được chứa dấu chấm phẩy (;)."
-
-    # 2. Kiểm tra từ khóa bắt đầu (SELECT hoặc WITH)
-    first_token = cleaned.split()[0].upper()
-    if first_token not in ("SELECT", "WITH"):
-        return False, "Câu lệnh SQL phải bắt đầu bằng SELECT hoặc WITH."
-
-    # 3. Kiểm tra FOR UPDATE
-    if re.search(r"\bFOR\s+UPDATE\b", cleaned, re.IGNORECASE):
-        return False, "Không cho phép sử dụng mệnh đề FOR UPDATE."
-
-    # 4. Kiểm tra các từ khóa DML/DDL/DCL/PL-SQL nguy hiểm
-    for kw in DISALLOWED_KEYWORDS:
-        if re.search(rf"\b{kw}\b", cleaned, re.IGNORECASE):
-            return False, f"Không cho phép sử dụng câu lệnh hoặc từ khóa nguy hiểm '{kw}'."
-
-    # 5. Kiểm tra Database link (@)
-    if "@" in cleaned:
-        return False, "Không cho phép sử dụng liên kết cơ sở dữ liệu (@ - Database Link)."
-
-    # 6. Kiểm tra Package hệ thống DBMS_ và UTL_
-    if re.search(r"\bDBMS_[A-Z0-9_]*", cleaned, re.IGNORECASE):
-        return False, "Không cho phép gọi các package hệ thống DBMS_."
-    if re.search(r"\bUTL_[A-Z0-9_]*", cleaned, re.IGNORECASE):
-        return False, "Không cho phép gọi các package hệ thống UTL_."
+    ok, err, cleaned = _check_core(sql)
+    if not ok:
+        return False, err
 
     # 7. Kiểm tra bind parameters
     # Tìm tất cả :param_name (không nằm trong literal vì literal đã bị loại bỏ)
@@ -141,3 +158,16 @@ def check_sql(sql: str, allowed_params: list[str]) -> tuple[bool, str | None]:
         return False, "Câu lệnh SQL bắt buộc phải sử dụng tham số lọc thời gian :p_to."
 
     return True, None
+
+
+def check_report_sql(sql: str) -> tuple[bool, str | None, list[str]]:
+    """Kiểm tra SQL nguồn báo cáo (SELECT-only) và phát hiện bind variables.
+
+    Dùng chung lõi với check_sql nhưng KHÔNG bắt buộc :p_from/:p_to và
+    không kiểm tra bind theo danh sách đăng ký — các bind phát hiện được
+    trả về để tạo tham số báo cáo (task 23). Trả về (ok, lý do, binds).
+    """
+    ok, err, cleaned = _check_core(sql)
+    if not ok:
+        return False, err, []
+    return True, None, discover_binds(cleaned)
