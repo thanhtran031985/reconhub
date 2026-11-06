@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import shutil
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
@@ -19,7 +20,7 @@ from sqlalchemy import Connection, select
 from app.core.config import get_settings
 from app.core.context import Ctx
 from app.db.engine import get_recon_engine
-from app.db.metadata import recon_report_run, recon_rpt_export
+from app.db.metadata import recon_report, recon_report_run, recon_rpt_export
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
 from app.services.perm import is_admin, requires_menu
@@ -329,6 +330,48 @@ def _fail_export(engine: Any, export_id: int, error: ServiceError) -> None:
         )
 
 
+def _summary_text(
+    report_code: str,
+    run_id: int,
+    export_id: int,
+    fmt: str,
+    total_rows: int,
+    part_count: int,
+    part_names: list[str],
+    max_rows_per_file: int,
+) -> str:
+    lines = [
+        f"Báo cáo: {report_code}",
+        f"Run: {run_id}",
+        f"Export: {export_id}",
+        f"Định dạng: {fmt}",
+        f"Tổng số dòng: {total_rows}",
+        f"Số file: {part_count}",
+        f"Mỗi file tối đa: {max_rows_per_file} dòng",
+        f"Thời gian xuất: {_now().isoformat()}",
+        "Các file:",
+    ]
+    lines.extend(f"  - {name}" for name in part_names)
+    return "\n".join(lines) + "\n"
+
+
+def _zip_parts(
+    out_dir: Path,
+    part_paths: list[Path],
+    summary: str,
+    export_id: int,
+) -> Path:
+    """Zip các part + _summary.txt; xóa part gốc sau khi zip xong."""
+    zip_path = out_dir / f"export-{export_id}.zip"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for part in part_paths:
+            zf.write(part, arcname=part.name)
+        zf.writestr("_summary.txt", summary)
+    for part in part_paths:
+        part.unlink(missing_ok=True)
+    return zip_path
+
+
 def execute_export(
     export_id: int,
     max_rows_per_file: int = MAX_ROWS_PER_FILE,
@@ -336,8 +379,8 @@ def execute_export(
 ) -> dict[str, Any]:
     """Chạy một export QUEUED/RUNNING tới DONE/FAILED (worker gọi).
 
-    Bước 1: một file duy nhất (split/zip ở bước 3). Lỗi giữa chừng → FAILED
-    + xóa file dở.
+    Bước 3: split 1.000.000 dòng/file (mặc định), >1 part → ZIP (parts +
+    _summary.txt). Lỗi giữa chừng → FAILED + xóa file dở.
     """
     eng = engine or get_recon_engine()
     with eng.connect() as conn:
@@ -355,34 +398,70 @@ def execute_export(
             raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy run.")
         detail = load_version_detail(conn, int(run["VERSION_ID"]))
         resolved = dict(run["PARAMS_JSON"] or {})
+        report_code = conn.execute(
+            select(recon_report.c.CODE).where(
+                recon_report.c.ID == int(run["REPORT_ID"])
+            )
+        ).scalar_one_or_none() or str(run["REPORT_ID"])
     fmt = str(export["FORMAT"])
     out_dir = _export_dir(export_id)
     out_dir.mkdir(parents=True, exist_ok=True)
     ext = "xlsx" if fmt == "XLSX" else "csv"
-    out_path = out_dir / f"part-001.{ext}"
     try:
         columns = [c for c in detail["columns"] if c["excel_visible"]]
         fields = [c["field_name"] for c in columns]
-        writer = _make_writer(fmt, out_path, columns)
+        part = 1
+        part_paths = [out_dir / f"part-{part:03d}.{ext}"]
+        writer = _make_writer(fmt, part_paths[0], columns)
         written = 0
+        written_in_part = 0
         try:
             for _col_names, batch in _iter_batches(detail, resolved):
-                writer.write_rows(batch, fields)
-                written += len(batch)
+                offset = 0
+                while offset < len(batch):
+                    if written_in_part >= max_rows_per_file:
+                        writer.close()
+                        part += 1
+                        part_paths.append(out_dir / f"part-{part:03d}.{ext}")
+                        writer = _make_writer(fmt, part_paths[-1], columns)
+                        written_in_part = 0
+                    room = max_rows_per_file - written_in_part
+                    chunk = batch[offset : offset + room]
+                    writer.write_rows(chunk, fields)
+                    written += len(chunk)
+                    written_in_part += len(chunk)
+                    offset += len(chunk)
         finally:
             writer.close()
-        file_size = out_path.stat().st_size
-        file_hash = _file_hash(out_path)
+        if part > 1:
+            summary = _summary_text(
+                report_code,
+                int(run["ID"]),
+                export_id,
+                fmt,
+                written,
+                part,
+                [p.name for p in part_paths],
+                max_rows_per_file,
+            )
+            final_path = _zip_parts(out_dir, part_paths, summary, export_id)
+            final_format = "ZIP"
+        else:
+            final_path = part_paths[0]
+            final_format = fmt
+        file_size = final_path.stat().st_size
+        file_hash = _file_hash(final_path)
         with eng.begin() as conn:
             conn.execute(
                 recon_rpt_export.update()
                 .where(recon_rpt_export.c.ID == export_id)
                 .values(
                     STATUS="DONE",
-                    FILE_PATH=str(out_path),
+                    FORMAT=final_format,
+                    FILE_PATH=str(final_path),
                     FILE_SIZE=file_size,
                     FILE_HASH=file_hash,
-                    PART_COUNT=1,
+                    PART_COUNT=part,
                     ROW_COUNT=written,
                     FINISHED_AT=_now(),
                 )
