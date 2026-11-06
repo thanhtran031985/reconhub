@@ -1,13 +1,25 @@
 # Tiến độ – 22-reporting-source
 
-Trạng thái: 🔄
+Trạng thái: ✅
+
+## Hồi quy cuối (06/11/2026)
+- `uv run poe test`: **749 pass, 5 skip, 0 fail** (670 cuối task 21 + 79 test mới task 22).
+- `uv run poe e2e`: **12 pass**.
+- `uv run poe typecheck`: **21 lỗi = baseline, 0 mới** (đã sửa 11 lỗi mới trong `report_source.py`: annotation `Any`/`dict[str, Any]`/`Iterator`/`Sequence`/`Connection`).
+- `uv run poe lint`: sạch (đã bỏ import thừa `recon_report` trong test diff).
+- `tasks-dashboard` đã chạy lại (29 task, 20 xong).
+- T22-01..T22-06, T22-08, T22-09 ☑; T22-07 nhánh mock đạt, nhánh Oracle thật ☐ — kiểm chứng phía người dùng khi có VPN.
 
 | Bước | Nội dung | Trạng thái | Commit |
 |---|---|---|---|
 | 1 | SQL validator SELECT-only và bind discovery | ✅ | 04c8c40 |
 | 2 | Oracle metadata discovery | ✅ | |
 | 3 | VIEW/TABLE object picker và whitelist query builder | ✅ | |
-| 4 | Column/parameter diff khi source đổi | ⬜ | |
+| 4 | Column/parameter diff khi source đổi | ✅ | |
+
+## Bước 4 — Column/parameter diff khi source đổi (06/11/2026)
+- `app/services/report_source.py`: tách `_describe_custom_sql` và `_discover_object_columns` thành hàm thuần dùng chung; `analyze_version_source(ctx, version_id)` (chỉ đọc) — describe lại nguồn (CUSTOM_SQL qua describe, VIEW/TABLE qua list columns) rồi so với RECON_RPT_COLUMN + RECON_RPT_PARAM, trả `{added, removed, type_changed, new_binds, missing_binds}` (CUSTOM_SQL: binds so theo CODE tham số; VIEW/TABLE: missing_binds là tham số có FILTER_COLUMN đã mất); `apply_source_diff(ctx, version_id, diff)` — chỉ version DRAFT, một transaction: cột mới thêm (WEB/EXCEL_VISIBLE='Y', DISPLAY_ORDER nối tiếp +10), cột mất giữ dòng nhưng tắt WEB/EXCEL_VISIBLE (Q6), cột đổi type cập nhật DATA_TYPE, tham số chỉ báo không tự thêm/xóa (task 23), audit UPDATE_VERSION_SOURCE cùng transaction.
+- Test: `tests/unit/test_report_source_diff.py` (T22-08). 12 test pass.
 
 ## Bước 3 — VIEW/TABLE object picker và whitelist query builder (06/11/2026)
 - `app/services/report_source.py`: `build_report_query(source_type, owner, object_name, columns, selected, filters, sorts)` thuần (không DB): sinh `SELECT <cột> FROM <owner.object>` với `quote_identifier` (sql_dialect); cột select/filter/sort phải nằm trong whitelist metadata (so khớp không phân biệt hoa/thường, dùng tên chuẩn); owner/object/mã tham số qua regex identifier (chặn nháy/khoảng trắng/`;`); operator chỉ 7 loại theo check constraint (BETWEEN → 2 bind `_from`/`_to`, IN → 1 bind mỗi phần tử, LIKE_PREFIX cộng `%` vào giá trị bind, IS_NULL không bind); filter rỗng (None/""/[]) bỏ qua; selected rỗng = tất cả cột; giá trị không bao giờ nối vào SQL (T22-03). CUSTOM_SQL không qua builder (dùng SQL snapshot sau validate, lỗi VALIDATION_ERROR nếu gọi nhầm).
