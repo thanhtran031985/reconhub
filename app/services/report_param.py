@@ -464,7 +464,7 @@ def create_param(ctx: Ctx, version_id: int, payload: dict[str, Any]) -> dict[str
             .first()
         )
         assert row is not None
-        return _param_dict(conn, row)
+        return _param_dict_with_warnings(conn, version_id, row)
 
 
 @service
@@ -573,7 +573,7 @@ def update_param(
             .first()
         )
         assert updated is not None
-        return _param_dict(conn, updated)
+        return _param_dict_with_warnings(conn, version_id, updated)
 
 
 @service
@@ -971,3 +971,201 @@ def resolve_lov(
         if param is None:
             raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy tham số.")
     return _resolve_lov_options(engine, ver, param, dep_values or {})
+
+
+# ─── Layout 12 cột (bước 3) ──────────────────────────────────────────────────
+
+
+def _layout_rows(conn: Connection, version_id: int) -> list[dict[str, Any]]:
+    """Tổng GRID_SPAN từng hàng của param đang hiển thị (theo DISPLAY_ROW)."""
+    rows = (
+        conn.execute(
+            select(
+                recon_rpt_param.c.DISPLAY_ROW,
+                recon_rpt_param.c.GRID_SPAN,
+                recon_rpt_param.c.CODE,
+            )
+            .where(
+                recon_rpt_param.c.VERSION_ID == version_id,
+                recon_rpt_param.c.IS_VISIBLE == "Y",
+            )
+            .order_by(recon_rpt_param.c.DISPLAY_ROW, recon_rpt_param.c.DISPLAY_ORDER)
+        )
+        .mappings()
+        .all()
+    )
+    grouped: dict[int, list[Any]] = {}
+    for row in rows:
+        grouped.setdefault(int(row["DISPLAY_ROW"]), []).append(row)
+    return [
+        {
+            "row": row_no,
+            "total": sum(int(p["GRID_SPAN"]) for p in params),
+            "params": [str(p["CODE"]) for p in params],
+        }
+        for row_no, params in sorted(grouped.items())
+    ]
+
+
+def layout_violations(conn: Connection, version_id: int) -> list[dict[str, Any]]:
+    """Các hàng có tổng GRID_SPAN > 12 (hàm lõi dùng cho validate + activate)."""
+    return [r for r in _layout_rows(conn, version_id) if r["total"] > 12]
+
+
+def _param_dict_with_warnings(
+    conn: Connection, version_id: int, param_row: Any
+) -> dict[str, Any]:
+    """Param dict kèm layout_warnings khi layout đang vượt 12 cột (Q5)."""
+    result = _param_dict(conn, param_row)
+    warnings = layout_violations(conn, version_id)
+    if warnings:
+        result["layout_warnings"] = warnings
+    return result
+
+
+@service
+@requires_menu("report_center")
+def validate_layout(ctx: Ctx, version_id: int) -> dict[str, Any]:
+    """Kiểm tra layout 12 cột (T23-07): trả ok + violations + rows."""
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.connect() as conn:
+        _load_version_for_resolve(conn, version_id, admin)
+        rows = _layout_rows(conn, version_id)
+    violations = [r for r in rows if r["total"] > 12]
+    return {"ok": not violations, "violations": violations, "rows": rows}
+
+
+@service
+@requires_menu("report_admin")
+def move_param(
+    ctx: Ctx, version_id: int, param_id: int, to_row: int, to_index: int
+) -> dict[str, Any]:
+    """Kéo-thả một param sang hàng/vị trí khác (T23-08).
+
+    to_index là vị trí 0-based trong hàng đích; order các hàng bị ảnh
+    hưởng được đánh lại theo bước 10.
+    """
+    if to_row < 1 or to_index < 0:
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR,
+            "Hàng đích phải ≥ 1 và vị trí đích phải ≥ 0.",
+        )
+    engine = get_recon_engine()
+    with engine.begin() as conn:
+        _load_version_draft(conn, version_id)
+        row = (
+            conn.execute(
+                select(recon_rpt_param).where(
+                    recon_rpt_param.c.ID == param_id,
+                    recon_rpt_param.c.VERSION_ID == version_id,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if row is None:
+            raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy tham số.")
+        source_row = int(row["DISPLAY_ROW"])
+        visible = (
+            conn.execute(
+                select(recon_rpt_param)
+                .where(
+                    recon_rpt_param.c.VERSION_ID == version_id,
+                    recon_rpt_param.c.IS_VISIBLE == "Y",
+                )
+                .order_by(
+                    recon_rpt_param.c.DISPLAY_ROW, recon_rpt_param.c.DISPLAY_ORDER
+                )
+            )
+            .mappings()
+            .all()
+        )
+        rows_map: dict[int, list[int]] = {}
+        for p in visible:
+            rows_map.setdefault(int(p["DISPLAY_ROW"]), []).append(int(p["ID"]))
+        for ids in rows_map.values():
+            if param_id in ids:
+                ids.remove(param_id)
+        target = rows_map.setdefault(to_row, [])
+        target.insert(min(to_index, len(target)), param_id)
+        for affected in {source_row, to_row}:
+            for i, pid in enumerate(rows_map.get(affected, [])):
+                conn.execute(
+                    recon_rpt_param.update()
+                    .where(recon_rpt_param.c.ID == pid)
+                    .values(DISPLAY_ORDER=(i + 1) * 10)
+                )
+        conn.execute(
+            recon_rpt_param.update()
+            .where(recon_rpt_param.c.ID == param_id)
+            .values(DISPLAY_ROW=to_row)
+        )
+        write_audit_log(
+            conn,
+            "RECON_RPT_PARAM",
+            param_id,
+            "UPDATE_PARAM",
+            ctx.username,
+            new_data={"version_id": version_id, "row": to_row, "index": to_index},
+        )
+        updated = (
+            conn.execute(
+                select(recon_rpt_param).where(recon_rpt_param.c.ID == param_id)
+            )
+            .mappings()
+            .first()
+        )
+        assert updated is not None
+        return _param_dict_with_warnings(conn, version_id, updated)
+
+
+@service
+@requires_menu("report_admin")
+def reorder_params(
+    ctx: Ctx, version_id: int, rows: list[list[int]]
+) -> dict[str, Any]:
+    """Xếp lại toàn bộ layout từ kết quả kéo-thả (T23-08).
+
+    rows: danh sách các hàng, mỗi hàng là danh sách param id theo thứ tự.
+    Mọi param đang hiển thị phải có mặt đúng một lần; param ẩn giữ nguyên.
+    """
+    engine = get_recon_engine()
+    with engine.begin() as conn:
+        _load_version_draft(conn, version_id)
+        visible_ids = {
+            int(r[0])
+            for r in conn.execute(
+                select(recon_rpt_param.c.ID).where(
+                    recon_rpt_param.c.VERSION_ID == version_id,
+                    recon_rpt_param.c.IS_VISIBLE == "Y",
+                )
+            ).all()
+        }
+        flat = [pid for row_ids in rows for pid in row_ids]
+        if len(flat) != len(set(flat)):
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR, "Danh sách xếp lại có param trùng."
+            )
+        if set(flat) != visible_ids:
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                "Danh sách xếp lại phải gồm đủ các param đang hiển thị, không thừa không thiếu.",
+            )
+        for i, row_ids in enumerate(rows):
+            for j, pid in enumerate(row_ids):
+                conn.execute(
+                    recon_rpt_param.update()
+                    .where(recon_rpt_param.c.ID == pid)
+                    .values(DISPLAY_ROW=i + 1, DISPLAY_ORDER=(j + 1) * 10)
+                )
+        write_audit_log(
+            conn,
+            "RECON_RPT_TPL_VER",
+            version_id,
+            "UPDATE_PARAM_LAYOUT",
+            ctx.username,
+            new_data={"rows": rows},
+        )
+        params = _load_params_with_lov(conn, version_id)
+        return {"params": params}

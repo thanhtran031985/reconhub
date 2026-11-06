@@ -34,7 +34,10 @@ from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
 from app.services.perm import is_admin, requires_menu
 from app.services.report import load_report_row
-from app.services.report_param import invalidate_lov_cache_for_version
+from app.services.report_param import (
+    invalidate_lov_cache_for_version,
+    layout_violations,
+)
 
 _CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,59}$")
 _LOCK_KEY = "REPORT_ACTIVATE_LOCK"
@@ -630,6 +633,17 @@ def activate_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
                 raise ServiceError(
                     ErrorCode.VALIDATION_ERROR,
                     "Chỉ version DRY_RUN_OK mới được kích hoạt.",
+                )
+            # Layout tham số vượt 12 cột thì chặn kích hoạt (task 23 Q5).
+            violations = layout_violations(conn, version_id)
+            if violations:
+                rows_txt = ", ".join(
+                    f"hàng {v['row']} (tổng {v['total']})" for v in violations
+                )
+                raise ServiceError(
+                    ErrorCode.VALIDATION_ERROR,
+                    f"Layout tham số vượt 12 cột ở {rows_txt}; "
+                    "sửa layout trước khi kích hoạt.",
                 )
             template_id = int(row["TEMPLATE_ID"])
             old_active_id = conn.execute(
