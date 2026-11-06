@@ -6,7 +6,7 @@ Trạng thái: ⬜
 |---|---|---|---|
 | 1 | Task19 menu + owner_filter tất cả endpoints | ✅ | |
 | 2 | Audit hoàn chỉnh | ✅ | |
-| 3 | Metadata migration SQLite→Oracle | ⬜ | |
+| 3 | Metadata migration SQLite→Oracle | ✅ | |
 | 4 | Performance/security/E2E/regression | ⬜ | |
 
 ## Ghi chú bước 1
@@ -18,3 +18,8 @@ Trạng thái: ⬜
 ## Ghi chú bước 2
 - Audit bổ sung (cùng transaction với đổi trạng thái): run — CREATE/EXECUTE (DONE+FAILED)/DRY_RUN/CANCEL + preset CREATE/DELETE; export — REQUEST/EXECUTE (worker DONE+FAILED)/RETRY/CANCEL/DOWNLOAD. Actor = người gọi; EXECUTE_EXPORT lấy CREATED_BY (worker không có ctx).
 - Test: 4 test TestAudit mới (run trail, failed run, preset, export trail) — đỏ trước, xanh sau khi thêm audit. Hồi quy run/export/page/viewer/runs: 87 pass. Lint sạch, typecheck 21 lỗi = baseline.
+
+## Ghi chú bước 3
+- CONFIG_ONLY thêm 8 bảng cấu hình báo cáo (report/template/version/param/LOV/column/preset/favorite); run/export/lov_cache chỉ NO_TEMP/FULL.
+- Test: 3 test mới (precheck CONFIG_ONLY/NO_TEMP + start_migration CONFIG_ONLY mock) — đỏ trước, xanh sau. 12 test migration pass. Lint sạch, typecheck 21 lỗi = baseline.
+- Chưa kiểm chứng trên Oracle thật (không VPN) — để phía người dùng.

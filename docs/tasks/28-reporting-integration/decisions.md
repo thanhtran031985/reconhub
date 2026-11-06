@@ -30,3 +30,15 @@ Tham chiếu spec 12 và data flow. Ghi mọi khác biệt đã duyệt tại đ
 - REQUEST_EXPORT cache hit không ghi audit (không có thao tác mới).
 - DOWNLOAD_EXPORT ghi audit sau khi qua kiểm tra owner + file tồn tại, trong
   transaction riêng (hàm vốn chỉ đọc).
+
+## Bước 3 (06/11/2026)
+- CONFIG_ONLY (T28-06): thêm 8 bảng cấu hình báo cáo vào CONFIG_ONLY_TABLES
+  (RECON_REPORT, RECON_REPORT_TEMPLATE, RECON_RPT_TPL_VER, RECON_RPT_PARAM,
+  RECON_RPT_PARAM_LOV, RECON_RPT_COLUMN, RECON_RPT_PRESET, RECON_RPT_FAVORITE).
+  Preset/favorite tính là cấu hình người dùng (nhỏ, cần để UX chạy được sau
+  chuyển). Thứ tự FK giữ nguyên cha-trước-con-sau.
+- Lịch sử (T28-07): RECON_REPORT_RUN, RECON_RPT_EXPORT và cache phái sinh
+  RECON_RPT_LOV_CACHE không vào CONFIG_ONLY — chỉ đi theo NO_TEMP/FULL.
+  NO_TEMP đã có sẵn 11 bảng report trong RECON_TABLES_ORDER từ task 21.
+- Kiểm chứng Oracle thật cần VPN nên để phía người dùng (như T21-01/T22-07/
+  T26-12); trên máy ảo chỉ kiểm bằng mock target engine SQLite.

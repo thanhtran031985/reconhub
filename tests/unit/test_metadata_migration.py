@@ -430,3 +430,223 @@ def test_delete_old_sqlite_restrictions(migration_env, tmp_path: Path):
                 select(recon_purge_log).where(recon_purge_log.c.ACTOR == admin_ctx.username)
             ).first()
             assert purge_row is not None
+
+
+def _seed_report_data(src_engine, now):
+    """Seed 1 report đầy đủ config + 1 run + 1 export (để phân biệt scope)."""
+    from app.db.metadata import (
+        recon_report,
+        recon_report_run,
+        recon_report_template,
+        recon_rpt_column,
+        recon_rpt_export,
+        recon_rpt_favorite,
+        recon_rpt_param,
+        recon_rpt_param_lov,
+        recon_rpt_preset,
+        recon_rpt_tpl_ver,
+    )
+
+    with src_engine.begin() as conn:
+        rep_id = conn.execute(
+            recon_report.insert().values(
+                CODE="MIG_RPT",
+                NAME="Báo cáo chuyển",
+                OWNER="FIN",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_BY="admin",
+                UPDATED_AT=now,
+            )
+        ).lastrowid
+        tpl_id = conn.execute(
+            recon_report_template.insert().values(
+                REPORT_ID=rep_id,
+                CODE="MIG1",
+                NAME="Template chuyển",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_BY="admin",
+                UPDATED_AT=now,
+            )
+        ).lastrowid
+        ver_id = conn.execute(
+            recon_rpt_tpl_ver.insert().values(
+                TEMPLATE_ID=tpl_id,
+                VERSION_NO=1,
+                STATUS="DRAFT",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_BY="admin",
+                UPDATED_AT=now,
+            )
+        ).lastrowid
+        param_id = conn.execute(
+            recon_rpt_param.insert().values(
+                VERSION_ID=ver_id,
+                CODE="p_org",
+                LABEL="Đơn vị",
+                DATA_TYPE="STRING",
+                CONTROL_TYPE="TEXT",
+            )
+        ).lastrowid
+        conn.execute(
+            recon_rpt_param_lov.insert().values(
+                PARAM_ID=param_id, LOV_TYPE="NONE"
+            )
+        )
+        conn.execute(
+            recon_rpt_column.insert().values(
+                VERSION_ID=ver_id,
+                FIELD_NAME="AMOUNT",
+                LABEL="Số tiền",
+                DATA_TYPE="NUMBER",
+            )
+        )
+        conn.execute(
+            recon_rpt_preset.insert().values(
+                USER_ID=1,
+                REPORT_ID=rep_id,
+                TEMPLATE_ID=tpl_id,
+                NAME="Preset chuyển",
+                PARAMS_JSON={},
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_BY="admin",
+                UPDATED_AT=now,
+            )
+        )
+        conn.execute(
+            recon_rpt_favorite.insert().values(
+                USER_ID=1, REPORT_ID=rep_id, CREATED_AT=now
+            )
+        )
+        run_id = conn.execute(
+            recon_report_run.insert().values(
+                REPORT_ID=rep_id,
+                TEMPLATE_ID=tpl_id,
+                VERSION_ID=ver_id,
+                PARAMS_JSON={},
+                STATUS="DONE",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+            )
+        ).lastrowid
+        conn.execute(
+            recon_rpt_export.insert().values(
+                RUN_ID=run_id,
+                FORMAT="CSV",
+                STATUS="DONE",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+            )
+        )
+    return {"report_id": rep_id, "run_id": run_id}
+
+
+def _target_ds_id(src_engine, now):
+    with src_engine.begin() as conn:
+        return conn.execute(
+            recon_data_source.insert().values(
+                NAME="Target Migration Report",
+                ENV="TEST",
+                PURPOSE="SOURCE",
+                DB_TYPE="ORACLE",
+                HOST="localhost",
+                PORT=1521,
+                SERVICE_NAME="XEPDB1",
+                DEFAULT_SCHEMA="RECON_RPT",
+                USERNAME="recon_rpt",
+                PASSWORD_ENC="dummy",
+                IS_ACTIVE="Y",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+
+
+def test_config_only_includes_report_config_tables(migration_env):
+    src_engine, target_engine, admin_ctx, _ = migration_env
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    _seed_report_data(src_engine, now)
+    ds_id = _target_ds_id(src_engine, now)
+
+    pre = precheck(
+        admin_ctx, target_ds_id=ds_id, mode="CONFIG_ONLY",
+        mock_target_engine=target_engine,
+    )
+    assert pre.ok is True, pre.message
+    tables = {t["table"] for t in pre.data["tables"]}
+    for expected in (
+        "RECON_REPORT",
+        "RECON_REPORT_TEMPLATE",
+        "RECON_RPT_TPL_VER",
+        "RECON_RPT_PARAM",
+        "RECON_RPT_PARAM_LOV",
+        "RECON_RPT_COLUMN",
+        "RECON_RPT_PRESET",
+        "RECON_RPT_FAVORITE",
+    ):
+        assert expected in tables, f"CONFIG_ONLY thiếu {expected}"
+    # Lịch sử + cache phái sinh không đi theo CONFIG_ONLY.
+    for excluded in ("RECON_REPORT_RUN", "RECON_RPT_EXPORT", "RECON_RPT_LOV_CACHE"):
+        assert excluded not in tables, f"CONFIG_ONLY không được có {excluded}"
+
+
+def test_no_temp_includes_report_history(migration_env):
+    src_engine, target_engine, admin_ctx, _ = migration_env
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    _seed_report_data(src_engine, now)
+    ds_id = _target_ds_id(src_engine, now)
+
+    pre = precheck(
+        admin_ctx, target_ds_id=ds_id, mode="NO_TEMP",
+        mock_target_engine=target_engine,
+    )
+    assert pre.ok is True, pre.message
+    tables = {t["table"] for t in pre.data["tables"]}
+    for expected in (
+        "RECON_REPORT",
+        "RECON_REPORT_RUN",
+        "RECON_RPT_EXPORT",
+        "RECON_RPT_LOV_CACHE",
+    ):
+        assert expected in tables, f"NO_TEMP thiếu {expected}"
+    assert "RECON_EXCEL_LOAD" not in tables
+    assert "RECON_EXCEL_ROW" not in tables
+
+
+def test_start_migration_config_only_copies_report_config(migration_env):
+    from sqlalchemy import func as _func
+
+    from app.db.metadata import recon_report, recon_report_run, recon_rpt_export
+
+    src_engine, target_engine, admin_ctx, _ = migration_env
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    _seed_report_data(src_engine, now)
+    ds_id = _target_ds_id(src_engine, now)
+
+    res = start_migration(
+        admin_ctx, target_ds_id=ds_id, mode="CONFIG_ONLY",
+        mock_target_engine=target_engine,
+    )
+    assert res.ok is True, res.message
+    assert res.data["status"] == "DONE"
+    report = res.data["report"]
+    assert "RECON_REPORT" in report
+    assert "RECON_REPORT_RUN" not in report
+    assert "RECON_RPT_EXPORT" not in report
+    with target_engine.connect() as t_conn:
+        assert (
+            t_conn.execute(select(_func.count()).select_from(recon_report)).scalar()
+            == 1
+        )
+        assert (
+            t_conn.execute(select(_func.count()).select_from(recon_report_run)).scalar()
+            == 0
+        )
+        assert (
+            t_conn.execute(select(_func.count()).select_from(recon_rpt_export)).scalar()
+            == 0
+        )

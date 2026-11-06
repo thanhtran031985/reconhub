@@ -77,6 +77,17 @@ CONFIG_ONLY_TABLES = [
     "RECON_DATA_SOURCE",
     "RECON_TEMPLATE",
     "RECON_TEMPLATE_VERSION",
+    # Bảng cấu hình báo cáo động (task 28, T28-06): cha trước con sau.
+    # Lịch sử (RECON_REPORT_RUN, RECON_RPT_EXPORT) và cache phái sinh
+    # (RECON_RPT_LOV_CACHE) chỉ đi theo NO_TEMP/FULL (T28-07).
+    "RECON_REPORT",
+    "RECON_REPORT_TEMPLATE",
+    "RECON_RPT_TPL_VER",
+    "RECON_RPT_PARAM",
+    "RECON_RPT_PARAM_LOV",
+    "RECON_RPT_COLUMN",
+    "RECON_RPT_PRESET",
+    "RECON_RPT_FAVORITE",
     "RECON_APP_SETTING",
     "RECON_ISSUE_REASON",
 ]
