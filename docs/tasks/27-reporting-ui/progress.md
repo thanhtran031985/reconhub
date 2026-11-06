@@ -7,7 +7,7 @@ Trạng thái: 🔄
 | 1 | Report Center cards/search/favorite | ✅ | |
 | 2 | Viewer tabs/dynamic form/grid | ✅ | |
 | 3 | Wizard 6 bước theo prototype v5 | ✅ | |
-| 4 | Loading/empty/error/accessibility/responsive | ⬜ | |
+| 4 | Loading/empty/error/accessibility/responsive | ✅ | |
 
 ## Ghi chú bước 1
 - Trang `/reports` mới (MENU_CODE report_center): search + lọc nhóm + chỉ yêu thích, cards nhóm theo category, sao yêu thích toggle (set_report_favorite, cập nhật store không reload), nút "+ Đăng ký báo cáo" chỉ khi có menu report_admin.
@@ -29,3 +29,10 @@ Trạng thái: 🔄
 - Sửa Viewer: STATIC LOV nhận cả `static_json` (dạng thật) và `static_values` (dạng test cũ).
 - Test: 26 unit mới `test_page_report_admin.py` pass; viewer/runs/center 58 pass; e2e 18 pass (+`/report-admin` 200). Lint sạch, typecheck 21 lỗi = baseline. Hồi quy full suite sau bước 3: **977 passed, 5 skipped** (tăng 27 so với 950 sau bước 2: 26 test admin + 1 e2e). Playwright `/tmp/rpt27/wizard.py` PASS: T27-07 (list admin + operator bị chặn 403), T27-08 (tạo mới bước 1 → bước 2), T27-09 (bước 2 báo lỗi chưa chọn DS khi không có Oracle/DS), T27-10 (guard kẹt bước 2 khi chưa phân tích), T27-12 (Clone mở wizard với template đã nạp). T27-11 dry-run/activate happy-path chỉ kiểm ở unit test với mock Oracle (không Oracle trên máy ảo); bước 5/6 render + guard đã kiểm bằng Playwright ở mức có thể.
 - Bẫy đã sửa trong bước 3 (xem decisions.md): import chéo page gây lỗi duplicate paths khi chạy server; layout() phải nhận **kwargs vì query string; dmc.Select chỉ nhận value chuỗi (DS select); build_param_layout là hàm thuần nhận version detail, service là preview_layout.
+
+## Ghi chú bước 4 (đóng task)
+- Rà `handle_result_render`: phát hiện và sửa hoán đổi tham số page_size/sorts trong wiring Dash thật (xem decisions.md) + test hồi quy sort DESC kiểm tra ORDER BY; `viewer-page-size` đổi sang value chuỗi.
+- 4 trạng thái: Loading đã có sẵn ở Center/Viewer/Lịch sử (dcc.Loading), thêm `admin-wizard-loading` cho wizard; empty state Viewer/Lịch sử/Wizard đã có; lỗi Viewer giữ dữ liệu cũ + "Thử lại"; lỗi tải Center trước đây render div trống đã sửa thành alert thật.
+- Accessibility T27-14: aria-live="polite" trên vùng thông báo/kết quả cả 4 trang; nút icon (sao yêu thích, Chạy lại, Sửa/Clone/Lưu trữ) đã có aria-label từ trước.
+- Responsive T27-15: bọc ScrollArea cho 3 bảng trang Quản trị (tràn 49px ở 375 trước sửa). Playwright `/tmp/rpt27/states.py` PASS: aria-live đủ 4 trang, lỗi giữ empty state cũ + Thử lại, không tràn ngang ở 1440/1366/768/375/320, dark mode light→dark qua toggle, không lỗi JS. Ảnh `shots/states-*.png`, `states-dark.png`.
+- Hồi quy sau bước 4: viewer.py + center.py Playwright PASS lại; full suite **979 passed, 5 skipped** (tăng 2 test mới: sort wiring + lỗi giữ dữ liệu cũ); e2e 18 pass.

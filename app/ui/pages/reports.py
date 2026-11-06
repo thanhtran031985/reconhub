@@ -49,10 +49,7 @@ def _filter_reports(
         if fav_only and not r.get("is_favorite"):
             continue
         if q:
-            hay = " ".join(
-                str(r.get(k) or "")
-                for k in ("name", "code", "description")
-            ).lower()
+            hay = " ".join(str(r.get(k) or "") for k in ("name", "code", "description")).lower()
             if q not in hay:
                 continue
         out.append(r)
@@ -232,7 +229,11 @@ def layout() -> html.Div:
                         align="end",
                         wrap="wrap",
                     ),
-                    html.Div(id="reports-error-area")
+                    html.Div(
+                        id="reports-error-area",
+                        children=alert_box(load_error, tone="crit"),
+                        **{"aria-live": "polite"},  # type: ignore[arg-type]
+                    )
                     if load_error
                     else html.Div(),
                     dcc.Loading(
@@ -241,6 +242,7 @@ def layout() -> html.Div:
                         children=html.Div(
                             id="reports-cards-container",
                             children=render_reports_sections(reports),
+                            **{"aria-live": "polite"},  # type: ignore[arg-type]
                         ),
                     ),
                 ],
@@ -265,9 +267,7 @@ def handle_reports_filter(
     reports: list[dict[str, Any]] | None,
 ) -> Any:
     """Lọc cards theo tìm kiếm/nhóm/yêu thích (T27-01)."""
-    return render_reports_sections(
-        _filter_reports(reports or [], query, category, bool(fav_only))
-    )
+    return render_reports_sections(_filter_reports(reports or [], query, category, bool(fav_only)))
 
 
 @callback(
@@ -303,7 +303,4 @@ def handle_favorite_toggle(
     res = set_report_favorite(ctx, report_id, new_value)
     if not res.ok:
         raise PreventUpdate
-    return [
-        {**r, "is_favorite": new_value} if int(r["id"]) == report_id else r
-        for r in reports
-    ]
+    return [{**r, "is_favorite": new_value} if int(r["id"]) == report_id else r for r in reports]

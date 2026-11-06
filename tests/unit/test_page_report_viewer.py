@@ -7,6 +7,7 @@ layout), T27-06 (server pagination).
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import text
 
 from app.core.context import Ctx
 from tests.unit.test_report_export_queue import _done_run, export_env
@@ -69,8 +70,7 @@ class TestParamControls:
     def test_control_by_type(self):
         import app.ui.pages.report_viewer as page
 
-        base = {"id": 1, "code": "p_x", "label": "X", "required": False,
-                "grid_span": 3, "lov": {"lov_type": "NONE"}}
+        base = {"id": 1, "code": "p_x", "label": "X", "required": False, "grid_span": 3, "lov": {"lov_type": "NONE"}}
         date_c = page.render_param_control({**base, "data_type": "DATE", "control_type": "DATE"}, None)
         assert "DateInput" in _dump(date_c)
         text_c = page.render_param_control({**base, "data_type": "STRING", "control_type": "TEXT"}, None)
@@ -78,29 +78,42 @@ class TestParamControls:
         num_c = page.render_param_control({**base, "data_type": "NUMBER", "control_type": "NUMBER"}, None)
         assert "NumberInput" in _dump(num_c)
         sel_c = page.render_param_control(
-            {**base, "data_type": "STRING", "control_type": "SELECT",
-             "lov": {"lov_type": "STATIC", "static_values": [["A", "Mục A"], ["B", "Mục B"]]}},
+            {
+                **base,
+                "data_type": "STRING",
+                "control_type": "SELECT",
+                "lov": {"lov_type": "STATIC", "static_values": [["A", "Mục A"], ["B", "Mục B"]]},
+            },
             None,
         )
         dumped = _dump(sel_c)
         assert "Select" in dumped and "Mục A" in dumped
         multi_c = page.render_param_control(
-            {**base, "data_type": "STRING", "control_type": "MULTI_SELECT",
-             "lov": {"lov_type": "STATIC", "static_values": [["A", "Mục A"]]}},
+            {
+                **base,
+                "data_type": "STRING",
+                "control_type": "MULTI_SELECT",
+                "lov": {"lov_type": "STATIC", "static_values": [["A", "Mục A"]]},
+            },
             None,
         )
         assert "MultiSelect" in _dump(multi_c)
-        range_c = page.render_param_control(
-            {**base, "data_type": "DATE", "control_type": "DATE_RANGE"}, None
-        )
+        range_c = page.render_param_control({**base, "data_type": "DATE", "control_type": "DATE_RANGE"}, None)
         assert _dump(range_c).count("DateInput") == 2
 
     def test_required_marker(self):
         import app.ui.pages.report_viewer as page
 
-        param = {"id": 1, "code": "p_org", "label": "Đơn vị", "required": True,
-                 "data_type": "STRING", "control_type": "TEXT", "grid_span": 3,
-                 "lov": {"lov_type": "NONE"}}
+        param = {
+            "id": 1,
+            "code": "p_org",
+            "label": "Đơn vị",
+            "required": True,
+            "data_type": "STRING",
+            "control_type": "TEXT",
+            "grid_span": 3,
+            "lov": {"lov_type": "NONE"},
+        }
         assert " *" in _dump(page.render_param_control(param, None))
 
 
@@ -108,12 +121,28 @@ class TestResultTable:
     def test_headers_and_rows(self):
         import app.ui.pages.report_viewer as page
 
-        layout = {"columns": [
-            {"field_name": "AMOUNT", "label": "Số tiền", "data_type": "NUMBER",
-             "format_mask": "#,##0", "alignment": "RIGHT", "width": 120, "is_total": False},
-            {"field_name": "ORG", "label": "Đơn vị", "data_type": "STRING",
-             "format_mask": None, "alignment": "LEFT", "width": 180, "is_total": False},
-        ]}
+        layout = {
+            "columns": [
+                {
+                    "field_name": "AMOUNT",
+                    "label": "Số tiền",
+                    "data_type": "NUMBER",
+                    "format_mask": "#,##0",
+                    "alignment": "RIGHT",
+                    "width": 120,
+                    "is_total": False,
+                },
+                {
+                    "field_name": "ORG",
+                    "label": "Đơn vị",
+                    "data_type": "STRING",
+                    "format_mask": None,
+                    "alignment": "LEFT",
+                    "width": 180,
+                    "is_total": False,
+                },
+            ]
+        }
         rows = [{"AMOUNT": 10000000, "ORG": "00123"}, {"AMOUNT": 2000, "ORG": "HN"}]
         text = _dump(page.render_result_table(layout, rows))
         assert "Số tiền" in text and "Đơn vị" in text
@@ -123,18 +152,25 @@ class TestResultTable:
     def test_empty_rows(self):
         import app.ui.pages.report_viewer as page
 
-        layout = {"columns": [
-            {"field_name": "AMOUNT", "label": "Số tiền", "data_type": "NUMBER",
-             "format_mask": None, "alignment": "RIGHT", "width": 120, "is_total": False},
-        ]}
+        layout = {
+            "columns": [
+                {
+                    "field_name": "AMOUNT",
+                    "label": "Số tiền",
+                    "data_type": "NUMBER",
+                    "format_mask": None,
+                    "alignment": "RIGHT",
+                    "width": 120,
+                    "is_total": False,
+                },
+            ]
+        }
         text = _dump(page.render_result_table(layout, []))
         assert "Không có dòng nào" in text
 
 
 class TestViewerLayout:
-    def test_layout_operator_renders_tabs_and_form(
-        self, export_env, operator_ctx, monkeypatch
-    ):
+    def test_layout_operator_renders_tabs_and_form(self, export_env, operator_ctx, monkeypatch):
         import app.ui.pages.report_viewer as page
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
@@ -145,9 +181,7 @@ class TestViewerLayout:
         assert "Xem báo cáo" in text
         assert "Nhập tham số và bấm Xem báo cáo." in text
 
-    def test_layout_no_active_version_note(
-        self, export_env, operator_ctx, monkeypatch
-    ):
+    def test_layout_no_active_version_note(self, export_env, operator_ctx, monkeypatch):
         import app.ui.pages.report_viewer as page
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
@@ -157,16 +191,13 @@ class TestViewerLayout:
 
         res = create_report(
             Ctx(user_id=1, username="admin", full_name="admin", roles=["ADMIN"]),
-            {"code": "DRAFT_ONLY", "name": "Chỉ nháp", "category_code": "FINANCE",
-             "owner": "FIN"},
+            {"code": "DRAFT_ONLY", "name": "Chỉ nháp", "category_code": "FINANCE", "owner": "FIN"},
         )
         assert res.ok, res.message
         text = _dump(page.layout(report_id=res.data["id"]))
         assert "Chưa có template ACTIVE" in text
 
-    def test_layout_forbidden_for_norole(
-        self, export_env, norole_ctx, monkeypatch
-    ):
+    def test_layout_forbidden_for_norole(self, export_env, norole_ctx, monkeypatch):
         import app.ui.pages.report_viewer as page
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: norole_ctx)
@@ -182,9 +213,7 @@ class TestViewerRun:
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         with pytest.raises(PreventUpdate):
-            page.handle_run_click(
-                None, 1, 1, ["HN"], [{"type": "viewer-param", "index": "p_org"}], 50
-            )
+            page.handle_run_click(None, 1, 1, ["HN"], [{"type": "viewer-param", "index": "p_org"}], 50)
 
     def test_run_renders_first_page(self, export_env, operator_ctx, monkeypatch):
         from unittest.mock import patch
@@ -198,12 +227,16 @@ class TestViewerRun:
             return_value=conn,
         ):
             run_store, page_store, _error = page.handle_run_click(
-                1, export_env["report_id"], export_env["sql_template_id"],
-                ["HN"], [{"type": "viewer-param", "index": "p_org"}], 50,
+                1,
+                export_env["report_id"],
+                export_env["sql_template_id"],
+                ["HN"],
+                [{"type": "viewer-param", "index": "p_org"}],
+                50,
             )
             assert run_store["run_id"] is not None
             assert page_store == 1
-            result_html, _count = page.handle_result_render(run_store, 1, 50, [])
+            result_html, _count = page.handle_result_render(run_store, 1, [], 50)
         text = _dump(result_html)
         assert "1.000" in text
         assert "HN" in text
@@ -219,17 +252,19 @@ class TestViewerRun:
             side_effect=RuntimeError("ORA-12154: TNS:could not resolve"),
         ):
             run_store, page_store, error = page.handle_run_click(
-                1, export_env["report_id"], export_env["sql_template_id"],
-                ["HN"], [{"type": "viewer-param", "index": "p_org"}], 50,
+                1,
+                export_env["report_id"],
+                export_env["sql_template_id"],
+                ["HN"],
+                [{"type": "viewer-param", "index": "p_org"}],
+                50,
             )
         assert run_store == {}
         assert page_store == 1
         text = _dump(error)
         assert "ORA-12154" in text
 
-    def test_page_of_failed_run_is_clean_error(
-        self, export_env, operator_ctx, monkeypatch
-    ):
+    def test_page_of_failed_run_is_clean_error(self, export_env, operator_ctx, monkeypatch):
         from unittest.mock import patch
 
         import app.ui.pages.report_viewer as page
@@ -241,8 +276,12 @@ class TestViewerRun:
             side_effect=RuntimeError("ORA-12154: TNS:could not resolve"),
         ):
             run_store, _page_store, _error = page.handle_run_click(
-                1, export_env["report_id"], export_env["sql_template_id"],
-                ["HN"], [{"type": "viewer-param", "index": "p_org"}], 50,
+                1,
+                export_env["report_id"],
+                export_env["sql_template_id"],
+                ["HN"],
+                [{"type": "viewer-param", "index": "p_org"}],
+                50,
             )
         # Run đã FAILED trong DB: mở lại trang phải báo lỗi rõ, không phải
         # "Lỗi hệ thống nội bộ".
@@ -256,9 +295,7 @@ class TestViewerRun:
         assert "Run đã lỗi" in res.message
         assert "ORA-12154" in res.message
 
-    def test_page_change_server_pagination(
-        self, export_env, operator_ctx, monkeypatch
-    ):
+    def test_page_change_server_pagination(self, export_env, operator_ctx, monkeypatch):
         from unittest.mock import patch
 
         import app.ui.pages.report_viewer as page
@@ -277,9 +314,77 @@ class TestViewerRun:
         ):
             page_no = page.handle_page_change(2, run_store)
             assert page_no == 2
-            result_html, _count = page.handle_result_render(run_store, 2, 2, [])
+            result_html, _count = page.handle_result_render(run_store, 2, [], 2)
         text = _dump(result_html)
         # Trang 2 (page_size 2) → dòng 3, 4 (3.000/HCM, 4.000/HCM).
         assert "3.000" in text
         assert "HCM" in text
         assert "1.000" not in text
+
+    def test_result_error_keeps_old_data_and_retry(self, export_env, operator_ctx, monkeypatch):
+        """Lỗi tải trang: giữ bảng cũ + nút Thử lại, không trắng trang."""
+        from dash import html
+
+        import app.ui.pages.report_viewer as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        run = _done_run(operator_ctx, export_env)
+        engine = export_env["engine"]
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE RECON_REPORT_RUN SET STATUS='FAILED', "
+                    "ERROR_MESSAGE='ORA-12154: TNS:could not resolve' "
+                    "WHERE ID=:i"
+                ),
+                {"i": run["id"]},
+            )
+        run_store = {
+            "run_id": run["id"],
+            "template_id": export_env["sql_template_id"],
+            "report_id": export_env["report_id"],
+        }
+        old = [html.Div("OLD-TABLE-MARKER")]
+        result_html, count = page.handle_result_render(run_store, 1, [], 50, old)
+        assert count == "Lỗi tải kết quả"
+        dumped = _dump(result_html)
+        assert "OLD-TABLE-MARKER" in dumped
+        assert "Thử lại" in dumped
+        assert "ORA-12154" in dumped
+
+    def test_result_render_with_sort_applies_sort(self, export_env, operator_ctx, monkeypatch):
+        """Hồi quy: thứ tự tham số handle_result_render khớp decorator.
+
+        Trước sửa, chữ ký (run_store, page_no, page_size, sorts) nhận nhầm
+        sort-store vào page_size nên sort khác rỗng làm int(list) lỗi
+        TypeError trên trình duyệt thật (test cũ chỉ truyền sorts=[] nên
+        không lộ). Sort AMOUNT DESC, page_size 50 → dòng 5.000 lên đầu.
+        """
+        from unittest.mock import patch
+
+        import app.ui.pages.report_viewer as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        run = _done_run(operator_ctx, export_env)
+        run_store = {
+            "run_id": run["id"],
+            "template_id": export_env["sql_template_id"],
+            "report_id": export_env["report_id"],
+        }
+        conn, cursor = _paged_conn(ALL_ROWS, total=5)
+        with patch(
+            "app.services.report_source.open_source_connection",
+            return_value=conn,
+        ):
+            result_html, _count = page.handle_result_render(
+                run_store,
+                1,
+                [{"field": "AMOUNT", "direction": "DESC"}],
+                50,
+            )
+        text = _dump(result_html)
+        assert "5.000" in text
+        # Sort phải tới được câu truy vấn (mock không tự sắp xếp dữ liệu).
+        executed = " ".join(str(c.args[0]) for c in cursor.execute.call_args_list)
+        assert "ORDER BY" in executed and "AMOUNT" in executed
+        assert "DESC" in executed

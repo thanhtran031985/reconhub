@@ -343,24 +343,26 @@ def render_report_list(reports: list[dict[str, Any]]) -> Any:
                         justify="space-between",
                     ),
                     (
-                        dmc.Table(
-                            [
-                                dmc.TableThead(
-                                    dmc.TableTr(
-                                        [
-                                            dmc.TableTh("Mã template"),
-                                            dmc.TableTh("Tên"),
-                                            dmc.TableTh("Version"),
-                                            dmc.TableTh("Trạng thái"),
-                                            dmc.TableTh(""),
-                                            dmc.TableTh(""),
-                                        ]
-                                    )
-                                ),
-                                dmc.TableTbody(rows),
-                            ],
-                            striped=True,
-                            withTableBorder=True,
+                        dmc.ScrollArea(
+                            dmc.Table(
+                                [
+                                    dmc.TableThead(
+                                        dmc.TableTr(
+                                            [
+                                                dmc.TableTh("Mã template"),
+                                                dmc.TableTh("Tên"),
+                                                dmc.TableTh("Version"),
+                                                dmc.TableTh("Trạng thái"),
+                                                dmc.TableTh(""),
+                                                dmc.TableTh(""),
+                                            ]
+                                        )
+                                    ),
+                                    dmc.TableTbody(rows),
+                                ],
+                                striped=True,
+                                withTableBorder=True,
+                            ),
                         )
                         if rows
                         else dmc.Text("Chưa có template nào.", size="sm", c="dimmed", mt="sm")
@@ -443,15 +445,19 @@ def layout(**kwargs: Any) -> Any:
                         justify="space-between",
                         align="center",
                     ),
-                    html.Div(id="admin-alert"),
+                    html.Div(id="admin-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
                     html.Div(
                         id="admin-list-container",
                         children=render_report_list(reports),
                     ),
-                    html.Div(
-                        id="admin-wizard-container",
-                        children=[],
-                        style={"display": "none"},
+                    dcc.Loading(
+                        id="admin-wizard-loading",
+                        type="circle",
+                        children=html.Div(
+                            id="admin-wizard-container",
+                            children=[],
+                            style={"display": "none"},
+                        ),
                     ),
                 ],
                 gap="lg",
@@ -848,24 +854,26 @@ def render_step3(state: dict[str, Any]) -> Any:
                     c="dimmed",
                 )
             ),
-            dmc.Table(
-                [
-                    dmc.TableThead(
-                        dmc.TableTr(
-                            [
-                                dmc.TableTh("Mã"),
-                                dmc.TableTh("Nhãn"),
-                                dmc.TableTh("Kiểu / Control"),
-                                dmc.TableTh("Vị trí"),
-                                dmc.TableTh("LOV"),
-                                dmc.TableTh(""),
-                            ]
-                        )
-                    ),
-                    dmc.TableTbody(rows),
-                ],
-                striped=True,
-                withTableBorder=True,
+            dmc.ScrollArea(
+                dmc.Table(
+                    [
+                        dmc.TableThead(
+                            dmc.TableTr(
+                                [
+                                    dmc.TableTh("Mã"),
+                                    dmc.TableTh("Nhãn"),
+                                    dmc.TableTh("Kiểu / Control"),
+                                    dmc.TableTh("Vị trí"),
+                                    dmc.TableTh("LOV"),
+                                    dmc.TableTh(""),
+                                ]
+                            )
+                        ),
+                        dmc.TableTbody(rows),
+                    ],
+                    striped=True,
+                    withTableBorder=True,
+                )
             )
             if rows
             else empty_state("Chưa có tham số nào.", "Thêm tham số bên dưới."),
@@ -1168,28 +1176,30 @@ def render_step4(state: dict[str, Any]) -> Any:
         [
             dmc.Title("Cấu hình cột", order=3),
             (
-                dmc.Table(
-                    [
-                        dmc.TableThead(
-                            dmc.TableTr(
-                                [
-                                    dmc.TableTh("Trường DB"),
-                                    dmc.TableTh("Nhãn"),
-                                    dmc.TableTh("Kiểu"),
-                                    dmc.TableTh("Định dạng"),
-                                    dmc.TableTh("Canh"),
-                                    dmc.TableTh("Rộng"),
-                                    dmc.TableTh("Web"),
-                                    dmc.TableTh("Excel"),
-                                    dmc.TableTh("Tổng"),
-                                    dmc.TableTh(""),
-                                ]
-                            )
-                        ),
-                        dmc.TableTbody(rows),
-                    ],
-                    striped=True,
-                    withTableBorder=True,
+                dmc.ScrollArea(
+                    dmc.Table(
+                        [
+                            dmc.TableThead(
+                                dmc.TableTr(
+                                    [
+                                        dmc.TableTh("Trường DB"),
+                                        dmc.TableTh("Nhãn"),
+                                        dmc.TableTh("Kiểu"),
+                                        dmc.TableTh("Định dạng"),
+                                        dmc.TableTh("Canh"),
+                                        dmc.TableTh("Rộng"),
+                                        dmc.TableTh("Web"),
+                                        dmc.TableTh("Excel"),
+                                        dmc.TableTh("Tổng"),
+                                        dmc.TableTh(""),
+                                    ]
+                                )
+                            ),
+                            dmc.TableTbody(rows),
+                        ],
+                        striped=True,
+                        withTableBorder=True,
+                    )
                 )
                 if rows
                 else empty_state(

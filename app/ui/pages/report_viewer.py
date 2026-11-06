@@ -57,9 +57,10 @@ except Exception:
 
 MENU_CODE = "report_center"
 PAGE_SIZE_OPTIONS = [
-    {"label": "50 dòng/trang", "value": 50},
-    {"label": "100 dòng/trang", "value": 100},
-    {"label": "200 dòng/trang", "value": 200},
+    # dmc.Select chỉ nhận value chuỗi (số gây lỗi Mantine ở trình duyệt).
+    {"label": "50 dòng/trang", "value": "50"},
+    {"label": "100 dòng/trang", "value": "100"},
+    {"label": "200 dòng/trang", "value": "200"},
 ]
 
 
@@ -185,7 +186,10 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
                                         id="viewer-run-btn",
                                         variant="filled",
                                     ),
-                                    html.Div(id="viewer-run-error"),
+                                    html.Div(
+                                        id="viewer-run-error",
+                                        **{"aria-live": "polite"},  # type: ignore[arg-type]
+                                    ),
                                 ],
                                 mt="md",
                             ),
@@ -206,6 +210,7 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
                                                 id="viewer-result-count",
                                                 c="dimmed",
                                                 size="sm",
+                                                **{"aria-live": "polite"},
                                             ),
                                         ],
                                         gap=0,
@@ -215,7 +220,7 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
                                             dmc.Select(
                                                 id="viewer-page-size",
                                                 data=PAGE_SIZE_OPTIONS,
-                                                value=50,
+                                                value="50",
                                                 w=170,
                                                 clearable=False,
                                                 **{"aria-label": "Số dòng mỗi trang"},
@@ -232,7 +237,11 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
                                 justify="space-between",
                                 align="start",
                             ),
-                            html.Div(id="viewer-export-status", style={"marginTop": 8}),
+                            html.Div(
+                                id="viewer-export-status",
+                                style={"marginTop": 8},
+                                **{"aria-live": "polite"},  # type: ignore[arg-type]
+                            ),
                             dcc.Loading(
                                 id="viewer-loading",
                                 type="circle",
@@ -406,14 +415,26 @@ def handle_sort_click(
     Input("viewer-page-store", "data"),
     Input("viewer-sort-store", "data"),
     State("viewer-page-size", "value"),
+    State("viewer-result-container", "children"),
 )
 def handle_result_render(
     run_store: dict[str, Any] | None,
     page_no: int | None,
-    page_size: int | None,
     sorts: list[dict[str, str]] | None,
+    page_size: int | None,
+    prev_children: Any = None,
 ) -> tuple[Any, str]:
-    """Render kết quả từ run/page/sort hiện tại (một nơi duy nhất)."""
+    """Render kết quả từ run/page/sort hiện tại (một nơi duy nhất).
+
+    Thứ tự tham số khớp thứ tự khai báo của decorator (run-store,
+    page-store, sort-store, page-size): trước đây chữ ký là
+    (run_store, page_no, page_size, sorts) nên Dash gán nhầm sort-store
+    vào page_size và page-size vào sorts — sort trên trình duyệt thật
+    không có tác dụng, còn test gọi trực tiếp thì vẫn xanh.
+
+    Lỗi tải trang: giữ dữ liệu cũ + nút Thử lại (tải lại trang, theo mẫu
+    lookups.py — nút Thử lại không phải Input của callback).
+    """
     if not run_store or not run_store.get("run_id"):
         return (
             empty_state(
@@ -429,10 +450,16 @@ def handle_result_render(
     page = int(page_no or 1)
     res = get_report_page(ctx, int(run_store["run_id"]), page=page, page_size=size, sorts=sorts or [])
     if not res.ok or not isinstance(res.data, dict):
-        return (
-            alert_box(res.message or "Không tải được kết quả.", tone="crit"),
-            "Lỗi tải kết quả",
+        retry_href = f"/reports/{run_store.get('report_id')}" if run_store.get("report_id") else "/reports"
+        error_view = alert_box(
+            "Không tải được kết quả.",
+            res.message,
+            tone="crit",
+            action=dmc.Anchor("Thử lại", href=retry_href, size="sm"),
         )
+        if prev_children is None:
+            return error_view, "Lỗi tải kết quả"
+        return html.Div([error_view, prev_children]), "Lỗi tải kết quả"
     data = res.data
     total = int(data.get("total", 0))
     version_id = int(run_store.get("version_id") or 0)

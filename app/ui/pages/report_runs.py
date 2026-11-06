@@ -47,9 +47,7 @@ def _status_badge(status: str) -> dmc.Badge:
     return dmc.Badge(label, color=color, variant="light")
 
 
-def render_runs_table(
-    runs: list[dict[str, Any]], exports_by_run: dict[int, list[dict[str, Any]]]
-) -> Any:
+def render_runs_table(runs: list[dict[str, Any]], exports_by_run: dict[int, list[dict[str, Any]]]) -> Any:
     """Bảng lịch sử run + file export + hành động."""
     if not runs:
         return empty_state(
@@ -155,7 +153,7 @@ def layout() -> html.Div:
     return html.Div(
         [
             dcc.Store(id="report-runs-page-store", data=1),
-            html.Div(id="report-runs-alert"),
+            html.Div(id="report-runs-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
             dmc.Stack(
                 [
                     dmc.Title("Lịch sử báo cáo", order=1),
@@ -197,9 +195,7 @@ def layout() -> html.Div:
     Input("report-runs-pagination", "value"),
     State("report-runs-page-store", "data"),
 )
-def handle_runs_page(
-    page_no: int | None, _current: int | None
-) -> tuple[Any, int]:
+def handle_runs_page(page_no: int | None, _current: int | None) -> tuple[Any, int]:
     """Chuyển trang lịch sử."""
     ctx = get_current_ctx()
     if ctx is None:
