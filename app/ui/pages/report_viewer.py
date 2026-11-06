@@ -6,7 +6,6 @@ server-side, export background.
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -15,13 +14,12 @@ import dash_mantine_components as dmc
 from dash import Input, Output, State, callback, dcc, html
 from dash.exceptions import PreventUpdate
 
-from app.core.context import Ctx
 from app.core.session import get_current_ctx
 from app.services.perm import page_gate
 from app.services.report import get_report
 from app.services.report_column import get_result_layout
 from app.services.report_export import get_export, request_export
-from app.services.report_param import preview_layout, resolve_lov
+from app.services.report_param import preview_layout
 from app.services.report_run import (
     create_report_run,
     execute_report_run,
@@ -31,6 +29,21 @@ from app.services.report_run import (
 from app.services.report_template import get_version, list_templates
 from app.ui.components.alert_box import alert_box
 from app.ui.components.empty_state import empty_state
+from app.ui.components.report_widgets import (
+    _format_cell,
+    _lov_options,
+    render_param_control,
+    render_param_form,
+    render_result_table,
+)
+
+__all__ = [
+    "_format_cell",
+    "_lov_options",
+    "render_param_control",
+    "render_param_form",
+    "render_result_table",
+]
 
 try:
     dash.register_page(  # type: ignore[no-untyped-call]
@@ -51,247 +64,6 @@ PAGE_SIZE_OPTIONS = [
 
 
 # ─── Hàm thuần (test được) ──────────────────────────────────────────────────
-
-
-def _format_cell(value: Any, column: dict[str, Any]) -> str:
-    """Định dạng một ô theo metadata cột (mask + type)."""
-    if value is None or value == "":
-        return "—"
-    dtype = column.get("data_type")
-    mask = column.get("format_mask")
-    if dtype == "NUMBER":
-        try:
-            num = float(value)
-        except (TypeError, ValueError):
-            return str(value)
-        if mask == "#,##0%":
-            return f"{num * 100:,.2f}%".replace(",", "X").replace(".", ",").replace("X", ".")
-        if mask == "#,##0.00":
-            return f"{num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        return f"{num:,.0f}".replace(",", ".")
-    if dtype in ("DATE", "DATETIME"):
-        dt = None
-        if isinstance(value, datetime):
-            dt = value
-        elif isinstance(value, str):
-            try:
-                dt = datetime.fromisoformat(value)
-            except ValueError:
-                dt = None
-        if dt is None:
-            return str(value)
-        if mask == "DD/MM/YYYY HH:mm":
-            return dt.strftime("%d/%m/%Y %H:%M")
-        if mask == "DD/MM/YYYY HH:mm:ss":
-            return dt.strftime("%d/%m/%Y %H:%M:%S")
-        if mask == "MM/YYYY":
-            return dt.strftime("%m/%Y")
-        if mask == "YYYY-MM-DD":
-            return dt.strftime("%Y-%m-%d")
-        return dt.strftime("%d/%m/%Y")
-    return str(value)
-
-
-def _lov_options(
-    ctx: Ctx, version_id: int, param: dict[str, Any]
-) -> list[dict[str, str]]:
-    """Options cho SELECT/MULTI_SELECT từ LOV (STATIC/LOOKUP/SQL không dep)."""
-    lov = param.get("lov") or {}
-    lov_type = lov.get("lov_type", "NONE")
-    if lov_type == "STATIC":
-        return [
-            {"label": str(label), "value": str(value)}
-            for value, label in (lov.get("static_values") or [])
-        ]
-    if lov_type in ("SQL", "LOOKUP"):
-        try:
-            res = resolve_lov(ctx, version_id, int(param["id"]))
-        except Exception:
-            return []
-        if res.ok and isinstance(res.data, list):
-            return [
-                {"label": str(o.get("label", o.get("value"))), "value": str(o.get("value"))}
-                for o in res.data
-            ]
-        return []
-    return []
-
-
-def render_param_control(
-    param: dict[str, Any], options: list[dict[str, str]] | None
-) -> Any:
-    """Một control tham số theo DATA_TYPE/CONTROL_TYPE + LOV."""
-    code = str(param["code"])
-    label = f"{param['label']}{' *' if param.get('required') else ''}"
-    value = param.get("value")
-    pid = {"type": "viewer-param", "index": code}
-    ctype = param.get("control_type")
-    dtype = param.get("data_type")
-    if ctype == "DATE_RANGE":
-        # dmc 2.8.1: DateInput không có type="range" — dùng 2 DateInput
-        # (test đếm đúng 2 DateInput); callback gộp __from/__to thành dict.
-        raw = value if isinstance(value, dict) else {}
-        return dmc.Stack(
-            [
-                dmc.Text(label, size="sm", fw=500),
-                dmc.Group(
-                    [
-                        dmc.DateInput(
-                            id={"type": "viewer-param", "index": code + "__from"},
-                            value=str(raw.get("from")) if raw.get("from") else None,
-                            placeholder="Từ ngày…",
-                            **{"aria-label": f"{label} từ ngày"},
-                        ),
-                        dmc.DateInput(
-                            id={"type": "viewer-param", "index": code + "__to"},
-                            value=str(raw.get("to")) if raw.get("to") else None,
-                            placeholder="Đến ngày…",
-                            **{"aria-label": f"{label} đến ngày"},
-                        ),
-                    ],
-                    gap="sm",
-                    grow=True,
-                ),
-            ],
-            gap=2,
-        )
-    if ctype in ("SELECT", "MULTI_SELECT"):
-        opts = options
-        if opts is None:
-            # Dự phòng: tự suy options từ LOV STATIC của param (test + render
-            # độc lập); layout() thường truyền options đã resolve qua resolve_lov.
-            lov = param.get("lov") or {}
-            if lov.get("lov_type") == "STATIC":
-                opts = [
-                    {"label": str(label), "value": str(value)}
-                    for value, label in (lov.get("static_values") or [])
-                ]
-            else:
-                opts = []
-        if ctype == "MULTI_SELECT":
-            return dmc.MultiSelect(
-                id=pid,
-                label=label,
-                data=opts,
-                value=value if isinstance(value, list) else None,
-                placeholder="Chọn giá trị…",
-                searchable=True,
-                clearable=True,
-            )
-        return dmc.Select(
-            id=pid,
-            label=label,
-            data=opts,
-            value=str(value) if value is not None else None,
-            placeholder="Chọn giá trị…",
-            searchable=True,
-            clearable=not param.get("required"),
-        )
-    if ctype == "DATE" or dtype in ("DATE", "DATETIME"):
-        return dmc.DateInput(
-            id=pid,
-            label=label,
-            value=str(value) if value is not None else None,
-            placeholder="Chọn ngày…",
-            **{"aria-label": label},
-        )
-    if ctype == "NUMBER" or dtype == "NUMBER":
-        return dmc.NumberInput(
-            id=pid,
-            label=label,
-            value=value,
-            placeholder="Nhập số…",
-            **{"aria-label": label},
-        )
-    return dmc.TextInput(
-        id=pid,
-        label=label,
-        value=str(value) if value is not None else None,
-        placeholder=f"Nhập {str(param['label']).lower()}…",
-        **{"aria-label": label},
-    )
-
-
-def render_param_form(
-    layout_detail: dict[str, Any],
-    options_by_code: dict[str, list[dict[str, str]]],
-) -> Any:
-    """Form tham số theo grid 12 cột (build_param_layout)."""
-    rows = []
-    for row in layout_detail.get("rows", []):
-        cells = []
-        for entry in row.get("params", []):
-            span = max(1, min(12, int(entry.get("grid_span") or 1)))
-            cells.append(
-                html.Div(
-                    render_param_control(
-                        entry, options_by_code.get(str(entry["code"]))
-                    ),
-                    style={"gridColumn": f"span {span}"},
-                )
-            )
-        rows.append(
-            html.Div(
-                cells,
-                style={
-                    "display": "grid",
-                    "gridTemplateColumns": "repeat(12, minmax(0, 1fr))",
-                    "gap": 10,
-                    "marginBottom": 12,
-                },
-            )
-        )
-    return html.Div(rows)
-
-
-def render_result_table(layout: dict[str, Any], rows: list[dict[str, Any]]) -> Any:
-    """Bảng kết quả theo layout web (header LABEL, format theo mask)."""
-    columns = layout.get("columns", [])
-    if not rows:
-        return empty_state(
-            "Không có dòng nào.",
-            "Thử đổi tham số hoặc khoảng thời gian rồi chạy lại.",
-        )
-    header = [
-        dmc.TableTh(
-            dmc.Button(
-                c["label"],
-                variant="subtle",
-                size="xs",
-                id={"type": "viewer-sort", "index": c["field_name"]},
-                **{"aria-label": f"Sắp xếp theo {c['label']}"},
-            ),
-            style={"textAlign": "right" if c.get("alignment") == "RIGHT" else "left"},
-        )
-        for c in columns
-    ]
-    body = []
-    for row in rows:
-        body.append(
-            dmc.TableTr(
-                [
-                    dmc.TableTd(
-                        _format_cell(row.get(c["field_name"]), c),
-                        style={
-                            "textAlign": "right"
-                            if c.get("alignment") == "RIGHT"
-                            else "left"
-                        },
-                    )
-                    for c in columns
-                ]
-            )
-        )
-    return dmc.ScrollArea(
-        dmc.Table(
-            [dmc.TableThead(dmc.TableTr(header)), dmc.TableTbody(body)],
-            striped=True,
-            highlightOnHover=True,
-            withTableBorder=True,
-            withColumnBorders=False,
-        ),
-        h=520,
-    )
 
 
 # ─── Layout ────────────────────────────────────────────────────────────────
@@ -321,14 +93,10 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
         return html.Div(alert_box("Báo cáo không hợp lệ.", tone="crit"))
     report_res = get_report(ctx, report_id_int)
     if not report_res.ok or not isinstance(report_res.data, dict):
-        return html.Div(
-            alert_box(report_res.message or "Không tìm thấy báo cáo.", tone="crit")
-        )
+        return html.Div(alert_box(report_res.message or "Không tìm thấy báo cáo.", tone="crit"))
     report = report_res.data
     tpl_res = list_templates(ctx, report_id_int)
-    templates: list[dict[str, Any]] = (
-        tpl_res.data if tpl_res.ok and isinstance(tpl_res.data, list) else []
-    )
+    templates: list[dict[str, Any]] = tpl_res.data if tpl_res.ok and isinstance(tpl_res.data, list) else []
     active_templates = [t for t in templates if t.get("active_version_id")]
     if not active_templates:
         return html.Div(
@@ -350,22 +118,14 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
         )
     first = active_templates[0]
     version_res = get_version(ctx, int(first["active_version_id"]))
-    version_detail: dict[str, Any] = (
-        version_res.data if version_res.ok and isinstance(version_res.data, dict) else {}
-    )
+    version_detail: dict[str, Any] = version_res.data if version_res.ok and isinstance(version_res.data, dict) else {}
     preview_res = preview_layout(ctx, int(first["active_version_id"]))
-    preview = (
-        preview_res.data
-        if preview_res.ok and isinstance(preview_res.data, dict)
-        else {"rows": []}
-    )
+    preview = preview_res.data if preview_res.ok and isinstance(preview_res.data, dict) else {"rows": []}
     options_by_code: dict[str, list[dict[str, str]]] = {}
     for row in preview.get("rows", []):
         for entry in row.get("params", []):
             if entry.get("control_type") in ("SELECT", "MULTI_SELECT"):
-                options_by_code[str(entry["code"])] = _lov_options(
-                    ctx, int(first["active_version_id"]), entry
-                )
+                options_by_code[str(entry["code"])] = _lov_options(ctx, int(first["active_version_id"]), entry)
     return html.Div(
         [
             dcc.Location(id="viewer-location", refresh=False),
@@ -518,9 +278,7 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
 # ─── Callbacks ─────────────────────────────────────────────────────────────
 
 
-def _values_from_inputs(
-    param_values: list[Any] | None, param_ids: list[dict[str, Any]] | None
-) -> dict[str, Any]:
+def _values_from_inputs(param_values: list[Any] | None, param_ids: list[dict[str, Any]] | None) -> dict[str, Any]:
     values: dict[str, Any] = {}
     for val, pid in zip(param_values or [], param_ids or [], strict=False):
         code = str(pid.get("index", ""))
@@ -606,9 +364,7 @@ def handle_run_click(
     State("viewer-run-store", "data"),
     prevent_initial_call=True,
 )
-def handle_page_change(
-    page_no: int | None, run_store: dict[str, Any] | None
-) -> int:
+def handle_page_change(page_no: int | None, run_store: dict[str, Any] | None) -> int:
     """Chuyển trang kết quả (server-side, T27-06)."""
     if not page_no or not run_store or not run_store.get("run_id"):
         raise PreventUpdate
@@ -671,9 +427,7 @@ def handle_result_render(
         raise PreventUpdate
     size = int(page_size or 50)
     page = int(page_no or 1)
-    res = get_report_page(
-        ctx, int(run_store["run_id"]), page=page, page_size=size, sorts=sorts or []
-    )
+    res = get_report_page(ctx, int(run_store["run_id"]), page=page, page_size=size, sorts=sorts or [])
     if not res.ok or not isinstance(res.data, dict):
         return (
             alert_box(res.message or "Không tải được kết quả.", tone="crit"),
@@ -687,11 +441,7 @@ def handle_result_render(
         if run_res.ok and isinstance(run_res.data, dict):
             version_id = int(run_res.data["version_id"])
     layout_res = get_result_layout(ctx, version_id, "web")
-    layout = (
-        layout_res.data
-        if layout_res.ok and isinstance(layout_res.data, dict)
-        else {"columns": []}
-    )
+    layout = layout_res.data if layout_res.ok and isinstance(layout_res.data, dict) else {"columns": []}
     return (
         render_result_table(layout, data.get("rows", [])),
         f"{total} dòng",
@@ -736,9 +486,7 @@ def handle_page_size_change(page_size: int | None) -> int:
     State("viewer-run-store", "data"),
     prevent_initial_call=True,
 )
-def handle_location_run(
-    href: str | None, run_store: dict[str, Any] | None
-) -> tuple[dict[str, Any], int]:
+def handle_location_run(href: str | None, run_store: dict[str, Any] | None) -> tuple[dict[str, Any], int]:
     """Mở Viewer với ?run=<id> (từ Lịch sử: Xem / Chạy lại)."""
     if not href or run_store:
         raise PreventUpdate
@@ -778,9 +526,7 @@ def handle_location_run(
     State("viewer-run-store", "data"),
     prevent_initial_call=True,
 )
-def handle_export_click(
-    n_clicks: int | None, run_store: dict[str, Any] | None
-) -> tuple[dict[str, Any], Any, bool]:
+def handle_export_click(n_clicks: int | None, run_store: dict[str, Any] | None) -> tuple[dict[str, Any], Any, bool]:
     """Yêu cầu export XLSX rồi poll tới DONE (task 26)."""
     if not n_clicks or not run_store or not run_store.get("run_id"):
         raise PreventUpdate
@@ -815,9 +561,7 @@ def handle_export_click(
     State("viewer-export-store", "data"),
     prevent_initial_call=True,
 )
-def handle_export_poll(
-    _n: int | None, export_store: dict[str, Any] | None
-) -> tuple[Any, bool]:
+def handle_export_poll(_n: int | None, export_store: dict[str, Any] | None) -> tuple[Any, bool]:
     """Poll trạng thái export mỗi 2s."""
     if not export_store or not export_store.get("export_id"):
         raise PreventUpdate

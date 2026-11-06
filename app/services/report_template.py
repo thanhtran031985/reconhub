@@ -77,13 +77,9 @@ def _validate_source(dto: TemplateCreate) -> None:
     if dto.source_type is None:
         return
     if dto.source_type not in _SOURCE_TYPES:
-        raise ServiceError(
-            ErrorCode.VALIDATION_ERROR, f"SOURCE_TYPE phải là một trong: {', '.join(_SOURCE_TYPES)}."
-        )
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, f"SOURCE_TYPE phải là một trong: {', '.join(_SOURCE_TYPES)}.")
     if dto.source_type == "CUSTOM_SQL" and not (dto.sql_text or "").strip():
-        raise ServiceError(
-            ErrorCode.VALIDATION_ERROR, "CUSTOM_SQL phải có SQL_TEXT."
-        )
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "CUSTOM_SQL phải có SQL_TEXT.")
     if dto.source_type in ("VIEW", "TABLE") and not (
         (dto.source_owner or "").strip() and (dto.source_object or "").strip()
     ):
@@ -100,9 +96,7 @@ def _template_dict(row: Any, versions: list[dict[str, Any]] | None = None) -> di
         "code": str(row["CODE"]),
         "name": str(row["NAME"]),
         "display_order": int(row["DISPLAY_ORDER"]),
-        "active_version_id": (
-            int(row["ACTIVE_VERSION_ID"]) if row["ACTIVE_VERSION_ID"] is not None else None
-        ),
+        "active_version_id": (int(row["ACTIVE_VERSION_ID"]) if row["ACTIVE_VERSION_ID"] is not None else None),
         "row_version": int(row["ROW_VERSION"]),
         "versions": versions or [],
     }
@@ -141,9 +135,7 @@ def _load_template_row(conn: Connection, template_id: int, admin: bool) -> Any:
 
 
 def _load_version_row(conn: Connection, version_id: int, admin: bool) -> Any:
-    row = conn.execute(
-        select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == version_id)
-    ).mappings().first()
+    row = conn.execute(select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == version_id)).mappings().first()
     if row is None:
         raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy version.")
     _load_template_row(conn, int(row["TEMPLATE_ID"]), admin)
@@ -151,29 +143,37 @@ def _load_version_row(conn: Connection, version_id: int, admin: bool) -> Any:
 
 
 def _versions_of(conn: Connection, template_id: int) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        select(recon_rpt_tpl_ver)
-        .where(recon_rpt_tpl_ver.c.TEMPLATE_ID == template_id)
-        .order_by(recon_rpt_tpl_ver.c.VERSION_NO)
-    ).mappings().all()
+    rows = (
+        conn.execute(
+            select(recon_rpt_tpl_ver)
+            .where(recon_rpt_tpl_ver.c.TEMPLATE_ID == template_id)
+            .order_by(recon_rpt_tpl_ver.c.VERSION_NO)
+        )
+        .mappings()
+        .all()
+    )
     return [_version_dict(row) for row in rows]
 
 
 def _version_detail(conn: Connection, version_row: Any) -> dict[str, Any]:
     """Version kèm params (có LOV) và columns — snapshot đầy đủ."""
     data = _version_dict(version_row)
-    params = conn.execute(
-        select(recon_rpt_param)
-        .where(recon_rpt_param.c.VERSION_ID == version_row["ID"])
-        .order_by(recon_rpt_param.c.DISPLAY_ORDER, recon_rpt_param.c.CODE)
-    ).mappings().all()
+    params = (
+        conn.execute(
+            select(recon_rpt_param)
+            .where(recon_rpt_param.c.VERSION_ID == version_row["ID"])
+            .order_by(recon_rpt_param.c.DISPLAY_ORDER, recon_rpt_param.c.CODE)
+        )
+        .mappings()
+        .all()
+    )
     param_list = []
     for param in params:
-        lov = conn.execute(
-            select(recon_rpt_param_lov).where(
-                recon_rpt_param_lov.c.PARAM_ID == param["ID"]
-            )
-        ).mappings().first()
+        lov = (
+            conn.execute(select(recon_rpt_param_lov).where(recon_rpt_param_lov.c.PARAM_ID == param["ID"]))
+            .mappings()
+            .first()
+        )
         param_list.append(
             {
                 "id": int(param["ID"]),
@@ -205,11 +205,15 @@ def _version_detail(conn: Connection, version_row: Any) -> dict[str, Any]:
                 ),
             }
         )
-    columns = conn.execute(
-        select(recon_rpt_column)
-        .where(recon_rpt_column.c.VERSION_ID == version_row["ID"])
-        .order_by(recon_rpt_column.c.DISPLAY_ORDER, recon_rpt_column.c.FIELD_NAME)
-    ).mappings().all()
+    columns = (
+        conn.execute(
+            select(recon_rpt_column)
+            .where(recon_rpt_column.c.VERSION_ID == version_row["ID"])
+            .order_by(recon_rpt_column.c.DISPLAY_ORDER, recon_rpt_column.c.FIELD_NAME)
+        )
+        .mappings()
+        .all()
+    )
     data["params"] = param_list
     data["columns"] = [
         {
@@ -238,11 +242,15 @@ def list_templates(ctx: Ctx, report_id: int) -> list[dict[str, Any]]:
     admin = is_admin(ctx, engine)
     with engine.connect() as conn:
         load_report_row(conn, report_id, admin)
-        rows = conn.execute(
-            select(recon_report_template)
-            .where(recon_report_template.c.REPORT_ID == report_id)
-            .order_by(recon_report_template.c.DISPLAY_ORDER, recon_report_template.c.CODE)
-        ).mappings().all()
+        rows = (
+            conn.execute(
+                select(recon_report_template)
+                .where(recon_report_template.c.REPORT_ID == report_id)
+                .order_by(recon_report_template.c.DISPLAY_ORDER, recon_report_template.c.CODE)
+            )
+            .mappings()
+            .all()
+        )
         return [_template_dict(row) for row in rows]
 
 
@@ -274,9 +282,7 @@ def create_template(ctx: Ctx, report_id: int, payload: dict[str, Any]) -> dict[s
             )
         ).first()
         if exists is not None:
-            raise ServiceError(
-                ErrorCode.CONFLICT, f"Mã template {dto.code} đã tồn tại trong báo cáo."
-            )
+            raise ServiceError(ErrorCode.CONFLICT, f"Mã template {dto.code} đã tồn tại trong báo cáo.")
         res = conn.execute(
             recon_report_template.insert().values(
                 REPORT_ID=report_id,
@@ -327,9 +333,11 @@ def create_template(ctx: Ctx, report_id: int, payload: dict[str, Any]) -> dict[s
                 ROW_VERSION=1,
             )
         )
-        row = conn.execute(
-            select(recon_report_template).where(recon_report_template.c.ID == template_id)
-        ).mappings().first()
+        row = (
+            conn.execute(select(recon_report_template).where(recon_report_template.c.ID == template_id))
+            .mappings()
+            .first()
+        )
         assert row is not None
         return _template_dict(row, _versions_of(conn, template_id))
 
@@ -346,9 +354,7 @@ def update_template(
     with engine.begin() as conn:
         row = _load_template_row(conn, template_id, admin=True)
         if row_version is not None and int(row["ROW_VERSION"]) != row_version:
-            raise ServiceError(
-                ErrorCode.STALE_DATA, "Template đã bị thay đổi, tải lại rồi sửa tiếp."
-            )
+            raise ServiceError(ErrorCode.STALE_DATA, "Template đã bị thay đổi, tải lại rồi sửa tiếp.")
         values: dict[str, Any] = {
             "UPDATED_BY": ctx.username,
             "UPDATED_AT": now,
@@ -358,11 +364,7 @@ def update_template(
             values["NAME"] = dto.name
         if dto.display_order is not None:
             values["DISPLAY_ORDER"] = dto.display_order
-        conn.execute(
-            recon_report_template.update()
-            .where(recon_report_template.c.ID == template_id)
-            .values(**values)
-        )
+        conn.execute(recon_report_template.update().where(recon_report_template.c.ID == template_id).values(**values))
         write_audit_log(
             conn=conn,
             entity="RECON_REPORT_TEMPLATE",
@@ -373,11 +375,98 @@ def update_template(
             new_data={"code": str(row["CODE"]), "name": dto.name or str(row["NAME"])},
             now=now,
         )
-        updated = conn.execute(
-            select(recon_report_template).where(recon_report_template.c.ID == template_id)
-        ).mappings().first()
+        updated = (
+            conn.execute(select(recon_report_template).where(recon_report_template.c.ID == template_id))
+            .mappings()
+            .first()
+        )
         assert updated is not None
         return _template_dict(updated, _versions_of(conn, template_id))
+
+
+class VersionSourceUpdate(BaseModel):
+    """Payload sửa nguồn dữ liệu của version DRAFT (wizard bước 2, task 27)."""
+
+    data_source_id: int | None = None
+    source_type: str | None = None
+    sql_text: str | None = None
+    source_owner: str | None = Field(default=None, max_length=60)
+    source_object: str | None = Field(default=None, max_length=128)
+    timeout_sec: int | None = Field(default=None, ge=1, le=600)
+    preview_max_rows: int | None = Field(default=None, ge=1)
+    export_max_rows: int | None = Field(default=None, ge=1)
+
+
+@service
+@requires_menu("report_admin")
+def update_version_source(ctx: Ctx, version_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    """Sửa nguồn dữ liệu của version DRAFT (wizard bước 2, task 27).
+
+    Task 21/22 không có service này: create_template chỉ nhận nguồn lúc
+    tạo, update_template chỉ sửa tên/thứ tự. Đổi nguồn reset SQL_HASH.
+    Chỉ DRAFT được sửa; kiểm tra cấu trúc (CUSTOM_SQL cần sql_text,
+    VIEW/TABLE cần owner + object). Kiểm tra SQL sâu (guard + describe)
+    do wizard gọi validate_version_sql trước.
+    """
+    dto = VersionSourceUpdate(**payload)
+    engine = get_recon_engine()
+    now = _now()
+    with engine.begin() as conn:
+        row = _load_version_row(conn, version_id, admin=True)
+        if str(row["STATUS"]) != "DRAFT":
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                "Chỉ sửa được nguồn dữ liệu của version DRAFT.",
+            )
+        source_type = dto.source_type or str(row["SOURCE_TYPE"] or "")
+        sql_text = dto.sql_text if dto.sql_text is not None else row["SQL_TEXT"]
+        owner = dto.source_owner if dto.source_owner is not None else row["SOURCE_OWNER"]
+        obj = dto.source_object if dto.source_object is not None else row["SOURCE_OBJECT"]
+        if source_type and source_type not in _SOURCE_TYPES:
+            raise ServiceError(ErrorCode.VALIDATION_ERROR, f"Loại nguồn không hỗ trợ: {source_type}.")
+        if source_type == "CUSTOM_SQL" and not (sql_text or "").strip():
+            raise ServiceError(ErrorCode.VALIDATION_ERROR, "CUSTOM_SQL cần câu lệnh SQL.")
+        if source_type in ("VIEW", "TABLE") and not ((owner or "").strip() and (obj or "").strip()):
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                "VIEW/TABLE cần chọn schema và đối tượng.",
+            )
+        values: dict[str, Any] = {
+            "UPDATED_BY": ctx.username,
+            "UPDATED_AT": now,
+            "ROW_VERSION": int(row["ROW_VERSION"]) + 1,
+            "SQL_HASH": None,
+        }
+        if dto.data_source_id is not None:
+            values["DATA_SOURCE_ID"] = dto.data_source_id
+        if dto.source_type is not None:
+            values["SOURCE_TYPE"] = dto.source_type
+        if dto.sql_text is not None:
+            values["SQL_TEXT"] = dto.sql_text
+        if dto.source_owner is not None:
+            values["SOURCE_OWNER"] = dto.source_owner
+        if dto.source_object is not None:
+            values["SOURCE_OBJECT"] = dto.source_object
+        if dto.timeout_sec is not None:
+            values["TIMEOUT_SEC"] = dto.timeout_sec
+        if dto.preview_max_rows is not None:
+            values["PREVIEW_MAX_ROWS"] = dto.preview_max_rows
+        if dto.export_max_rows is not None:
+            values["EXPORT_MAX_ROWS"] = dto.export_max_rows
+        conn.execute(recon_rpt_tpl_ver.update().where(recon_rpt_tpl_ver.c.ID == version_id).values(**values))
+        write_audit_log(
+            conn=conn,
+            entity="RECON_RPT_TPL_VER",
+            entity_id=version_id,
+            action="UPDATE_VERSION_SOURCE",
+            actor=ctx.username,
+            old_data={"source_type": str(row["SOURCE_TYPE"] or "")},
+            new_data={"source_type": source_type},
+            now=now,
+        )
+        updated = conn.execute(select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == version_id)).mappings().first()
+        assert updated is not None
+        return _version_dict(updated)
 
 
 @service
@@ -416,9 +505,11 @@ def archive_template(ctx: Ctx, template_id: int) -> dict[str, Any]:
             new_data={"code": str(row["CODE"]), "active_version_id": None},
             now=now,
         )
-        updated = conn.execute(
-            select(recon_report_template).where(recon_report_template.c.ID == template_id)
-        ).mappings().first()
+        updated = (
+            conn.execute(select(recon_report_template).where(recon_report_template.c.ID == template_id))
+            .mappings()
+            .first()
+        )
         assert updated is not None
         return _template_dict(updated, _versions_of(conn, template_id))
 
@@ -478,9 +569,9 @@ def clone_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
         if ver_pk is None:
             raise ServiceError(ErrorCode.INTERNAL_ERROR, "Không clone được version.")
         new_id = int(ver_pk[0])
-        params = conn.execute(
-            select(recon_rpt_param).where(recon_rpt_param.c.VERSION_ID == version_id)
-        ).mappings().all()
+        params = (
+            conn.execute(select(recon_rpt_param).where(recon_rpt_param.c.VERSION_ID == version_id)).mappings().all()
+        )
         for param in params:
             pres = conn.execute(
                 recon_rpt_param.insert().values(
@@ -504,11 +595,11 @@ def clone_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
             if param_pk is None:
                 raise ServiceError(ErrorCode.INTERNAL_ERROR, "Không clone được tham số.")
             new_param_id = int(param_pk[0])
-            lov = conn.execute(
-                select(recon_rpt_param_lov).where(
-                    recon_rpt_param_lov.c.PARAM_ID == param["ID"]
-                )
-            ).mappings().first()
+            lov = (
+                conn.execute(select(recon_rpt_param_lov).where(recon_rpt_param_lov.c.PARAM_ID == param["ID"]))
+                .mappings()
+                .first()
+            )
             if lov is not None:
                 conn.execute(
                     recon_rpt_param_lov.insert().values(
@@ -522,9 +613,9 @@ def clone_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
                         MAX_ROWS=lov["MAX_ROWS"],
                     )
                 )
-        columns = conn.execute(
-            select(recon_rpt_column).where(recon_rpt_column.c.VERSION_ID == version_id)
-        ).mappings().all()
+        columns = (
+            conn.execute(select(recon_rpt_column).where(recon_rpt_column.c.VERSION_ID == version_id)).mappings().all()
+        )
         for col in columns:
             conn.execute(
                 recon_rpt_column.insert().values(
@@ -541,9 +632,7 @@ def clone_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
                     IS_TOTAL=col["IS_TOTAL"],
                 )
             )
-        new_row = conn.execute(
-            select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == new_id)
-        ).mappings().first()
+        new_row = conn.execute(select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == new_id)).mappings().first()
         assert new_row is not None
         write_audit_log(
             conn=conn,
@@ -576,9 +665,7 @@ def _acquire_activate_lock(engine: Engine) -> bool:
     try:
         with engine.begin() as conn:
             lock_row = conn.execute(
-                select(recon_app_setting.c.VALUE).where(
-                    recon_app_setting.c.KEY == _LOCK_KEY
-                )
+                select(recon_app_setting.c.VALUE).where(recon_app_setting.c.KEY == _LOCK_KEY)
             ).scalar_one_or_none()
             held_at = _parse_lock(lock_row)
             if held_at is not None and now - held_at < _LOCK_TTL:
@@ -622,9 +709,7 @@ def activate_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
     """
     engine = get_recon_engine()
     if not _acquire_activate_lock(engine):
-        raise ServiceError(
-            ErrorCode.CONFLICT, "Đang có thao tác kích hoạt khác, thử lại sau."
-        )
+        raise ServiceError(ErrorCode.CONFLICT, "Đang có thao tác kích hoạt khác, thử lại sau.")
     try:
         now = _now()
         with engine.begin() as conn:
@@ -637,13 +722,10 @@ def activate_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
             # Layout tham số vượt 12 cột thì chặn kích hoạt (task 23 Q5).
             violations = layout_violations(conn, version_id)
             if violations:
-                rows_txt = ", ".join(
-                    f"hàng {v['row']} (tổng {v['total']})" for v in violations
-                )
+                rows_txt = ", ".join(f"hàng {v['row']} (tổng {v['total']})" for v in violations)
                 raise ServiceError(
                     ErrorCode.VALIDATION_ERROR,
-                    f"Layout tham số vượt 12 cột ở {rows_txt}; "
-                    "sửa layout trước khi kích hoạt.",
+                    f"Layout tham số vượt 12 cột ở {rows_txt}; sửa layout trước khi kích hoạt.",
                 )
             template_id = int(row["TEMPLATE_ID"])
             old_active_id = conn.execute(
@@ -702,9 +784,9 @@ def activate_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
                     new_data={"status": "ARCHIVED"},
                     now=now,
                 )
-            updated = conn.execute(
-                select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == version_id)
-            ).mappings().first()
+            updated = (
+                conn.execute(select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == version_id)).mappings().first()
+            )
             assert updated is not None
             return _version_dict(updated)
     finally:
@@ -746,8 +828,6 @@ def archive_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
                 new_data={"status": "ARCHIVED"},
                 now=now,
             )
-        updated = conn.execute(
-            select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == version_id)
-        ).mappings().first()
+        updated = conn.execute(select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == version_id)).mappings().first()
         assert updated is not None
         return _version_dict(updated)

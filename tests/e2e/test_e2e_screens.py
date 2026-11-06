@@ -137,6 +137,12 @@ def test_e2e_report_runs_page_accessible(e2e_client) -> None:
     assert "Lịch sử báo cáo".encode() in resp.data
 
 
+def test_e2e_report_admin_page_accessible(e2e_client) -> None:
+    resp = e2e_client.get("/report-admin")
+    assert resp.status_code == 200
+    assert "Quản trị báo cáo".encode() in resp.data
+
+
 def test_e2e_report_export_download_requires_login(e2e_client) -> None:
     # App guard (before_request) chuyển chưa đăng nhập về /login (302),
     # trước cả abort(401) trong route.
