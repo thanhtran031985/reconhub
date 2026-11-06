@@ -18,6 +18,12 @@
 | 2026-11-06 | Thêm `activate_batch_def` dù spec 10 mục 8 không liệt kê | Spec 10a mục 1 yêu cầu điều kiện kích hoạt (≥1 mục, có mẫu file, không lỗi tham số kỳ hiện tại); không có hàm này thì bộ không bao giờ ACTIVE để chạy | spec 10a §1; bước 3 |
 | 2026-11-06 | Không thêm/sửa/gỡ mục ở bộ đã ARCHIVED (BATCH_NOT_ACTIVE) | Bộ lưu trữ là đóng băng | bước 3 |
 | 2026-11-06 | Thêm/sửa mục chỉ kiểm tham số lạ (BATCH_PARAM_UNKNOWN) + cú pháp công thức (BATCH_FORMULA_INVALID); lỗi kiểu lộ ở preview/chạy | Kiểu tham số phụ thuộc giá trị tính với kỳ thật | bước 3 |
+| 2026-11-06 | RECON_BATCH_RUN dùng `CNT_ITEMS` (không phải `CNT_TOTAL`); RECON_BATCH_RUN_ITEM có `SEQ_NO` bắt buộc, không có `FILE_PATTERN` (mẫu nằm ở RECON_BATCH_DEF_ITEM, ghép phải join); RECON_BATCH_RUN_FILE có `NORMALIZED_NAME` bắt buộc, không có `IS_INCLUDED` (trạng thái IGNORED thay thế) | Schema bước 1 khác tên cột trong spec 10; service đọc đúng cột thật | bước 4 |
+| 2026-11-06 | `add_files` tải 2 giai đoạn: (1) tải từng file lên RECON_FILE, mỗi lần một transaction riêng; (2) một transaction ghi RECON_BATCH_RUN_FILE + ghép | Gọi `upload_file` (tự mở transaction) trong `engine.begin()` của add_files gây "database is locked" trên SQLite | bước 4 |
+| 2026-11-06 | Mục có template đã lưu trữ vẫn snapshot version/profile/Data Source như thường nhưng STATUS=SKIPPED/TEMPLATE_ARCHIVED | RECON_BATCH_RUN_ITEM.DATA_SOURCE_ID NOT NULL nên không thể để trống; version vẫn đọc được dù template đã lưu trữ | bước 4 |
+| 2026-11-06 | Tạo lần chạy bộ lỗi NOT_FOUND khi template chưa cấu hình Data Source (cả ở bộ lẫn version) | Không có DS thì không thể chạy; lỗi nêu rõ template id để sửa cấu hình | bước 4 |
+| 2026-11-06 | File .zip lưu vào RECON_FILE bằng helper riêng trong batch_run (chỉ kiểm magic `PK`), không dùng `upload_file` | `upload_file` chỉ nhận .xlsx/.xls/.csv, từ chối .zip | bước 4 |
+| 2026-11-06 | File trong .zip không phải Excel/CSV hoặc vượt 50 MB được bỏ qua và báo trong `skipped`, không hủy cả .zip | Lỗi một file không hủy các file khác (spec 10 §9) | bước 4 |
 
 ## Câu hỏi còn mở
 - Kỳ khác tháng (quý, khoảng ngày)?

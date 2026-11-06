@@ -7,7 +7,7 @@ Trạng thái: 🔄 (bắt đầu 06/11/2026, nhánh feat/18-batch-run từ ad98
 | 1 | Schema, migration và FILE_SET_HASH | ✅ | 06/11/2026 |  |
 | 2 | Công thức và ghép file (hàm thuần) | ✅ | 06/11/2026 |  |
 | 3 | Service bộ đối soát | ✅ | 06/11/2026 |  |
-| 4 | Lần chạy bộ: tạo, tải file, ghép, tham số | ⬜ |  |  |
+| 4 | Lần chạy bộ: tạo, tải file, ghép, tham số | ✅ | 06/11/2026 |  |
 | 5 | Gộp nhiều file trong engine/executor | ⬜ |  |  |
 | 6 | Precheck, start, worker giới hạn song song | ⬜ |  |  |
 | 7 | Chạy lại, thay file, hủy, ma trận, .zip | ⬜ |  |  |
@@ -16,6 +16,11 @@ Trạng thái: 🔄 (bắt đầu 06/11/2026, nhánh feat/18-batch-run từ ad98
 | 10 | Chuyển Oracle, tài liệu, hồi quy | ⬜ |  |  |
 
 ## Nhật ký
+
+### Bước 4 — Service lần chạy bộ (06/11/2026)
+- `app/services/batch_run.py`: create/get/list (owner scope Q2), add_files (tải + ghép mẫu tên/header, .zip an toàn, trùng tên/nội dung), assign_file/ignore_file, skip_item (USER_SKIP), set_param_override (giải lại tham số với kỳ).
+- Kiểm tra: `tests/unit/test_batch_run_service.py` 24 pass; batch_def + formula/matcher + migration + excel_load 73 pass; golden + worker_executor + temp_data_purge 24 pass; typecheck 21 = baseline; lint sạch.
+- Ghi chú: xem decisions.md (tên cột thật CNT_ITEMS/NORMALIZED_NAME/SEQ_NO; không có IS_INCLUDED/FILE_PATTERN trên bảng run; tải 2 giai đoạn vì SQLite khóa DB khi lồng transaction; mục template lưu trữ vẫn snapshot version/DS nhưng SKIPPED).
 
 ### Bước 3 — Service bộ đối soát (06/11/2026)
 - `app/services/batch_def.py`: list/get/create/update/archive/activate/add_items/update_item/remove_item/addable_templates/preview_params; quyền AD+TO sửa, mọi role có menu đọc; audit đầy đủ.
