@@ -6,8 +6,14 @@ Trạng thái: 🔄
 |---|---|---|---|
 | 1 | REPORT_RUN, bind/whitelist execution | ✅ | 6d206bb |
 | 2 | Server-side count/page/filter/sort | ✅ | bb93eec |
-| 3 | Cancel/timeout/metrics | ✅ | |
-| 4 | History, preset, favorite, owner scope | ⬜ | |
+| 3 | Cancel/timeout/metrics | ✅ | 0628200 |
+| 4 | History, preset, favorite, owner scope | ✅ | |
+
+## Bước 4 — History, preset, favorite, owner scope (06/11/2026)
+- `list_report_runs` (filter report_id/status, phân trang SQL) + `get_report_run` — owner scope luồng G: lọc CREATED_BY, ADMIN bypass, run người khác → NOT_FOUND (T25-09/10).
+- Preset (T25-08): `create_preset` (resolve qua ACTIVE version rồi lưu PARAMS_JSON đã resolve; IS_DEFAULT duy nhất theo user+template trong cùng transaction), `list_presets` (của mình, mặc định lên trước), `delete_preset` (chỉ của mình, kể cả ADMIN), `apply_preset` (merge override rồi resolve lại theo ACTIVE version hiện tại). Favorite tái dùng `set_report_favorite` (task 21).
+- T25-09 (ghi loại E2E): kiểm tra ở mức service trong task 25; kiểm tra lại bằng Playwright ở task 27 khi trang /report-runs có thật (Q8).
+- Test: `tests/unit/test_report_run_history.py` (7 test, T25-08/09/10). 34 test task 25 pass (execute 12 + page 8 + cancel 7 + history 7).
 
 ## Bước 3 — Cancel/timeout/metrics (06/11/2026)
 - `cancel_report_run` (T25-07, Q4): QUEUED/RUNNING → CANCELLED + FINISHED_AT; DONE/FAILED/CANCELLED → VALIDATION_ERROR; run người khác → NOT_FOUND.

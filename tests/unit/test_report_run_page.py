@@ -8,12 +8,7 @@ from __future__ import annotations
 import re
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from app.core.context import Ctx
 from tests.unit.test_report_run_execute import (
-    ROWS,
-    _mock_ora_conn,
     admin_ctx,
     norole_ctx,
     operator_ctx,

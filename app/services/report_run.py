@@ -15,11 +15,11 @@ from sqlalchemy import Connection, select
 from app.core.context import Ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
-    recon_report,
     recon_report_run,
     recon_report_template,
     recon_rpt_column,
     recon_rpt_param,
+    recon_rpt_preset,
     recon_rpt_tpl_ver,
 )
 from app.engine.sql_dialect import quote_identifier
@@ -644,4 +644,226 @@ def report_run_metrics(ctx: Ctx) -> dict[str, Any]:
             else None
         ),
         "total_rows": total_rows,
+    }
+
+
+# ─── Bước 4: History, preset, favorite, owner scope ─────────────────────────
+
+
+@service
+@requires_menu("report_center")
+def list_report_runs(
+    ctx: Ctx,
+    report_id: int | None = None,
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    """Lịch sử run theo owner scope (luồng G, T25-09/10)."""
+    if page < 1:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "page phải ≥ 1.")
+    if page_size < 1 or page_size > 200:
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR, "page_size phải trong khoảng 1..200."
+        )
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.connect() as conn:
+        base = select(recon_report_run)
+        if not admin:
+            base = base.where(recon_report_run.c.CREATED_BY == ctx.username)
+        if report_id is not None:
+            base = base.where(recon_report_run.c.REPORT_ID == report_id)
+        if status is not None:
+            base = base.where(recon_report_run.c.STATUS == status)
+        total = len(conn.execute(base).mappings().all())
+        rows = (
+            conn.execute(
+                base.order_by(
+                    recon_report_run.c.CREATED_AT.desc(),
+                    recon_report_run.c.ID.desc(),
+                )
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+            .mappings()
+            .all()
+        )
+    return {
+        "runs": [_run_dict(row) for row in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@service
+@requires_menu("report_center")
+def get_report_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
+    """Chi tiết một run; run người khác → NOT_FOUND (T25-09)."""
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.connect() as conn:
+        row = _load_run_row(conn, run_id, ctx, admin)
+        return _run_dict(row)
+
+
+def _preset_dict(row: Any) -> dict[str, Any]:
+    params = row["PARAMS_JSON"]
+    return {
+        "id": int(row["ID"]),
+        "report_id": int(row["REPORT_ID"]),
+        "template_id": int(row["TEMPLATE_ID"]),
+        "name": str(row["NAME"]),
+        "params": dict(params) if isinstance(params, dict) else {},
+        "is_default": row["IS_DEFAULT"] == "Y",
+        "created_by": str(row["CREATED_BY"]),
+        "created_at": row["CREATED_AT"],
+    }
+
+
+@service
+@requires_menu("report_center")
+def create_preset(
+    ctx: Ctx,
+    report_id: int,
+    template_id: int,
+    name: str,
+    values: dict[str, Any] | None = None,
+    is_default: bool = False,
+) -> dict[str, Any]:
+    """Lưu preset tham số (cá nhân); IS_DEFAULT duy nhất theo user+template (T25-08)."""
+    if not name or not name.strip() or len(name.strip()) > 200:
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR,
+            "Tên preset không được để trống và tối đa 200 ký tự.",
+        )
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.begin() as conn:
+        load_report_row(conn, report_id, admin)
+        _tpl_id, version_id = _active_version_id(conn, report_id, template_id)
+    resolved = _resolve_or_raise(ctx, version_id, values)
+    with engine.begin() as conn:
+        now = _now()
+        if is_default:
+            conn.execute(
+                recon_rpt_preset.update()
+                .where(
+                    recon_rpt_preset.c.USER_ID == ctx.user_id,
+                    recon_rpt_preset.c.TEMPLATE_ID == template_id,
+                    recon_rpt_preset.c.IS_DEFAULT == "Y",
+                )
+                .values(IS_DEFAULT="N", UPDATED_BY=ctx.username, UPDATED_AT=now)
+            )
+        res = conn.execute(
+            recon_rpt_preset.insert().values(
+                USER_ID=ctx.user_id,
+                REPORT_ID=report_id,
+                TEMPLATE_ID=template_id,
+                NAME=name.strip(),
+                PARAMS_JSON=resolved,
+                IS_DEFAULT="Y" if is_default else "N",
+                CREATED_BY=ctx.username,
+                CREATED_AT=now,
+                UPDATED_BY=ctx.username,
+                UPDATED_AT=now,
+            )
+        )
+        preset_id = int(res.lastrowid)
+        row = (
+            conn.execute(
+                select(recon_rpt_preset).where(recon_rpt_preset.c.ID == preset_id)
+            )
+            .mappings()
+            .first()
+        )
+        return _preset_dict(row)
+
+
+@service
+@requires_menu("report_center")
+def list_presets(
+    ctx: Ctx, report_id: int, template_id: int
+) -> list[dict[str, Any]]:
+    """Preset của chính người dùng cho một template (mặc định lên trước)."""
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        rows = (
+            conn.execute(
+                select(recon_rpt_preset)
+                .where(
+                    recon_rpt_preset.c.USER_ID == ctx.user_id,
+                    recon_rpt_preset.c.REPORT_ID == report_id,
+                    recon_rpt_preset.c.TEMPLATE_ID == template_id,
+                )
+                .order_by(
+                    recon_rpt_preset.c.IS_DEFAULT.desc(),
+                    recon_rpt_preset.c.CREATED_AT.desc(),
+                )
+            )
+            .mappings()
+            .all()
+        )
+    return [_preset_dict(row) for row in rows]
+
+
+@service
+@requires_menu("report_center")
+def delete_preset(ctx: Ctx, preset_id: int) -> dict[str, Any]:
+    """Xóa preset của mình; preset người khác → NOT_FOUND (preset là cá nhân)."""
+    engine = get_recon_engine()
+    with engine.begin() as conn:
+        row = (
+            conn.execute(
+                select(recon_rpt_preset).where(
+                    recon_rpt_preset.c.ID == preset_id,
+                    recon_rpt_preset.c.USER_ID == ctx.user_id,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if row is None:
+            raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy preset.")
+        conn.execute(
+            recon_rpt_preset.delete().where(recon_rpt_preset.c.ID == preset_id)
+        )
+        return {"deleted": True, "preset_id": preset_id}
+
+
+@service
+@requires_menu("report_center")
+def apply_preset(
+    ctx: Ctx,
+    preset_id: int,
+    values_override: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Lấy values của preset (ghi đè nếu có) đã resolve theo ACTIVE version hiện tại."""
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.connect() as conn:
+        row = (
+            conn.execute(
+                select(recon_rpt_preset).where(
+                    recon_rpt_preset.c.ID == preset_id,
+                    recon_rpt_preset.c.USER_ID == ctx.user_id,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if row is None:
+            raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy preset.")
+        load_report_row(conn, int(row["REPORT_ID"]), admin)
+        _tpl_id, version_id = _active_version_id(
+            conn, int(row["REPORT_ID"]), int(row["TEMPLATE_ID"])
+        )
+    merged = dict(row["PARAMS_JSON"] or {})
+    merged.update(values_override or {})
+    resolved = _resolve_or_raise(ctx, version_id, merged)
+    return {
+        "report_id": int(row["REPORT_ID"]),
+        "template_id": int(row["TEMPLATE_ID"]),
+        "values": resolved,
     }

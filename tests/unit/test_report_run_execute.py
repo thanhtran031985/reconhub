@@ -18,7 +18,6 @@ from app.db.metadata import (
     metadata,
     recon_report_template,
     recon_rpt_column,
-    recon_rpt_param,
     recon_rpt_tpl_ver,
 )
 
@@ -43,8 +42,8 @@ def run_env(tmp_path, monkeypatch):
     from app.services.menu_sync import sync_from_code
     from app.services.perm import clear_perm_cache
     from app.services.report import create_report
-    from app.services.report_template import create_template
     from app.services.report_param import create_param
+    from app.services.report_template import create_template
     from tests.conftest import seed_perm_basics
 
     sync_from_code(engine)

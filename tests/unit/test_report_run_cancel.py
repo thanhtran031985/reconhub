@@ -8,7 +8,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-import pytest
 from sqlalchemy import text
 
 from app.core.context import Ctx
@@ -134,13 +133,12 @@ class TestCountTimeout:
 class TestReportRunMetrics:
     def test_metrics_owner_scoped(self, run_env, operator_ctx, admin_ctx):
         from app.services.report_run import (
-            create_report_run,
             execute_report_run,
             report_run_metrics,
         )
 
         run1 = _make_run(operator_ctx, run_env)
-        run2 = _make_run(operator_ctx, run_env)
+        _make_run(operator_ctx, run_env)
         run3 = _make_run(admin_ctx, run_env)
         conn, _ = _mock_ora_conn(ROWS)
         with patch(
