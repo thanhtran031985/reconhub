@@ -24,7 +24,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 17 | [17-lookup-codes](17-lookup-codes/task.md) — Quản lý danh mục Lookup Code & Lookup Type dùng chung | ⬜ | 01, 08, 14 | feat/17-lookup-codes |
 | 18 | [18-batch-run](18-batch-run/task.md) — Bộ đối soát và chạy nhiều template một lần | ⬜ | 07, 12 | feat/18-batch-run |
 | 19 | [19-menu-permission](19-menu-permission/task.md) — Phân quyền theo menu và phạm vi dữ liệu theo người chạy | ✅ | 01 | feat/19-menu-permission |
-| 20 | [20-menu-admin](20-menu-admin/task.md) — Danh sách menu cho Admin | 🔄 | 19 | feat/20-menu-admin |
+| 20 | [20-menu-admin](20-menu-admin/task.md) — Danh sách menu cho Admin | ✅ | 19 | feat/20-menu-admin |
 
 Thiết kế: 11 màn (designs/components/Screen01–Screen11), 13 thành phần, Gallery. Giao diện dựng bằng Dash Mantine Components.
 
