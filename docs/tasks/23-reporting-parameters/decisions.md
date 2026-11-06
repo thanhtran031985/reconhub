@@ -1,0 +1,5 @@
+# Quyết định – 23-reporting-parameters
+
+Tham chiếu spec 12 và data flow. Ghi mọi khác biệt đã duyệt tại đây.
+
+- 06/11/2026 (duyệt plan "làm theo đề xuất và làm xong task"): Q0 — nhánh `feat/23-reporting-parameters` từ `8fd5fc2` (đầu nhánh task 22 đã push). Q1 — làm xong cả task rồi gửi xem (như task 19/20/21/22). Q2 — DATA_TYPE {STRING, NUMBER, DATE, DATETIME, BOOLEAN}; CONTROL_TYPE {TEXT, NUMBER, DATE, SELECT, MULTI_SELECT, DATE_RANGE}; SELECT/MULTI_SELECT bắt buộc LOV ≠ NONE, DATE_RANGE bắt buộc DATA_TYPE DATE/DATETIME. Q3 — DEFAULT_TYPE {NONE, STATIC, TODAY, FIRST_LOV}; TODAY chỉ DATE/DATETIME, FIRST_LOV chỉ khi LOV ≠ NONE. Q4 — "range" ở T23-05 là: BETWEEN đúng 2 giá trị và from ≤ to, IN là list không rỗng, DATE_RANGE from ≤ to (schema không có cột MIN/MAX). Q5 — layout vượt 12: cho lưu kèm cảnh báo, chặn ở dry-run và activate, không chặn lúc lưu. Q6 — STATIC cho phép entry {"value": "", "label": "Tất cả"}. Q7 — thêm hook xóa LOV cache của version vào `activate_version`. Q8 — `preview_layout` dùng menu `report_center` để wizard và Viewer dùng chung một hàm.

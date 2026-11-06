@@ -27,7 +27,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 20 | [20-menu-admin](20-menu-admin/task.md) — Danh sách menu cho Admin | ✅ | 19 | feat/20-menu-admin |
 | 21 | [21-reporting-core](21-reporting-core/task.md) — Reporting Core và versioning | ✅ | 19, 20 | feat/21-reporting-core |
 | 22 | [22-reporting-source](22-reporting-source/task.md) — Nguồn dữ liệu CUSTOM_SQL / VIEW / TABLE | ✅ | 21 | feat/22-reporting-source |
-| 23 | [23-reporting-parameters](23-reporting-parameters/task.md) — Dynamic Parameter, LOV và layout 12 cột | ⬜ | 22 | feat/23-reporting-parameters |
+| 23 | [23-reporting-parameters](23-reporting-parameters/task.md) — Dynamic Parameter, LOV và layout 12 cột | 🔄 | 22 | feat/23-reporting-parameters |
 | 24 | [24-reporting-columns](24-reporting-columns/task.md) — Column mapping và result layout | ⬜ | 23 | feat/24-reporting-columns |
 | 25 | [25-reporting-execution](25-reporting-execution/task.md) — Report execution, pagination và history | ⬜ | 24 | feat/25-reporting-execution |
 | 26 | [26-reporting-export](26-reporting-export/task.md) — Background export XLSX/CSV/ZIP | ⬜ | 25 | feat/26-reporting-export |

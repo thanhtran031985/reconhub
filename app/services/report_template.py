@@ -178,6 +178,8 @@ def _version_detail(conn: Connection, version_row: Any) -> dict[str, Any]:
                 "data_type": str(param["DATA_TYPE"]),
                 "control_type": str(param["CONTROL_TYPE"]),
                 "required": param["REQUIRED"] == "Y",
+                "default_type": param["DEFAULT_TYPE"],
+                "default_value": param["DEFAULT_VALUE"],
                 "display_row": int(param["DISPLAY_ROW"]),
                 "display_order": int(param["DISPLAY_ORDER"]),
                 "grid_span": int(param["GRID_SPAN"]),
