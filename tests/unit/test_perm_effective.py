@@ -105,6 +105,8 @@ class TestEffectiveMenus:
             "issue",
             "template",
             "batch_def",
+            "report_center",
+            "report_history",
         }
 
     def test_operator_menus(self, perm_env):
@@ -116,6 +118,8 @@ class TestEffectiveMenus:
             "batch_run",
             "history",
             "issue",
+            "report_center",
+            "report_history",
         }
 
     def test_viewer_menus(self, perm_env):
@@ -126,6 +130,8 @@ class TestEffectiveMenus:
             "history",
             "template",
             "batch_def",
+            "report_center",
+            "report_history",
         }
 
     def test_inactive_user_has_no_menus(self, perm_env):
@@ -180,6 +186,8 @@ class TestEffectiveMenus:
             "batch_run",
             "history",
             "issue",
+            "report_center",
+            "report_history",
         }
 
     def test_is_admin(self, perm_env):

@@ -15,6 +15,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from sqlalchemy import Connection, select
 
+from app.core.audit import write_audit_log
 from app.core.context import Ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_report, recon_rpt_favorite
@@ -155,8 +156,23 @@ def create_report(ctx: Ctx, payload: dict[str, Any]) -> dict[str, Any]:
         pk = res.inserted_primary_key
         if pk is None:
             raise ServiceError(ErrorCode.INTERNAL_ERROR, "Không tạo được báo cáo.")
+        report_id = int(pk[0])
+        write_audit_log(
+            conn=conn,
+            entity="RECON_REPORT",
+            entity_id=report_id,
+            action="CREATE_REPORT",
+            actor=ctx.username,
+            new_data={
+                "code": dto.code,
+                "name": dto.name,
+                "category_code": dto.category_code,
+                "owner": dto.owner,
+            },
+            now=now,
+        )
         row = conn.execute(
-            select(recon_report).where(recon_report.c.ID == int(pk[0]))
+            select(recon_report).where(recon_report.c.ID == report_id)
         ).mappings().first()
         assert row is not None
         return _report_dict(row)
@@ -196,6 +212,16 @@ def update_report(
         conn.execute(
             recon_report.update().where(recon_report.c.ID == report_id).values(**values)
         )
+        write_audit_log(
+            conn=conn,
+            entity="RECON_REPORT",
+            entity_id=report_id,
+            action="UPDATE_REPORT",
+            actor=ctx.username,
+            old_data={"code": str(row["CODE"]), "name": str(row["NAME"])},
+            new_data={"code": str(row["CODE"]), "name": dto.name or str(row["NAME"])},
+            now=now,
+        )
         updated = conn.execute(
             select(recon_report).where(recon_report.c.ID == report_id)
         ).mappings().first()
@@ -215,6 +241,16 @@ def archive_report(ctx: Ctx, report_id: int) -> dict[str, Any]:
             recon_report.update()
             .where(recon_report.c.ID == report_id)
             .values(IS_ACTIVE="N", UPDATED_BY=ctx.username, UPDATED_AT=now, ROW_VERSION=int(row["ROW_VERSION"]) + 1)
+        )
+        write_audit_log(
+            conn=conn,
+            entity="RECON_REPORT",
+            entity_id=report_id,
+            action="ARCHIVE_REPORT",
+            actor=ctx.username,
+            old_data={"code": str(row["CODE"]), "is_active": True},
+            new_data={"code": str(row["CODE"]), "is_active": False},
+            now=now,
         )
         updated = conn.execute(
             select(recon_report).where(recon_report.c.ID == report_id)

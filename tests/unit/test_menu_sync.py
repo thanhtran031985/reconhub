@@ -56,8 +56,10 @@ class TestMenuDeclaration:
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         assert [(g.code, g.label, g.order) for g in GROUPS] == list(mod.SEED_GROUPS)
-        assert [(m.code, m.label, m.group, m.path, m.order, m.icon, m.hideable) for m in MENUS] == list(mod.SEED_MENUS)
-        assert len(MENUS) == 13
+        # Seed 0003 là lịch sử đóng băng; menu thêm sau (task 21) không có trong đó.
+        menus = [(m.code, m.label, m.group, m.path, m.order, m.icon, m.hideable) for m in MENUS]
+        assert all(s in menus for s in mod.SEED_MENUS)
+        assert len(MENUS) == 16  # 13 menu gốc + 3 menu report (task 21)
         assert len(GROUPS) == 3
 
     def test_menu_codes_unique_and_valid(self):
@@ -76,13 +78,13 @@ class TestMenuSync:
     def test_sync_adds_menus_and_groups(self, sync_env):
         engine, sync_mod, _ = sync_env
         res = sync_mod.sync_from_code(engine)
-        assert res["added_menus"] == 13
+        assert res["added_menus"] == 16
         assert res["added_groups"] == 3
         assert res["changed"] is True
         with engine.connect() as conn:
-            assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 13
+            assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 16
             assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU_GROUP")).scalar() == 3
-            assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU WHERE IS_NEW='Y'")).scalar() == 13
+            assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU WHERE IS_NEW='Y'")).scalar() == 16
             assert conn.execute(text("SELECT VALUE FROM RECON_APP_SETTING WHERE KEY='PERM_REVISION'")).scalar() == "1"
             # Không thêm menu vào vai trò nào
             assert conn.execute(text("SELECT COUNT(*) FROM RECON_ROLE_MENU")).scalar() == 0
@@ -149,12 +151,12 @@ class TestMenuSync:
         _, _, db_path = sync_env
         with ProcessPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(_sync_in_process, [db_path, db_path]))
-        # Một process đồng bộ đủ 13 menu, process kia bỏ qua vì khóa đang giữ
-        assert sum(r.get("added_menus", 0) for r in results) == 13
-        assert all(r.get("added_menus", 0) in (0, 13) for r in results)
+        # Một process đồng bộ đủ 16 menu, process kia bỏ qua vì khóa đang giữ
+        assert sum(r.get("added_menus", 0) for r in results) == 16
+        assert all(r.get("added_menus", 0) in (0, 16) for r in results)
         engine = create_engine(f"sqlite:///{db_path}")
         with engine.connect() as conn:
-            assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 13
+            assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 16
             assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU_GROUP")).scalar() == 3
             assert conn.execute(text("SELECT COUNT(*) FROM RECON_ROLE_MENU")).scalar() == 0
         engine.dispose()

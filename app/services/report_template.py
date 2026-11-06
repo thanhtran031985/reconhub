@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Connection, Engine, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.audit import write_audit_log
 from app.core.context import Ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
@@ -288,6 +289,15 @@ def create_template(ctx: Ctx, report_id: int, payload: dict[str, Any]) -> dict[s
         if tpl_pk is None:
             raise ServiceError(ErrorCode.INTERNAL_ERROR, "Không tạo được template.")
         template_id = int(tpl_pk[0])
+        write_audit_log(
+            conn=conn,
+            entity="RECON_REPORT_TEMPLATE",
+            entity_id=template_id,
+            action="CREATE_TEMPLATE",
+            actor=ctx.username,
+            new_data={"report_id": report_id, "code": dto.code, "name": dto.name},
+            now=now,
+        )
         conn.execute(
             recon_rpt_tpl_ver.insert().values(
                 TEMPLATE_ID=template_id,
@@ -347,6 +357,16 @@ def update_template(
             .where(recon_report_template.c.ID == template_id)
             .values(**values)
         )
+        write_audit_log(
+            conn=conn,
+            entity="RECON_REPORT_TEMPLATE",
+            entity_id=template_id,
+            action="UPDATE_TEMPLATE",
+            actor=ctx.username,
+            old_data={"code": str(row["CODE"]), "name": str(row["NAME"])},
+            new_data={"code": str(row["CODE"]), "name": dto.name or str(row["NAME"])},
+            now=now,
+        )
         updated = conn.execute(
             select(recon_report_template).where(recon_report_template.c.ID == template_id)
         ).mappings().first()
@@ -379,6 +399,16 @@ def archive_template(ctx: Ctx, template_id: int) -> dict[str, Any]:
                 UPDATED_AT=now,
                 ROW_VERSION=int(row["ROW_VERSION"]) + 1,
             )
+        )
+        write_audit_log(
+            conn=conn,
+            entity="RECON_REPORT_TEMPLATE",
+            entity_id=template_id,
+            action="ARCHIVE_TEMPLATE",
+            actor=ctx.username,
+            old_data={"code": str(row["CODE"])},
+            new_data={"code": str(row["CODE"]), "active_version_id": None},
+            now=now,
         )
         updated = conn.execute(
             select(recon_report_template).where(recon_report_template.c.ID == template_id)
@@ -509,6 +539,19 @@ def clone_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
             select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == new_id)
         ).mappings().first()
         assert new_row is not None
+        write_audit_log(
+            conn=conn,
+            entity="RECON_RPT_TPL_VER",
+            entity_id=new_id,
+            action="CLONE_VERSION",
+            actor=ctx.username,
+            new_data={
+                "template_id": int(src["TEMPLATE_ID"]),
+                "from_version_id": version_id,
+                "version_no": new_no,
+            },
+            now=now,
+        )
         return _version_dict(new_row)
 
 
@@ -586,6 +629,12 @@ def activate_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
                     "Chỉ version DRY_RUN_OK mới được kích hoạt.",
                 )
             template_id = int(row["TEMPLATE_ID"])
+            old_active_id = conn.execute(
+                select(recon_rpt_tpl_ver.c.ID).where(
+                    recon_rpt_tpl_ver.c.TEMPLATE_ID == template_id,
+                    recon_rpt_tpl_ver.c.STATUS == "ACTIVE",
+                )
+            ).scalar_one_or_none()
             conn.execute(
                 recon_rpt_tpl_ver.update()
                 .where(
@@ -611,6 +660,27 @@ def activate_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
                 .where(recon_report_template.c.ID == template_id)
                 .values(ACTIVE_VERSION_ID=version_id, UPDATED_BY=ctx.username, UPDATED_AT=now)
             )
+            write_audit_log(
+                conn=conn,
+                entity="RECON_RPT_TPL_VER",
+                entity_id=version_id,
+                action="ACTIVATE_VERSION",
+                actor=ctx.username,
+                old_data={"status": "DRY_RUN_OK"},
+                new_data={"status": "ACTIVE", "template_id": template_id},
+                now=now,
+            )
+            if old_active_id is not None:
+                write_audit_log(
+                    conn=conn,
+                    entity="RECON_RPT_TPL_VER",
+                    entity_id=int(old_active_id),
+                    action="ARCHIVE_VERSION",
+                    actor=ctx.username,
+                    old_data={"status": "ACTIVE"},
+                    new_data={"status": "ARCHIVED"},
+                    now=now,
+                )
             updated = conn.execute(
                 select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == version_id)
             ).mappings().first()
@@ -644,6 +714,16 @@ def archive_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
                     UPDATED_AT=now,
                     ROW_VERSION=int(row["ROW_VERSION"]) + 1,
                 )
+            )
+            write_audit_log(
+                conn=conn,
+                entity="RECON_RPT_TPL_VER",
+                entity_id=version_id,
+                action="ARCHIVE_VERSION",
+                actor=ctx.username,
+                old_data={"status": str(row["STATUS"])},
+                new_data={"status": "ARCHIVED"},
+                now=now,
             )
         updated = conn.execute(
             select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == version_id)

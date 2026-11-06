@@ -404,7 +404,7 @@ class TestRolesSidebarPreview:
             "OPERATOR",
             "",
             True,
-            ["dashboard", "run", "result", "batch_run", "history", "issue"],
+            ["dashboard", "run", "result", "batch_run", "history", "issue", "report_center", "report_history"],
             snapshot,
             role_ids["OPERATOR"],
         )
@@ -435,8 +435,8 @@ class TestRolesLayoutCards:
 
         comp = roles_page.render_roles_list(_admin())
         text = _dump(comp)
-        assert "13/13 menu" in text  # ADMIN: đủ mọi menu
-        assert "6/13 menu" in text  # OPERATOR: 6 menu
+        assert "16/16 menu" in text  # ADMIN: đủ mọi menu
+        assert "8/16 menu" in text  # OPERATOR: 8 menu (thêm 2 menu report, task 21)
         assert comp.children[0].h == "auto"  # nút cao theo nội dung 3 dòng, không tràn đè nhau
 
     def test_menu_checkboxes_new_badge_and_hidden_badge(self, roles_env):
@@ -479,7 +479,7 @@ class TestRolesLayoutCards:
             "OPERATOR",
             "",
             True,
-            ["dashboard", "run", "result", "batch_run", "history", "issue"],
+            ["dashboard", "run", "result", "batch_run", "history", "issue", "report_center", "report_history"],
             snapshot,
             role_ids["OPERATOR"],
         )

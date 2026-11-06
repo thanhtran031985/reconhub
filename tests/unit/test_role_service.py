@@ -104,6 +104,8 @@ class TestListRoles:
             "dashboard",
             "history",
             "issue",
+            "report_center",
+            "report_history",
             "result",
             "run",
         ]
@@ -240,6 +242,8 @@ class TestDeleteAndClone:
             "dashboard",
             "history",
             "issue",
+            "report_center",
+            "report_history",
             "result",
             "run",
         ]
@@ -266,5 +270,7 @@ class TestUsersAndEffective:
             "batch_run",
             "history",
             "issue",
+            "report_center",
+            "report_history",
         }
         assert res.data["roles"] == ["OPERATOR"]
