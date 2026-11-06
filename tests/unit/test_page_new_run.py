@@ -234,8 +234,37 @@ def test_render_sql_preview_section() -> None:
     assert ":p_org" in s_sql
 
 
-def test_handle_progress_tick_stages_and_redirect() -> None:
+def test_handle_progress_tick_stages_and_redirect(monkeypatch) -> None:
+    import app.ui.pages.new_run as new_run_page
     from app.ui.pages.new_run import handle_progress_tick
+
+    # Giả DB không có run 999: fallback giả lập tiến độ (+20%/tick) mới chạy.
+    # Không mock thì test đọc DB thật (data/recon_app.db) — máy nào đã có
+    # run 999 (ví dụ DB thật có 393+ run) sẽ đi nhánh trạng thái thật và
+    # rớt ở assert stage == 2.
+    class _Mappings:
+        def first(self):
+            return None
+
+    class _Result:
+        def mappings(self):
+            return _Mappings()
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, *args, **kwargs):
+            return _Result()
+
+    class _Engine:
+        def connect(self):
+            return _Conn()
+
+    monkeypatch.setattr(new_run_page, "get_recon_engine", lambda: _Engine())
 
     # Stage 1 -> Stage 2
     state1 = {"is_running": True, "run_id": 999, "stage": 1, "pct": 20}
