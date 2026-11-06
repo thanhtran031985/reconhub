@@ -1,13 +1,20 @@
 # Tiến độ – 23-reporting-parameters
 
-Trạng thái: 🔄
+Trạng thái: ✅
 
 | Bước | Nội dung | Trạng thái | Commit |
 |---|---|---|---|
 | 1 | Parameter CRUD/validation/default resolution | ✅ | 7bd92fa |
 | 2 | LOV NONE/STATIC/SQL/LOOKUP + cache | ✅ | d73db3e |
 | 3 | DISPLAY_ROW/ORDER/GRID_SPAN và tổng row <=12 | ✅ | c9eee95 |
-| 4 | Auto-layout, drag/drop, preview | ✅ | |
+| 4 | Auto-layout, drag/drop, preview | ✅ | e7175ab |
+
+## Hồi quy cuối (06/11/2026)
+- `uv run poe test`: **814 passed, 5 skipped, 0 failed** (749 cuối task 22 + 65 test mới task 23).
+- `uv run poe e2e`: **12 passed**.
+- `uv run poe typecheck`: **21 lỗi = baseline, 0 mới** (đã sửa 6 lỗi mới trong report_param.py: Engine annotation, ds_id None guard, sql_text assert).
+- `uv run poe lint`: sạch (đã sửa 9 lỗi: import thừa, biến thừa, import chưa sắp xếp).
+- `uv run poe tasks-dashboard`: 29 task, 21 xong.
 
 ## Bước 1 — Parameter CRUD/validation/default resolution (06/11/2026)
 - `app/services/report_param.py` mới: `create_param`/`update_param`/`delete_param` (`@requires_menu("report_admin")`, chỉ version DRAFT, một transaction + audit CREATE/UPDATE/DELETE_PARAM); CODE `^[a-zA-Z][a-zA-Z0-9_]{0,59}$` (bind lowercase), trùng CODE → CONFLICT; DATA_TYPE {STRING, NUMBER, DATE, DATETIME, BOOLEAN}, CONTROL_TYPE {TEXT, NUMBER, DATE, SELECT, MULTI_SELECT, DATE_RANGE}; SELECT/MULTI_SELECT bắt buộc LOV ≠ NONE, DATE_RANGE bắt buộc kiểu ngày; DEFAULT_TYPE {NONE, STATIC, TODAY, FIRST_LOV} (TODAY chỉ ngày, FIRST_LOV chỉ khi có LOV, STATIC default kiểm tra theo kiểu); LOV validate cấu trúc (STATIC unique + không rỗng, SQL SELECT-only + Data Source tồn tại, LOOKUP type tồn tại và active, CACHE_SECONDS 0..3600, MAX_ROWS 1..5000); update không đổi CODE; delete chặn khi CODE còn là bind trong SQL version hoặc SQL LOV khác; tạo mới không chỉ row/order thì auto-place (hàng cuối còn chỗ, không thì hàng mới).
