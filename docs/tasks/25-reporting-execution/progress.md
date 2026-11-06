@@ -1,6 +1,13 @@
 # Tiến độ – 25-reporting-execution
 
-Trạng thái: 🔄
+Trạng thái: ✅
+
+## Hồi quy cuối (06/11/2026)
+- Test đầy đủ: **884 pass, 5 skip, 0 fail** (850 cuối task 24 + 34 test task 25 mới).
+- E2E: **12 pass**.
+- Typecheck: **21 lỗi = baseline, 0 mới**. Lint: sạch (ruff auto-fix 15 lỗi import thừa/sắp xếp/biến thừa trong code + test task 25).
+- `tasks-dashboard`: 29 task, 23 xong.
+- T25-01..T25-11 đều ☑. Không thêm migration, không thêm package.
 
 | Bước | Nội dung | Trạng thái | Commit |
 |---|---|---|---|
