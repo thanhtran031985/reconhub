@@ -8,8 +8,38 @@ from flask import Blueprint, abort, send_file
 from app.core.session import get_current_ctx
 from app.schemas.errors import ErrorCode
 from app.services.file_service import get_file
+from app.services.report_export import download_export as download_report_export
 
 file_bp = Blueprint("file_routes", __name__)
+
+
+@file_bp.route("/download/report-export/<int:export_id>", methods=["GET"])
+def download_report_export_file(export_id: int) -> Any:
+    """Tải file export báo cáo — task 27 bước 2 (Q5).
+
+    Quyền do service download_export quyết: owner scope + ADMIN bypass;
+    không tìm thấy/file mất 404. Chưa đăng nhập: app guard chuyển về
+    /login (302) trước khi route chạy; abort(401) ở đây là phòng thủ sâu.
+    """
+    ctx = get_current_ctx()
+    if ctx is None:
+        abort(401)
+
+    res = download_report_export(ctx, export_id)
+    if not res.ok or not isinstance(res.data, dict):
+        if res.code == ErrorCode.NOT_FOUND:
+            abort(404)
+        abort(403)
+
+    export_path = Path(str(res.data["file_path"])).resolve()
+    if not export_path.exists():
+        abort(404)
+
+    return send_file(
+        export_path,
+        as_attachment=True,
+        download_name=str(res.data["file_name"]),
+    )
 
 
 @file_bp.route("/download/file/<int:file_id>", methods=["GET"])

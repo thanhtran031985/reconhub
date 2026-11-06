@@ -571,6 +571,17 @@ def get_report_page(
     admin = is_admin(ctx, engine)
     with engine.connect() as conn:
         run = _load_run_row(conn, run_id, ctx, admin)
+        # Chặn sớm trên run đã kết thúc lỗi/hủy thay vì chạy lại query rồi
+        # trả "Lỗi hệ thống nội bộ" (task 27 bước 2 — Viewer mở run FAILED).
+        # QUEUED/RUNNING vẫn chạy lại query theo hợp đồng task 25.
+        status = str(run["STATUS"])
+        if status == "FAILED":
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                f"Run đã lỗi: {run['ERROR_MESSAGE'] or run['ERROR_CODE'] or 'không rõ nguyên nhân'}.",
+            )
+        if status == "CANCELLED":
+            raise ServiceError(ErrorCode.VALIDATION_ERROR, "Run đã bị hủy.")
         detail = load_version_detail(conn, int(run["VERSION_ID"]))
         resolved = dict(run["PARAMS_JSON"] or {})
     field_names = [c["field_name"] for c in detail["columns"]]

@@ -92,9 +92,11 @@ class TestReportingMenusSeed:
             assert "report_admin" not in ROLE_MENUS_SEED[role]
         assert "report_admin" not in ROLE_MENUS_SEED.get("ADMIN", [])
 
-    def test_report_menus_skipped_from_sidebar(self, menus_env):
-        """Task 27 chưa có trang: 3 menu report chưa hiện ở thanh bên
-        (theo mẫu result/batch_run/batch_def)."""
+    def test_report_menus_shown_in_sidebar(self, menus_env):
+        """Task 27 đã có trang: 3 menu report hiện ở thanh bên (Q8).
+
+        Trước task 27 test này assert ngược (menu bị skip vì chưa có trang).
+        """
         from app.ui.layout.shell import get_nav_items_for_menus
 
         items = get_nav_items_for_menus(
@@ -103,9 +105,9 @@ class TestReportingMenusSeed:
             is_admin=True,
         )
         hrefs = [item["href"] for group in items for item in group["items"]]
-        assert "/reports" not in hrefs
-        assert "/report-runs" not in hrefs
-        assert "/report-admin" not in hrefs
+        assert "/reports" in hrefs
+        assert "/report-runs" in hrefs
+        assert "/report-admin" in hrefs
         assert "/" in hrefs
 
     def test_effective_menus(self, menus_env):

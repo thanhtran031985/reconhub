@@ -123,3 +123,30 @@ def test_e2e_reports_page_accessible(e2e_client) -> None:
     resp = e2e_client.get("/reports")
     assert resp.status_code == 200
     assert "Trung tâm báo cáo".encode() in resp.data
+
+
+def test_e2e_report_viewer_page_accessible(e2e_client) -> None:
+    resp = e2e_client.get("/reports/1")
+    assert resp.status_code == 200
+    assert "Xem báo cáo".encode() in resp.data
+
+
+def test_e2e_report_runs_page_accessible(e2e_client) -> None:
+    resp = e2e_client.get("/report-runs")
+    assert resp.status_code == 200
+    assert "Lịch sử báo cáo".encode() in resp.data
+
+
+def test_e2e_report_export_download_requires_login(e2e_client) -> None:
+    # App guard (before_request) chuyển chưa đăng nhập về /login (302),
+    # trước cả abort(401) trong route.
+    with e2e_client.session_transaction() as sess:
+        sess.clear()
+    resp = e2e_client.get("/download/report-export/1")
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
+
+
+def test_e2e_report_export_download_missing_404(e2e_client) -> None:
+    resp = e2e_client.get("/download/report-export/999999")
+    assert resp.status_code in (403, 404)
