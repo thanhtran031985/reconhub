@@ -74,6 +74,17 @@ def map_oracle_type(oracle_type: str) -> str:
     return ORACLE_TYPE_MAP.get(base, "STRING")
 
 
+# Default hiển thị theo kiểu cột khi auto-discover (task 24 Q6).
+_COLUMN_ALIGNMENT = {"NUMBER": "RIGHT", "DATE": "CENTER", "DATETIME": "CENTER"}
+_COLUMN_WIDTH = {"NUMBER": 120, "DATE": 110, "DATETIME": 160}
+
+
+def column_display_defaults(data_type: str) -> tuple[str, int]:
+    """Căn lề và độ rộng mặc định của cột mới theo DATA_TYPE (task 24 Q6)."""
+    key = (data_type or "STRING").upper()
+    return _COLUMN_ALIGNMENT.get(key, "LEFT"), _COLUMN_WIDTH.get(key, 180)
+
+
 # Operator filter cho phép (khớp check constraint RECON_RPT_PARAM, task 21).
 FILTER_OPERATORS = ("=", ">=", "<=", "BETWEEN", "IN", "LIKE_PREFIX", "IS_NULL")
 
@@ -543,16 +554,19 @@ def apply_source_diff(
             if name in current:
                 continue
             max_order += 10
+            data_type = str(col.get("data_type") or "STRING")
+            alignment, width = column_display_defaults(data_type)
             conn.execute(
                 recon_rpt_column.insert().values(
                     VERSION_ID=version_id,
                     FIELD_NAME=name,
                     LABEL=name,
-                    DATA_TYPE=str(col.get("data_type") or "STRING"),
+                    DATA_TYPE=data_type,
                     DISPLAY_ORDER=max_order,
                     WEB_VISIBLE="Y",
                     EXCEL_VISIBLE="Y",
-                    ALIGNMENT="LEFT",
+                    ALIGNMENT=alignment,
+                    WIDTH=width,
                     IS_TOTAL="N",
                 )
             )
