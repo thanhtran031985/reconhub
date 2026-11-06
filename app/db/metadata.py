@@ -555,3 +555,275 @@ recon_metadata_migration = Table(
     Column("CREATED_AT", DateTime, nullable=False),
     Column("FINISHED_AT", DateTime, nullable=True),
 )
+
+# 9. Dynamic Reporting (task 21, spec 12a). Tên bảng/cột HOA, ≤ 30 ký tự.
+# RECON_REPORT_TEMPLATE.ACTIVE_VERSION_ID trỏ tới RECON_RPT_TPL_VER:
+# vòng FK hai chiều, create_all tự xử lý bằng ALTER TABLE.
+recon_report = Table(
+    "RECON_REPORT",
+    metadata,
+    pk_id_column(),
+    Column("CODE", String(60), nullable=False, unique=True),
+    Column("NAME", String(200), nullable=False),
+    Column("CATEGORY_CODE", String(60), nullable=True),
+    Column("OWNER", String(60), nullable=False),
+    Column("DESCRIPTION", String(500), nullable=True),
+    Column("DEFAULT_FAVORITE", String(1), nullable=False, default="N"),
+    Column("IS_VISIBLE", String(1), nullable=False, default="Y"),
+    Column("IS_ACTIVE", String(1), nullable=False, default="Y"),
+    Column("CREATED_BY", String(60), nullable=False),
+    Column("CREATED_AT", DateTime, nullable=False),
+    Column("UPDATED_BY", String(60), nullable=False),
+    Column("UPDATED_AT", DateTime, nullable=False),
+    Column("ROW_VERSION", Integer, nullable=False, default=1),
+)
+
+recon_report_template = Table(
+    "RECON_REPORT_TEMPLATE",
+    metadata,
+    pk_id_column(),
+    Column("REPORT_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_REPORT.ID"), nullable=False),
+    Column("CODE", String(60), nullable=False),
+    Column("NAME", String(200), nullable=False),
+    Column("DISPLAY_ORDER", Integer, nullable=False, default=10),
+    Column(
+        "ACTIVE_VERSION_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_RPT_TPL_VER.ID"),
+        nullable=True,
+    ),
+    Column("CREATED_BY", String(60), nullable=False),
+    Column("CREATED_AT", DateTime, nullable=False),
+    Column("UPDATED_BY", String(60), nullable=False),
+    Column("UPDATED_AT", DateTime, nullable=False),
+    Column("ROW_VERSION", Integer, nullable=False, default=1),
+    UniqueConstraint("REPORT_ID", "CODE", name="uq_recon_report_template_report_code"),
+)
+
+recon_rpt_tpl_ver = Table(
+    "RECON_RPT_TPL_VER",
+    metadata,
+    pk_id_column(),
+    Column(
+        "TEMPLATE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_REPORT_TEMPLATE.ID"),
+        nullable=False,
+    ),
+    Column("VERSION_NO", Integer, nullable=False),
+    Column("STATUS", String(20), nullable=False, default="DRAFT"),
+    Column(
+        "DATA_SOURCE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_DATA_SOURCE.ID"),
+        nullable=True,
+    ),
+    Column("SOURCE_TYPE", String(20), nullable=True),
+    Column("SQL_TEXT", Text, nullable=True),
+    Column("SOURCE_OWNER", String(60), nullable=True),
+    Column("SOURCE_OBJECT", String(128), nullable=True),
+    Column("TIMEOUT_SEC", Integer, nullable=False, default=300),
+    Column("PREVIEW_MAX_ROWS", Integer, nullable=False, default=100),
+    Column("EXPORT_MAX_ROWS", Integer, nullable=False, default=1000000),
+    Column("SQL_HASH", String(64), nullable=True),
+    Column("ACTIVATED_BY", String(60), nullable=True),
+    Column("ACTIVATED_AT", DateTime, nullable=True),
+    Column("CREATED_BY", String(60), nullable=False),
+    Column("CREATED_AT", DateTime, nullable=False),
+    Column("UPDATED_BY", String(60), nullable=False),
+    Column("UPDATED_AT", DateTime, nullable=False),
+    Column("ROW_VERSION", Integer, nullable=False, default=1),
+    UniqueConstraint("TEMPLATE_ID", "VERSION_NO", name="uq_recon_rpt_tpl_ver_template_version"),
+    CheckConstraint(
+        "STATUS IN ('DRAFT', 'DRY_RUN_OK', 'ACTIVE', 'ARCHIVED')",
+        name="ck_recon_rpt_tpl_ver_status",
+    ),
+    CheckConstraint(
+        "SOURCE_TYPE IS NULL OR SOURCE_TYPE IN ('CUSTOM_SQL', 'VIEW', 'TABLE')",
+        name="ck_recon_rpt_tpl_ver_source_type",
+    ),
+)
+
+recon_rpt_param = Table(
+    "RECON_RPT_PARAM",
+    metadata,
+    pk_id_column(),
+    Column(
+        "VERSION_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_RPT_TPL_VER.ID"),
+        nullable=False,
+    ),
+    Column("CODE", String(60), nullable=False),
+    Column("LABEL", String(200), nullable=False),
+    Column("DATA_TYPE", String(30), nullable=False),
+    Column("CONTROL_TYPE", String(30), nullable=False),
+    Column("REQUIRED", String(1), nullable=False, default="N"),
+    Column("DEFAULT_TYPE", String(20), nullable=True),
+    Column("DEFAULT_VALUE", String(500), nullable=True),
+    Column("DISPLAY_ROW", Integer, nullable=False, default=1),
+    Column("DISPLAY_ORDER", Integer, nullable=False, default=10),
+    Column("GRID_SPAN", Integer, nullable=False, default=6),
+    Column("FILTER_COLUMN", String(128), nullable=True),
+    Column("FILTER_OPERATOR", String(20), nullable=True),
+    Column("IS_VISIBLE", String(1), nullable=False, default="Y"),
+    UniqueConstraint("VERSION_ID", "CODE", name="uq_recon_rpt_param_version_code"),
+    CheckConstraint("GRID_SPAN BETWEEN 1 AND 12", name="ck_recon_rpt_param_grid_span"),
+    CheckConstraint("DISPLAY_ROW >= 1", name="ck_recon_rpt_param_display_row"),
+    CheckConstraint(
+        "FILTER_OPERATOR IS NULL OR FILTER_OPERATOR IN "
+        "('=', '>=', '<=', 'BETWEEN', 'IN', 'LIKE_PREFIX', 'IS_NULL')",
+        name="ck_recon_rpt_param_filter_operator",
+    ),
+)
+
+recon_rpt_param_lov = Table(
+    "RECON_RPT_PARAM_LOV",
+    metadata,
+    Column(
+        "PARAM_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_RPT_PARAM.ID", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("LOV_TYPE", String(20), nullable=False, default="NONE"),
+    Column(
+        "DATA_SOURCE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_DATA_SOURCE.ID"),
+        nullable=True,
+    ),
+    Column("SQL_TEXT", Text, nullable=True),
+    Column("LOOKUP_TYPE", String(60), nullable=True),
+    Column("STATIC_JSON", JsonText, nullable=True),
+    Column("CACHE_SECONDS", Integer, nullable=False, default=300),
+    Column("MAX_ROWS", Integer, nullable=False, default=5000),
+    CheckConstraint(
+        "LOV_TYPE IN ('NONE', 'STATIC', 'SQL', 'LOOKUP')",
+        name="ck_recon_rpt_param_lov_type",
+    ),
+    CheckConstraint("CACHE_SECONDS BETWEEN 0 AND 3600", name="ck_recon_rpt_param_lov_cache"),
+    CheckConstraint("MAX_ROWS > 0", name="ck_recon_rpt_param_lov_max_rows"),
+)
+
+recon_rpt_column = Table(
+    "RECON_RPT_COLUMN",
+    metadata,
+    pk_id_column(),
+    Column(
+        "VERSION_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_RPT_TPL_VER.ID"),
+        nullable=False,
+    ),
+    Column("FIELD_NAME", String(128), nullable=False),
+    Column("LABEL", String(200), nullable=False),
+    Column("DATA_TYPE", String(30), nullable=False),
+    Column("DISPLAY_ORDER", Integer, nullable=False, default=10),
+    Column("WEB_VISIBLE", String(1), nullable=False, default="Y"),
+    Column("EXCEL_VISIBLE", String(1), nullable=False, default="Y"),
+    Column("FORMAT_MASK", String(100), nullable=True),
+    Column("ALIGNMENT", String(10), nullable=False, default="LEFT"),
+    Column("WIDTH", Integer, nullable=True),
+    Column("IS_TOTAL", String(1), nullable=False, default="N"),
+    UniqueConstraint("VERSION_ID", "FIELD_NAME", name="uq_recon_rpt_column_version_field"),
+    CheckConstraint(
+        "ALIGNMENT IN ('LEFT', 'CENTER', 'RIGHT')",
+        name="ck_recon_rpt_column_alignment",
+    ),
+)
+
+recon_report_run = Table(
+    "RECON_REPORT_RUN",
+    metadata,
+    pk_id_column(),
+    Column("REPORT_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_REPORT.ID"), nullable=False),
+    Column(
+        "TEMPLATE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_REPORT_TEMPLATE.ID"),
+        nullable=False,
+    ),
+    Column(
+        "VERSION_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_RPT_TPL_VER.ID"),
+        nullable=False,
+    ),
+    Column("PARAMS_JSON", JsonText, nullable=False),
+    Column("STATUS", String(30), nullable=False, default="QUEUED"),
+    Column("ROW_COUNT", Integer, nullable=True),
+    Column("QUERY_MS", Integer, nullable=True),
+    Column("ERROR_CODE", String(60), nullable=True),
+    Column("ERROR_MESSAGE", String(500), nullable=True),
+    Column("CREATED_BY", String(60), nullable=False),
+    Column("CREATED_AT", DateTime, nullable=False),
+    Column("FINISHED_AT", DateTime, nullable=True),
+    CheckConstraint(
+        "STATUS IN ('QUEUED', 'RUNNING', 'DONE', 'FAILED', 'CANCELLED')",
+        name="ck_recon_report_run_status",
+    ),
+)
+
+recon_rpt_export = Table(
+    "RECON_RPT_EXPORT",
+    metadata,
+    pk_id_column(),
+    Column("RUN_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_REPORT_RUN.ID"), nullable=False),
+    Column("FORMAT", String(10), nullable=False),
+    Column("STATUS", String(30), nullable=False, default="QUEUED"),
+    Column("FILE_PATH", String(500), nullable=True),
+    Column("FILE_SIZE", BigInteger, nullable=True),
+    Column("FILE_HASH", String(128), nullable=True),
+    Column("PART_COUNT", Integer, nullable=False, default=1),
+    Column("ROW_COUNT", Integer, nullable=True),
+    Column("CREATED_BY", String(60), nullable=False),
+    Column("CREATED_AT", DateTime, nullable=False),
+    Column("FINISHED_AT", DateTime, nullable=True),
+    Column("ERROR_MESSAGE", String(500), nullable=True),
+    CheckConstraint("FORMAT IN ('XLSX', 'CSV', 'ZIP')", name="ck_recon_rpt_export_format"),
+    CheckConstraint(
+        "STATUS IN ('QUEUED', 'RUNNING', 'DONE', 'FAILED', 'CANCELLED')",
+        name="ck_recon_rpt_export_status",
+    ),
+)
+
+recon_rpt_favorite = Table(
+    "RECON_RPT_FAVORITE",
+    metadata,
+    Column("USER_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_USER.ID"), primary_key=True),
+    Column("REPORT_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_REPORT.ID"), primary_key=True),
+    Column("CREATED_AT", DateTime, nullable=False),
+)
+
+recon_rpt_preset = Table(
+    "RECON_RPT_PRESET",
+    metadata,
+    pk_id_column(),
+    Column("USER_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_USER.ID"), nullable=False),
+    Column("REPORT_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_REPORT.ID"), nullable=False),
+    Column(
+        "TEMPLATE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_REPORT_TEMPLATE.ID"),
+        nullable=False,
+    ),
+    Column("NAME", String(200), nullable=False),
+    Column("PARAMS_JSON", JsonText, nullable=False),
+    Column("IS_DEFAULT", String(1), nullable=False, default="N"),
+    Column("CREATED_BY", String(60), nullable=False),
+    Column("CREATED_AT", DateTime, nullable=False),
+    Column("UPDATED_BY", String(60), nullable=False),
+    Column("UPDATED_AT", DateTime, nullable=False),
+    Column("ROW_VERSION", Integer, nullable=False, default=1),
+)
+
+recon_rpt_lov_cache = Table(
+    "RECON_RPT_LOV_CACHE",
+    metadata,
+    Column("CACHE_KEY", String(200), primary_key=True),
+    Column("PAYLOAD_JSON", JsonText, nullable=False),
+    Column("ROW_COUNT", Integer, nullable=False, default=0),
+    Column("EXPIRES_AT", DateTime, nullable=False),
+    Column("CREATED_AT", DateTime, nullable=False),
+)

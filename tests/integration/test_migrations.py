@@ -164,3 +164,60 @@ def test_sqlite_pragmas_and_data_types(temp_db_url: str) -> None:
         assert raw_text is not None
         assert raw_text[0] == "text"
         assert raw_text[1] == "0.3"
+
+
+def test_reporting_migration_creates_tables_and_lock(temp_db_url: str) -> None:
+    """Task 21 bước 1 (T21-01 phía SQLite): migration 0004 tạo 11 bảng
+    report và seed dòng khóa REPORT_ACTIVATE_LOCK."""
+    from sqlalchemy import create_engine, inspect
+
+    run_alembic_upgrade(temp_db_url, "head")
+    engine = create_engine(temp_db_url)
+    names = set(inspect(engine).get_table_names())
+    for table in [
+        "RECON_REPORT",
+        "RECON_REPORT_TEMPLATE",
+        "RECON_RPT_TPL_VER",
+        "RECON_RPT_PARAM",
+        "RECON_RPT_PARAM_LOV",
+        "RECON_RPT_COLUMN",
+        "RECON_REPORT_RUN",
+        "RECON_RPT_EXPORT",
+        "RECON_RPT_FAVORITE",
+        "RECON_RPT_PRESET",
+        "RECON_RPT_LOV_CACHE",
+    ]:
+        assert table in names
+    with engine.connect() as conn:
+        lock = conn.execute(
+            text("SELECT VALUE FROM RECON_APP_SETTING WHERE KEY = 'REPORT_ACTIVATE_LOCK'")
+        ).scalar_one_or_none()
+        assert lock == "N"
+
+
+def test_reporting_downgrade_refused_with_data(temp_db_url: str) -> None:
+    """Task 21 bước 1 (Q9): downgrade 0004 từ chối khi đã có dữ liệu
+    report; dữ liệu và bảng còn nguyên."""
+    from datetime import datetime, timezone
+
+    from sqlalchemy import create_engine
+
+    run_alembic_upgrade(temp_db_url, "head")
+    engine = create_engine(temp_db_url)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO RECON_REPORT (CODE, NAME, CATEGORY_CODE, OWNER, "
+                "DESCRIPTION, DEFAULT_FAVORITE, IS_VISIBLE, IS_ACTIVE, CREATED_BY, "
+                "CREATED_AT, UPDATED_BY, UPDATED_AT, ROW_VERSION) "
+                "VALUES ('FIN_REVENUE', 'Doanh thu', 'FIN', 'admin', NULL, 'N', "
+                "'Y', 'Y', 'admin', :now, 'admin', :now, 1)"
+            ),
+            {"now": now},
+        )
+    with pytest.raises(RuntimeError, match="Không downgrade được"):
+        run_alembic_downgrade(temp_db_url, "0003_menu_permission")
+    with engine.connect() as conn:
+        count = conn.execute(text("SELECT COUNT(*) FROM RECON_REPORT")).scalar()
+        assert count == 1
