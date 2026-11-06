@@ -6,8 +6,8 @@ Trạng thái: 🔄
 |---|---|---|---|
 | 1 | Parameter CRUD/validation/default resolution | ✅ | 7bd92fa |
 | 2 | LOV NONE/STATIC/SQL/LOOKUP + cache | ✅ | d73db3e |
-| 3 | DISPLAY_ROW/ORDER/GRID_SPAN và tổng row <=12 | ✅ | a18e469 |
-| 4 | Auto-layout, drag/drop, preview | ⬜ | |
+| 3 | DISPLAY_ROW/ORDER/GRID_SPAN và tổng row <=12 | ✅ | c9eee95 |
+| 4 | Auto-layout, drag/drop, preview | ✅ | |
 
 ## Bước 1 — Parameter CRUD/validation/default resolution (06/11/2026)
 - `app/services/report_param.py` mới: `create_param`/`update_param`/`delete_param` (`@requires_menu("report_admin")`, chỉ version DRAFT, một transaction + audit CREATE/UPDATE/DELETE_PARAM); CODE `^[a-zA-Z][a-zA-Z0-9_]{0,59}$` (bind lowercase), trùng CODE → CONFLICT; DATA_TYPE {STRING, NUMBER, DATE, DATETIME, BOOLEAN}, CONTROL_TYPE {TEXT, NUMBER, DATE, SELECT, MULTI_SELECT, DATE_RANGE}; SELECT/MULTI_SELECT bắt buộc LOV ≠ NONE, DATE_RANGE bắt buộc kiểu ngày; DEFAULT_TYPE {NONE, STATIC, TODAY, FIRST_LOV} (TODAY chỉ ngày, FIRST_LOV chỉ khi có LOV, STATIC default kiểm tra theo kiểu); LOV validate cấu trúc (STATIC unique + không rỗng, SQL SELECT-only + Data Source tồn tại, LOOKUP type tồn tại và active, CACHE_SECONDS 0..3600, MAX_ROWS 1..5000); update không đổi CODE; delete chặn khi CODE còn là bind trong SQL version hoặc SQL LOV khác; tạo mới không chỉ row/order thì auto-place (hàng cuối còn chỗ, không thì hàng mới).
@@ -29,3 +29,9 @@ Trạng thái: 🔄
 - `reorder_params` (report_admin, DRAFT-only): xếp lại toàn bộ layout từ `rows=[[id, ...], ...]`; mọi param đang hiển thị phải có mặt đúng một lần (thiếu/thừa/trùng → VALIDATION_ERROR), param ẩn giữ nguyên; audit UPDATE_PARAM_LAYOUT trên RECON_RPT_TPL_VER.
 - Q5: create/update cho lưu layout vượt kèm `layout_warnings` trong response (wizard hiện cảnh báo); `activate_version` (report_template.py) chặn khi layout vi phạm (VALIDATION_ERROR); dry-run chặn ở task 25.
 - Test: `tests/unit/test_report_param_layout.py` (15 test, T23-06/07/08). 61 test pass (param 53 + audit).
+
+## Bước 4 — Auto-layout, drag/drop, preview (06/11/2026)
+- `auto_layout` (report_admin, DRAFT-only, T23-09): xếp lại param hiển thị theo (DISPLAY_ROW, DISPLAY_ORDER) hiện tại vào các hàng ≤ 12 cột, giữ GRID_SPAN; param ẩn giữ nguyên; audit UPDATE_PARAM_LAYOUT.
+- `build_param_layout(version_detail, columns=12)` (hàm thuần, không DB): dựng cấu trúc render — rows [{row, total_span, params[{id, code, label, data_type, control_type, required, default_type/value, grid_span, display_order, filter_column/operator, lov, value: None}]}]; columns=1 (mobile) mỗi param một hàng, không đổi dữ liệu đầu vào (T23-11); columns khác 1/12 → VALIDATION_ERROR.
+- `preview_layout` (`@requires_menu("report_center")`, T23-10): cùng cấu trúc Viewer dùng (build_param_layout trên dữ liệu version), điền default vào `value` (STATIC/TODAY/FIRST_LOV); param bắt buộc chưa có giá trị thì value None, không lỗi.
+- Test: `tests/unit/test_report_param_preview.py` (12 test, T23-09/10/11).

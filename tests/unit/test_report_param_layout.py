@@ -209,8 +209,8 @@ class TestMoveParam:
     def test_move_within_row(self, layout_env, admin_ctx):
         from app.services.report_param import move_param
 
-        a = _make_param(admin_ctx, layout_env["version_id"], "p_a", row=1, order=10)
-        b = _make_param(admin_ctx, layout_env["version_id"], "p_b", row=1, order=20)
+        _make_param(admin_ctx, layout_env["version_id"], "p_a", row=1, order=10)
+        _make_param(admin_ctx, layout_env["version_id"], "p_b", row=1, order=20)
         c = _make_param(admin_ctx, layout_env["version_id"], "p_c", row=1, order=30)
         res = move_param(admin_ctx, layout_env["version_id"], c["id"], to_row=1, to_index=0)
         assert res.ok, res.message
@@ -235,7 +235,7 @@ class TestMoveParam:
         from app.services.report_param import move_param
 
         a = _make_param(admin_ctx, layout_env["version_id"], "p_a", row=1, order=10)
-        b = _make_param(admin_ctx, layout_env["version_id"], "p_b", row=1, order=20)
+        _make_param(admin_ctx, layout_env["version_id"], "p_b", row=1, order=20)
         _make_param(admin_ctx, layout_env["version_id"], "p_c", row=2, order=10)
         res = move_param(admin_ctx, layout_env["version_id"], a["id"], to_row=2, to_index=1)
         assert res.ok, res.message
@@ -331,7 +331,6 @@ class TestReorderParams:
 
 class TestActivateBlockedByLayout:
     def test_activate_rejected_when_overfull(self, layout_env, admin_ctx):
-        from app.services.report_param import validate_layout
         from app.services.report_template import activate_version
 
         _make_param(admin_ctx, layout_env["version_id"], "p_a", row=1, order=10, span=6)

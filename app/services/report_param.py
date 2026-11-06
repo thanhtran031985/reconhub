@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
-from sqlalchemy import Connection, func, select
+from sqlalchemy import Connection, Engine, func, select
 
 from app.core.audit import write_audit_log
 from app.core.context import Ctx
@@ -29,7 +29,7 @@ from app.db.metadata import (
     recon_rpt_param_lov,
     recon_rpt_tpl_ver,
 )
-from app.engine.sql_guard import check_report_sql, discover_binds
+from app.engine.sql_guard import check_report_sql
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
 from app.services.perm import is_admin, requires_menu
@@ -182,6 +182,8 @@ def _validate_lov(lov: LovPayload, conn: Connection) -> None:
             raise ServiceError(
                 ErrorCode.VALIDATION_ERROR, "LOV SQL cần Data Source và SQL_TEXT."
             )
+        sql_text = lov.sql_text
+        assert sql_text is not None
         ds = conn.execute(
             select(recon_data_source.c.ID).where(
                 recon_data_source.c.ID == lov.data_source_id
@@ -192,7 +194,7 @@ def _validate_lov(lov: LovPayload, conn: Connection) -> None:
                 ErrorCode.NOT_FOUND,
                 f"Nguồn dữ liệu ID={lov.data_source_id} không tồn tại",
             )
-        ok, reason, _binds = check_report_sql(lov.sql_text)
+        ok, reason, _binds = check_report_sql(sql_text)
         if not ok:
             raise ServiceError(
                 ErrorCode.SQL_NOT_ALLOWED, reason or "SQL LOV không hợp lệ."
@@ -874,7 +876,7 @@ def _execute_lov_sql(
 
 
 def _resolve_lov_options(
-    engine,
+    engine: Engine,
     version_row: Any,
     param: dict[str, Any],
     dep_values: dict[str, Any],
@@ -910,6 +912,10 @@ def _resolve_lov_options(
     if lov_type == "SQL":
         ds_id = lov.get("data_source_id")
         sql_text = str(lov.get("sql_text") or "")
+        if ds_id is None or not sql_text.strip():
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR, "LOV SQL cần Data Source và SQL_TEXT."
+            )
         cache_seconds = int(lov.get("cache_seconds") or 0)
         max_rows = int(lov.get("max_rows") or 5000)
         timeout = int(version_row["TIMEOUT_SEC"] or 300)
@@ -1169,3 +1175,164 @@ def reorder_params(
         )
         params = _load_params_with_lov(conn, version_id)
         return {"params": params}
+
+
+# ─── Auto-layout và preview (bước 4) ─────────────────────────────────────────
+
+
+def _param_layout_entry(param: dict[str, Any]) -> dict[str, Any]:
+    """Một mục param trong cấu trúc render (không đổi dữ liệu gốc)."""
+    return {
+        "id": int(param["id"]),
+        "code": str(param["code"]),
+        "label": str(param["label"]),
+        "data_type": str(param["data_type"]),
+        "control_type": str(param["control_type"]),
+        "required": bool(param["required"]),
+        "default_type": param.get("default_type"),
+        "default_value": param.get("default_value"),
+        "grid_span": int(param["grid_span"]),
+        "display_order": int(param["display_order"]),
+        "filter_column": param.get("filter_column"),
+        "filter_operator": param.get("filter_operator"),
+        "lov": param.get("lov"),
+        "value": None,
+    }
+
+
+def build_param_layout(
+    version_detail: dict[str, Any], columns: int = 12
+) -> dict[str, Any]:
+    """Dựng cấu trúc render form tham số (hàm thuần, dùng chung wizard + Viewer).
+
+    columns=12: theo DISPLAY_ROW đã lưu; columns=1 (mobile): mỗi param một
+    hàng. Không đổi dữ liệu đầu vào (T23-10, T23-11).
+    """
+    if columns not in (1, 12):
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR, "Số cột hiển thị chỉ nhận 1 hoặc 12."
+        )
+    params = [p for p in version_detail.get("params", []) if p.get("is_visible")]
+    params = sorted(
+        params, key=lambda p: (int(p["display_row"]), int(p["display_order"]))
+    )
+    if columns == 1:
+        rows = [
+            {
+                "row": i + 1,
+                "total_span": int(p["grid_span"]),
+                "params": [_param_layout_entry(p)],
+            }
+            for i, p in enumerate(params)
+        ]
+        return {"columns": 1, "rows": rows}
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for p in params:
+        grouped.setdefault(int(p["display_row"]), []).append(p)
+    rows = [
+        {
+            "row": row_no,
+            "total_span": sum(int(p["grid_span"]) for p in ps),
+            "params": [_param_layout_entry(p) for p in ps],
+        }
+        for row_no, ps in sorted(grouped.items())
+    ]
+    return {"columns": 12, "rows": rows}
+
+
+@service
+@requires_menu("report_admin")
+def auto_layout(ctx: Ctx, version_id: int) -> dict[str, Any]:
+    """Xếp lại toàn bộ param hiển thị vào các hàng ≤ 12 cột (T23-09).
+
+    Giữ thứ tự (DISPLAY_ROW, DISPLAY_ORDER) hiện tại và GRID_SPAN từng
+    param; param ẩn giữ nguyên vị trí.
+    """
+    engine = get_recon_engine()
+    with engine.begin() as conn:
+        _load_version_draft(conn, version_id)
+        params = (
+            conn.execute(
+                select(recon_rpt_param)
+                .where(
+                    recon_rpt_param.c.VERSION_ID == version_id,
+                    recon_rpt_param.c.IS_VISIBLE == "Y",
+                )
+                .order_by(
+                    recon_rpt_param.c.DISPLAY_ROW, recon_rpt_param.c.DISPLAY_ORDER
+                )
+            )
+            .mappings()
+            .all()
+        )
+        row_no = 1
+        total = 0
+        pos = 0
+        for p in params:
+            span = int(p["GRID_SPAN"])
+            if total + span > 12:
+                row_no += 1
+                total = 0
+                pos = 0
+            total += span
+            pos += 1
+            conn.execute(
+                recon_rpt_param.update()
+                .where(recon_rpt_param.c.ID == int(p["ID"]))
+                .values(DISPLAY_ROW=row_no, DISPLAY_ORDER=pos * 10)
+            )
+        write_audit_log(
+            conn,
+            "RECON_RPT_TPL_VER",
+            version_id,
+            "UPDATE_PARAM_LAYOUT",
+            ctx.username,
+            new_data={"auto_layout": True},
+        )
+        return {"params": _load_params_with_lov(conn, version_id)}
+
+
+def _preview_default(
+    engine: Engine, version_row: Any, param: dict[str, Any]
+) -> Any:
+    """Giá trị mặc định của một param cho preview (không kiểm tra required)."""
+    default_type = param.get("default_type") or "NONE"
+    if default_type == "STATIC":
+        try:
+            return _coerce_value(str(param["data_type"]), param.get("default_value"))
+        except ServiceError:
+            return None
+    if default_type == "TODAY":
+        today = _now().date().isoformat()
+        return today if param["data_type"] == "DATE" else f"{today}T00:00:00"
+    if default_type == "FIRST_LOV":
+        options = _resolve_lov_options(engine, version_row, param, {})
+        return options[0]["value"] if options else None
+    return None
+
+
+@service
+@requires_menu("report_center")
+def preview_layout(
+    ctx: Ctx, version_id: int, columns: int = 12
+) -> dict[str, Any]:
+    """Preview form tham số: cùng cấu trúc Viewer dùng (T23-10), kèm default.
+
+    Param bắt buộc chưa có giá trị/default thì hiện trống (value None),
+    không lỗi — khác với resolve_param_values lúc chạy thật.
+    """
+    if columns not in (1, 12):
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR, "Số cột hiển thị chỉ nhận 1 hoặc 12."
+        )
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.connect() as conn:
+        ver = _load_version_for_resolve(conn, version_id, admin)
+        params = _load_params_with_lov(conn, version_id)
+    layout = build_param_layout({"params": params}, columns=columns)
+    by_id = {int(p["id"]): p for p in params}
+    for row in layout["rows"]:
+        for entry in row["params"]:
+            entry["value"] = _preview_default(engine, ver, by_id[entry["id"]])
+    return layout

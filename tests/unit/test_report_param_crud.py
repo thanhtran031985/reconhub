@@ -6,7 +6,6 @@ create/update/delete param + resolve_param_values (T23-01, T23-05, T23-06).
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import patch
 
 import pytest
 from sqlalchemy import create_engine, select, text
@@ -264,8 +263,8 @@ class TestCreateParam:
         assert not res.ok and res.code == "FORBIDDEN"
 
     def test_create_on_non_draft_rejected(self, param_env, admin_ctx):
-        from app.services.report_param import create_param
         from app.db.metadata import recon_rpt_tpl_ver
+        from app.services.report_param import create_param
 
         engine = param_env["engine"]
         with engine.begin() as conn:
@@ -337,7 +336,7 @@ class TestUpdateDeleteParam:
         assert not res.ok and res.code == "VALIDATION_ERROR"
 
     def test_delete_ok_and_lov_gone(self, param_env, admin_ctx):
-        from app.services.report_param import create_param, delete_param
+        from app.services.report_param import delete_param
 
         created = _make_param(
             admin_ctx, param_env["version_id"], code="p_unused"
