@@ -781,6 +781,10 @@ recon_rpt_export = Table(
     Column("CREATED_AT", DateTime, nullable=False),
     Column("FINISHED_AT", DateTime, nullable=True),
     Column("ERROR_MESSAGE", String(500), nullable=True),
+    # Task 26 (migration 0005): worker claim nguyên tử + heartbeat.
+    Column("LOCKED_BY", String(60), nullable=True),
+    Column("LOCKED_AT", DateTime, nullable=True),
+    Column("HEARTBEAT_AT", DateTime, nullable=True),
     CheckConstraint("FORMAT IN ('XLSX', 'CSV', 'ZIP')", name="ck_recon_rpt_export_format"),
     CheckConstraint(
         "STATUS IN ('QUEUED', 'RUNNING', 'DONE', 'FAILED', 'CANCELLED')",

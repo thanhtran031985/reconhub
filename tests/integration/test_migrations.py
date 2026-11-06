@@ -221,3 +221,21 @@ def test_reporting_downgrade_refused_with_data(temp_db_url: str) -> None:
     with engine.connect() as conn:
         count = conn.execute(text("SELECT COUNT(*) FROM RECON_REPORT")).scalar()
         assert count == 1
+
+
+def test_export_claim_migration_columns(temp_db_url: str) -> None:
+    """Task 26 bước 1 (Q2): migration 0005 thêm LOCKED_BY/LOCKED_AT/
+    HEARTBEAT_AT vào RECON_RPT_EXPORT; downgrade về 0004 bỏ 3 cột."""
+    from sqlalchemy import create_engine, inspect
+
+    run_alembic_upgrade(temp_db_url, "head")
+    engine = create_engine(temp_db_url)
+    cols = {
+        c["name"] for c in inspect(engine).get_columns("RECON_RPT_EXPORT")
+    }
+    assert {"LOCKED_BY", "LOCKED_AT", "HEARTBEAT_AT"} <= cols
+    run_alembic_downgrade(temp_db_url, "0004_reporting_core")
+    cols = {
+        c["name"] for c in inspect(engine).get_columns("RECON_RPT_EXPORT")
+    }
+    assert not ({"LOCKED_BY", "LOCKED_AT", "HEARTBEAT_AT"} & cols)

@@ -38,7 +38,7 @@ def _now() -> datetime:
 # ─── Loaders ────────────────────────────────────────────────────────────────
 
 
-def _load_version_detail(conn: Connection, version_id: int) -> dict[str, Any]:
+def load_version_detail(conn: Connection, version_id: int) -> dict[str, Any]:
     """Chi tiết version đủ cho thực thi: nguồn + params + columns."""
     row = (
         conn.execute(
@@ -94,10 +94,15 @@ def _load_version_detail(conn: Connection, version_id: int) -> dict[str, Any]:
         "columns": [
             {
                 "field_name": str(c["FIELD_NAME"]),
+                "label": str(c["LABEL"]),
                 "data_type": str(c["DATA_TYPE"]),
                 "display_order": int(c["DISPLAY_ORDER"]),
                 "web_visible": c["WEB_VISIBLE"] == "Y",
                 "excel_visible": c["EXCEL_VISIBLE"] == "Y",
+                "format_mask": c["FORMAT_MASK"],
+                "alignment": str(c["ALIGNMENT"]),
+                "width": c["WIDTH"],
+                "is_total": c["IS_TOTAL"] == "Y",
             }
             for c in columns
         ],
@@ -219,7 +224,7 @@ def _validate_sorts(
     return out
 
 
-def _stable_order_by(
+def stable_order_by(
     detail: dict[str, Any], sorts: list[dict[str, str]]
 ) -> str:
     """ORDER BY: sorts người dùng + cột đầu tiên làm tiebreaker (Q6)."""
@@ -239,7 +244,7 @@ def _stable_order_by(
     return ", ".join(parts)
 
 
-def _build_run_query(
+def build_run_query(
     detail: dict[str, Any], resolved: dict[str, Any]
 ) -> tuple[str, dict[str, Any]]:
     """(sql, binds) cho một lần chạy: CUSTOM_SQL dùng snapshot, VIEW/TABLE
@@ -286,7 +291,7 @@ def _build_run_query(
 # ─── Thực thi trên Oracle ───────────────────────────────────────────────────
 
 
-def _map_oracle_error(exc: Exception, timeout_sec: int) -> ServiceError:
+def map_oracle_error(exc: Exception, timeout_sec: int) -> ServiceError:
     """Map lỗi Oracle theo mẫu app/engine/fetch.py."""
     err_str = str(exc).upper()
     if isinstance(exc, TimeoutError) or "ORA-01013" in err_str or "TIMEOUT" in err_str:
@@ -320,8 +325,8 @@ def _execute_count_page(
     sorts: list[dict[str, str]],
 ) -> tuple[int, list[dict[str, Any]], list[str]]:
     """Chạy count (timeout riêng) + một trang dữ liệu; trả (total, rows, columns)."""
-    sql, binds = _build_run_query(detail, resolved)
-    order_by = _stable_order_by(detail, sorts)
+    sql, binds = build_run_query(detail, resolved)
+    order_by = stable_order_by(detail, sorts)
     ds_id = detail["data_source_id"]
     if ds_id is None:
         raise ServiceError(
@@ -338,7 +343,7 @@ def _execute_count_page(
     except ServiceError:
         raise
     except Exception as exc:
-        raise _map_oracle_error(exc, count_timeout) from exc
+        raise map_oracle_error(exc, count_timeout) from exc
     try:
         with open_checked_connection(ds_id, data_timeout) as ora_conn:
             cursor = ora_conn.cursor()
@@ -353,7 +358,7 @@ def _execute_count_page(
     except ServiceError:
         raise
     except Exception as exc:
-        raise _map_oracle_error(exc, data_timeout) from exc
+        raise map_oracle_error(exc, data_timeout) from exc
     return total, rows, col_names
 
 
@@ -435,7 +440,7 @@ def execute_report_run(
                 ErrorCode.VALIDATION_ERROR,
                 "Chỉ chạy được run QUEUED; run đã chạy thì tạo run mới.",
             )
-        detail = _load_version_detail(conn, int(run["VERSION_ID"]))
+        detail = load_version_detail(conn, int(run["VERSION_ID"]))
         resolved = dict(run["PARAMS_JSON"] or {})
         conn.execute(
             recon_report_run.update()
@@ -508,7 +513,7 @@ def dry_run_version(
     """
     engine = get_recon_engine()
     with engine.connect() as conn:
-        detail = _load_version_detail(conn, version_id)
+        detail = load_version_detail(conn, version_id)
     if detail["status"] != "DRAFT":
         raise ServiceError(
             ErrorCode.VALIDATION_ERROR,
@@ -566,7 +571,7 @@ def get_report_page(
     admin = is_admin(ctx, engine)
     with engine.connect() as conn:
         run = _load_run_row(conn, run_id, ctx, admin)
-        detail = _load_version_detail(conn, int(run["VERSION_ID"]))
+        detail = load_version_detail(conn, int(run["VERSION_ID"]))
         resolved = dict(run["PARAMS_JSON"] or {})
     field_names = [c["field_name"] for c in detail["columns"]]
     valid_sorts = _validate_sorts(sorts, field_names)
