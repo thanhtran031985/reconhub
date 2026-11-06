@@ -1,0 +1,5 @@
+# Quyết định – 25-reporting-execution
+
+Tham chiếu spec 12 và data flow. Ghi mọi khác biệt đã duyệt tại đây.
+
+- 06/11/2026 (duyệt plan "làm đi bạn, cho tới xong task"): Q0 — nhánh `feat/25-reporting-execution` từ `2402c07` (đầu nhánh task 24 đã push). Q1 — làm xong cả task rồi gửi xem (như task 19–24). Q2 — `execute_report_run` chạy đồng bộ trong request; thực thi nền thuộc task 26. Q3 — count timeout riêng = min(version TIMEOUT_SEC, 30 giây); data timeout = min(version TIMEOUT_SEC, DS CALL_TIMEOUT_S). Q4 — cancel = đặt CANCELLED trực tiếp (không thêm cột CANCEL_REQUESTED, không migration); mô hình cancel-request cần worker, thuộc task 26. Q5 — page_size mặc định 50, tối đa 200 (web); dry-run tối đa preview_max_rows của version. Q6 — stable sort = sorts người dùng + cột đầu tiên của kết quả làm tiebreaker (không có PK nên chỉ bảo đảm tuyệt đối khi sort chứa cột duy nhất). Q7 — `dry_run_version` thành công thì DRAFT→DRY_RUN_OK (đóng vòng T21-04). Q8 — T25-09 (E2E) kiểm tra ở mức service trong task 25, kiểm tra lại bằng Playwright ở task 27 khi trang /report-runs có thật.
