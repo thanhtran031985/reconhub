@@ -2081,6 +2081,13 @@ def handle_step_click(
         raise PreventUpdate
     target = int(step) if step is not None else int(active_or_clicks) + 1
     state = dict(state)
+    # Stepper bị dựng lại mỗi khi wizard render (kể cả khi step không đổi,
+    # ví dụ sau khi Lưu bước 1 lỗi): `active` phát lại đúng bước hiện tại.
+    # Không làm gì cả — PreventUpdate để không ghi đè alert vừa hiện
+    # (callback trước đó trả alert qua output admin-alert; trả (state, None)
+    # ở đây sẽ xóa alert đó và người dùng thấy như bấm không có tác dụng).
+    if target == int(state.get("step") or 1):
+        raise PreventUpdate
     if target <= int(state.get("max_step") or 1):
         state["step"] = target
         return state, None
@@ -2101,6 +2108,19 @@ def _bump(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+def _state_or_no_update(old_state: dict[str, Any] | None, new_state: dict[str, Any], alert: Any) -> tuple[Any, Any]:
+    """Giữ nguyên state-store khi thao tác lỗi (state không đổi).
+
+    Tránh wizard render lại và xóa dữ liệu vừa nhập: render_step* dựng lại
+    form từ state/DB nên input chưa lưu sẽ mất. Thao tác thành công luôn
+    đổi state (đổi step, analyzed, _bump...) nên vẫn render lại bình
+    thường.
+    """
+    if new_state == old_state:
+        return dash.no_update, alert
+    return new_state, alert
+
+
 @callback(
     Output("admin-state-store", "data"),
     Output("admin-alert", "children", allow_duplicate=True),
@@ -2117,7 +2137,7 @@ def handle_location(href: str | None, state: dict[str, Any] | None) -> tuple[dic
     if ctx is None:
         raise PreventUpdate
     if qs.get("new"):
-        return _fresh_state(), None
+        return _state_or_no_update(state, _fresh_state(), None)
     if qs.get("template"):
         try:
             template_id = int(qs["template"][0])
@@ -2125,8 +2145,8 @@ def handle_location(href: str | None, state: dict[str, Any] | None) -> tuple[dic
             raise PreventUpdate from None
         new_state, alert = handle_open_edit(1, template_id)
         if new_state is None:
-            return {"mode": "list"}, alert
-        return new_state, alert
+            return _state_or_no_update(state, {"mode": "list"}, alert)
+        return _state_or_no_update(state, new_state, alert)
     if qs.get("clone"):
         try:
             version_id = int(qs["clone"][0])
@@ -2134,8 +2154,8 @@ def handle_location(href: str | None, state: dict[str, Any] | None) -> tuple[dic
             raise PreventUpdate from None
         new_state, alert = handle_clone(1, version_id)
         if new_state is None:
-            return {"mode": "list"}, alert
-        return new_state, alert
+            return _state_or_no_update(state, {"mode": "list"}, alert)
+        return _state_or_no_update(state, new_state, alert)
     current = state or {"mode": "list"}
     if current.get("mode") == "wizard":
         return {"mode": "list"}, None
@@ -2194,9 +2214,10 @@ def handle_prev(n_clicks: int | None, state: dict[str, Any] | None) -> tuple[dic
     """Nút Quay lại."""
     if not n_clicks or not state:
         raise PreventUpdate
+    old_state = state
     state = dict(state)
     state["step"] = max(1, int(state.get("step") or 1) - 1)
-    return state, None
+    return _state_or_no_update(old_state, state, None)
 
 
 @callback(
@@ -2210,7 +2231,8 @@ def handle_next(n_clicks: int | None, state: dict[str, Any] | None) -> tuple[dic
     """Nút Tiếp (có guard từng bước)."""
     if not n_clicks or not state:
         raise PreventUpdate
-    return handle_next_step(n_clicks, state)
+    new_state, alert = handle_next_step(n_clicks, state)
+    return _state_or_no_update(state, new_state, alert)
 
 
 @callback(
@@ -2253,7 +2275,7 @@ def handle_s1_save(
     """Lưu bước 1."""
     if not state:
         raise PreventUpdate
-    return handle_save_step1(
+    new_state, alert = handle_save_step1(
         n_clicks,
         state,
         report_code,
@@ -2270,6 +2292,7 @@ def handle_s1_save(
         preview_max_rows,
         export_max_rows,
     )
+    return _state_or_no_update(state, new_state, alert)
 
 
 @callback(
@@ -2313,7 +2336,7 @@ def handle_s2_analyze_sql(
             "export_max_rows": int(export_max_rows or 1000000),
         },
     )
-    return handle_analyze_sql(n_clicks, state, sql_text)
+    return _state_or_no_update(state, *handle_analyze_sql(n_clicks, state, sql_text))
 
 
 @callback(
@@ -2338,7 +2361,9 @@ def handle_s2_analyze_object(
     """Phân tích nguồn VIEW/TABLE."""
     if not state:
         raise PreventUpdate
-    return handle_analyze_object(n_clicks, state, data_source_id, source_type, source_owner, source_object)
+    return _state_or_no_update(
+        state, *handle_analyze_object(n_clicks, state, data_source_id, source_type, source_owner, source_object)
+    )
 
 
 @callback(
@@ -2451,7 +2476,7 @@ def handle_p_save(
         lov_static_text,
     )
     if param is None:
-        return state, alert
+        return _state_or_no_update(state, state, alert)
     new_state = _bump(state)
     new_state["editing_param_id"] = None
     return new_state, alert
@@ -2689,7 +2714,7 @@ def handle_activate_click(n_clicks: int | None, state: dict[str, Any] | None) ->
     new_state, alert = handle_activate(n_clicks, state)
     if alert is None:
         return _bump(new_state), alert_box("Đã kích hoạt template.", "Version này đã ACTIVE.", tone="ok")
-    return new_state, alert
+    return _state_or_no_update(state, new_state, alert)
 
 
 @callback(

@@ -173,6 +173,64 @@ class TestStep1:
         assert alert is not None
         assert "đã tồn tại" in _dump(alert)
 
+    def test_s1_save_callback_keeps_state_on_failure(self, run_env, admin_ctx, monkeypatch):
+        """Lưu lỗi thì callback trả no_update cho state-store (không render lại).
+
+        Hồi quy: trước sửa, callback trả state không đổi nên wizard render
+        lại, form bước 1 bị dựng lại từ rỗng và mất hết dữ liệu vừa nhập.
+        """
+        import dash
+
+        import app.ui.pages.report_admin as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        state, alert = page.handle_s1_save(
+            1,
+            _fresh_state(),
+            "FIN_REVENUE",
+            "Trùng mã",
+            "FINANCE",
+            "FIN",
+            "",
+            True,
+            False,
+            "X1",
+            "X",
+            10,
+            300,
+            100,
+            1000000,
+        )
+        assert state is dash.no_update
+        assert alert is not None
+        assert "đã tồn tại" in _dump(alert)
+
+    def test_s1_save_callback_updates_state_on_success(self, run_env, admin_ctx, monkeypatch):
+        import app.ui.pages.report_admin as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        state, alert = page.handle_s1_save(
+            1,
+            _fresh_state(),
+            "NEW_RPT2",
+            "Báo cáo mới 2",
+            "FINANCE",
+            "FIN",
+            "",
+            True,
+            False,
+            "NEW_TPL2",
+            "Mẫu mới 2",
+            10,
+            300,
+            100,
+            1000000,
+        )
+        assert isinstance(state, dict)
+        assert state["step"] == 2
+        assert state["report_id"] is not None
+        assert alert is None or "Đã lưu" in _dump(alert)
+
     def test_save_step1_edit_updates(self, run_env, admin_ctx, monkeypatch):
         import app.ui.pages.report_admin as page
         from app.services.report import get_report
@@ -530,3 +588,25 @@ class TestWizardNav:
         state, alert = page.handle_step_click(1, state, 5)
         assert state["step"] == 1
         assert alert is not None
+
+    def test_step_click_same_step_does_not_clear_alert(self, run_env, admin_ctx, monkeypatch):
+        """Stepper dựng lại phát active đúng bước hiện tại: không làm gì.
+
+        Hồi quy: trước sửa, callback stepper trả (state, None) và xóa alert
+        lỗi vừa hiện sau khi Lưu bước 1 lỗi — người dùng thấy bấm không có
+        tác dụng. Nay phải PreventUpdate để alert còn nguyên.
+        """
+        import pytest
+        from dash.exceptions import PreventUpdate
+
+        import app.ui.pages.report_admin as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        state = _draft_state(run_env)
+        state.update({"step": 1, "max_step": 1})
+        # active 0-based = bước 1 hiện tại (đường callback Dash).
+        with pytest.raises(PreventUpdate):
+            page.handle_step_click(0, state)
+        # Đường test truyền step 1-based.
+        with pytest.raises(PreventUpdate):
+            page.handle_step_click(1, state, 1)
