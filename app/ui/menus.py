@@ -52,6 +52,9 @@ MENUS: list[MenuDef] = [
     MenuDef("user", "Người dùng", "QUAN_TRI", "/users", 10, "lucide:users", "N"),
     MenuDef("role", "Vai trò và phân quyền", "QUAN_TRI", "/roles", 20, "lucide:shield", "N"),
     MenuDef("menu_admin", "Danh sách menu", "QUAN_TRI", "/menus", 30, "lucide:list", "N"),
+    MenuDef("report_center", "Trung tâm báo cáo", "DOI_SOAT", "/reports", 70, "lucide:bar-chart-3"),
+    MenuDef("report_history", "Lịch sử báo cáo", "DOI_SOAT", "/report-runs", 80, "lucide:clipboard-list"),
+    MenuDef("report_admin", "Quản trị báo cáo", "QUAN_TRI", "/report-admin", 40, "lucide:settings", "N"),
 ]
 
 MENU_BY_CODE: dict[str, MenuDef] = {m.code: m for m in MENUS}
@@ -60,10 +63,40 @@ GROUP_BY_CODE: dict[str, GroupDef] = {g.code: g for g in GROUPS}
 # Vai trò seed -> menu, theo spec 11a mục 7. ADMIN không có dòng
 # (quyền tính theo IS_SYSTEM). Dùng cho migration seed và đường lui
 # của effective_menus khi ctx không phải user trong DB (CLI, worker).
+# Task 21 (Q1): report_center + report_history cho cả 3 vai trò còn lại,
+# report_admin chỉ ADMIN.
 ROLE_MENUS_SEED: dict[str, list[str]] = {
-    "TEMPLATE_OWNER": ["dashboard", "run", "result", "batch_run", "history", "issue", "template", "batch_def"],
-    "OPERATOR": ["dashboard", "run", "result", "batch_run", "history", "issue"],
-    "VIEWER": ["dashboard", "result", "history", "template", "batch_def"],
+    "TEMPLATE_OWNER": [
+        "dashboard",
+        "run",
+        "result",
+        "batch_run",
+        "history",
+        "issue",
+        "template",
+        "batch_def",
+        "report_center",
+        "report_history",
+    ],
+    "OPERATOR": [
+        "dashboard",
+        "run",
+        "result",
+        "batch_run",
+        "history",
+        "issue",
+        "report_center",
+        "report_history",
+    ],
+    "VIEWER": [
+        "dashboard",
+        "result",
+        "history",
+        "template",
+        "batch_def",
+        "report_center",
+        "report_history",
+    ],
 }
 
 
