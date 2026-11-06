@@ -10,12 +10,19 @@ Trạng thái: 🔄 (bắt đầu 06/11/2026, nhánh feat/18-batch-run từ ad98
 | 4 | Lần chạy bộ: tạo, tải file, ghép, tham số | ✅ | 06/11/2026 |  |
 | 5 | Gộp nhiều file trong engine/executor | ✅ | 06/11/2026 |  |
 | 6 | Precheck, start, worker giới hạn song song | ✅ | 06/11/2026 |  |
-| 7 | Chạy lại, thay file, hủy, ma trận, .zip | ⬜ |  |  |
+| 7 | Chạy lại, thay file, hủy, ma trận, .zip | ✅ | 06/11/2026 |  |
 | 8 | UI: Bộ đối soát và hộp thoại thêm template | ⬜ |  |  |
 | 9 | UI: Wizard chạy bộ và kết quả | ⬜ |  |  |
 | 10 | Chuyển Oracle, tài liệu, hồi quy | ⬜ |  |  |
 
 ## Nhật ký
+
+### Bước 7 — Chạy lại, thay file, hủy, ma trận, .zip (06/11/2026)
+- `retry_failed` (mục FAILED → run con mới, ATTEMPT_NO+1, batch lại RUNNING), `rerun_item` (DONE/FAILED/NOT_RUN, kể cả DONE sau khi sửa file), `replace_files` (file cũ REPLACED, file mới ghép riêng mục + precheck lại mục đó), `cancel` (DRAFT/RUNNING; run con QUEUED bị hủy ngay, run đang chạy dừng ở bước kiểm tra tiếp theo của executor).
+- `matrix`: số liệu từ RECON_RUN_SUMMARY của CURRENT_RUN_ID + tỷ lệ khớp so với lần chạy DONE gần nhất kỳ trước; `build_zip`: 00_TONG_HOP (ma trận + Tham số + File) + file riêng từng mục DONE (giống hệt export của run), cache theo danh sách CURRENT_RUN_ID.
+- Executor: kiểm tra batch CANCELLED khi nhận job + sau READ + sau COMPARE (run con → CANCELLED, xóa hàng đợi); `sync_batch_status` map run con CANCELLED → mục NOT_RUN; worker `reset_stale_jobs` đã đồng bộ từ bước 6.
+- Kiểm tra: `tests/unit/test_batch_rerun.py` 12 pass + `tests/unit/test_batch_zip_export.py` 6 pass; typecheck 21 = baseline; lint sạch.
+- Ghi chú: xem decisions.md (retry_failed không yêu cầu xác nhận PROD lại; replace_files không đổi trạng thái batch; VIEWER không có menu batch_run theo spec 11 nên không xem/tải .zip dù spec 10 §7 ghi có).
 
 ### Bước 6 — Precheck, start, worker giới hạn song song (06/11/2026)
 - `batch_run.precheck` (song song tối đa 4 luồng): template, tham số, đọc/gộp file, control total từng file, dòng ngoài kỳ, dòng không hợp lệ, kết nối DS (cache theo DS); ghi PRECHECK_JSON + READY/WARN/ERROR.

@@ -31,6 +31,11 @@
 | 2026-11-06 | Giới hạn song song đếm hàng đợi PROCESSING cùng batch+DS, không đếm RECON_RUN STATUS='RUNNING' | Claim và đếm nguyên tử trong cùng transaction; run vừa claim chưa kịp chuyển RUNNING nên đếm RUNNING sẽ để 2 worker cùng vượt giới hạn | bước 6 |
 | 2026-11-06 | Claim Oracle: chọn ứng viên bằng câu JOIN rồi khóa dòng queue riêng (FOR UPDATE SKIP LOCKED), không khóa trên câu JOIN | Oracle không cho FOR UPDATE trên câu truy vấn có JOIN phức tạp; 2 worker cùng chọn một ứng viên thì một bên khóa trượt và poll lại | bước 6 |
 | 2026-11-06 | Thứ tự claim: PRIORITY/SEQ_NO của mục batch trước, run không thuộc bộ xếp sau (PRIORITY NULL = 999999) | Spec chỉ định thứ tự cho mục batch; run đơn lẻ vẫn được claim sau khi hết run batch chờ | bước 6 |
+| 2026-11-06 | retry_failed/rerun_item không yêu cầu xác nhận PROD lại | PROD đã xác nhận một lần cho cả lần chạy ở start (Q4); chạy lại dùng cùng Data Source | bước 7 |
+| 2026-11-06 | replace_files không đổi trạng thái batch (batch DONE giữ DONE cho tới khi rerun_item chuyển RUNNING) | Không có trạng thái "mở lại"; luồng đúng là thay file → precheck → chạy lại mục | bước 7 |
+| 2026-11-06 | Hủy run con đang chạy: executor kiểm tra batch CANCELLED khi nhận job + sau READ + sau COMPARE, rồi dừng (run con CANCELLED, xóa hàng đợi) | Không có cơ chế dừng giữa chừng khác; run con đã xong trước khi kiểm tra thì giữ DONE | bước 7 |
+| 2026-11-06 | VIEWER không có menu batch_run (spec 11a) nên không xem lần chạy bộ/tải .zip, dù spec 10 §7 ghi VIEWER được xem/tải | Spec 11 là nguồn quyền menu; mọi hàm batch_run yêu cầu menu batch_run nên VIEWER bị FORBIDDEN. Không đổi seed trong task 18 | bước 7 |
+| 2026-11-06 | Một bộ không có 2 mục cùng template (BATCH_TEMPLATE_EXISTS) — test 2 mục phải dùng 2 template khác nhau | Ràng buộc từ bước 3 | bước 7 |
 
 ## Câu hỏi còn mở
 - Kỳ khác tháng (quý, khoảng ngày)?

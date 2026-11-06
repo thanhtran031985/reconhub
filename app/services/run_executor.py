@@ -10,10 +10,12 @@ from typing import Any
 import polars as pl
 import structlog
 from sqlalchemy import delete, select, update
+from sqlalchemy.engine import Engine
 
 from app.core.context import Ctx, Role
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
+    recon_batch_run,
     recon_batch_run_file,
     recon_batch_run_item,
     recon_data_source,
@@ -101,6 +103,20 @@ def _update_issues_last_run(conn: Any, template_id: int, profile_code: str, key_
         )
 
 
+class _BatchCancelled(Exception):
+    """Lần chạy bộ đã bị hủy giữa chừng (người dùng bấm Hủy)."""
+
+
+def _ensure_batch_not_cancelled(engine: Engine, batch_run_id: int | None) -> None:
+    """Ném _BatchCancelled nếu lần chạy bộ đã bị hủy (executor dừng ở bước tiếp theo)."""
+    if batch_run_id is None:
+        return
+    with engine.connect() as conn:
+        row = conn.execute(select(recon_batch_run.c.STATUS).where(recon_batch_run.c.ID == batch_run_id)).first()
+    if row is not None and row[0] == "CANCELLED":
+        raise _BatchCancelled()
+
+
 def _sync_batch_after_run(run_id: int, batch_run_id: int) -> None:
     """Đồng bộ trạng thái batch sau khi một run con kết thúc (DONE/FAILED).
 
@@ -162,6 +178,21 @@ def execute_run(
             f_row = conn.execute(select(recon_file).where(recon_file.c.ID == file_id)).mappings().first()
 
     excel_path = Path(str(f_row["STORAGE_PATH"])) if f_row and f_row["STORAGE_PATH"] else None
+
+    # Run con của batch đã bị hủy trước khi worker nhận: dừng ngay.
+    if batch_run_id is not None:
+        try:
+            _ensure_batch_not_cancelled(engine, batch_run_id)
+        except _BatchCancelled:
+            with engine.begin() as conn:
+                conn.execute(
+                    recon_run.update()
+                    .where(recon_run.c.ID == run_id)
+                    .values(STATUS="CANCELLED", STAGE="CANCELLED", FINISHED_AT=now)
+                )
+                conn.execute(delete(recon_run_queue).where(recon_run_queue.c.RUN_ID == run_id))
+            _sync_batch_after_run(run_id, batch_run_id)
+            return {"run_id": run_id, "status": "CANCELLED"}
 
     # Cập nhật RUNNING, STAGE=READ (10%)
     with engine.begin() as conn:
@@ -247,6 +278,8 @@ def execute_run(
                 )
             )
 
+        _ensure_batch_not_cancelled(engine, batch_run_id)
+
         # Giai đoạn 3 & 4: FETCH_DB & COMPARE
         params_combined = dict(params_json)
         params_combined["p_from"] = p_from
@@ -301,6 +334,8 @@ def execute_run(
                     PROGRESS_PCT=90,
                 )
             )
+
+        _ensure_batch_not_cancelled(engine, batch_run_id)
 
         # Giai đoạn 5: SAVE
         result_df = pipeline_res.result_df
@@ -534,6 +569,19 @@ def execute_run(
             _sync_batch_after_run(run_id, batch_run_id)
 
         return {"run_id": run_id, "status": "DONE", "summary": summary_dict}
+
+    except _BatchCancelled:
+        cancelled_now = datetime.now(timezone.utc).replace(tzinfo=None)
+        with engine.begin() as conn:
+            conn.execute(
+                recon_run.update()
+                .where(recon_run.c.ID == run_id)
+                .values(STATUS="CANCELLED", STAGE="CANCELLED", FINISHED_AT=cancelled_now)
+            )
+            conn.execute(delete(recon_run_queue).where(recon_run_queue.c.RUN_ID == run_id))
+        if batch_run_id is not None:
+            _sync_batch_after_run(run_id, batch_run_id)
+        return {"run_id": run_id, "status": "CANCELLED"}
 
     except Exception as exc:
         logger.error("Lỗi thực thi run", run_id=run_id, error=str(exc))
