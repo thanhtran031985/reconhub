@@ -15,6 +15,7 @@ from sqlalchemy import Connection, select
 from app.core.context import Ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
+    recon_data_source,
     recon_report_run,
     recon_report_template,
     recon_rpt_column,
@@ -36,6 +37,26 @@ def _now() -> datetime:
 
 
 # ─── Loaders ────────────────────────────────────────────────────────────────
+
+
+def _check_prod_admin(conn: Connection, data_source_id: int | None, admin: bool) -> None:
+    """Spec 11 D4: chạy truy vấn trên Data Source PROD chỉ ADMIN.
+
+    Rào chắn đặt ở các điểm thực thi mà operator gọi được (create/execute/
+    get_report_page). Dry-run/activate đã report_admin-only nên không cần.
+    """
+    if admin or data_source_id is None:
+        return
+    env = conn.execute(
+        select(recon_data_source.c.ENV).where(
+            recon_data_source.c.ID == data_source_id
+        )
+    ).scalar_one_or_none()
+    if env is not None and str(env).upper() == "PROD":
+        raise ServiceError(
+            ErrorCode.FORBIDDEN,
+            "Chỉ ADMIN được chạy trên Data Source PROD.",
+        )
 
 
 def load_version_detail(conn: Connection, version_id: int) -> dict[str, Any]:
@@ -391,6 +412,12 @@ def create_report_run(
     with engine.begin() as conn:
         load_report_row(conn, report_id, admin)
         tpl_id, version_id = _active_version_id(conn, report_id, template_id)
+        ds_id = conn.execute(
+            select(recon_rpt_tpl_ver.c.DATA_SOURCE_ID).where(
+                recon_rpt_tpl_ver.c.ID == version_id
+            )
+        ).scalar_one_or_none()
+        _check_prod_admin(conn, ds_id, admin)
     resolved = _resolve_or_raise(ctx, version_id, values)
     with engine.begin() as conn:
         now = _now()
@@ -441,6 +468,7 @@ def execute_report_run(
                 "Chỉ chạy được run QUEUED; run đã chạy thì tạo run mới.",
             )
         detail = load_version_detail(conn, int(run["VERSION_ID"]))
+        _check_prod_admin(conn, detail["data_source_id"], admin)
         resolved = dict(run["PARAMS_JSON"] or {})
         conn.execute(
             recon_report_run.update()
@@ -583,6 +611,7 @@ def get_report_page(
         if status == "CANCELLED":
             raise ServiceError(ErrorCode.VALIDATION_ERROR, "Run đã bị hủy.")
         detail = load_version_detail(conn, int(run["VERSION_ID"]))
+        _check_prod_admin(conn, detail["data_source_id"], admin)
         resolved = dict(run["PARAMS_JSON"] or {})
     field_names = [c["field_name"] for c in detail["columns"]]
     valid_sorts = _validate_sorts(sorts, field_names)
