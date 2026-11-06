@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Engine, create_engine, func, select, text, update
+from sqlalchemy import Engine, bindparam, create_engine, func, select, text, update
 
 from app.core.audit import write_audit_log
 from app.core.config import get_settings
@@ -49,9 +49,16 @@ RECON_TABLES_ORDER = [
     "RECON_RPT_PRESET",
     "RECON_RPT_LOV_CACHE",
     "RECON_FILE",
+    # Bảng Batch Run (task 18, spec 10 §12): bộ và mục của bộ đi sau
+    # RECON_FILE (tham chiếu RECON_TEMPLATE), lần chạy bộ đi sau RECON_RUN.
+    "RECON_BATCH_DEF",
+    "RECON_BATCH_DEF_ITEM",
     "RECON_EXCEL_LOAD",
     "RECON_EXCEL_ROW",
     "RECON_RUN",
+    "RECON_BATCH_RUN",
+    "RECON_BATCH_RUN_ITEM",
+    "RECON_BATCH_RUN_FILE",
     "RECON_RUN_QUEUE",
     "RECON_RUN_SUMMARY",
     "RECON_RESULT_ROW",
@@ -77,6 +84,10 @@ CONFIG_ONLY_TABLES = [
     "RECON_DATA_SOURCE",
     "RECON_TEMPLATE",
     "RECON_TEMPLATE_VERSION",
+    # Bảng cấu hình bộ đối soát (task 18, spec 10 §12): chỉ bộ và mục của bộ
+    # đi theo CONFIG_ONLY; lần chạy bộ ở lại NO_TEMP/FULL.
+    "RECON_BATCH_DEF",
+    "RECON_BATCH_DEF_ITEM",
     # Bảng cấu hình báo cáo động (task 28, T28-06): cha trước con sau.
     # Lịch sử (RECON_REPORT_RUN, RECON_RPT_EXPORT) và cache phái sinh
     # (RECON_RPT_LOV_CACHE) chỉ đi theo NO_TEMP/FULL (T28-07).
@@ -320,6 +331,10 @@ def start_migration(
 
     report_rows: dict[str, Any] = {}
     total_tables = len(tables_to_copy)
+    # Liên kết vòng RECON_RUN <-> RECON_BATCH_RUN_ITEM (spec 10 §12):
+    # chép run với BATCH_RUN_ITEM_ID = NULL, cập nhật lại sau khi đã chép
+    # xong 3 bảng batch (khi RECON_BATCH_RUN_ITEM đã có ở đích).
+    run_item_links: list[tuple[int, int]] = []
 
     try:
         # Bước 3: Tạo bảng trên đích
@@ -346,12 +361,48 @@ def start_migration(
                             r_dict["TEMP_PURGED_AT"] = now
                             r_dict["TEMP_PURGED_BY"] = ctx.username
 
+                # Tham chiếu vòng: lưu lại rồi đặt NULL khi chép RECON_RUN.
+                if t_name == "RECON_RUN":
+                    for r_dict in record_dicts:
+                        item_id = r_dict.get("BATCH_RUN_ITEM_ID")
+                        if item_id is not None:
+                            run_item_links.append((int(r_dict["ID"]), int(item_id)))
+                        r_dict["BATCH_RUN_ITEM_ID"] = None
+
                 # Ghi sang đích theo lô 5.000 dòng
                 batch_size = 5000
                 for i in range(0, len(record_dicts), batch_size):
                     chunk = record_dicts[i : i + batch_size]
                     if chunk:
                         _copy_table_data(tgt_conn, tbl, chunk)
+
+                # Khôi phục liên kết vòng sau khi đã chép RECON_BATCH_RUN_FILE.
+                if t_name == "RECON_BATCH_RUN_FILE" and run_item_links:
+                    backfill = (
+                        update(recon_run)
+                        .where(recon_run.c.ID == bindparam("run_id"))
+                        .values(BATCH_RUN_ITEM_ID=bindparam("item_id"))
+                    )
+                    for i in range(0, len(run_item_links), batch_size):
+                        link_chunk = run_item_links[i : i + batch_size]
+                        tgt_conn.execute(
+                            backfill,
+                            [{"run_id": run_id, "item_id": item_id} for run_id, item_id in link_chunk],
+                        )
+                    linked = (
+                        tgt_conn.execute(
+                            select(func.count())
+                            .select_from(recon_run)
+                            .where(recon_run.c.BATCH_RUN_ITEM_ID.is_not(None))
+                        ).scalar()
+                        or 0
+                    )
+                    if linked != len(run_item_links):
+                        raise ServiceError(
+                            ErrorCode.MIGRATION_COUNT_MISMATCH,
+                            f"Số liên kết RECON_RUN.BATCH_RUN_ITEM_ID không khớp: "
+                            f"nguồn {len(run_item_links)}, đích {linked}.",
+                        )
 
                 # Cập nhật tiến độ
                 pct = int(10 + (idx / total_tables) * 70)

@@ -639,3 +639,278 @@ def test_start_migration_config_only_copies_report_config(migration_env):
         assert t_conn.execute(select(_func.count()).select_from(recon_report)).scalar() == 1
         assert t_conn.execute(select(_func.count()).select_from(recon_report_run)).scalar() == 0
         assert t_conn.execute(select(_func.count()).select_from(recon_rpt_export)).scalar() == 0
+
+
+def _seed_batch_data(src_engine, now):
+    """Seed 1 bộ đối soát + 1 lần chạy bộ có liên kết vòng run <-> item (T18-14)."""
+    from datetime import datetime as _dt
+
+    from app.db.metadata import (
+        recon_batch_def,
+        recon_batch_def_item,
+        recon_batch_run,
+        recon_batch_run_file,
+        recon_batch_run_item,
+        recon_file,
+        recon_template,
+    )
+
+    with src_engine.begin() as conn:
+        ds_id = conn.execute(
+            recon_data_source.insert().values(
+                NAME="ORACLE_TEST",
+                ENV="DEV",
+                PURPOSE="SOURCE",
+                DB_TYPE="ORACLE",
+                HOST="localhost",
+                PORT=1521,
+                SERVICE_NAME="XE",
+                CALL_TIMEOUT_S=600,
+                MAX_ROWS=1000000,
+                IS_ACTIVE="Y",
+                IS_CURRENT_METADATA="N",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+        tmpl_id = conn.execute(
+            recon_template.insert().values(
+                CODE="DTP_TMPL",
+                NAME="DTP_TMPL",
+                OWNER="admin",
+                STATUS="ACTIVE",
+                CURRENT_VERSION=1,
+                CREATED_AT=now,
+                UPDATED_AT=now,
+                ROW_VERSION=1,
+            )
+        ).inserted_primary_key[0]
+        file_id = conn.execute(
+            recon_file.insert().values(
+                SHA256="a" * 64,
+                ORIGINAL_NAME="dtp_02.xlsx",
+                SIZE_BYTES=1024,
+                UPLOADED_BY="admin",
+                UPLOADED_AT=now,
+            )
+        ).inserted_primary_key[0]
+        def_id = conn.execute(
+            recon_batch_def.insert().values(
+                CODE="DOANH_THU",
+                NAME="Doanh thu",
+                STATUS="ACTIVE",
+                MAX_PARALLEL_PER_DS=2,
+                OWNER_ID=1,
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_BY="admin",
+                UPDATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+        item_id = conn.execute(
+            recon_batch_def_item.insert().values(
+                BATCH_DEF_ID=def_id,
+                TEMPLATE_ID=tmpl_id,
+                SEQ_NO=1,
+                PRIORITY=100,
+                FILE_PATTERN="*DTP*",
+                MULTI_FILE="Y",
+                IS_REQUIRED="Y",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_BY="admin",
+                UPDATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+        batch_run_id = conn.execute(
+            recon_batch_run.insert().values(
+                BATCH_DEF_ID=def_id,
+                NAME="Tháng 2/2026",
+                PERIOD="2026-02",
+                PERIOD_FROM=_dt(2026, 2, 1),
+                PERIOD_TO=_dt(2026, 2, 28, 23, 59, 59),
+                STATUS="DONE",
+                CNT_ITEMS=1,
+                CNT_DONE=1,
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_BY="admin",
+                UPDATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+        run_item_id = conn.execute(
+            recon_batch_run_item.insert().values(
+                BATCH_RUN_ID=batch_run_id,
+                BATCH_DEF_ITEM_ID=item_id,
+                TEMPLATE_ID=tmpl_id,
+                PROFILE_CODE="BY_DAY_POINT",
+                DATA_SOURCE_ID=ds_id,
+                SEQ_NO=1,
+                PRIORITY=100,
+                MULTI_FILE="Y",
+                IS_REQUIRED="Y",
+                STATUS="DONE",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_BY="admin",
+                UPDATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+        run_id = conn.execute(
+            recon_run.insert().values(
+                TEMPLATE_ID=tmpl_id,
+                TEMPLATE_VERSION=1,
+                PROFILE_CODE="BY_DAY_POINT",
+                DATA_SOURCE_ID=ds_id,
+                P_FROM=_dt(2026, 2, 1),
+                P_TO=_dt(2026, 2, 28, 23, 59, 59),
+                APPLY_RANGE_EXCEL="Y",
+                STATUS="DONE",
+                PROGRESS_PCT=100,
+                BATCH_RUN_ID=batch_run_id,
+                BATCH_RUN_ITEM_ID=run_item_id,
+                CREATED_BY="admin",
+                CREATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+        # Liên kết vòng: item trỏ tới run con, run con trỏ tới item.
+        conn.execute(
+            recon_batch_run_item.update().where(recon_batch_run_item.c.ID == run_item_id).values(CURRENT_RUN_ID=run_id)
+        )
+        conn.execute(
+            recon_batch_run_file.insert().values(
+                BATCH_RUN_ID=batch_run_id,
+                FILE_ID=file_id,
+                ORIGINAL_NAME="dtp_02.xlsx",
+                NORMALIZED_NAME="DTP02XLSX",
+                BATCH_RUN_ITEM_ID=run_item_id,
+                MATCH_STATE="MATCHED",
+                MATCH_BY="PATTERN",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_BY="admin",
+                UPDATED_AT=now,
+            )
+        )
+    return {"def_id": def_id, "item_id": item_id, "run_id": run_id, "run_item_id": run_item_id}
+
+
+def test_config_only_includes_batch_def_tables(migration_env):
+    src_engine, target_engine, admin_ctx, _ = migration_env
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    _seed_batch_data(src_engine, now)
+    ds_id = _target_ds_id(src_engine, now)
+
+    pre = precheck(
+        admin_ctx,
+        target_ds_id=ds_id,
+        mode="CONFIG_ONLY",
+        mock_target_engine=target_engine,
+    )
+    assert pre.ok is True, pre.message
+    tables = {t["table"] for t in pre.data["tables"]}
+    for expected in ("RECON_BATCH_DEF", "RECON_BATCH_DEF_ITEM"):
+        assert expected in tables, f"CONFIG_ONLY thiếu {expected}"
+    for excluded in ("RECON_BATCH_RUN", "RECON_BATCH_RUN_ITEM", "RECON_BATCH_RUN_FILE"):
+        assert excluded not in tables, f"CONFIG_ONLY không được có {excluded}"
+
+
+def test_no_temp_includes_batch_tables(migration_env):
+    src_engine, target_engine, admin_ctx, _ = migration_env
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    _seed_batch_data(src_engine, now)
+    ds_id = _target_ds_id(src_engine, now)
+
+    pre = precheck(
+        admin_ctx,
+        target_ds_id=ds_id,
+        mode="NO_TEMP",
+        mock_target_engine=target_engine,
+    )
+    assert pre.ok is True, pre.message
+    tables = {t["table"] for t in pre.data["tables"]}
+    for expected in (
+        "RECON_BATCH_DEF",
+        "RECON_BATCH_DEF_ITEM",
+        "RECON_BATCH_RUN",
+        "RECON_BATCH_RUN_ITEM",
+        "RECON_BATCH_RUN_FILE",
+    ):
+        assert expected in tables, f"NO_TEMP thiếu {expected}"
+
+
+def test_start_migration_copies_batch_run_and_restores_run_item_link(migration_env):
+    from sqlalchemy import func as _func
+
+    from app.db.metadata import (
+        recon_batch_def,
+        recon_batch_def_item,
+        recon_batch_run,
+        recon_batch_run_file,
+        recon_batch_run_item,
+    )
+
+    src_engine, target_engine, admin_ctx, _ = migration_env
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    ids = _seed_batch_data(src_engine, now)
+    ds_id = _target_ds_id(src_engine, now)
+
+    res = start_migration(
+        admin_ctx,
+        target_ds_id=ds_id,
+        mode="NO_TEMP",
+        mock_target_engine=target_engine,
+    )
+    assert res.ok is True, res.message
+    assert res.data["status"] == "DONE"
+    report = res.data["report"]
+    for expected in (
+        "RECON_BATCH_DEF",
+        "RECON_BATCH_DEF_ITEM",
+        "RECON_BATCH_RUN",
+        "RECON_BATCH_RUN_ITEM",
+        "RECON_BATCH_RUN_FILE",
+    ):
+        assert expected in report, f"báo cáo thiếu {expected}"
+    with target_engine.connect() as t_conn:
+        assert t_conn.execute(select(_func.count()).select_from(recon_batch_def)).scalar() == 1
+        assert t_conn.execute(select(_func.count()).select_from(recon_batch_def_item)).scalar() == 1
+        assert t_conn.execute(select(_func.count()).select_from(recon_batch_run)).scalar() == 1
+        assert t_conn.execute(select(_func.count()).select_from(recon_batch_run_item)).scalar() == 1
+        assert t_conn.execute(select(_func.count()).select_from(recon_batch_run_file)).scalar() == 1
+        # Liên kết vòng được khôi phục ở đích.
+        run_link = t_conn.execute(select(recon_run.c.BATCH_RUN_ITEM_ID).where(recon_run.c.ID == ids["run_id"])).scalar()
+        assert run_link == ids["run_item_id"]
+        current_run = t_conn.execute(
+            select(recon_batch_run_item.c.CURRENT_RUN_ID).where(recon_batch_run_item.c.ID == ids["run_item_id"])
+        ).scalar()
+        assert current_run == ids["run_id"]
+
+
+def test_start_migration_config_only_copies_batch_def_only(migration_env):
+    from sqlalchemy import func as _func
+
+    from app.db.metadata import recon_batch_def, recon_batch_def_item, recon_batch_run
+
+    src_engine, target_engine, admin_ctx, _ = migration_env
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    _seed_batch_data(src_engine, now)
+    ds_id = _target_ds_id(src_engine, now)
+
+    res = start_migration(
+        admin_ctx,
+        target_ds_id=ds_id,
+        mode="CONFIG_ONLY",
+        mock_target_engine=target_engine,
+    )
+    assert res.ok is True, res.message
+    assert res.data["status"] == "DONE"
+    report = res.data["report"]
+    assert "RECON_BATCH_DEF" in report
+    assert "RECON_BATCH_DEF_ITEM" in report
+    assert "RECON_BATCH_RUN" not in report
+    with target_engine.connect() as t_conn:
+        assert t_conn.execute(select(_func.count()).select_from(recon_batch_def)).scalar() == 1
+        assert t_conn.execute(select(_func.count()).select_from(recon_batch_def_item)).scalar() == 1
+        assert t_conn.execute(select(_func.count()).select_from(recon_batch_run)).scalar() == 0

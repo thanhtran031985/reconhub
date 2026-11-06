@@ -15,6 +15,7 @@ ReconHub là ứng dụng nội bộ phục vụ công tác đối soát dữ li
 8. [Lịch sử đối soát & Xóa dữ liệu tạm hàng loạt (History)](#8-lịch-sử-đối-soát--xóa-dữ-liệu-tạm-hàng-loạt-history)
 9. [Bảng điều khiển Tổng quan (Dashboard)](#9-bảng-điều-khiển-tổng-quan-dashboard)
 10. [Vai trò và phân quyền (`/roles`, chỉ Admin)](#10-vai-trò-và-phân-quyền-roles-chỉ-admin)
+11. [Chạy đối soát theo bộ (Batch Run)](#11-chạy-đối-soát-theo-bộ-batch-run)
 
 ---
 
@@ -234,6 +235,48 @@ Truy cập biểu tượng trang chủ hoặc đường dẫn `/` để theo dõ
 
 ### Tab Mô phỏng phạm vi dữ liệu
 - Chọn một người dùng để xem họ thấy những run nào ở màn Lịch sử: Admin thấy tất cả, vai trò thường chỉ thấy run do mình chạy.
+
+---
+
+## 11. Chạy đối soát theo bộ (Batch Run)
+
+Chạy đối soát theo bộ dùng khi cuối kỳ phải đối soát nhiều template cùng lúc: khai báo bộ một lần (nhóm template, mẫu tên file, tham số theo kỳ), mỗi kỳ chỉ cần tải tất cả file một lần rồi chạy song song.
+
+### 11.1. Khai báo bộ đối soát (`/batches`)
+
+Chỉ Admin và Template Owner sửa được bộ; Operator chỉ chạy, Viewer chỉ xem bộ.
+
+1. Mở **Bộ đối soát** (`/batches`), nhấn **Tạo bộ đối soát**, nhập mã (chữ hoa, số, gạch dưới), tên, mô tả và số template chạy song song trên một Data Source (1–4, mặc định 2).
+2. Mở bộ, nhấn **Thêm template**: chọn template đã kích hoạt (template nháp hoặc đã lưu trữ không thêm được), nhập **mẫu tên file** (ví dụ `*DTP*`, nhiều mẫu cách nhau bằng `|`), tick **Gộp** nếu một mục nhận nhiều file, tick **Bắt buộc** nếu thiếu file thì mục đó không được chạy, đặt **Ưu tiên** (số nhỏ chạy trước).
+3. **Tham số ghi đè**: mỗi mục có thể ghi đè tham số của template bằng công thức theo kỳ, ví dụ `p_ky` = `{ky.thang}` (tháng dạng `202610`), `p_from` = `{ky.tu}`, `p_to` = `{ky.den}`. Công thức hỗ trợ cộng/trừ ngày (`{ky.tu-1d}`, `{ky.den+3d}`) và `{ky.nam}`.
+4. Nhấn **Kích hoạt** khi bộ đã có ít nhất một mục đang hoạt động, mọi mục đều có mẫu tên file và tham số giải được với kỳ hiện tại. Bộ đã lưu trữ không sửa được.
+
+> Hệ thống có sẵn bộ mẫu `DOANH_THU_CUOI_THANG` (template DTP mẫu, mẫu tên `*DTP*`, gộp nhiều file) để tham khảo; các template khác do người dùng đăng ký thật.
+
+### 11.2. Chạy một kỳ (`/batch-runs`)
+
+1. Mở **Chạy bộ đối soát** (`/batch-runs`), chọn bộ, chọn kỳ (tháng dạng `YYYY-MM`, mặc định tháng hiện tại), đặt tên lần chạy nếu cần rồi nhấn **Tạo lần chạy**.
+2. **Bước 1 – Tải file**: kéo thả hoặc chọn các file Excel/CSV (tối đa 200 file, mỗi file tối đa 50MB) hoặc một file `.zip` (tối đa 200MB). File trùng tên hoặc trùng nội dung sẽ được báo và bỏ qua.
+3. **Bước 2 – Ghép file**: hệ thống tự ghép file vào mục theo mẫu tên; file không khớp hoặc khớp nhiều mục cần chọn tay hoặc bỏ qua. Mục có template đã lưu trữ sẽ bị bỏ qua. Mục bắt buộc thiếu file thì không sang được bước sau.
+4. **Bước 3 – Tham số**: xem tham số đã giải theo kỳ cho từng mục, sửa ghi đè khi cần (để trống hoặc nhấn **Về mặc định** để dùng giá trị của bộ/template).
+5. **Bước 4 – Kiểm tra**: nhấn **Kiểm tra trước** để đọc header, kiểm tra dòng tổng từng file, đếm dòng ngoài kỳ và dòng không hợp lệ, kiểm tra kết nối Data Source. Mục trạng thái **Sẵn sàng** hoặc **Cảnh báo** thì chạy được (có thể bỏ chọn mục cảnh báo); mục **Lỗi** phải thay file rồi kiểm tra lại. Nếu bộ chạy trên Data Source PROD, hệ thống yêu cầu xác nhận một lần, liệt kê các Data Source PROD liên quan.
+6. **Bước 5 – Chạy**: nhấn **Chạy** và theo dõi tiến độ từng mục. Lỗi một mục không chặn các mục khác.
+
+### 11.3. Xem kết quả (`/batch-runs/<id>/result`)
+
+- **Ma trận kết quả**: tổng Excel, tổng DB, chênh lệch, số dòng khớp/lệch/thiếu, tỷ lệ khớp từng mục và chênh lệch so với kỳ trước (cùng bộ, cùng template, lần chạy DONE gần nhất).
+- **Chạy lại run lỗi**: chạy lại toàn bộ mục lỗi, hoặc chạy lại từng mục (mục đã xong vẫn chạy lại được sau khi sửa file). Lần chạy lại tạo run con mới, giữ nguyên file và tham số.
+- **Thay file**: ở mục lỗi, tải file khác lên để thay file cũ rồi kiểm tra lại mà không cần tạo lần chạy mới.
+- **Tải tất cả (.zip)**: một file `.zip` gồm file Excel riêng từng mục (giống hệt file xuất của run đơn lẻ) và file tổng hợp `00_TONG_HOP` (sheet Ma trận, Tham số, File).
+- **Đánh dấu đã kiểm tra**: chọn các mục rồi xác nhận đã kiểm tra xong (giống run đơn lẻ). **Xóa dữ liệu tạm** hàng loạt chỉ dành cho Admin.
+- **Hủy lần chạy**: chỉ hủy được khi lần chạy đang ở trạng thái Nháp hoặc Đang chạy; run con đang chạy sẽ dừng ở bước kiểm tra tiếp theo.
+
+### 11.4. Giới hạn và lưu ý
+
+- Tối đa 50 mục trong một bộ, 50 file trong một mục, 200 file trong một lần chạy.
+- Một kỳ dùng chung cho cả bộ; nếu ngày chốt của các template lệch nhau vài ngày thì dùng công thức `{ky.tu±Nd}` trong tham số ghi đè.
+- Người tạo lần chạy và Admin thấy lần chạy đó; Operator chỉ thấy lần chạy do mình tạo; Viewer không thấy mục chạy bộ ở thanh bên.
+- Lịch sử run (`/history`) có bộ lọc **Lần chạy bộ** (Tất cả / Chỉ run bộ / Chỉ run đơn lẻ); run con thuộc bộ có chip **Bộ \<mã bộ\>** ở cột Template.
 
 ---
 *ReconHub — Hệ thống Đối soát Dữ liệu Doanh nghiệp.*

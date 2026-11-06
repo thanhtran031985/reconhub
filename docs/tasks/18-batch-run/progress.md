@@ -13,9 +13,16 @@ Trạng thái: 🔄 (bắt đầu 06/11/2026, nhánh feat/18-batch-run từ ad98
 | 7 | Chạy lại, thay file, hủy, ma trận, .zip | ✅ | 06/11/2026 |  |
 | 8 | UI: Bộ đối soát và hộp thoại thêm template | ✅ | 06/11/2026 |  |
 | 9 | UI: Wizard chạy bộ và kết quả | ✅ | 07/11/2026 |  |
-| 10 | Chuyển Oracle, tài liệu, hồi quy | ⬜ |  |  |
+| 10 | Chuyển Oracle, tài liệu, hồi quy | ✅ | 07/11/2026 |  |
 
 ## Nhật ký
+
+### Bước 10 — Chuyển Oracle, tài liệu, hồi quy (07/11/2026)
+- `app/services/metadata_migration.py`: thứ tự chép thêm RECON_BATCH_DEF/RECON_BATCH_DEF_ITEM sau RECON_FILE, RECON_BATCH_RUN/RECON_BATCH_RUN_ITEM/RECON_BATCH_RUN_FILE sau RECON_RUN; CONFIG_ONLY thêm RECON_BATCH_DEF + RECON_BATCH_DEF_ITEM; chép RECON_RUN với BATCH_RUN_ITEM_ID = NULL rồi cập nhật lại theo lô 5000 sau khi chép xong RECON_BATCH_RUN_FILE (đối chiếu số liên kết, lệch thì lỗi MIGRATION_COUNT_MISMATCH).
+- `docs/USER_GUIDE.md`: thêm mục 11 Chạy đối soát theo bộ (khai báo bộ, chạy một kỳ 5 bước, xem kết quả, giới hạn và lưu ý; bộ mẫu DOANH_THU_CUOI_THANG).
+- Kiểm tra: `tests/unit/test_metadata_migration.py` 16 pass (4 test mới: CONFIG_ONLY có def/không có run, NO_TEMP đủ 5 bảng, chép NO_TEMP khôi phục liên kết vòng run <-> item, CONFIG_ONLY chỉ chép def); full suite 1197 pass, 6 skipped (Oracle skip vì không VPN), exit=0, 204s với TMPDIR=/run/pytest-tmp; typecheck 21 = baseline; lint sạch.
+- Chưa kiểm chứng Oracle: T18-14-01..04 (chép đủ 5 bảng, tham chiếu vòng, CONFIG_ONLY, chạy trên Oracle) cần VPN phía người dùng sau khi áp patch.
+- Ghi chú: xem decisions.md (thứ tự chép, xử lý tham chiếu vòng, CONFIG_ONLY). Seed mẫu Q3 đã có sẵn và khớp spec 10a §9 (đã đối chiếu ở bước 10).
 
 ### Bước 9 — UI Wizard chạy bộ và kết quả (07/11/2026)
 - `app/ui/pages/batch_run_wizard.py` (`/batch-runs`, `/batch-runs/<id>`, `/batch-runs/new?def=<id>`): form tạo lần chạy (chọn bộ ACTIVE qua `list_active_defs`, kỳ mặc định tháng hiện tại, tên tùy chọn, khối lần chạy gần đây) + wizard 5 bước (Tải file → Ghép file → Tham số → Kiểm tra → Chạy): dcc.Upload giải base64 (`decode_uploads`), ghép theo mẫu tên/header/tay, sửa tham số ghi đè (set None = về mặc định), precheck, xác nhận PROD một lần (modal liệt kê DS PROD từ `res.details`), chạy `n` template, interval 2s khi RUNNING, hủy lần chạy.
