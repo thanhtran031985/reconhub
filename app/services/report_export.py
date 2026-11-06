@@ -17,6 +17,7 @@ from typing import Any, Iterator
 import xlsxwriter
 from sqlalchemy import Connection, select
 
+from app.core.audit import write_audit_log
 from app.core.config import get_settings
 from app.core.context import Ctx
 from app.db.engine import get_recon_engine
@@ -42,9 +43,7 @@ def _now() -> datetime:
 
 
 def _export_dir(export_id: int) -> Path:
-    return (
-        Path(get_settings().RECON_STORAGE_DIR) / "report_exports" / str(export_id)
-    )
+    return Path(get_settings().RECON_STORAGE_DIR) / "report_exports" / str(export_id)
 
 
 def _export_dict(row: Any) -> dict[str, Any]:
@@ -66,13 +65,7 @@ def _export_dict(row: Any) -> dict[str, Any]:
 
 
 def _load_export_row(conn: Connection, export_id: int) -> Any:
-    row = (
-        conn.execute(
-            select(recon_rpt_export).where(recon_rpt_export.c.ID == export_id)
-        )
-        .mappings()
-        .first()
-    )
+    row = conn.execute(select(recon_rpt_export).where(recon_rpt_export.c.ID == export_id)).mappings().first()
     if row is None:
         raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy export.")
     return row
@@ -80,13 +73,7 @@ def _load_export_row(conn: Connection, export_id: int) -> Any:
 
 def _load_run_row_owned(conn: Connection, run_id: int, ctx: Ctx, admin: bool) -> Any:
     """Đọc run; người thường chỉ thấy run của mình (luồng G)."""
-    row = (
-        conn.execute(
-            select(recon_report_run).where(recon_report_run.c.ID == run_id)
-        )
-        .mappings()
-        .first()
-    )
+    row = conn.execute(select(recon_report_run).where(recon_report_run.c.ID == run_id)).mappings().first()
     if row is None:
         raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy run.")
     if not admin and row["CREATED_BY"] != ctx.username:
@@ -107,9 +94,7 @@ def _file_hash(path: Path) -> str:
 
 @service
 @requires_menu("report_center")
-def request_export(
-    ctx: Ctx, run_id: int, format: str, force: bool = False
-) -> dict[str, Any]:
+def request_export(ctx: Ctx, run_id: int, format: str, force: bool = False) -> dict[str, Any]:
     """Đưa run DONE vào hàng đợi export (T26-01, Q7 cache)."""
     fmt = (format or "").strip().upper()
     if fmt not in ("XLSX", "CSV"):
@@ -145,10 +130,7 @@ def request_export(
             )
             if cached is not None and (
                 cached["STATUS"] in ("QUEUED", "RUNNING")
-                or (
-                    cached["FILE_PATH"]
-                    and Path(str(cached["FILE_PATH"])).exists()
-                )
+                or (cached["FILE_PATH"] and Path(str(cached["FILE_PATH"])).exists())
             ):
                 return _export_dict(cached)
         now = _now()
@@ -163,6 +145,14 @@ def request_export(
             )
         )
         export_id = int(res.lastrowid)
+        write_audit_log(
+            conn,
+            "RECON_RPT_EXPORT",
+            export_id,
+            "REQUEST_EXPORT",
+            ctx.username,
+            new_data={"run_id": run_id, "format": fmt},
+        )
         row = _load_export_row(conn, export_id)
         return _export_dict(row)
 
@@ -170,9 +160,7 @@ def request_export(
 # ─── Bước 4: Download/history/cache/security ────────────────────────────────
 
 
-def _load_export_row_owned(
-    conn: Connection, export_id: int, ctx: Ctx, admin: bool
-) -> Any:
+def _load_export_row_owned(conn: Connection, export_id: int, ctx: Ctx, admin: bool) -> Any:
     row = _load_export_row(conn, export_id)
     if not admin and row["CREATED_BY"] != ctx.username:
         raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy export.")
@@ -197,9 +185,7 @@ def list_exports(
 ) -> dict[str, Any]:
     """Lịch sử export, owner scope (luồng G)."""
     if page < 1 or page_size < 1 or page_size > 200:
-        raise ServiceError(
-            ErrorCode.VALIDATION_ERROR, "page >= 1, page_size 1..200."
-        )
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "page >= 1, page_size 1..200.")
     engine = get_recon_engine()
     admin = is_admin(ctx, engine)
     with engine.connect() as conn:
@@ -207,9 +193,7 @@ def list_exports(
         count_stmt = select(recon_rpt_export.c.ID)
         if not admin:
             stmt = stmt.where(recon_rpt_export.c.CREATED_BY == ctx.username)
-            count_stmt = count_stmt.where(
-                recon_rpt_export.c.CREATED_BY == ctx.username
-            )
+            count_stmt = count_stmt.where(recon_rpt_export.c.CREATED_BY == ctx.username)
         if run_id is not None:
             stmt = stmt.where(recon_rpt_export.c.RUN_ID == run_id)
             count_stmt = count_stmt.where(recon_rpt_export.c.RUN_ID == run_id)
@@ -252,14 +236,21 @@ def download_export(ctx: Ctx, export_id: int) -> dict[str, Any]:
     with engine.connect() as conn:
         export = _load_export_row_owned(conn, export_id, ctx, admin)
     if export["STATUS"] != "DONE":
-        raise ServiceError(
-            ErrorCode.VALIDATION_ERROR, "Export chưa xong, chưa tải được."
-        )
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Export chưa xong, chưa tải được.")
     file_path = export["FILE_PATH"]
     if not file_path or not Path(str(file_path)).exists():
         raise ServiceError(
             ErrorCode.NOT_FOUND,
             "File xuất đã không còn (đã xóa/hết hạn). Hãy export lại.",
+        )
+    with engine.begin() as conn:
+        write_audit_log(
+            conn,
+            "RECON_RPT_EXPORT",
+            export_id,
+            "DOWNLOAD_EXPORT",
+            ctx.username,
+            new_data={"run_id": int(export["RUN_ID"]), "format": str(export["FORMAT"])},
         )
     return {
         "export_id": int(export["ID"]),
@@ -298,6 +289,7 @@ def retry_export(ctx: Ctx, export_id: int) -> dict[str, Any]:
                 FINISHED_AT=None,
             )
         )
+        write_audit_log(conn, "RECON_RPT_EXPORT", export_id, "RETRY_EXPORT", ctx.username)
         return _export_dict(_load_export_row(conn, export_id))
 
 
@@ -318,15 +310,14 @@ def cancel_export(ctx: Ctx, export_id: int) -> dict[str, Any]:
             .where(recon_rpt_export.c.ID == export_id)
             .values(STATUS="CANCELLED", FINISHED_AT=_now())
         )
+        write_audit_log(conn, "RECON_RPT_EXPORT", export_id, "CANCEL_EXPORT", ctx.username)
         return _export_dict(_load_export_row(conn, export_id))
 
 
 def _is_cancelled(engine: Any, export_id: int) -> bool:
     with engine.connect() as conn:
         status = conn.execute(
-            select(recon_rpt_export.c.STATUS).where(
-                recon_rpt_export.c.ID == export_id
-            )
+            select(recon_rpt_export.c.STATUS).where(recon_rpt_export.c.ID == export_id)
         ).scalar_one_or_none()
     return bool(status == "CANCELLED")
 
@@ -400,9 +391,7 @@ class _XlsxWriter:
                 self._ws.set_column(col, col, int(width) / 7)
         self._row = 1
 
-    def _write_cell(
-        self, row: int, col: int, value: Any, dtype: str, fmt: Any
-    ) -> None:
+    def _write_cell(self, row: int, col: int, value: Any, dtype: str, fmt: Any) -> None:
         if value is None:
             self._ws.write_blank(row, col, None, fmt)
             return
@@ -410,11 +399,7 @@ class _XlsxWriter:
             self._ws.write_string(row, col, str(value), fmt)
         elif dtype == "NUMBER":
             try:
-                num = (
-                    value
-                    if isinstance(value, (int, float))
-                    else float(str(value))
-                )
+                num = value if isinstance(value, (int, float)) else float(str(value))
                 self._ws.write_number(row, col, num, fmt)
             except (TypeError, ValueError):
                 self._ws.write_string(row, col, str(value), fmt)
@@ -431,7 +416,10 @@ class _XlsxWriter:
         for row in rows:
             for col, field in enumerate(fields):
                 self._write_cell(
-                    self._row, col, row.get(field), self._dtypes[col],
+                    self._row,
+                    col,
+                    row.get(field),
+                    self._dtypes[col],
                     self._formats[col],
                 )
             self._row += 1
@@ -456,16 +444,12 @@ def _iter_batches(
     order_by = stable_order_by(detail, [])
     ds_id = detail["data_source_id"]
     if ds_id is None:
-        raise ServiceError(
-            ErrorCode.VALIDATION_ERROR, "Version chưa gắn Data Source."
-        )
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Version chưa gắn Data Source.")
     data_timeout = int(detail["timeout_sec"])
     with open_checked_connection(ds_id, data_timeout) as ora_conn:
         cursor = ora_conn.cursor()
         try:
-            cursor.execute(
-                f"SELECT * FROM (\n{sql}\n) ORDER BY {order_by}", binds
-            )
+            cursor.execute(f"SELECT * FROM (\n{sql}\n) ORDER BY {order_by}", binds)
         except Exception as exc:
             raise map_oracle_error(exc, data_timeout) from exc
         col_names = [str(d[0]) for d in (cursor.description or [])]
@@ -473,13 +457,14 @@ def _iter_batches(
             batch = cursor.fetchmany(batch_size)
             if not batch:
                 break
-            yield col_names, [
-                dict(zip(col_names, tuple(r), strict=False)) for r in batch
-            ]
+            yield col_names, [dict(zip(col_names, tuple(r), strict=False)) for r in batch]
 
 
 def _fail_export(engine: Any, export_id: int, error: ServiceError) -> None:
     with engine.begin() as conn:
+        actor = conn.execute(
+            select(recon_rpt_export.c.CREATED_BY).where(recon_rpt_export.c.ID == export_id)
+        ).scalar_one_or_none()
         conn.execute(
             recon_rpt_export.update()
             .where(recon_rpt_export.c.ID == export_id)
@@ -488,6 +473,18 @@ def _fail_export(engine: Any, export_id: int, error: ServiceError) -> None:
                 ERROR_MESSAGE=error.message[:500],
                 FINISHED_AT=_now(),
             )
+        )
+        write_audit_log(
+            conn,
+            "RECON_RPT_EXPORT",
+            export_id,
+            "EXECUTE_EXPORT",
+            str(actor or "worker"),
+            new_data={
+                "status": "FAILED",
+                "error_code": str(error.code),
+                "error_message": error.message[:500],
+            },
         )
 
 
@@ -547,11 +544,7 @@ def execute_export(
     with eng.connect() as conn:
         export = _load_export_row(conn, export_id)
         run = (
-            conn.execute(
-                select(recon_report_run).where(
-                    recon_report_run.c.ID == int(export["RUN_ID"])
-                )
-            )
+            conn.execute(select(recon_report_run).where(recon_report_run.c.ID == int(export["RUN_ID"])))
             .mappings()
             .first()
         )
@@ -560,9 +553,7 @@ def execute_export(
         detail = load_version_detail(conn, int(run["VERSION_ID"]))
         resolved = dict(run["PARAMS_JSON"] or {})
         report_code = conn.execute(
-            select(recon_report.c.CODE).where(
-                recon_report.c.ID == int(run["REPORT_ID"])
-            )
+            select(recon_report.c.CODE).where(recon_report.c.ID == int(run["REPORT_ID"]))
         ).scalar_one_or_none() or str(run["REPORT_ID"])
     fmt = str(export["FORMAT"])
     out_dir = _export_dir(export_id)
@@ -634,6 +625,19 @@ def execute_export(
                     ROW_COUNT=written,
                     FINISHED_AT=_now(),
                 )
+            )
+            write_audit_log(
+                conn,
+                "RECON_RPT_EXPORT",
+                export_id,
+                "EXECUTE_EXPORT",
+                str(export["CREATED_BY"]),
+                new_data={
+                    "status": "DONE",
+                    "format": final_format,
+                    "row_count": written,
+                    "part_count": part,
+                },
             )
     except ServiceError as exc:
         shutil.rmtree(out_dir, ignore_errors=True)

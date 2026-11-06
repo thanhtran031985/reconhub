@@ -5,7 +5,7 @@ Trạng thái: ⬜
 | Bước | Nội dung | Trạng thái | Commit |
 |---|---|---|---|
 | 1 | Task19 menu + owner_filter tất cả endpoints | ✅ | |
-| 2 | Audit hoàn chỉnh | ⬜ | |
+| 2 | Audit hoàn chỉnh | ✅ | |
 | 3 | Metadata migration SQLite→Oracle | ⬜ | |
 | 4 | Performance/security/E2E/regression | ⬜ | |
 
@@ -14,3 +14,7 @@ Trạng thái: ⬜
 - Owner scope: test lại list/get run + download export — operator chỉ thấy của mình (run người khác → NOT_FOUND, download → NOT_FOUND/FORBIDDEN), ADMIN thấy tất cả.
 - PROD (mới): `_check_prod_admin` trong report_run.py — operator tạo/chạy/xem trang trên DS PROD → FORBIDDEN "Chỉ ADMIN được chạy trên Data Source PROD."; ADMIN chạy bình thường. Test T28-03 đỏ trước rồi xanh sau khi thêm rào chắn.
 - Test: 7 test mới test_reporting_integration.py + 4 test registry pass; hồi quy report run/page/history/cancel/viewer/runs/admin pass.
+
+## Ghi chú bước 2
+- Audit bổ sung (cùng transaction với đổi trạng thái): run — CREATE/EXECUTE (DONE+FAILED)/DRY_RUN/CANCEL + preset CREATE/DELETE; export — REQUEST/EXECUTE (worker DONE+FAILED)/RETRY/CANCEL/DOWNLOAD. Actor = người gọi; EXECUTE_EXPORT lấy CREATED_BY (worker không có ctx).
+- Test: 4 test TestAudit mới (run trail, failed run, preset, export trail) — đỏ trước, xanh sau khi thêm audit. Hồi quy run/export/page/viewer/runs: 87 pass. Lint sạch, typecheck 21 lỗi = baseline.

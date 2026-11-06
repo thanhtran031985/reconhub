@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy import Connection, select
 
+from app.core.audit import write_audit_log
 from app.core.context import Ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
@@ -48,9 +49,7 @@ def _check_prod_admin(conn: Connection, data_source_id: int | None, admin: bool)
     if admin or data_source_id is None:
         return
     env = conn.execute(
-        select(recon_data_source.c.ENV).where(
-            recon_data_source.c.ID == data_source_id
-        )
+        select(recon_data_source.c.ENV).where(recon_data_source.c.ID == data_source_id)
     ).scalar_one_or_none()
     if env is not None and str(env).upper() == "PROD":
         raise ServiceError(
@@ -61,13 +60,7 @@ def _check_prod_admin(conn: Connection, data_source_id: int | None, admin: bool)
 
 def load_version_detail(conn: Connection, version_id: int) -> dict[str, Any]:
     """Chi tiết version đủ cho thực thi: nguồn + params + columns."""
-    row = (
-        conn.execute(
-            select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == version_id)
-        )
-        .mappings()
-        .first()
-    )
+    row = conn.execute(select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == version_id)).mappings().first()
     if row is None:
         raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy version.")
     params = (
@@ -132,13 +125,7 @@ def load_version_detail(conn: Connection, version_id: int) -> dict[str, Any]:
 
 def _load_run_row(conn: Connection, run_id: int, ctx: Ctx, admin: bool) -> Any:
     """Đọc run; người thường chỉ thấy run của mình (luồng G)."""
-    row = (
-        conn.execute(
-            select(recon_report_run).where(recon_report_run.c.ID == run_id)
-        )
-        .mappings()
-        .first()
-    )
+    row = conn.execute(select(recon_report_run).where(recon_report_run.c.ID == run_id)).mappings().first()
     if row is None:
         raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy run.")
     if not admin and row["CREATED_BY"] != ctx.username:
@@ -216,15 +203,10 @@ def build_count_query(sql: str) -> str:
 def build_paged_query(sql: str, page: int, page_size: int, order_by: str) -> str:
     """Trang dữ liệu: ORDER BY + OFFSET/FETCH (Oracle 12c+)."""
     offset = (page - 1) * page_size
-    return (
-        f"SELECT * FROM (\n{sql}\n) ORDER BY {order_by} "
-        f"OFFSET {offset} ROWS FETCH NEXT {page_size} ROWS ONLY"
-    )
+    return f"SELECT * FROM (\n{sql}\n) ORDER BY {order_by} OFFSET {offset} ROWS FETCH NEXT {page_size} ROWS ONLY"
 
 
-def _validate_sorts(
-    sorts: list[dict[str, Any]] | None, field_names: list[str]
-) -> list[dict[str, str]]:
+def _validate_sorts(sorts: list[dict[str, Any]] | None, field_names: list[str]) -> list[dict[str, str]]:
     """Sorts whitelist theo cột của version; field lạ → SQL_NOT_ALLOWED."""
     allowed = {name.upper() for name in field_names}
     out: list[dict[str, str]] = []
@@ -245,13 +227,9 @@ def _validate_sorts(
     return out
 
 
-def stable_order_by(
-    detail: dict[str, Any], sorts: list[dict[str, str]]
-) -> str:
+def stable_order_by(detail: dict[str, Any], sorts: list[dict[str, str]]) -> str:
     """ORDER BY: sorts người dùng + cột đầu tiên làm tiebreaker (Q6)."""
-    parts = [
-        f"{quote_identifier(s['field'])} {s['direction']}" for s in sorts
-    ]
+    parts = [f"{quote_identifier(s['field'])} {s['direction']}" for s in sorts]
     fields = [c["field_name"] for c in detail["columns"]]
     if fields:
         first = fields[0].upper()
@@ -265,18 +243,14 @@ def stable_order_by(
     return ", ".join(parts)
 
 
-def build_run_query(
-    detail: dict[str, Any], resolved: dict[str, Any]
-) -> tuple[str, dict[str, Any]]:
+def build_run_query(detail: dict[str, Any], resolved: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     """(sql, binds) cho một lần chạy: CUSTOM_SQL dùng snapshot, VIEW/TABLE
     dùng query builder whitelist (T22-03)."""
     source_type = detail["source_type"]
     if source_type == "CUSTOM_SQL":
         sql_text = detail["sql_text"]
         if not sql_text:
-            raise ServiceError(
-                ErrorCode.VALIDATION_ERROR, "Version CUSTOM_SQL chưa có SQL_TEXT."
-            )
+            raise ServiceError(ErrorCode.VALIDATION_ERROR, "Version CUSTOM_SQL chưa có SQL_TEXT.")
         return str(sql_text), dict(resolved)
     if source_type in ("VIEW", "TABLE"):
         columns = [{"name": c["field_name"]} for c in detail["columns"]]
@@ -321,10 +295,7 @@ def map_oracle_error(exc: Exception, timeout_sec: int) -> ServiceError:
             f"Truy vấn Oracle bị quá thời gian cho phép ({timeout_sec} giây).",
         )
     if (
-        any(
-            ora in err_str
-            for ora in ["ORA-03113", "ORA-03114", "ORA-03135", "DPI-1010", "DPI-1080"]
-        )
+        any(ora in err_str for ora in ["ORA-03113", "ORA-03114", "ORA-03135", "DPI-1010", "DPI-1080"])
         or "CONNECTION LOST" in err_str
         or "NOT CONNECTED" in err_str
     ):
@@ -350,9 +321,7 @@ def _execute_count_page(
     order_by = stable_order_by(detail, sorts)
     ds_id = detail["data_source_id"]
     if ds_id is None:
-        raise ServiceError(
-            ErrorCode.VALIDATION_ERROR, "Version chưa gắn Data Source."
-        )
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Version chưa gắn Data Source.")
     count_timeout = min(int(detail["timeout_sec"]), 30)  # Q3
     data_timeout = int(detail["timeout_sec"])
     try:
@@ -368,14 +337,9 @@ def _execute_count_page(
     try:
         with open_checked_connection(ds_id, data_timeout) as ora_conn:
             cursor = ora_conn.cursor()
-            cursor.execute(
-                build_paged_query(sql, page, page_size, order_by), binds
-            )
+            cursor.execute(build_paged_query(sql, page, page_size, order_by), binds)
             col_names = [str(d[0]) for d in (cursor.description or [])]
-            rows = [
-                dict(zip(col_names, tuple(r), strict=False))
-                for r in cursor.fetchmany(page_size)
-            ]
+            rows = [dict(zip(col_names, tuple(r), strict=False)) for r in cursor.fetchmany(page_size)]
     except ServiceError:
         raise
     except Exception as exc:
@@ -383,9 +347,7 @@ def _execute_count_page(
     return total, rows, col_names
 
 
-def _resolve_or_raise(
-    ctx: Ctx, version_id: int, values: dict[str, Any] | None
-) -> dict[str, Any]:
+def _resolve_or_raise(ctx: Ctx, version_id: int, values: dict[str, Any] | None) -> dict[str, Any]:
     res = resolve_param_values(ctx, version_id, values or {})
     if not res.ok or res.data is None:
         raise ServiceError(
@@ -413,9 +375,7 @@ def create_report_run(
         load_report_row(conn, report_id, admin)
         tpl_id, version_id = _active_version_id(conn, report_id, template_id)
         ds_id = conn.execute(
-            select(recon_rpt_tpl_ver.c.DATA_SOURCE_ID).where(
-                recon_rpt_tpl_ver.c.ID == version_id
-            )
+            select(recon_rpt_tpl_ver.c.DATA_SOURCE_ID).where(recon_rpt_tpl_ver.c.ID == version_id)
         ).scalar_one_or_none()
         _check_prod_admin(conn, ds_id, admin)
     resolved = _resolve_or_raise(ctx, version_id, values)
@@ -433,21 +393,25 @@ def create_report_run(
             )
         )
         run_id = int(res.lastrowid)
-        row = (
-            conn.execute(
-                select(recon_report_run).where(recon_report_run.c.ID == run_id)
-            )
-            .mappings()
-            .first()
+        write_audit_log(
+            conn,
+            "RECON_REPORT_RUN",
+            run_id,
+            "CREATE_REPORT_RUN",
+            ctx.username,
+            new_data={
+                "report_id": report_id,
+                "template_id": tpl_id,
+                "version_id": version_id,
+            },
         )
+        row = conn.execute(select(recon_report_run).where(recon_report_run.c.ID == run_id)).mappings().first()
         return _run_dict(row)
 
 
 @service
 @requires_menu("report_center")
-def execute_report_run(
-    ctx: Ctx, run_id: int, page: int = 1, page_size: int = 50
-) -> dict[str, Any]:
+def execute_report_run(ctx: Ctx, run_id: int, page: int = 1, page_size: int = 50) -> dict[str, Any]:
     """Chạy run QUEUED đồng bộ: count + trang dữ liệu → DONE/FAILED (T25-02/03).
 
     Lỗi truy vấn không raise — run chuyển FAILED kèm ERROR_CODE/MESSAGE.
@@ -455,9 +419,7 @@ def execute_report_run(
     if page < 1:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "page phải ≥ 1.")
     if page_size < 1 or page_size > 200:  # Q5
-        raise ServiceError(
-            ErrorCode.VALIDATION_ERROR, "page_size phải trong khoảng 1..200."
-        )
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "page_size phải trong khoảng 1..200.")
     engine = get_recon_engine()
     admin = is_admin(ctx, engine)
     with engine.begin() as conn:
@@ -470,16 +432,10 @@ def execute_report_run(
         detail = load_version_detail(conn, int(run["VERSION_ID"]))
         _check_prod_admin(conn, detail["data_source_id"], admin)
         resolved = dict(run["PARAMS_JSON"] or {})
-        conn.execute(
-            recon_report_run.update()
-            .where(recon_report_run.c.ID == run_id)
-            .values(STATUS="RUNNING")
-        )
+        conn.execute(recon_report_run.update().where(recon_report_run.c.ID == run_id).values(STATUS="RUNNING"))
     started = time.monotonic()
     try:
-        total, rows, col_names = _execute_count_page(
-            detail, resolved, page, page_size, sorts=[]
-        )
+        total, rows, col_names = _execute_count_page(detail, resolved, page, page_size, sorts=[])
     except ServiceError as exc:
         with engine.begin() as conn:
             conn.execute(
@@ -492,13 +448,19 @@ def execute_report_run(
                     FINISHED_AT=_now(),
                 )
             )
-            row = (
-                conn.execute(
-                    select(recon_report_run).where(recon_report_run.c.ID == run_id)
-                )
-                .mappings()
-                .first()
+            write_audit_log(
+                conn,
+                "RECON_REPORT_RUN",
+                run_id,
+                "EXECUTE_REPORT_RUN",
+                ctx.username,
+                new_data={
+                    "status": "FAILED",
+                    "error_code": str(exc.code),
+                    "error_message": exc.message[:500],
+                },
             )
+            row = conn.execute(select(recon_report_run).where(recon_report_run.c.ID == run_id)).mappings().first()
         return {"run": _run_dict(row), "total": 0, "rows": [], "columns": []}
     query_ms = int((time.monotonic() - started) * 1000)
     with engine.begin() as conn:
@@ -512,13 +474,15 @@ def execute_report_run(
                 FINISHED_AT=_now(),
             )
         )
-        row = (
-            conn.execute(
-                select(recon_report_run).where(recon_report_run.c.ID == run_id)
-            )
-            .mappings()
-            .first()
+        write_audit_log(
+            conn,
+            "RECON_REPORT_RUN",
+            run_id,
+            "EXECUTE_REPORT_RUN",
+            ctx.username,
+            new_data={"status": "DONE", "total": total, "query_ms": query_ms},
         )
+        row = conn.execute(select(recon_report_run).where(recon_report_run.c.ID == run_id)).mappings().first()
     return {
         "run": _run_dict(row),
         "total": total,
@@ -531,9 +495,7 @@ def execute_report_run(
 
 @service
 @requires_menu("report_admin")
-def dry_run_version(
-    ctx: Ctx, version_id: int, values: dict[str, Any] | None = None
-) -> dict[str, Any]:
+def dry_run_version(ctx: Ctx, version_id: int, values: dict[str, Any] | None = None) -> dict[str, Any]:
     """Dry-run version DRAFT tối đa preview_max_rows; thành công → DRY_RUN_OK (Q7).
 
     Đóng vòng T21-04: activate yêu cầu DRY_RUN_OK nhưng trước task 25 chưa có
@@ -558,10 +520,14 @@ def dry_run_version(
     )
     query_ms = int((time.monotonic() - started) * 1000)
     with engine.begin() as conn:
-        conn.execute(
-            recon_rpt_tpl_ver.update()
-            .where(recon_rpt_tpl_ver.c.ID == version_id)
-            .values(STATUS="DRY_RUN_OK")
+        conn.execute(recon_rpt_tpl_ver.update().where(recon_rpt_tpl_ver.c.ID == version_id).values(STATUS="DRY_RUN_OK"))
+        write_audit_log(
+            conn,
+            "RECON_RPT_TPL_VER",
+            version_id,
+            "DRY_RUN_VERSION",
+            ctx.username,
+            new_data={"total": total, "query_ms": query_ms},
         )
     return {
         "version_id": version_id,
@@ -592,9 +558,7 @@ def get_report_page(
     if page < 1:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "page phải ≥ 1.")
     if page_size < 1 or page_size > 200:  # Q5
-        raise ServiceError(
-            ErrorCode.VALIDATION_ERROR, "page_size phải trong khoảng 1..200."
-        )
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "page_size phải trong khoảng 1..200.")
     engine = get_recon_engine()
     admin = is_admin(ctx, engine)
     with engine.connect() as conn:
@@ -615,9 +579,7 @@ def get_report_page(
         resolved = dict(run["PARAMS_JSON"] or {})
     field_names = [c["field_name"] for c in detail["columns"]]
     valid_sorts = _validate_sorts(sorts, field_names)
-    total, rows, col_names = _execute_count_page(
-        detail, resolved, page, page_size, valid_sorts
-    )
+    total, rows, col_names = _execute_count_page(detail, resolved, page, page_size, valid_sorts)
     return {
         "run_id": run_id,
         "total": total,
@@ -649,13 +611,8 @@ def cancel_report_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
             .where(recon_report_run.c.ID == run_id)
             .values(STATUS="CANCELLED", FINISHED_AT=_now())
         )
-        row = (
-            conn.execute(
-                select(recon_report_run).where(recon_report_run.c.ID == run_id)
-            )
-            .mappings()
-            .first()
-        )
+        write_audit_log(conn, "RECON_REPORT_RUN", run_id, "CANCEL_REPORT_RUN", ctx.username)
+        row = conn.execute(select(recon_report_run).where(recon_report_run.c.ID == run_id)).mappings().first()
         return _run_dict(row)
 
 
@@ -683,11 +640,7 @@ def report_run_metrics(ctx: Ctx) -> dict[str, Any]:
     return {
         "total_runs": len(rows),
         "by_status": by_status,
-        "avg_query_ms": (
-            sum(query_ms_values) // len(query_ms_values)
-            if query_ms_values
-            else None
-        ),
+        "avg_query_ms": (sum(query_ms_values) // len(query_ms_values) if query_ms_values else None),
         "total_rows": total_rows,
     }
 
@@ -708,9 +661,7 @@ def list_report_runs(
     if page < 1:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "page phải ≥ 1.")
     if page_size < 1 or page_size > 200:
-        raise ServiceError(
-            ErrorCode.VALIDATION_ERROR, "page_size phải trong khoảng 1..200."
-        )
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "page_size phải trong khoảng 1..200.")
     engine = get_recon_engine()
     admin = is_admin(ctx, engine)
     with engine.connect() as conn:
@@ -816,21 +767,25 @@ def create_preset(
             )
         )
         preset_id = int(res.lastrowid)
-        row = (
-            conn.execute(
-                select(recon_rpt_preset).where(recon_rpt_preset.c.ID == preset_id)
-            )
-            .mappings()
-            .first()
+        write_audit_log(
+            conn,
+            "RECON_RPT_PRESET",
+            preset_id,
+            "CREATE_PRESET",
+            ctx.username,
+            new_data={
+                "report_id": report_id,
+                "template_id": template_id,
+                "name": name.strip(),
+            },
         )
+        row = conn.execute(select(recon_rpt_preset).where(recon_rpt_preset.c.ID == preset_id)).mappings().first()
         return _preset_dict(row)
 
 
 @service
 @requires_menu("report_center")
-def list_presets(
-    ctx: Ctx, report_id: int, template_id: int
-) -> list[dict[str, Any]]:
+def list_presets(ctx: Ctx, report_id: int, template_id: int) -> list[dict[str, Any]]:
     """Preset của chính người dùng cho một template (mặc định lên trước)."""
     engine = get_recon_engine()
     with engine.connect() as conn:
@@ -871,8 +826,14 @@ def delete_preset(ctx: Ctx, preset_id: int) -> dict[str, Any]:
         )
         if row is None:
             raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy preset.")
-        conn.execute(
-            recon_rpt_preset.delete().where(recon_rpt_preset.c.ID == preset_id)
+        conn.execute(recon_rpt_preset.delete().where(recon_rpt_preset.c.ID == preset_id))
+        write_audit_log(
+            conn,
+            "RECON_RPT_PRESET",
+            preset_id,
+            "DELETE_PRESET",
+            ctx.username,
+            old_data={"name": str(row["NAME"])},
         )
         return {"deleted": True, "preset_id": preset_id}
 
@@ -901,9 +862,7 @@ def apply_preset(
         if row is None:
             raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy preset.")
         load_report_row(conn, int(row["REPORT_ID"]), admin)
-        _tpl_id, version_id = _active_version_id(
-            conn, int(row["REPORT_ID"]), int(row["TEMPLATE_ID"])
-        )
+        _tpl_id, version_id = _active_version_id(conn, int(row["REPORT_ID"]), int(row["TEMPLATE_ID"]))
     merged = dict(row["PARAMS_JSON"] or {})
     merged.update(values_override or {})
     resolved = _resolve_or_raise(ctx, version_id, merged)
