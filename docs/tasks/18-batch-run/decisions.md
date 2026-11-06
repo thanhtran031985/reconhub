@@ -15,6 +15,9 @@
 | 2026-11-06 | Kỳ chỉ tháng (Q0), không email/Teams (Q1), owner scope như Lịch sử run (Q2), seed mẫu (Q3), xác nhận PROD một lần (Q4) | Người dùng duyệt theo đề xuất ngày 06/11/2026 | plan.md |
 | 2026-11-06 | `resolve_params` chỉ chặn p_from > p_to (INVALID_RANGE), không chặn max_range_days | Spec 10 §4.4 ghi "kiểm như run đơn lẻ"; run đơn lẻ đã bỏ chặn max_range_days (run_service.py) | spec 10 §4.4 |
 | 2026-11-06 | `compute_file_set_hash` là hàm chung duy nhất (1 file = sha256(SHA256); nhiều file = sha256(danh sách đã sắp + sheet + template + version) | Tránh 2 công thức lệch nhau giữa migration backfill và runtime | spec 10a §6; bước 2 |
+| 2026-11-06 | Thêm `activate_batch_def` dù spec 10 mục 8 không liệt kê | Spec 10a mục 1 yêu cầu điều kiện kích hoạt (≥1 mục, có mẫu file, không lỗi tham số kỳ hiện tại); không có hàm này thì bộ không bao giờ ACTIVE để chạy | spec 10a §1; bước 3 |
+| 2026-11-06 | Không thêm/sửa/gỡ mục ở bộ đã ARCHIVED (BATCH_NOT_ACTIVE) | Bộ lưu trữ là đóng băng | bước 3 |
+| 2026-11-06 | Thêm/sửa mục chỉ kiểm tham số lạ (BATCH_PARAM_UNKNOWN) + cú pháp công thức (BATCH_FORMULA_INVALID); lỗi kiểu lộ ở preview/chạy | Kiểu tham số phụ thuộc giá trị tính với kỳ thật | bước 3 |
 
 ## Câu hỏi còn mở
 - Kỳ khác tháng (quý, khoảng ngày)?

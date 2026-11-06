@@ -178,6 +178,9 @@ def resolve_params(
         )
 
     for spec in template_params:
+        # p_from/p_to đã xử lý riêng ở trên (mặc định theo kỳ).
+        if spec.name in ("p_from", "p_to"):
+            continue
         if spec.name in run_override:
             raw = run_override[spec.name]
         elif spec.name in def_override:

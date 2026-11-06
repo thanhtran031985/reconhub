@@ -6,7 +6,7 @@ Trạng thái: 🔄 (bắt đầu 06/11/2026, nhánh feat/18-batch-run từ ad98
 |---|---|---|---|---|
 | 1 | Schema, migration và FILE_SET_HASH | ✅ | 06/11/2026 |  |
 | 2 | Công thức và ghép file (hàm thuần) | ✅ | 06/11/2026 |  |
-| 3 | Service bộ đối soát | ⬜ |  |  |
+| 3 | Service bộ đối soát | ✅ | 06/11/2026 |  |
 | 4 | Lần chạy bộ: tạo, tải file, ghép, tham số | ⬜ |  |  |
 | 5 | Gộp nhiều file trong engine/executor | ⬜ |  |  |
 | 6 | Precheck, start, worker giới hạn song song | ⬜ |  |  |
@@ -16,6 +16,11 @@ Trạng thái: 🔄 (bắt đầu 06/11/2026, nhánh feat/18-batch-run từ ad98
 | 10 | Chuyển Oracle, tài liệu, hồi quy | ⬜ |  |  |
 
 ## Nhật ký
+
+### Bước 3 — Service bộ đối soát (06/11/2026)
+- `app/services/batch_def.py`: list/get/create/update/archive/activate/add_items/update_item/remove_item/addable_templates/preview_params; quyền AD+TO sửa, mọi role có menu đọc; audit đầy đủ.
+- Kiểm tra: `tests/unit/test_batch_def_service.py` 26 pass; typecheck 21 = baseline; lint sạch.
+- Ghi chú: thêm `activate_batch_def` (spec 10 mục 8 không liệt kê nhưng spec 10a mục 1 yêu cầu điều kiện kích hoạt); không sửa bộ đã ARCHIVED; thêm/sửa mục chỉ kiểm tham số lạ + cú pháp công thức, lỗi kiểu lộ ở preview/chạy.
 
 ### Bước 2 — Công thức và ghép file (06/11/2026)
 - `batch_formula.py` (parse_period, resolve, resolve_params, compute_file_set_hash) + `batch_matcher.py` (normalize_name, match); mã lỗi BATCH_* mới trong errors.py.
