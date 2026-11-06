@@ -5,9 +5,13 @@ Trạng thái: 🔄
 | Bước | Nội dung | Trạng thái | Commit |
 |---|---|---|---|
 | 1 | Auto-discover column metadata | ✅ | 342ad7b |
-| 2 | Editable mapping grid và row drag | ✅ | |
-| 3 | Format/alignment/width/visibility/total | ⬜ | |
+| 2 | Editable mapping grid và row drag | ✅ | 51152ec |
+| 3 | Format/alignment/width/visibility/total | ✅ | |
 | 4 | Preview và schema diff | ⬜ | |
+
+## Bước 3 — Format/alignment/width/visibility/total (06/11/2026)
+- `_validate_column_rules` (Q2/Q3/Q4/Q5): FORMAT_MASK theo DATA_TYPE (NUMBER {#,##0, #,##0.00, #,##0%, 0, 0.00}, DATE {DD/MM/YYYY, YYYY-MM-DD, MM/YYYY}, DATETIME + mask giờ, STRING/BINARY phải trống); IS_TOTAL chỉ NUMBER; WIDTH NULL = tự động, nếu có thì 40..400; LABEL duy nhất trong version (không phân biệt hoa/thường) — kiểm tra trên trạng thái cuối sau khi áp toàn bộ ở bulk save.
+- Test: `tests/unit/test_report_column_rules.py` (9 test, T24-03/04/06/07). T24-05 (web false/excel true) kiểm tra ở bước 4 qua get_result_layout. 29 test pass (rules 9 + grid 13 + discover 7).
 
 ## Bước 2 — Editable mapping grid và row drag (06/11/2026)
 - `update_column` (report_admin, DRAFT-only): sửa LABEL/FORMAT_MASK/ALIGNMENT/WIDTH/WEB_VISIBLE/EXCEL_VISIBLE/IS_TOTAL; FIELD_NAME/DATA_TYPE/DISPLAY_ORDER readonly (có trong payload → VALIDATION_ERROR); LABEL rỗng → VALIDATION_ERROR; explicit None cho format_mask/width = xóa (NULL), cho bool = lỗi; một transaction + audit UPDATE_COLUMN.

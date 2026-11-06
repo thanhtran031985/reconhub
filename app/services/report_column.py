@@ -170,7 +170,7 @@ class ColumnUpdate(BaseModel):
 
 
 def _validate_column_update(dto: ColumnUpdate) -> None:
-    """Kiểm tra cấu trúc payload sửa cột (rule nghiệp vụ ở bước 3)."""
+    """Kiểm tra cấu trúc payload sửa cột."""
     if (
         dto.field_name is not None
         or dto.data_type is not None
@@ -191,6 +191,67 @@ def _validate_column_update(dto: ColumnUpdate) -> None:
         if field in dto.model_fields_set and getattr(dto, field) is None:
             raise ServiceError(
                 ErrorCode.VALIDATION_ERROR, f"{field} phải là true/false."
+            )
+
+
+# Từ vựng FORMAT_MASK theo DATA_TYPE (task 24 Q2).
+_FORMAT_MASKS: dict[str, set[str]] = {
+    "NUMBER": {"#,##0", "#,##0.00", "#,##0%", "0", "0.00"},
+    "DATE": {"DD/MM/YYYY", "YYYY-MM-DD", "MM/YYYY"},
+    "DATETIME": {
+        "DD/MM/YYYY",
+        "YYYY-MM-DD",
+        "MM/YYYY",
+        "DD/MM/YYYY HH:mm",
+        "DD/MM/YYYY HH:mm:ss",
+    },
+}
+
+
+def _validate_column_rules(
+    dto: ColumnUpdate,
+    data_type: str,
+    final_label: str | None = None,
+    other_labels: set[str] | None = None,
+) -> None:
+    """Rule nghiệp vụ sửa cột (bước 3): label duy nhất, format theo type,
+    total chỉ number, width 40..400."""
+    if "format_mask" in dto.model_fields_set and dto.format_mask is not None:
+        mask = str(dto.format_mask).strip()
+        allowed = _FORMAT_MASKS.get((data_type or "").upper())
+        if allowed is None:
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                f"Cột kiểu {data_type} không dùng format mask.",
+            )
+        if mask not in allowed:
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                f"FORMAT_MASK {mask!r} không hợp với kiểu {data_type}.",
+            )
+    if (
+        "is_total" in dto.model_fields_set
+        and dto.is_total
+        and (data_type or "").upper() != "NUMBER"
+    ):
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR,
+            "Chỉ cột NUMBER mới được tính tổng (IS_TOTAL).",
+        )
+    if (
+        "width" in dto.model_fields_set
+        and dto.width is not None
+        and not 40 <= dto.width <= 400
+    ):
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR,
+            "WIDTH phải trong khoảng 40..400 (hoặc để trống = tự động).",
+        )
+    if final_label is not None and other_labels is not None:
+        if final_label.strip().lower() in other_labels:
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                f"LABEL {final_label!r} đã tồn tại trong version.",
             )
 
 
@@ -241,7 +302,18 @@ def update_column(
     engine = get_recon_engine()
     with engine.begin() as conn:
         _load_version_draft(conn, version_id)
-        _load_column_row(conn, version_id, column_id)
+        row = _load_column_row(conn, version_id, column_id)
+        other_labels = {
+            str(c["label"]).strip().lower()
+            for c in _load_columns(conn, version_id)
+            if int(c["id"]) != column_id
+        }
+        final_label = (
+            str(dto.label).strip() if "label" in dto.model_fields_set else None
+        )
+        _validate_column_rules(
+            dto, str(row["DATA_TYPE"]), final_label, other_labels
+        )
         if values:
             conn.execute(
                 recon_rpt_column.update()
@@ -266,7 +338,7 @@ def update_columns(
     ctx: Ctx, version_id: int, rows: list[dict[str, Any]]
 ) -> dict[str, Any]:
     """Lưu cả grid mapping một lần — validate toàn bộ rồi mới ghi (T24-02)."""
-    dtos: list[tuple[int, dict[str, Any]]] = []
+    dtos: list[tuple[int, ColumnUpdate, dict[str, Any]]] = []
     for item in rows:
         column_id = item.get("id")
         if not isinstance(column_id, int):
@@ -275,13 +347,32 @@ def update_columns(
             )
         dto = ColumnUpdate(**{k: v for k, v in item.items() if k != "id"})
         _validate_column_update(dto)
-        dtos.append((column_id, _column_update_values(dto)))
+        dtos.append((column_id, dto, _column_update_values(dto)))
     engine = get_recon_engine()
     with engine.begin() as conn:
         _load_version_draft(conn, version_id)
-        for column_id, _values in dtos:
-            _load_column_row(conn, version_id, column_id)
-        for column_id, values in dtos:
+        columns = _load_columns(conn, version_id)
+        by_id = {c["id"]: c for c in columns}
+        for column_id, _dto, _values in dtos:
+            if column_id not in by_id:
+                raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy cột.")
+        # Label duy nhất trên trạng thái cuối sau khi áp toàn bộ (Q3).
+        merged = {cid: str(c["label"]) for cid, c in by_id.items()}
+        for column_id, dto, _values in dtos:
+            if "label" in dto.model_fields_set:
+                merged[column_id] = str(dto.label).strip()
+        seen: set[str] = set()
+        for label in merged.values():
+            key = label.strip().lower()
+            if key in seen:
+                raise ServiceError(
+                    ErrorCode.VALIDATION_ERROR,
+                    f"LABEL {label!r} đã tồn tại trong version.",
+                )
+            seen.add(key)
+        for column_id, dto, _values in dtos:
+            _validate_column_rules(dto, str(by_id[column_id]["data_type"]))
+        for column_id, _dto, values in dtos:
             if values:
                 conn.execute(
                     recon_rpt_column.update()
@@ -294,7 +385,7 @@ def update_columns(
             version_id,
             "UPDATE_COLUMN_LAYOUT",
             ctx.username,
-            new_data={"column_ids": [cid for cid, _ in dtos]},
+            new_data={"column_ids": [cid for cid, _dto, _ in dtos]},
         )
         return {"columns": _load_columns(conn, version_id)}
 
