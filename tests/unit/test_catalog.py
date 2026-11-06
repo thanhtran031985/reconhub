@@ -131,3 +131,32 @@ def test_catalog_list_columns(catalog_env) -> None:
         assert cols[1]["data_type"] == "VARCHAR2"
         assert cols[2]["precision"] == 18
         assert cols[2]["scale"] == 2
+
+
+def test_catalog_list_tables_object_type(catalog_env) -> None:
+    """Task 22: object_type tách TABLE/VIEW, cache riêng từng loại."""
+    from app.engine.catalog import invalidate_catalog_cache
+
+    invalidate_catalog_cache()
+    _, ds_id = catalog_env
+
+    mock_conn = MagicMock()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = [("V_REVENUE", "VIEW")]
+    mock_conn.cursor.return_value = mock_cursor
+
+    with patch("app.engine.catalog.open_source_connection", return_value=mock_conn):
+        views = list_tables(ds_id, schema="RECON_SRC", object_type="VIEW")
+        assert [t["name"] for t in views] == ["V_REVENUE"]
+        executed_sql = mock_cursor.execute.call_args[0][0]
+        assert "ALL_VIEWS" in executed_sql
+        assert "ALL_TABLES" not in executed_sql
+
+        # Cache riêng: gọi TABLE vẫn truy vấn DB lại (khác cache key)
+        mock_cursor.fetchall.return_value = [("T_REVENUE", "TABLE")]
+        tables = list_tables(ds_id, schema="RECON_SRC", object_type="TABLE")
+        assert [t["name"] for t in tables] == ["T_REVENUE"]
+        assert mock_conn.cursor.call_count == 2
+
+    with pytest.raises(ValueError):
+        list_tables(ds_id, schema="RECON_SRC", object_type="PROCEDURE")

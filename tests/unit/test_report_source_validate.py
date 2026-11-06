@@ -71,6 +71,7 @@ def operator_ctx() -> Ctx:
 def _mock_ora_conn():
     mock_conn = MagicMock()
     mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = []  # USER_SYS_PRIVS rỗng = chỉ đọc
     mock_cursor.description = [
         ("AMOUNT", SimpleNamespace(name="DB_TYPE_NUMBER"), 0, 0, 18, 2, True),
         ("ORG", SimpleNamespace(name="DB_TYPE_VARCHAR"), 0, 0, 60, 0, True),

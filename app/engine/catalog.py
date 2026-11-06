@@ -11,7 +11,7 @@ from app.services.source_conn import open_source_connection
 
 CACHE_TTL_SECONDS = 600.0  # 10 phút
 
-_TABLES_CACHE: dict[tuple[int, str], tuple[float, list[dict[str, str]]]] = {}
+_TABLES_CACHE: dict[tuple[int, str, str], tuple[float, list[dict[str, str]]]] = {}
 _COLUMNS_CACHE: dict[tuple[int, str, str], tuple[float, list[dict[str, Any]]]] = {}
 
 
@@ -58,13 +58,18 @@ def list_tables(
     ds_id: int,
     schema: str | None = None,
     q: str | None = None,
+    object_type: str | None = None,
 ) -> list[dict[str, str]]:
     """Liệt kê danh sách bảng và view trong schema Oracle với cache 10 phút.
 
     Trả về danh sách: [{"name": str, "type": "TABLE" | "VIEW", "schema": str}]
+    object_type: None (cả bảng và view, hành vi cũ), "TABLE" hoặc "VIEW"
+    (task 22 — picker riêng từng loại).
     """
+    if object_type is not None and object_type not in ("TABLE", "VIEW"):
+        raise ValueError("object_type phải là None, 'TABLE' hoặc 'VIEW'")
     resolved_schema = _resolve_schema(ds_id, schema)
-    cache_key = (ds_id, resolved_schema)
+    cache_key = (ds_id, resolved_schema, object_type or "")
     now = time.monotonic()
 
     cached = _TABLES_CACHE.get(cache_key)
@@ -79,16 +84,31 @@ def list_tables(
     ora_conn = open_source_connection(ds_id)
     try:
         cursor = ora_conn.cursor()
-        sql = """
-            SELECT TABLE_NAME, 'TABLE' AS TABLE_TYPE
-            FROM ALL_TABLES
-            WHERE OWNER = :schema
-            UNION ALL
-            SELECT VIEW_NAME AS TABLE_NAME, 'VIEW' AS TABLE_TYPE
-            FROM ALL_VIEWS
-            WHERE OWNER = :schema
-            ORDER BY TABLE_NAME
-        """
+        if object_type == "TABLE":
+            sql = """
+                SELECT TABLE_NAME, 'TABLE' AS TABLE_TYPE
+                FROM ALL_TABLES
+                WHERE OWNER = :schema
+                ORDER BY TABLE_NAME
+            """
+        elif object_type == "VIEW":
+            sql = """
+                SELECT VIEW_NAME AS TABLE_NAME, 'VIEW' AS TABLE_TYPE
+                FROM ALL_VIEWS
+                WHERE OWNER = :schema
+                ORDER BY TABLE_NAME
+            """
+        else:
+            sql = """
+                SELECT TABLE_NAME, 'TABLE' AS TABLE_TYPE
+                FROM ALL_TABLES
+                WHERE OWNER = :schema
+                UNION ALL
+                SELECT VIEW_NAME AS TABLE_NAME, 'VIEW' AS TABLE_TYPE
+                FROM ALL_VIEWS
+                WHERE OWNER = :schema
+                ORDER BY TABLE_NAME
+            """
         cursor.execute(sql, {"schema": resolved_schema})
         raw_rows = cursor.fetchall()
 
