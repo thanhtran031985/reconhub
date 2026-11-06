@@ -1,0 +1,43 @@
+{
+  "report": {
+    "code": "FIN_REVENUE",
+    "name": "Báo cáo doanh thu",
+    "category": "FINANCE"
+  },
+  "template": {
+    "code": "REVENUE_DETAIL",
+    "source_type": "CUSTOM_SQL",
+    "data_source": "FIN_DWH",
+    "timeout_sec": 300,
+    "preview_max_rows": 100000,
+    "export_max_rows": 5000000
+  },
+  "parameters": [
+    {
+      "code": "p_from_date",
+      "type": "DATE",
+      "row": 1,
+      "order": 1,
+      "grid_span": 3,
+      "lov": "NONE"
+    },
+    {
+      "code": "p_org",
+      "type": "TEXT",
+      "row": 1,
+      "order": 3,
+      "grid_span": 3,
+      "lov": "SQL"
+    }
+  ],
+  "columns": [
+    {
+      "field": "INVOICE_NO",
+      "label": "Số hóa đơn",
+      "order": 1,
+      "web": true,
+      "excel": true,
+      "format": "TEXT"
+    }
+  ]
+}
