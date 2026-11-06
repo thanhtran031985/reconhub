@@ -5,9 +5,15 @@ Trạng thái: 🔄
 | Bước | Nội dung | Trạng thái | Commit |
 |---|---|---|---|
 | 1 | REPORT_RUN, bind/whitelist execution | ✅ | 6d206bb |
-| 2 | Server-side count/page/filter/sort | ✅ | |
-| 3 | Cancel/timeout/metrics | ⬜ | |
+| 2 | Server-side count/page/filter/sort | ✅ | bb93eec |
+| 3 | Cancel/timeout/metrics | ✅ | |
 | 4 | History, preset, favorite, owner scope | ⬜ | |
+
+## Bước 3 — Cancel/timeout/metrics (06/11/2026)
+- `cancel_report_run` (T25-07, Q4): QUEUED/RUNNING → CANCELLED + FINISHED_AT; DONE/FAILED/CANCELLED → VALIDATION_ERROR; run người khác → NOT_FOUND.
+- Timeout (T25-06, Q3): count = min(TIMEOUT_SEC, 30s), data = min(TIMEOUT_SEC, DS CALL_TIMEOUT_S) — test chứng minh bằng call_timeout ghi trên mock conn (30_000 vs 300_000 ms khi DS = 600s).
+- `report_run_metrics` (T25-11): {total_runs, by_status, avg_query_ms (chỉ run có QUERY_MS), total_rows} theo owner scope (người thường chỉ số của mình, ADMIN toàn bộ).
+- Test: `tests/unit/test_report_run_cancel.py` (7 test, T25-06/07/11). 7 pass.
 
 ## Bước 2 — Server-side count/page/filter/sort (06/11/2026)
 - `get_report_page` (report_center): chạy lại count + page từ PARAMS_JSON + VERSION_ID đã snapshot của run (không dùng version hiện tại); trả {run_id, total, rows, columns, page, page_size}. Sorts validate whitelist theo cột của version (field lạ → SQL_NOT_ALLOWED, direction lạ → VALIDATION_ERROR); stable sort = sorts người dùng + cột đầu tiên làm tiebreaker (Q6). page < 1 hoặc page_size ngoài 1..200 → VALIDATION_ERROR.

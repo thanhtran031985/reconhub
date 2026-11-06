@@ -581,3 +581,67 @@ def get_report_page(
         "page": page,
         "page_size": page_size,
     }
+
+
+# ─── Bước 3: Cancel/timeout/metrics ─────────────────────────────────────────
+
+
+@service
+@requires_menu("report_center")
+def cancel_report_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
+    """Hủy run QUEUED/RUNNING → CANCELLED (T25-07, Q4)."""
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.begin() as conn:
+        run = _load_run_row(conn, run_id, ctx, admin)
+        if run["STATUS"] not in ("QUEUED", "RUNNING"):
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                "Chỉ hủy được run QUEUED hoặc RUNNING.",
+            )
+        conn.execute(
+            recon_report_run.update()
+            .where(recon_report_run.c.ID == run_id)
+            .values(STATUS="CANCELLED", FINISHED_AT=_now())
+        )
+        row = (
+            conn.execute(
+                select(recon_report_run).where(recon_report_run.c.ID == run_id)
+            )
+            .mappings()
+            .first()
+        )
+        return _run_dict(row)
+
+
+@service
+@requires_menu("report_center")
+def report_run_metrics(ctx: Ctx) -> dict[str, Any]:
+    """Metrics lịch sử run theo owner scope (T25-11)."""
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.connect() as conn:
+        stmt = select(recon_report_run)
+        if not admin:
+            stmt = stmt.where(recon_report_run.c.CREATED_BY == ctx.username)
+        rows = conn.execute(stmt).mappings().all()
+    by_status: dict[str, int] = {}
+    query_ms_values: list[int] = []
+    total_rows = 0
+    for row in rows:
+        status = str(row["STATUS"])
+        by_status[status] = by_status.get(status, 0) + 1
+        if row["QUERY_MS"] is not None:
+            query_ms_values.append(int(row["QUERY_MS"]))
+        if row["ROW_COUNT"] is not None:
+            total_rows += int(row["ROW_COUNT"])
+    return {
+        "total_runs": len(rows),
+        "by_status": by_status,
+        "avg_query_ms": (
+            sum(query_ms_values) // len(query_ms_values)
+            if query_ms_values
+            else None
+        ),
+        "total_rows": total_rows,
+    }
