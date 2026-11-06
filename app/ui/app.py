@@ -16,6 +16,7 @@ from app.routes.auth_routes import auth_bp
 from app.routes.file_routes import file_bp
 from app.routes.health import health_bp
 from app.services.data_source import sync_current_metadata_source
+from app.services.menu_sync import sync_menus_safely
 from app.ui.layout import create_shell_layout
 from app.ui.theme import THEME
 
@@ -53,6 +54,16 @@ def create_app() -> Dash:
 
     try:
         sync_current_metadata_source()
+    except Exception:
+        pass
+
+    # Đồng bộ menu từ code vào DB (task 21 thêm 3 menu báo cáo nhưng chưa
+    # có nơi nào gọi sync: chỉ test gọi sync_from_code). Không đồng bộ thì
+    # thanh bên (đọc cây menu từ DB) không thấy menu mới dù code đã có.
+    # sync_menus_safely đã tự nuốt lỗi DB, bọc thêm try để chắc chắn không
+    # làm sập app khi khởi động.
+    try:
+        sync_menus_safely()
     except Exception:
         pass
 
