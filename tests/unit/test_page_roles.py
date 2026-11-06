@@ -216,7 +216,7 @@ class TestRolesLayout:
 
 
 class TestSidebarFromMenus:
-    def test_admin_sidebar_has_roles_no_menu_admin(self, roles_env):
+    def test_admin_sidebar_has_roles_and_menu_admin(self, roles_env):
         from app.services.perm import effective_menus
         from app.ui.layout.shell import get_nav_items_for_menus
 
@@ -224,7 +224,7 @@ class TestSidebarFromMenus:
         hrefs = [it["href"] for g in groups for it in g["items"]]
         assert "/roles" in hrefs
         assert "/users" in hrefs
-        assert "/menus" not in hrefs  # menu_admin đang ẩn (Q7)
+        assert "/menus" in hrefs  # task 20 bước 4: mở menu_admin khỏi _SIDEBAR_SKIP_CODES
         assert "/batch-runs" not in hrefs  # task 18 chưa làm
         assert "/runs/<id>" not in hrefs  # trang chi tiết, không lên thanh bên
 

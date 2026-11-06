@@ -42,6 +42,13 @@ def build_breadcrumbs(pathname: str | None) -> list[dict[str, str]]:
                 {"label": "Sơ đồ diễn giải"},
             ]
         )
+    elif pathname == "/menus":
+        items.extend(
+            [
+                {"label": "Quản trị"},
+                {"label": "Danh sách menu"},
+            ]
+        )
     elif pathname == "/templates":
         items.extend(
             [
@@ -164,9 +171,8 @@ def get_nav_items_for_roles(roles: set[Role] | set[str]) -> list[dict[str, Any]]
 
 # Menu có trong effective_menus nhưng chưa có trang thanh bên: "result" là
 # trang chi tiết run (/runs/<id>), "batch_run"/"batch_def" thuộc task 18
-# (chưa làm), "menu_admin" thuộc task 20 (Q7: khai báo + seed nhưng ẩn
-# khỏi thanh bên tới task 20). Khi các task đó xong, bỏ mã khỏi tập này.
-_SIDEBAR_SKIP_CODES = {"result", "batch_run", "batch_def", "menu_admin"}
+# (chưa làm). Khi các task đó xong, bỏ mã khỏi tập này.
+_SIDEBAR_SKIP_CODES = {"result", "batch_run", "batch_def"}
 
 
 def get_nav_items_for_menus(menus: set[str], engine: Any = None, is_admin: bool = False) -> list[dict[str, Any]]:
@@ -176,12 +182,13 @@ def get_nav_items_for_menus(menus: set[str], engine: Any = None, is_admin: bool 
     code (task 20 bước 3); chưa migration thì dùng lại hằng số code.
     Menu đã gỡ không hiện với ai; menu đang ẩn chỉ hiện với ADMIN, kèm
     nhãn "Đang ẩn" (bước 2); menu mới gắn cờ is_new để ADMIN thấy nhãn
-    "Mới" (bước 3). `menu_admin` đang ẩn nên cũng không hiện, theo Q7 —
-    tới bước 4 mới mở.
+    "Mới" (bước 3). `menu_admin` mở từ bước 4 (trang /menus).
     """
     visible = set(menus)
     engine = engine or get_recon_engine()
     tree = _sidebar_tree(engine)
+    groups_src: list[dict[str, Any]]
+    menus_src: list[dict[str, Any]]
     if tree is None:
         groups_src = [{"code": g.code, "label": g.label, "order": g.order} for g in GROUPS]
         menus_src = [

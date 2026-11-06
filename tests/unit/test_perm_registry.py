@@ -67,6 +67,7 @@ class TestPageMenuRegistry:
             "lookups": "lookup",
             "users": "user",
             "roles": "role",
+            "menus": "menu_admin",
         }
         for name, code in expected.items():
             mod = importlib.import_module(f"app.ui.pages.{name}")
