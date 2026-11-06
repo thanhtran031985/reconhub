@@ -5,7 +5,7 @@ Trạng thái: 🔄 (bắt đầu 06/11/2026, nhánh feat/18-batch-run từ ad98
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
 | 1 | Schema, migration và FILE_SET_HASH | ✅ | 06/11/2026 |  |
-| 2 | Công thức và ghép file (hàm thuần) | ⬜ |  |  |
+| 2 | Công thức và ghép file (hàm thuần) | ✅ | 06/11/2026 |  |
 | 3 | Service bộ đối soát | ⬜ |  |  |
 | 4 | Lần chạy bộ: tạo, tải file, ghép, tham số | ⬜ |  |  |
 | 5 | Gộp nhiều file trong engine/executor | ⬜ |  |  |
@@ -16,6 +16,11 @@ Trạng thái: 🔄 (bắt đầu 06/11/2026, nhánh feat/18-batch-run từ ad98
 | 10 | Chuyển Oracle, tài liệu, hồi quy | ⬜ |  |  |
 
 ## Nhật ký
+
+### Bước 2 — Công thức và ghép file (06/11/2026)
+- `batch_formula.py` (parse_period, resolve, resolve_params, compute_file_set_hash) + `batch_matcher.py` (normalize_name, match); mã lỗi BATCH_* mới trong errors.py.
+- Kiểm tra: `tests/unit/test_batch_formula.py` + `test_batch_matcher.py` 36 pass cùng excel_load integration; typecheck 21 = baseline; lint sạch.
+- Ghi chú: `compute_file_set_hash` gom về một chỗ (excel_load bỏ helper riêng); `normalize_name` lấy basename trước khi chuẩn hóa (file trong .zip có đường dẫn).
 
 ### Bước 1 — Schema, migration và FILE_SET_HASH (06/11/2026)
 - 5 bảng mới + cột `BATCH_RUN_ID`/`BATCH_RUN_ITEM_ID` (RECON_RUN), `FILE_SET_HASH`/`SOURCE_FILES_JSON` (RECON_EXCEL_LOAD, UQ mới), `SOURCE_FILE_ID` (RECON_EXCEL_ROW, PK mới); migration `0006_batch_run`.

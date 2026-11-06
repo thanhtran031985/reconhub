@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -21,16 +20,8 @@ from app.engine.reader import read_sheet
 from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.template_config import TemplateConfig
 from app.services import service
+from app.services.batch_formula import compute_file_set_hash
 from app.services.perm import requires_menu
-
-
-def _single_file_set_hash(file_sha256: str) -> str:
-    """FILE_SET_HASH cho lần nạp 1 file = sha256(SHA256 của file).
-
-    Khớp công thức backfill của migration 0006 (spec 10a §6). Công thức
-    gộp nhiều file (bước 5) sẽ thay bằng compute_file_set_hash.
-    """
-    return hashlib.sha256(file_sha256.encode()).hexdigest()
 
 
 def _serialize_row_dict(d: dict[str, Any]) -> dict[str, Any]:
@@ -120,7 +111,8 @@ def load_excel_to_temp(
     if sha is not None:
         with engine.connect() as conn:
             stmt = select(recon_excel_load).where(
-                recon_excel_load.c.FILE_SET_HASH == _single_file_set_hash(str(sha)),
+                recon_excel_load.c.FILE_SET_HASH
+                == compute_file_set_hash([str(sha)], sheet_name or "", template_id, template_version),
                 recon_excel_load.c.TEMPLATE_ID == template_id,
                 recon_excel_load.c.TEMPLATE_VERSION == template_version,
                 recon_excel_load.c.PURGED_AT.is_(None),
@@ -191,7 +183,8 @@ def load_excel_to_temp(
             purged = (
                 conn.execute(
                     select(recon_excel_load).where(
-                        recon_excel_load.c.FILE_SET_HASH == _single_file_set_hash(str(f_rec["SHA256"])),
+                        recon_excel_load.c.FILE_SET_HASH
+                        == compute_file_set_hash([str(f_rec["SHA256"])], selected_sheet, template_id, template_version),
                         recon_excel_load.c.SHEET_NAME == selected_sheet,
                         recon_excel_load.c.TEMPLATE_ID == template_id,
                         recon_excel_load.c.TEMPLATE_VERSION == template_version,
@@ -315,7 +308,9 @@ def load_excel_to_temp(
                         CONTROL_TOTAL_CALC=ct_calc,
                         LOADED_AT=now,
                         PURGED_AT=None,
-                        FILE_SET_HASH=_single_file_set_hash(str(f_rec["SHA256"])),
+                        FILE_SET_HASH=compute_file_set_hash(
+                            [str(f_rec["SHA256"])], selected_sheet, template_id, template_version
+                        ),
                         SOURCE_FILES_JSON=[
                             {
                                 "file_id": file_id,
@@ -360,7 +355,10 @@ def load_excel_to_temp(
                     raced = (
                         conn.execute(
                             select(recon_excel_load).where(
-                                recon_excel_load.c.FILE_SET_HASH == _single_file_set_hash(str(f_rec["SHA256"])),
+                                recon_excel_load.c.FILE_SET_HASH
+                                == compute_file_set_hash(
+                                    [str(f_rec["SHA256"])], selected_sheet, template_id, template_version
+                                ),
                                 recon_excel_load.c.SHEET_NAME == selected_sheet,
                                 recon_excel_load.c.TEMPLATE_ID == template_id,
                                 recon_excel_load.c.TEMPLATE_VERSION == template_version,
