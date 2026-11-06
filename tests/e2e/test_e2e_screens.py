@@ -117,3 +117,9 @@ def test_e2e_issues_page_accessible(e2e_client) -> None:
     resp = e2e_client.get("/issues")
     assert resp.status_code == 200
     assert b"ReconHub" in resp.data
+
+
+def test_e2e_reports_page_accessible(e2e_client) -> None:
+    resp = e2e_client.get("/reports")
+    assert resp.status_code == 200
+    assert "Trung tâm báo cáo".encode() in resp.data

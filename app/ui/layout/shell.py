@@ -171,9 +171,9 @@ def get_nav_items_for_roles(roles: set[Role] | set[str]) -> list[dict[str, Any]]
 
 # Menu có trong effective_menus nhưng chưa có trang thanh bên: "result" là
 # trang chi tiết run (/runs/<id>), "batch_run"/"batch_def" thuộc task 18
-# (chưa làm). "report_center"/"report_history"/"report_admin" thuộc
-# task 27 (chưa làm). Khi các task đó xong, bỏ mã khỏi tập này.
-_SIDEBAR_SKIP_CODES = {"result", "batch_run", "batch_def", "report_center", "report_history", "report_admin"}
+# (chưa làm). Các menu report (report_center/report_history/report_admin)
+# đã có trang từ task 27 nên không còn trong tập này.
+_SIDEBAR_SKIP_CODES = {"result", "batch_run", "batch_def"}
 
 
 def get_nav_items_for_menus(menus: set[str], engine: Any = None, is_admin: bool = False) -> list[dict[str, Any]]:

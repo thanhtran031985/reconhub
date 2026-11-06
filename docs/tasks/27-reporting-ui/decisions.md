@@ -1,0 +1,5 @@
+# Quyết định – 27-reporting-ui
+
+Tham chiếu spec 12 và data flow. Ghi mọi khác biệt đã duyệt tại đây.
+
+- 06/11/2026 (tự duyệt theo ủy quyền của người dùng 17:41 "bạn toàn quyền duyệt plan" cho task 27+28): Q0 — nhánh `feat/27-reporting-ui` từ `8ade114` (đầu nhánh task 26). Q1 — làm xong cả task rồi gửi xem (full-task mode). Q2 — LOV options nạp lúc mở Viewer cho STATIC/LOOKUP và SQL không dep; SQL LOV có dep bind refresh khi dep đổi qua callback. Q3 — Wizard layout/column drag → nút ↑↓ + nhập row/span + "Tự sắp xếp" (không HTML5 drag trong Dash). Q4 — History "Chạy lại" → tạo run mới với PARAMS_JSON gốc, redirect sang Viewer với run mới. Q5 — Tải export qua Flask route `/download/report-export/<id>` (mẫu `/download/file`). Q6 — E2E = test HTTP trong repo + Playwright script ở /tmp (mẫu roles); flow cần Oracle kiểm tra ở mức service + trạng thái lỗi trên trình duyệt. Q7 — Nhóm báo cáo: FINANCE (Tài chính), ACCOUNTING (Kế toán), OPERATIONS (Vận hành). Q8 — Gỡ 3 code report khỏi `_SIDEBAR_SKIP_CODES` (task 21 dặn).
