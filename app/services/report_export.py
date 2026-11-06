@@ -185,31 +185,103 @@ class _CsvWriter:
         self._fh.close()
 
 
-class _XlsxWriter:
-    """Ghi XLSX stream qua XlsxWriter constant_memory (T26-03)."""
+def _to_datetime(value: Any) -> datetime | None:
+    """Chuỗi ISO/ngày giờ Oracle → datetime; không parse được → None."""
+    from datetime import date as _date
 
-    def __init__(self, path: Path, headers: list[str]) -> None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, _date):
+        return datetime(value.year, value.month, value.day)
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+class _XlsxWriter:
+    """Ghi XLSX stream qua XlsxWriter constant_memory (T26-03).
+
+    Ghi theo type (bước 2): STRING → write_string (giữ leading zero,
+    T26-04), NUMBER → write_number + num_format từ FORMAT_MASK,
+    DATE/DATETIME → write_datetime + num_format từ FORMAT_MASK.
+    """
+
+    def __init__(self, path: Path, columns: list[dict[str, Any]]) -> None:
         self._wb = xlsxwriter.Workbook(str(path), {"constant_memory": True})
         self._ws = self._wb.add_worksheet("Data")
-        self._row = 0
-        for col, header in enumerate(headers):
-            self._ws.write(0, col, header)
+        self._dtypes = [c["data_type"] for c in columns]
+        self._formats: list[Any] = []
+        header_fmt = self._wb.add_format({"bold": True})
+        for col, column in enumerate(columns):
+            dtype = column["data_type"]
+            mask = column.get("format_mask")
+            fmt_kwargs: dict[str, Any] = {}
+            align = str(column.get("alignment") or "").lower()
+            if align in ("left", "center", "right"):
+                fmt_kwargs["align"] = align
+            if dtype == "STRING":
+                fmt_kwargs["num_format"] = "@"
+            elif dtype == "NUMBER":
+                if mask:
+                    fmt_kwargs["num_format"] = mask
+            elif dtype == "DATE":
+                fmt_kwargs["num_format"] = mask or "YYYY-MM-DD"
+            elif dtype == "DATETIME":
+                fmt_kwargs["num_format"] = mask or "YYYY-MM-DD HH:mm:ss"
+            self._formats.append(self._wb.add_format(fmt_kwargs))
+            self._ws.write(0, col, column["label"], header_fmt)
+            width = column.get("width")
+            if width:
+                self._ws.set_column(col, col, int(width) / 7)
         self._row = 1
+
+    def _write_cell(
+        self, row: int, col: int, value: Any, dtype: str, fmt: Any
+    ) -> None:
+        if value is None:
+            self._ws.write_blank(row, col, None, fmt)
+            return
+        if dtype == "STRING":
+            self._ws.write_string(row, col, str(value), fmt)
+        elif dtype == "NUMBER":
+            try:
+                num = (
+                    value
+                    if isinstance(value, (int, float))
+                    else float(str(value))
+                )
+                self._ws.write_number(row, col, num, fmt)
+            except (TypeError, ValueError):
+                self._ws.write_string(row, col, str(value), fmt)
+        elif dtype in ("DATE", "DATETIME"):
+            dt = _to_datetime(value)
+            if dt is not None:
+                self._ws.write_datetime(row, col, dt, fmt)
+            else:
+                self._ws.write_string(row, col, str(value), fmt)
+        else:
+            self._ws.write(row, col, value, fmt)
 
     def write_rows(self, rows: list[dict[str, Any]], fields: list[str]) -> None:
         for row in rows:
             for col, field in enumerate(fields):
-                self._ws.write(self._row, col, row.get(field))
+                self._write_cell(
+                    self._row, col, row.get(field), self._dtypes[col],
+                    self._formats[col],
+                )
             self._row += 1
 
     def close(self) -> None:
         self._wb.close()
 
 
-def _make_writer(format: str, path: Path, headers: list[str]) -> Any:
+def _make_writer(format: str, path: Path, columns: list[dict[str, Any]]) -> Any:
     if format == "CSV":
-        return _CsvWriter(path, headers)
-    return _XlsxWriter(path, headers)
+        return _CsvWriter(path, [c["label"] for c in columns])
+    return _XlsxWriter(path, columns)
 
 
 def _iter_batches(
@@ -291,8 +363,7 @@ def execute_export(
     try:
         columns = [c for c in detail["columns"] if c["excel_visible"]]
         fields = [c["field_name"] for c in columns]
-        headers = [c["label"] for c in columns]
-        writer = _make_writer(fmt, out_path, headers)
+        writer = _make_writer(fmt, out_path, columns)
         written = 0
         try:
             for _col_names, batch in _iter_batches(detail, resolved):
