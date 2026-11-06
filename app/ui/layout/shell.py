@@ -6,14 +6,15 @@ import dash
 import dash_mantine_components as dmc
 from dash import Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
-from sqlalchemy import select
+from sqlalchemy import inspect, select
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.context import Ctx, Role
 from app.core.session import get_current_ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_app_setting
 from app.services.data_source import get_active_environment
-from app.services.perm import effective_menus, get_perm_revision, is_admin, menu_state, user_role_codes
+from app.services.perm import effective_menus, get_perm_revision, is_admin, user_role_codes
 from app.services.temp_data import usage
 from app.ui.components.alert_box import alert_box
 from app.ui.formatters import format_bytes
@@ -169,35 +170,71 @@ _SIDEBAR_SKIP_CODES = {"result", "batch_run", "batch_def", "menu_admin"}
 
 
 def get_nav_items_for_menus(menus: set[str], engine: Any = None, is_admin: bool = False) -> list[dict[str, Any]]:
-    """Nhóm menu thanh bên từ menu hiệu lực của người dùng (task 19).
+    """Nhóm menu thanh bên từ menu hiệu lực của người dùng (task 19, 20).
 
-    Thứ tự nhóm/menu và tên/đường dẫn/icon lấy từ `app/ui/menus.py`;
-    menu đã gỡ không hiện với ai; menu đang ẩn chỉ hiện với ADMIN, kèm
-    nhãn "Đang ẩn" (task 20 bước 2); `menu_admin` đang ẩn nên cũng
-    không hiện, theo Q7 — tới task 20 bước 4 mới mở.
+    Nhóm/menu lấy tên, thứ tự hiển thị từ DB (DISPLAY_*), không lấy từ
+    code (task 20 bước 3); chưa migration thì dùng lại hằng số code.
+    Menu đã gỡ không hiện với ai; menu đang ẩn chỉ hiện với ADMIN, kèm
+    nhãn "Đang ẩn" (bước 2); menu mới gắn cờ is_new để ADMIN thấy nhãn
+    "Mới" (bước 3). `menu_admin` đang ẩn nên cũng không hiện, theo Q7 —
+    tới bước 4 mới mở.
     """
     visible = set(menus)
+    engine = engine or get_recon_engine()
+    tree = _sidebar_tree(engine)
+    if tree is None:
+        groups_src = [{"code": g.code, "label": g.label, "order": g.order} for g in GROUPS]
+        menus_src = [
+            {
+                "code": m.code,
+                "label": m.label,
+                "path": m.path,
+                "icon": m.icon,
+                "group": m.group,
+                "order": m.order,
+                "is_hidden": False,
+                "is_removed": False,
+                "is_new": False,
+            }
+            for m in MENUS
+        ]
+    else:
+        groups_src = tree["groups"]
+        menus_src = tree["menus"]
     groups: list[dict[str, Any]] = []
-    for group in sorted(GROUPS, key=lambda g: g.order):
-        items: list[dict[str, str]] = []
-        for menu in sorted([m for m in MENUS if m.group == group.code], key=lambda m: m.order):
-            if menu.code not in visible or menu.code in _SIDEBAR_SKIP_CODES:
+    for group in sorted(groups_src, key=lambda g: g["order"]):
+        items: list[dict[str, Any]] = []
+        for menu in sorted([m for m in menus_src if m["group"] == group["code"]], key=lambda m: m["order"]):
+            if menu["code"] not in visible or menu["code"] in _SIDEBAR_SKIP_CODES:
                 continue
-            state = menu_state(menu.code, engine)
-            if state is None:
-                label = menu.label
-            else:
-                if state.get("IS_REMOVED") == "Y":
+            if menu["is_removed"]:
+                continue
+            label = str(menu["label"])
+            if menu["is_hidden"]:
+                if not is_admin:
                     continue
-                label = str(state.get("DISPLAY_LABEL") or menu.label)
-                if state.get("IS_HIDDEN") == "Y":
-                    if not is_admin:
-                        continue
-                    label = f"{label} (Đang ẩn)"
-            items.append({"label": label, "href": menu.path, "icon": menu.icon})
+                label = f"{label} (Đang ẩn)"
+            item: dict[str, Any] = {"label": label, "href": menu["path"], "icon": menu["icon"]}
+            if menu["is_new"] and is_admin:
+                item["is_new"] = True
+            items.append(item)
         if items:
-            groups.append({"title": group.label.upper(), "items": items})
+            groups.append({"title": group["label"].upper(), "items": items})
     return groups
+
+
+def _sidebar_tree(engine: Any) -> dict[str, Any] | None:
+    """Cây nhóm + menu hiển thị từ DB; None khi chưa có bảng menu (pre-migration)."""
+    try:
+        names = inspect(engine).get_table_names()
+    except SQLAlchemyError:
+        return None
+    if "RECON_MENU" not in names or "RECON_MENU_GROUP" not in names:
+        return None
+    from app.services.menu_sync import read_display_tree
+
+    with engine.connect() as conn:
+        return read_display_tree(conn)
 
 
 def first_nav_href(ctx: Ctx | None, engine: Any = None) -> str | None:
@@ -456,9 +493,18 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
             )
             for item in group["items"]:
                 is_active = item["href"] == active_href
+                label_node: Any = item["label"]
+                if item.get("is_new"):
+                    label_node = dmc.Group(
+                        [
+                            dmc.Text(item["label"], size="sm", fw=500),
+                            dmc.Badge("Mới", size="xs", color="green", variant="light"),
+                        ],
+                        gap="xs",
+                    )
                 content_children.append(
                     dmc.NavLink(
-                        label=item["label"],
+                        label=label_node,
                         leftSection=DashIconify(icon=item["icon"], width=18),
                         href=item["href"],
                         active=is_active,

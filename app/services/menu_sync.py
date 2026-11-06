@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Connection, Engine, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.audit import write_audit_log
@@ -288,36 +288,62 @@ def list_menu_tree(ctx: Ctx) -> list[dict[str, Any]]:
     """
     engine = get_recon_engine()
     with engine.connect() as conn:
-        groups = conn.execute(select(recon_menu_group)).mappings().all()
-        menus = conn.execute(select(recon_menu)).mappings().all()
+        tree = read_display_tree(conn)
+    by_group: dict[str, list[dict[str, Any]]] = {}
+    for m in tree["menus"]:
+        if m["is_removed"]:
+            continue
+        by_group.setdefault(m["group"], []).append(
+            {
+                "code": m["code"],
+                "label": m["label"],
+                "path": m["path"],
+                "icon": m["icon"],
+                "is_new": m["is_new"],
+                "is_hidden": m["is_hidden"],
+            }
+        )
+    return [
+        {"code": g["code"], "label": g["label"], "menus": by_group.get(g["code"], [])}
+        for g in tree["groups"]
+        if by_group.get(g["code"])
+    ]
+
+
+def read_display_tree(conn: Connection) -> dict[str, Any]:
+    """Nhóm + menu theo giá trị hiển thị trong DB (kèm menu đã gỡ).
+
+    Dùng chung cho thanh bên (shell) và màn Vai trò (list_menu_tree).
+    Sắp xếp theo thứ tự hiển thị.
+    """
+    groups = conn.execute(select(recon_menu_group)).mappings().all()
+    menus = conn.execute(select(recon_menu)).mappings().all()
     groups = sorted(groups, key=lambda g: g["DISPLAY_ORDER"] or g["SOURCE_ORDER"])
     menus = sorted(menus, key=lambda m: m["DISPLAY_ORDER"] or m["SOURCE_ORDER"])
-    by_group: dict[str, list[dict[str, Any]]] = {}
-    for m in menus:
-        if m["IS_REMOVED"] == "Y":
-            continue
-        by_group.setdefault(str(m["DISPLAY_GROUP"] or m["SOURCE_GROUP"]), []).append(
+    return {
+        "groups": [
+            {
+                "code": str(g["CODE"]),
+                "label": str(g["DISPLAY_LABEL"] or g["SOURCE_LABEL"]),
+                "order": int(g["DISPLAY_ORDER"] or g["SOURCE_ORDER"]),
+            }
+            for g in groups
+        ],
+        "menus": [
             {
                 "code": str(m["CODE"]),
                 "label": str(m["DISPLAY_LABEL"] or m["SOURCE_LABEL"]),
                 "path": str(m["PATH"]),
-                "icon": str(m["ICON"]),
-                "is_new": m["IS_NEW"] == "Y",
+                "icon": str(m["ICON"] or ""),
+                "group": str(m["DISPLAY_GROUP"] or m["SOURCE_GROUP"]),
+                "order": int(m["DISPLAY_ORDER"] or m["SOURCE_ORDER"]),
                 "is_hidden": m["IS_HIDDEN"] == "Y",
+                "is_removed": m["IS_REMOVED"] == "Y",
+                "is_new": m["IS_NEW"] == "Y",
             }
-        )
-    tree = []
-    for g in groups:
-        items = by_group.get(str(g["CODE"]), [])
-        if items:
-            tree.append(
-                {
-                    "code": str(g["CODE"]),
-                    "label": str(g["DISPLAY_LABEL"] or g["SOURCE_LABEL"]),
-                    "menus": items,
-                }
-            )
-    return tree
+            for m in menus
+        ],
+    }
 
 
 def sync_menus_safely(engine: Engine | None = None) -> dict[str, Any]:

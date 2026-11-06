@@ -80,6 +80,14 @@ def _menu_label_map(ctx: Ctx) -> dict[str, str]:
     return labels
 
 
+def _role_is_system(ctx: Ctx, role_id: int) -> bool:
+    """Vai trò có phải hệ thống không (để xem trước thanh bên như ADMIN)."""
+    res = get_role(ctx, role_id)
+    if not res.ok or not res.data:
+        return False
+    return bool(res.data["is_system"])
+
+
 def _effective_role_menus(ctx: Ctx, role: dict[str, Any]) -> list[str]:
     """Menu hiệu lực của một vai trò để xem trước thanh bên.
 
@@ -172,11 +180,10 @@ def render_roles_list(ctx: Ctx, q: str | None = None, selected_id: int | None = 
 
 
 def render_menu_checkboxes(ctx: Ctx, role_id: int) -> Any:
-    """Checkbox menu theo nhóm trong lưới 3 cột, kèm nhãn Đang ẩn (spec 11 mục 7.1).
+    """Checkbox menu theo nhóm trong lưới 3 cột, kèm nhãn Mới / Đang ẩn (spec 11 mục 7.1).
 
-    Nhãn "Mới" cố tình bỏ khỏi màn này: sau migration mọi menu đều IS_NEW='Y'
-    nên nhãn hiện trên cả 13 mục, mất tác dụng cảnh báo. Cờ IS_NEW vẫn giữ
-    trong DB cho màn quản trị menu (task 20).
+    Nhãn "Mới" chỉ hiện khi menu thật sự mới (IS_NEW='Y'); sau khi Admin
+    đánh dấu đã xem hoặc bật menu cho vai trò (task 20, Q7) thì nhãn mất.
     """
     res = get_role(ctx, role_id)
     if not res.ok or not res.data:
@@ -194,6 +201,8 @@ def render_menu_checkboxes(ctx: Ctx, role_id: int) -> Any:
         boxes = []
         for menu in group["menus"]:
             badges = []
+            if menu["is_new"]:
+                badges.append(dmc.Badge("Mới", size="xs", color="green", variant="light"))
             if menu["is_hidden"]:
                 badges.append(dmc.Badge("Đang ẩn", size="xs", color="orange", variant="light"))
             boxes.append(
@@ -279,22 +288,17 @@ def render_menu_checkboxes(ctx: Ctx, role_id: int) -> Any:
     )
 
 
-def render_sidebar_preview(ctx: Ctx, menu_codes: list[str]) -> Any:
-    """Xem trước thanh bên người có các menu này sẽ thấy.
-
-    Chỉ menu có mục trên thanh bên mới hiện; menu đã chọn nhưng không
-    có mục thanh bên (trang chi tiết, task chưa làm) được ghi chú riêng
-    để đối chiếu đủ với ô đã tick.
-    """
+def render_sidebar_preview(ctx: Ctx, menu_codes: list[str], is_admin: bool = False) -> Any:
     """Xem trước thanh bên người có các menu này sẽ thấy.
 
     Khung mô phỏng thanh bên thật của app (nền sáng, nhóm + mục như navbar),
     khác khung tối navy của prototype Screen14 vì thanh bên thật của app
     là nền sáng. Chỉ menu có mục trên thanh bên mới hiện; menu đã chọn
     nhưng không có mục thanh bên (trang chi tiết, task chưa làm) được ghi
-    chú riêng để đối chiếu đủ với ô đã tick.
+    chú riêng để đối chiếu đủ với ô đã tick. `is_admin=True` thì menu đang
+    ẩn vẫn hiện kèm nhãn "Đang ẩn" như thanh bên thật của ADMIN.
     """
-    groups = get_nav_items_for_menus(set(menu_codes))
+    groups = get_nav_items_for_menus(set(menu_codes), is_admin=is_admin)
     items: list[Any] = []
     if not groups:
         items.append(dmc.Text("Không thấy menu nào ở thanh bên.", size="sm", c="dimmed"))
@@ -443,7 +447,7 @@ def render_role_detail(ctx: Ctx, role_id: int) -> Any:
                     ),
                     html.Div(
                         id="roles-sidebar-preview",
-                        children=render_sidebar_preview(ctx, _effective_role_menus(ctx, role)),
+                        children=render_sidebar_preview(ctx, _effective_role_menus(ctx, role), is_admin=is_system),
                     ),
                     dmc.Divider(mt="md", mb="sm"),
                     dmc.Text(_SCOPE_NOTE, size="sm", c="dimmed"),
@@ -590,7 +594,7 @@ def render_effective_panel(ctx: Ctx, user_id: int) -> Any:
                         dmc.Paper(
                             [
                                 dmc.Text("Thanh bên người này thấy", fw=600, size="sm", mb="sm"),
-                                render_sidebar_preview(ctx, list(data["menus"])),
+                                render_sidebar_preview(ctx, list(data["menus"]), is_admin=bool(data["is_admin"])),
                             ],
                             withBorder=True,
                             radius="md",
@@ -1037,7 +1041,7 @@ def handle_role_form_change(
         or bool(is_active) != bool(snapshot["is_active"])
         or sorted(menus or []) != sorted(snapshot["menus"])
     )
-    preview = render_sidebar_preview(ctx, list(menus or []))
+    preview = render_sidebar_preview(ctx, list(menus or []), is_admin=_role_is_system(ctx, role_id))
     if not dirty:
         return False, True, True, "Chưa có thay đổi.", preview
     return True, False, False, "Đã có thay đổi chưa lưu.", preview

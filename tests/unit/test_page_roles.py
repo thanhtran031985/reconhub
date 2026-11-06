@@ -194,8 +194,8 @@ class TestRolesLayout:
         for code in ["dashboard", "run", "result", "history", "issue", "template", "user", "role"]:
             assert code in text, f"thiếu checkbox menu {code}"
         assert "Đang ẩn" in text  # menu_admin đang ẩn nhưng vẫn gán được
-        # Nhãn "Mới" đã bỏ khỏi màn này (mọi menu đều mới sau seed): xem
-        # TestRolesLayoutCards.test_menu_checkboxes_no_new_badge_but_hidden_badge.
+        # Nhãn "Mới" hiện cho menu mới (task 20 bước 3): xem
+        # TestRolesLayoutCards.test_menu_checkboxes_new_badge_and_hidden_badge.
 
     def test_effective_panel(self, roles_env):
         import app.ui.pages.roles as roles_page
@@ -439,12 +439,12 @@ class TestRolesLayoutCards:
         assert "6/13 menu" in text  # OPERATOR: 6 menu
         assert comp.children[0].h == "auto"  # nút cao theo nội dung 3 dòng, không tràn đè nhau
 
-    def test_menu_checkboxes_no_new_badge_but_hidden_badge(self, roles_env):
+    def test_menu_checkboxes_new_badge_and_hidden_badge(self, roles_env):
         import app.ui.pages.roles as roles_page
 
         _, role_ids = roles_env
         text = _dump(roles_page.render_menu_checkboxes(_admin(), role_ids["OPERATOR"]))
-        assert "Mới" not in text  # mọi menu đều mới sau seed nên nhãn mất tác dụng
+        assert "Mới" in text  # menu mới sau seed (task 20 bước 3 khôi phục nhãn)
         assert "Đang ẩn" in text  # menu lookup đang ẩn trong fixture
 
     def test_menu_checkboxes_rendered_in_cards(self, roles_env):

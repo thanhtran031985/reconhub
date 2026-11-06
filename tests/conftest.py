@@ -109,6 +109,24 @@ def _clear_perm_cache() -> Generator[None, None, None]:
     clear_perm_cache()
 
 
+@pytest.fixture(autouse=True)
+def _clear_settings_cache() -> Generator[None, None, None]:
+    """Xóa cache settings trước/sau mỗi test (task 20 bước 3).
+
+    `get_settings` là lru_cache: fixture đổi RECON_DB_URL (kèm
+    cache_clear ở setup, không có ở teardown) sẽ để settings trỏ sang
+    DB tạm của test trước, khiến test sau dùng nhầm engine — ví dụ
+    test_page_dashboard để user_id=1 là operator, làm thanh bên của
+    test_ui_shell rỗng vì `get_nav_items_for_menus` giờ đọc cây menu
+    từ DB thay vì hằng số code.
+    """
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 @pytest.fixture
 def oracle_test() -> Generator[Engine, None, None]:
     """Fixture kết nối tới CSDL Oracle test qua VPN.

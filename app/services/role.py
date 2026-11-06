@@ -107,6 +107,18 @@ def _user_count(conn: Connection, role_id: int) -> int:
     )
 
 
+def _clear_new_flags(conn: Connection, menu_codes: list[str]) -> None:
+    """Bỏ nhãn Mới cho menu vừa được bật cho vai trò (task 20, Q7)."""
+    if not menu_codes:
+        return
+    conn.execute(
+        recon_menu.update()
+        .where(recon_menu.c.CODE.in_(sorted(set(menu_codes))))
+        .where(recon_menu.c.IS_NEW == "Y")
+        .values(IS_NEW="N")
+    )
+
+
 def _set_menus(conn: Connection, role_id: int, menus: list[str], actor: str, now: datetime) -> None:
     conn.execute(recon_role_menu.delete().where(recon_role_menu.c.ROLE_ID == role_id))
     for code in menus:
@@ -194,6 +206,7 @@ def create_role(
             raise ServiceError(ErrorCode.INTERNAL_ERROR, "Không tạo được vai trò.")
         role_id = int(pk[0])
         _set_menus(conn, role_id, menu_codes, ctx.username, now)
+        _clear_new_flags(conn, menu_codes)
         bump_perm_revision(conn, ctx.username)
         write_audit_log(
             conn=conn,
@@ -269,6 +282,8 @@ def update_role(
         menus_changed = sorted(new_menus) != sorted(old_menus)
         if menus_changed or (is_active is not None and new_active != (row["IS_ACTIVE"] == "Y")):
             _set_menus(conn, role_id, new_menus, ctx.username, now)
+            # Q7: menu vừa tick thêm thì hết "Mới" trong cùng transaction.
+            _clear_new_flags(conn, [m for m in new_menus if m not in old_menus])
             bump_perm_revision(conn, ctx.username)
         write_audit_log(
             conn=conn,
