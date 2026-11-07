@@ -139,6 +139,7 @@ def get_nav_items_for_roles(roles: set[Role] | set[str]) -> list[dict[str, Any]]
     ]
     if is_admin or is_to or is_op:
         recon_items.append({"label": "Chạy đối soát", "href": "/runs/new", "icon": "lucide:play-circle"})
+        recon_items.append({"label": "Chạy bộ đối soát", "href": "/batch-runs", "icon": "lucide:layers"})
     recon_items.append({"label": "Lịch sử", "href": "/history", "icon": "lucide:history"})
     recon_items.append({"label": "Xử lý chênh lệch", "href": "/issues", "icon": "lucide:alert-circle"})
 
@@ -150,6 +151,8 @@ def get_nav_items_for_roles(roles: set[Role] | set[str]) -> list[dict[str, Any]]
         config_items.append({"label": "Templates", "href": "/templates", "icon": "lucide:file-spreadsheet"})
     if is_admin or is_to:
         config_items.append({"label": "Đăng ký template", "href": "/templates/new", "icon": "lucide:file-plus"})
+    if is_admin or is_to or is_op:
+        config_items.append({"label": "Bộ đối soát", "href": "/batches", "icon": "lucide:layers"})
     if is_admin:
         config_items.append({"label": "Data Sources", "href": "/data-sources", "icon": "lucide:database"})
         config_items.append({"label": "Người dùng", "href": "/users", "icon": "lucide:users"})
@@ -170,10 +173,8 @@ def get_nav_items_for_roles(roles: set[Role] | set[str]) -> list[dict[str, Any]]
 
 
 # Menu có trong effective_menus nhưng chưa có trang thanh bên: "result" là
-# trang chi tiết run (/runs/<id>), "batch_run"/"batch_def" thuộc task 18
-# (chưa làm). Các menu report (report_center/report_history/report_admin)
-# đã có trang từ task 27 nên không còn trong tập này.
-_SIDEBAR_SKIP_CODES = {"result", "batch_run", "batch_def"}
+# trang chi tiết run (/runs/<id>).
+_SIDEBAR_SKIP_CODES = {"result"}
 
 
 def get_nav_items_for_menus(menus: set[str], engine: Any = None, is_admin: bool = False) -> list[dict[str, Any]]:

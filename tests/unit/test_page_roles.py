@@ -225,7 +225,8 @@ class TestSidebarFromMenus:
         assert "/roles" in hrefs
         assert "/users" in hrefs
         assert "/menus" in hrefs  # task 20 bước 4: mở menu_admin khỏi _SIDEBAR_SKIP_CODES
-        assert "/batch-runs" not in hrefs  # task 18 chưa làm
+        assert "/batch-runs" in hrefs  # task 18: mở trên thanh bên
+        assert "/batches" in hrefs  # task 18: mở trên thanh bên
         assert "/runs/<id>" not in hrefs  # trang chi tiết, không lên thanh bên
 
     def test_viewer_sidebar_scoped(self, roles_env):
