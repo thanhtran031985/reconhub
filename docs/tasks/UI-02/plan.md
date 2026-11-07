@@ -39,3 +39,4 @@ Triệt tiêu hoàn toàn page-scroll desktop 1366×768 (Dashboard: 1065px -> <=
 - Chạy toàn bộ 74 tests của 5 trang.
 - Kiểm tra lint (`ruff check`).
 - Cập nhật tài liệu UI-02, tasks-dashboard, commit và push lên `feat/UI-02`.
+

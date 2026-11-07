@@ -270,12 +270,12 @@ class TestReplaceFiles:
         )
         data_rows = [list(r) for r in df.rows()[1:11]]
         # File thay thế: 10 dòng đầu, tên khác nhưng khớp mẫu *DTP*.
+        import io
         from decimal import Decimal
 
         import xlsxwriter
 
-        tmp_path = Path("/tmp")
-        p = tmp_path / "dtp_replacement.xlsx"
+        buf = io.BytesIO()
         header = [str(v) for v in df.rows()[0]]
         qty_idx = header.index("Số lượng")
         amt_idx = header.index("Thành tiền")
@@ -284,13 +284,13 @@ class TestReplaceFiles:
         total_row[svc_idx] = "Tổng tiền"
         total_row[qty_idx] = str(sum(Decimal(str(r[qty_idx])) for r in data_rows))
         total_row[amt_idx] = str(sum(Decimal(str(r[amt_idx])) for r in data_rows))
-        with xlsxwriter.Workbook(str(p)) as wb:
+        with xlsxwriter.Workbook(buf) as wb:
             ws = wb.add_worksheet("BÁO CÁO DTP")
             ws.write_row(0, 0, header)
             for i, row in enumerate(data_rows, start=1):
                 ws.write_row(i, 0, ["" if v is None else str(v) for v in row])
             ws.write_row(len(data_rows) + 1, 0, ["" if v is None else str(v) for v in total_row])
-        res = replace_files(admin_ctx, item["id"], [{"filename": "dtp_moi.xlsx", "content": p.read_bytes()}])
+        res = replace_files(admin_ctx, item["id"], [{"filename": "dtp_moi.xlsx", "content": buf.getvalue()}])
         assert res.ok is True
         assert res.data["status"] == "READY"
         assert res.data["precheck"]["rows_valid"] == 10

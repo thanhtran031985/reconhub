@@ -976,11 +976,13 @@ def render_step_3(
             if mode_val == "sql" and sql_val:
                 reg_p = ["p_from", "p_to", "p_org"]
                 for flt in db_spec.get("filters", []):
-                    if flt.get("param") and flt.get("param") not in reg_p:
-                        reg_p.append(flt.get("param"))
+                    p_val = flt.get("param")
+                    if p_val and str(p_val) not in reg_p:
+                        reg_p.append(str(p_val))
                 for ef in _extra_filters_from_db_spec(db_spec):
-                    if ef.get("param") and ef.get("param") not in reg_p:
-                        reg_p.append(ef.get("param"))
+                    p_val = ef.get("param")
+                    if p_val and str(p_val) not in reg_p:
+                        reg_p.append(str(p_val))
                 desc_res = describe_source(
                     ctx, data_source_id=ds_id, sql=sql_val, schema=default_schema, allowed_params=reg_p
                 )
@@ -1441,7 +1443,7 @@ def _render_profile_grouped_sql(
         if g not in {d.get("name") for d in config.get("derived", [])} and not fields_map.get(g, {}).get("db")
     ]
     unmapped += [
-        m.get("field")
+        str(m.get("field"))
         for m in measures
         if m.get("field")
         and m.get("field") != "*"
@@ -2112,9 +2114,9 @@ def render_step_4(
                                         avail_fields_info,
                                         active_prof.get("group_by", []),
                                         [
-                                            m.get("field")
+                                            str(m.get("field"))
                                             for m in active_prof.get("measures", [])
-                                            if isinstance(m, dict)
+                                            if isinstance(m, dict) and m.get("field")
                                         ],
                                     ),
                                 ),
@@ -2226,9 +2228,8 @@ def render_step_5(
     # Nếu chỉ hiện lỗi qua ô lỗi riêng, render lại sẽ dựng lại ô đó trống
     # và lỗi biến mất, đúng như lỗi người dùng vừa gặp ở bước dry-run thật.
     stage_order = [s for s, _ in DRY_RUN_STAGES]
-    failed_idx = (
-        stage_order.index((dry_run_data or {}).get("stage")) if (dry_run_data or {}).get("stage") in stage_order else -1
-    )
+    _stage_raw = (dry_run_data or {}).get("stage")
+    failed_idx = stage_order.index(str(_stage_raw)) if _stage_raw and str(_stage_raw) in stage_order else -1
     timeline_badges = []
     for idx, (_stage, label) in enumerate(DRY_RUN_STAGES):
         if has_dry_run:
@@ -2391,7 +2392,7 @@ def render_step_5(
                             ),
                             mt="sm",
                         ),
-                        type="dots",
+                        type="dot",
                     ),
                 ],
             ),
@@ -3920,7 +3921,7 @@ def handle_switch_tabs(
             "display": "flex",
             "justifyContent": "space-between",
             "alignItems": "center",
-            "flexShrink": 0,
+            "flexShrink": "0",
             "height": "48px",
             "padding": "0 20px",
             "borderTop": "1px solid var(--mantine-color-default-border)",
@@ -4221,7 +4222,7 @@ def handle_run_dry_run(
         # autosave vừa lưu xong nhưng meta chưa kịp cập nhật). Đọc lại
         # row_version hiện tại từ DB và thử lưu lại một lần, thay vì bắt
         # người dùng tải lại trang. Nếu lần hai vẫn STALE thì báo lỗi thật.
-        fresh = get_template(ctx, (_meta or {}).get("template_id"))
+        fresh = get_template(ctx, int((_meta or {}).get("template_id") or 0))
         if fresh.ok and fresh.data and fresh.data.get("row_version"):
             save_res = save_draft_template(
                 ctx,
@@ -4692,7 +4693,7 @@ def handle_step4_interaction(
     left_ui = _render_step_4_left_fields(
         avail_fields_info,
         active_prof.get("group_by", []),
-        [m.get("field") for m in active_prof.get("measures", []) if isinstance(m, dict)],
+        [str(m.get("field")) for m in active_prof.get("measures", []) if isinstance(m, dict) and m.get("field")],
     )
 
     tab_list = [

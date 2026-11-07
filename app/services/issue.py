@@ -34,7 +34,7 @@ DEFAULT_ISSUE_REASONS = [
 ]
 
 
-def _check_issue_owner(conn: Connection, issue_row: Any, ctx: Ctx, engine) -> None:
+def _check_issue_owner(conn: Connection, issue_row: Any, ctx: Ctx, engine: Any = None) -> None:
     """Issue thuộc về người chạy run FIRST_RUN_ID (Q9, task 19)."""
     first_run_id = issue_row["FIRST_RUN_ID"]
     check_owned(conn, recon_run, "ID", int(first_run_id), ctx, engine=engine)

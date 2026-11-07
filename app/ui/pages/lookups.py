@@ -676,7 +676,7 @@ def layout(**kwargs: Any) -> Any:
                 style={"marginBottom": "8px"},
             ),
             # Vùng thông báo chung của trang (lỗi xóa, aria-live cho trình đọc màn hình). Mặc định trống.
-            html.Div(id="lookups-page-alert", **{"aria-live": "polite"}),
+            html.Div(id="lookups-page-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
             # Layout Master–Detail 2 cột
             dmc.Box(
                 style={
@@ -1213,7 +1213,7 @@ def cb_add_code_modal(
     color_val: str | None,
     icon_val: str | None,
     desc_val: str | None,
-) -> tuple[bool, dict[str, Any]]:
+) -> tuple[bool, dict[str, Any], Any]:
     ctx_dash = dash.callback_context
     triggered = ctx_dash.triggered[0]["prop_id"] if ctx_dash.triggered else ""
     context = {"lookup_type": lookup_type, "lookup_code": None}
@@ -1360,7 +1360,7 @@ def cb_edit_code_modal(
                 ctx_data,
                 alert_box("Chưa lưu được", err, tone="crit"),
             )
-        return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None, None
+        return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None
 
     return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None
 

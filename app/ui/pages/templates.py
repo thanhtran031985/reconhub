@@ -907,7 +907,7 @@ def handle_sample_excel_template(sample_clicks: list[Any]) -> Any:
             if ctx:
                 res = export_template_sample_excel(ctx, tid_int)
                 if res.ok and res.data:
-                    return dcc.send_bytes(
+                    return dcc.send_bytes(  # type: ignore[attr-defined, no-untyped-call]
                         res.data["content"],
                         filename=str(res.data.get("filename") or "template_mau.xlsx"),
                     )

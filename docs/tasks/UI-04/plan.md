@@ -42,3 +42,4 @@ Loại bỏ 65 inline styles lặp lại trong `data-sources`, khắc phục hi�
 - Chạy `ruff check` kiểm tra linting.
 - Cập nhật tiến độ `docs/tasks/UI-04/progress.md`, `task.md` (DONE), `docs/tasks/UI-MIGRATION-INDEX.md` (DONE), `tasks-dashboard`.
 - Commit và push branch `feat/UI-04` lên GitHub.
+

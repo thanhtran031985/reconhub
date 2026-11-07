@@ -167,6 +167,7 @@ def _claim_in_child(db_path: str, worker_id: str, out: mp.Queue) -> None:
 
 
 class TestClaimTwoProcesses:
+    @pytest.mark.skipif("fork" not in mp.get_all_start_methods(), reason="multiprocessing fork requires POSIX")
     def test_two_processes_respect_limit(self, claim_env):
         engine, db_path = claim_env
         ids = _seed_jobs(engine, max_parallel=1, with_standalone=False)

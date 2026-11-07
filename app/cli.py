@@ -12,7 +12,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import select, update
+from sqlalchemy import Connection, select, update
 
 from app.core.audit import write_audit_log
 from app.core.auth import hash_password
@@ -37,7 +37,7 @@ from app.services.metadata_migration import precheck, start_migration
 from app.services.temp_data import preview, purge_filter, purge_runs, usage
 
 
-def _ensure_role(conn, code: str, name: str, is_system: str, now: datetime) -> int:
+def _ensure_role(conn: Connection, code: str, name: str, is_system: str, now: datetime) -> int:
     """Trả về ID vai trò, tự tạo nếu chưa có (DB mới chưa chạy migration 0003)."""
     role_id = conn.execute(select(recon_role.c.ID).where(recon_role.c.CODE == code)).scalar_one_or_none()
     if role_id is not None:
@@ -55,6 +55,7 @@ def _ensure_role(conn, code: str, name: str, is_system: str, now: datetime) -> i
             ROW_VERSION=1,
         )
     )
+    assert res.inserted_primary_key is not None
     return int(res.inserted_primary_key[0])
 
 

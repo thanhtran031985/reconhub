@@ -142,7 +142,7 @@ def render_runs_table(runs: list[dict[str, Any]], exports_by_run: dict[int, list
     )
 
 
-def layout() -> html.Div:
+def layout() -> Any:
     """Giao diện chính màn hình Lịch sử báo cáo."""
     ctx = get_current_ctx()
     gate = page_gate(ctx, MENU_CODE)

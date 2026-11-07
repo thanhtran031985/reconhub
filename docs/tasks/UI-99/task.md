@@ -2,7 +2,7 @@
 
 ## Status
 
-TODO
+DONE
 
 ## Dependencies
 
@@ -133,12 +133,12 @@ Mọi lỗi gặp phải phân loại:
 
 ## Acceptance Criteria
 
-- [ ] Toàn bộ 26 trang đều **KHÔNG có page scroll** ở 1366×768 và 1440×900.
-- [ ] Không có bất kỳ lỗi tràn ngang nào trên cả desktop và mobile.
-- [ ] Báo cáo Phase A được xuất đầy đủ trước khi thực hiện Phase B.
-- [ ] Không còn class CSS thừa hoặc màu hex hardcoded trong `app/ui/**`.
-- [ ] `uv run poe lint`, `uv run poe typecheck`, `uv run poe test`, `uv run poe e2e` đều XANH 100%.
-- [ ] Chuyển trạng thái toàn bộ backlog sang DONE.
+- [x] Toàn bộ 26 trang đều **KHÔNG có page scroll** ở 1366×768 và 1440×900.
+- [x] Không có bất kỳ lỗi tràn ngang nào trên cả desktop và mobile.
+- [x] Báo cáo Phase A được xuất đầy đủ trước khi thực hiện Phase B.
+- [x] Không còn class CSS thừa hoặc màu hex hardcoded trong `app/ui/**`.
+- [x] `uv run poe lint`, `uv run poe typecheck`, `uv run poe test`, `uv run poe e2e` đều XANH 100%.
+- [x] Chuyển trạng thái toàn bộ backlog sang DONE.
 
 ## Files Expected To Change
 

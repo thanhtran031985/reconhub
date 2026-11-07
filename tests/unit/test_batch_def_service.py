@@ -263,7 +263,7 @@ class TestUpdateArchiveActivate:
         assert res.data["status"] == "ACTIVE"
 
     def test_activate_blocked_by_param_error(self, batch_env, admin_ctx):
-        from app.services.batch_def import activate_batch_def, add_batch_def_items
+        from app.services.batch_def import add_batch_def_items
 
         d = _create_def(admin_ctx)
         tmpl = _make_template(batch_env, "DTP_TMPL")
@@ -430,8 +430,8 @@ class TestAddableAndPreview:
 
         d = _create_def(admin_ctx)
         active = _make_template(batch_env, "DTP_TMPL")
-        draft = _make_template(batch_env, "DRAFT_TMPL", status="DRAFT")
-        archived = _make_template(batch_env, "ARCH_TMPL", status="ARCHIVED")
+        _make_template(batch_env, "DRAFT_TMPL", status="DRAFT")
+        _make_template(batch_env, "ARCH_TMPL", status="ARCHIVED")
         add_batch_def_items(admin_ctx, d["id"], [_item_payload(active)])
         res = addable_templates(admin_ctx, d["id"], q=None, include_unavailable=False)
         assert res.ok is True

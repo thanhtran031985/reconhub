@@ -147,7 +147,7 @@ def render_reports_sections(reports: list[dict[str, Any]]) -> Any:
     return html.Div(sections, style={"paddingBottom": "16px"})
 
 
-def layout() -> html.Div:
+def layout() -> Any:
     """Giao diện chính màn hình Trung tâm báo cáo."""
     ctx = get_current_ctx()
     gate = page_gate(ctx, MENU_CODE)

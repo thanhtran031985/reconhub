@@ -661,7 +661,7 @@ def render_bulk_purge_modal() -> dmc.Modal:
     )
 
 
-def layout() -> html.Div:
+def layout() -> Any:
     """Giao diện chính màn hình Lịch sử run."""
     ctx = get_current_ctx()
     gate = page_gate(ctx, MENU_CODE)

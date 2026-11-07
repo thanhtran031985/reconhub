@@ -401,7 +401,7 @@ def render_recent_runs_card(recent_items: list[dict[str, Any]]) -> dmc.Card:
     )
 
 
-def layout() -> html.Div:
+def layout() -> Any:
     """Giao diện chính màn hình Dashboard."""
     ctx = get_current_ctx()
     gate = page_gate(ctx, MENU_CODE)
