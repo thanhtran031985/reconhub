@@ -95,10 +95,22 @@ def create_app() -> Dash:
         # 3. Với Dash component update khi chưa đăng nhập
         if "user_id" not in session:
             if path == "/_dash-update-component":
-                # Cho phép callback nếu người dùng đang ở trang login
+                # Cho phép callback trang login và layout gốc khi chưa đăng nhập
                 referer = request.headers.get("Referer", "")
-                if "/login" in referer:
+                if not referer or "/login" in referer:
                     return None
+                try:
+                    payload = request.get_json(silent=True) or {}
+                    output = str(payload.get("output", ""))
+                    if (
+                        "app-shell-container" in output
+                        or "login-" in output
+                        or "change-" in output
+                        or "app-location" in output
+                    ):
+                        return None
+                except Exception:
+                    pass
                 return {"error": "UNAUTHENTICATED"}, 401
             return redirect("/login")
 

@@ -39,6 +39,12 @@ from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
 from app.ui.components.empty_state import empty_state
 from app.ui.components.modal_confirm import modal_confirm
+from app.ui.components.notification import (
+    notify_error,
+    notify_info,
+    notify_success,
+    notify_warning,
+)
 from app.ui.components.page_header import page_header
 from app.ui.components.status_chip import item_status_badge, run_status_badge
 
@@ -305,10 +311,10 @@ def render_step2(run: dict[str, Any]) -> Any:
                             dmc.TableThead(
                                 dmc.TableTr(
                                     [
-                                        dmc.TableTh("File"),
-                                        dmc.TableTh("Trạng thái"),
-                                        dmc.TableTh("Ghép vào mục"),
-                                        dmc.TableTh("Thao tác"),
+                                        dmc.TableTh("File", style={"textAlign": "center"}),
+                                        dmc.TableTh("Trạng thái", style={"textAlign": "center"}),
+                                        dmc.TableTh("Ghép vào mục", style={"textAlign": "center"}),
+                                        dmc.TableTh("Thao tác", style={"textAlign": "center"}),
                                     ]
                                 )
                             ),
@@ -411,10 +417,10 @@ def render_step2(run: dict[str, Any]) -> Any:
                                 dmc.TableThead(
                                     dmc.TableTr(
                                         [
-                                            dmc.TableTh("Template"),
-                                            dmc.TableTh("File đã ghép"),
-                                            dmc.TableTh("Trạng thái"),
-                                            dmc.TableTh("Thao tác"),
+                                            dmc.TableTh("Template", style={"textAlign": "center"}),
+                                            dmc.TableTh("File đã ghép", style={"textAlign": "center"}),
+                                            dmc.TableTh("Trạng thái", style={"textAlign": "center"}),
+                                            dmc.TableTh("Thao tác", style={"textAlign": "center"}),
                                         ]
                                     )
                                 ),
@@ -502,11 +508,11 @@ def render_step3(run: dict[str, Any]) -> Any:
                                 dmc.TableThead(
                                     dmc.TableTr(
                                         [
-                                            dmc.TableTh("Tham số"),
-                                            dmc.TableTh("Giá trị chạy"),
-                                            dmc.TableTh("Giá trị đã tính"),
-                                            dmc.TableTh(""),
-                                            dmc.TableTh(""),
+                                            dmc.TableTh("Tham số", style={"textAlign": "center"}),
+                                            dmc.TableTh("Giá trị chạy", style={"textAlign": "center"}),
+                                            dmc.TableTh("Giá trị đã tính", style={"textAlign": "center"}),
+                                            dmc.TableTh("Trạng thái", style={"textAlign": "center"}),
+                                            dmc.TableTh("Thao tác", style={"textAlign": "center"}),
                                         ]
                                     )
                                 ),
@@ -580,13 +586,16 @@ def render_step4(run: dict[str, Any]) -> Any:
                 multiple=True,
                 children=button_subtle("Thay file", size="xs"),
             )
+        badge: Any = item_status_badge(status)
+        if status == "PENDING" and _matched_files(item):
+            badge = dmc.Badge("Chờ kiểm tra", color="blue", variant="light", size="sm")
         rows.append(
             dmc.TableTr(
                 [
                     dmc.TableTd(
                         dmc.Text(str(item.get("template_code")), className="rh-code", fw=600, size="sm"),
                     ),
-                    dmc.TableTd(item_status_badge(status)),
+                    dmc.TableTd(badge),
                     dmc.TableTd(check_list),
                     dmc.TableTd(replace_cell),
                 ]
@@ -658,10 +667,10 @@ def render_step4(run: dict[str, Any]) -> Any:
                         dmc.TableThead(
                             dmc.TableTr(
                                 [
-                                    dmc.TableTh("Template"),
-                                    dmc.TableTh("Trạng thái"),
-                                    dmc.TableTh("Kết quả kiểm tra"),
-                                    dmc.TableTh("Thao tác"),
+                                    dmc.TableTh("Template", style={"textAlign": "center"}),
+                                    dmc.TableTh("Trạng thái", style={"textAlign": "center"}),
+                                    dmc.TableTh("Kết quả kiểm tra", style={"textAlign": "center"}),
+                                    dmc.TableTh("Thao tác", style={"textAlign": "center"}),
                                 ]
                             )
                         ),
@@ -789,10 +798,10 @@ def render_step5(run: dict[str, Any]) -> Any:
                         dmc.TableThead(
                             dmc.TableTr(
                                 [
-                                    dmc.TableTh("Template"),
-                                    dmc.TableTh("Trạng thái"),
-                                    dmc.TableTh("Run con"),
-                                    dmc.TableTh("Lần chạy"),
+                                    dmc.TableTh("Template", style={"textAlign": "center"}),
+                                    dmc.TableTh("Trạng thái", style={"textAlign": "center"}),
+                                    dmc.TableTh("Run con", style={"textAlign": "center"}),
+                                    dmc.TableTh("Lần chạy", style={"textAlign": "center"}),
                                 ]
                             )
                         ),
@@ -823,59 +832,55 @@ def render_step_content(step: int, run: dict[str, Any]) -> Any:
 
 def render_new_run_form(defs: list[dict[str, Any]], preselected_def: int | None) -> Any:
     options = [{"label": f"{d.get('code')} — {d.get('name')}", "value": str(d["id"])} for d in defs]
-    return dmc.Stack(
-        [
-            dmc.Title("Chạy bộ đối soát", order=2),
-            dmc.Text(
-                "Chọn bộ đối soát đang hoạt động và kỳ tháng, hệ thống tạo lần chạy bộ ở trạng thái Nháp.",
-                size="sm",
-                c="dimmed",
-            ),
-            dmc.Paper(
-                dmc.Stack(
+    return dmc.Paper(
+        dmc.Stack(
+            [
+                dmc.Text("Khởi tạo lần chạy mới", fw=600),
+                dmc.Text(
+                    "Chọn bộ đối soát đang hoạt động và kỳ tháng, hệ thống tạo lần chạy bộ ở trạng thái Nháp.",
+                    size="sm",
+                    c="dimmed",
+                ),
+                dmc.Select(
+                    id="brw-new-def",
+                    label="Bộ đối soát",
+                    data=options,
+                    value=str(preselected_def) if preselected_def else None,
+                    placeholder="Chọn bộ đối soát",
+                    required=True,
+                    searchable=True,
+                ),
+                dmc.TextInput(
+                    id="brw-new-period",
+                    label="Kỳ (tháng)",
+                    value=current_month_period(),
+                    placeholder="YYYY-MM, VD: 2026-02",
+                    description="Tháng YYYY-MM. p_from mặc định là ngày 1, p_to là ngày cuối tháng.",
+                    required=True,
+                ),
+                dmc.TextInput(
+                    id="brw-new-name",
+                    label="Tên lần chạy (không bắt buộc)",
+                    placeholder="Để trống sẽ lấy tên Tháng M/YYYY",
+                ),
+                dmc.Group(
                     [
-                        dmc.Select(
-                            id="brw-new-def",
-                            label="Bộ đối soát",
-                            data=options,
-                            value=str(preselected_def) if preselected_def else None,
-                            placeholder="Chọn bộ đối soát",
-                            required=True,
-                            searchable=True,
-                        ),
-                        dmc.TextInput(
-                            id="brw-new-period",
-                            label="Kỳ (tháng)",
-                            value=current_month_period(),
-                            placeholder="YYYY-MM, VD: 2026-02",
-                            description="Tháng YYYY-MM. p_from mặc định là ngày 1, p_to là ngày cuối tháng.",
-                            required=True,
-                        ),
-                        dmc.TextInput(
-                            id="brw-new-name",
-                            label="Tên lần chạy (không bắt buộc)",
-                            placeholder="Để trống sẽ lấy tên Tháng M/YYYY",
-                        ),
-                        html.Div(id="brw-new-error"),
-                        dmc.Group(
-                            [
-                                button_primary("Tạo lần chạy bộ", icon="lucide:plus", id="brw-new-submit"),
-                                dmc.Anchor(
-                                    button_subtle("Về danh sách bộ"),
-                                    href="/batches",
-                                    underline=False,
-                                ),
-                            ],
-                            gap="sm",
+                        button_primary("Tạo lần chạy bộ", icon="lucide:arrow-right", id="brw-new-submit"),
+                        dmc.Anchor(
+                            button_subtle("Về danh sách bộ"),
+                            href="/batches",
+                            underline=False,
                         ),
                     ],
                     gap="sm",
+                    mt="xs",
                 ),
-                p="md",
-                withBorder=True,
-            ),
-        ],
-        gap="md",
+            ],
+            gap="sm",
+        ),
+        p="md",
+        withBorder=True,
+        radius="sm",
     )
 
 
@@ -906,11 +911,11 @@ def render_recent_runs(runs: list[dict[str, Any]]) -> Any:
             dmc.TableThead(
                 dmc.TableTr(
                     [
-                        dmc.TableTh("Lần chạy"),
-                        dmc.TableTh("Bộ"),
-                        dmc.TableTh("Kỳ"),
-                        dmc.TableTh("Trạng thái"),
-                        dmc.TableTh("Người tạo"),
+                        dmc.TableTh("Lần chạy", style={"textAlign": "center"}),
+                        dmc.TableTh("Bộ", style={"textAlign": "center"}),
+                        dmc.TableTh("Kỳ", style={"textAlign": "center"}),
+                        dmc.TableTh("Trạng thái", style={"textAlign": "center"}),
+                        dmc.TableTh("Người tạo", style={"textAlign": "center"}),
                     ]
                 )
             ),
@@ -933,7 +938,8 @@ def _load_run_data(run_id: int) -> Any:
 def _stepper(step: int) -> Any:
     return dmc.Stepper(
         active=step - 1,
-        children=[dmc.StepperStep(label=label, completed=idx < step - 1) for idx, label in enumerate(STEP_LABELS)],
+        size="sm",
+        children=[dmc.StepperStep(label=label) for label in STEP_LABELS],
     )
 
 
@@ -965,24 +971,41 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
         return html.Div(
             [
                 dcc.Location(id="brw-redirect", refresh=True),
+                html.Div(id="brw-notifications"),
                 page_header(
-                    title="Khởi tạo lần chạy bộ",
-                    subtitle="Chọn bộ đối soát và thời gian để bắt đầu quy trình chạy đối soát hàng loạt",
+                    title="Chạy bộ đối soát",
+                    subtitle="Một lần tải lên cho nhiều hệ thống. Mỗi template tạo một run riêng, lỗi ở một template không chặn các template khác.",
+                ),
+                dmc.Box(
+                    _stepper(1),
+                    style={
+                        "flexShrink": 0,
+                        "padding": "12px 20px 8px 20px",
+                        "borderBottom": "1px solid var(--mantine-color-default-border)",
+                        "backgroundColor": "var(--mantine-color-body)",
+                    },
                 ),
                 html.Div(
                     [
                         alert_box(defs_error, tone="crit") if defs_error else dmc.Text(""),
-                        render_new_run_form(defs, preselected_id),
-                        dmc.Paper(
-                            dmc.Stack(
-                                [
-                                    dmc.Text("Lần chạy gần đây", fw=600),
-                                    render_recent_runs(recent),
-                                ],
-                                gap="sm",
-                            ),
-                            p="md",
-                            withBorder=True,
+                        dmc.SimpleGrid(
+                            cols={"base": 1, "md": 2},
+                            spacing="md",
+                            children=[
+                                render_new_run_form(defs, preselected_id),
+                                dmc.Paper(
+                                    dmc.Stack(
+                                        [
+                                            dmc.Text("Lần chạy gần đây", fw=600),
+                                            render_recent_runs(recent),
+                                        ],
+                                        gap="sm",
+                                    ),
+                                    p="md",
+                                    withBorder=True,
+                                    radius="sm",
+                                ),
+                            ],
                         ),
                     ],
                     style={
@@ -990,14 +1013,12 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
                         "minHeight": 0,
                         "overflowY": "auto",
                         "padding": "16px 20px",
-                        "display": "flex",
-                        "flexDirection": "column",
-                        "gap": "16px",
                     },
                 ),
             ],
             style={
-                "height": "calc(100vh - 48px)",
+                "height": "100%",
+                "minHeight": 0,
                 "display": "flex",
                 "flexDirection": "column",
                 "overflow": "hidden",
@@ -1012,6 +1033,7 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
             dcc.Store(id="brw-step"),
             dcc.Store(id="brw-refresh-trigger", data=0),
             dcc.Location(id="brw-redirect", refresh=True),
+            html.Div(id="brw-notifications"),
             dcc.Interval(id="brw-interval", interval=2000, disabled=True),
             # Fixed Top: Header & Stepper
             dmc.Box(
@@ -1086,7 +1108,8 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
             ),
         ],
         style={
-            "height": "calc(100vh - 48px)",
+            "height": "100%",
+            "minHeight": 0,
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
@@ -1142,7 +1165,7 @@ def _render_wizard(store_data: Any, step_data: Any) -> tuple[Any, Any, Any]:
 
 @callback(
     Output("brw-step", "data", allow_duplicate=True),
-    Output("brw-alert", "children", allow_duplicate=True),
+    Output("brw-notifications", "children", allow_duplicate=True),
     Input("brw-prev-btn", "n_clicks"),
     Input("brw-next-btn", "n_clicks"),
     State("brw-step", "data"),
@@ -1163,20 +1186,16 @@ def _navigate(_prev: Any, _next: Any, step_data: Any, store_data: Any) -> tuple[
     status = str(store_data.get("status", "DRAFT"))
     step = int(step_data) if step_data is not None else (5 if status == "RUNNING" else 2)
     if triggered == "brw-prev-btn":
-        return max(step - 1, 1), None
+        return max(step - 1, 1), dash.no_update
     if step in (2, 3):
         blockers = wizard_blockers(store_data)
         if blockers:
-            return step, alert_box(
-                title="Chưa sang được bước tiếp",
-                message="; ".join(blockers),
-                tone="warn",
-            )
-    return min(step + 1, 5), None
+            return step, notify_warning("; ".join(blockers), title="Chưa thể tiếp tục")
+    return min(step + 1, 5), dash.no_update
 
 
 @callback(
-    Output("brw-new-error", "children"),
+    Output("brw-notifications", "children", allow_duplicate=True),
     Output("brw-redirect", "href"),
     Input("brw-new-submit", "n_clicks"),
     State("brw-new-def", "value"),
@@ -1189,22 +1208,22 @@ def _create_run(_n: Any, def_val: Any, period: Any, name: Any) -> tuple[Any, Any
         return dash.no_update, dash.no_update
     ctx = get_current_ctx()
     if ctx is None:
-        return alert_box("Bạn cần đăng nhập.", tone="crit"), dash.no_update
+        return notify_error("Bạn cần đăng nhập để thực hiện."), dash.no_update
     if not def_val:
-        return alert_box("Chọn bộ đối soát trước.", tone="warn"), dash.no_update
+        return notify_warning("Chọn bộ đối soát trước."), dash.no_update
     period_str = (period or "").strip()
     if not PERIOD_RE.match(period_str):
-        return alert_box("Kỳ phải đúng dạng YYYY-MM, VD: 2026-02.", tone="warn"), dash.no_update
+        return notify_warning("Kỳ phải đúng dạng YYYY-MM, ví dụ: 2026-02."), dash.no_update
     res = create_batch_run(ctx, int(def_val), period_str, (name or "").strip() or None)
     if not res.ok:
-        return alert_box(res.message or "Không tạo được lần chạy bộ.", tone="crit"), dash.no_update
+        return notify_error(res.message or "Không tạo được lần chạy bộ."), dash.no_update
     data = res.data or {}
-    return None, f"/batch-runs/{data.get('id')}"
+    return notify_success("Tạo lần chạy bộ thành công."), f"/batch-runs/{data.get('id')}"
 
 
 @callback(
     Output("brw-store", "data", allow_duplicate=True),
-    Output("brw-upload-alert", "children", allow_duplicate=True),
+    Output("brw-notifications", "children", allow_duplicate=True),
     Output("brw-upload", "contents"),
     Input("brw-upload", "contents"),
     State("brw-upload", "filename"),
@@ -1212,15 +1231,17 @@ def _create_run(_n: Any, def_val: Any, period: Any, name: Any) -> tuple[Any, Any
     prevent_initial_call=True,
 )
 def _upload_files(contents: Any, filenames: Any, run_id: Any) -> tuple[Any, Any, Any]:
+    if not contents:
+        return dash.no_update, dash.no_update, None
     ctx = get_current_ctx()
     if ctx is None or run_id is None:
-        return dash.no_update, alert_box("Bạn cần đăng nhập.", tone="crit"), None
+        return dash.no_update, notify_error("Bạn cần đăng nhập."), None
     files, errors = decode_uploads(contents, filenames)
     if not files:
-        return dash.no_update, alert_box("; ".join(errors) or "Không có file nào.", tone="warn"), None
+        return dash.no_update, notify_warning("; ".join(errors) or "Không có file nào."), None
     res = add_files(ctx, int(run_id), files)
     if not res.ok:
-        return dash.no_update, alert_box(res.message or "Không tải được file.", tone="crit"), None
+        return dash.no_update, notify_error(res.message or "Không tải được file."), None
     data = res.data or {}
     skipped = data.get("skipped") or []
     warnings = data.get("warnings") or []
@@ -1229,15 +1250,16 @@ def _upload_files(contents: Any, filenames: Any, run_id: Any) -> tuple[Any, Any,
         notes.append(f"Bỏ qua {len(skipped)} file trùng tên/nội dung.")
     notes.extend(str(w) for w in warnings)
     notes.extend(errors)
-    alert: Any = None
     if notes:
-        alert = alert_box(title="Đã tải file", message=" ".join(notes), tone="warn")
-    return _load_run_data(int(run_id)), alert, None
+        notif = notify_warning(" ".join(notes), title="Cảnh báo tải file")
+    else:
+        notif = notify_success(f"Đã tải {len(files)} file thành công.")
+    return _load_run_data(int(run_id)), notif, None
 
 
 @callback(
     Output("brw-store", "data", allow_duplicate=True),
-    Output("brw-alert", "children", allow_duplicate=True),
+    Output("brw-notifications", "children", allow_duplicate=True),
     Input({"type": "brw-assign-btn", "index": ALL}, "n_clicks"),
     State({"type": "brw-assign-select", "index": ALL}, "value"),
     State("brw-run-id", "data"),
@@ -1257,16 +1279,16 @@ def _assign_file(_n: Any, select_values: Any, run_id: Any) -> tuple[Any, Any]:
             if isinstance(entry, dict) and entry.get("id") == {"type": "brw-assign-select", "index": file_id}:
                 selected = entry.get("value")
     if not selected:
-        return dash.no_update, alert_box("Chọn mục để ghép tay trước.", tone="warn")
+        return dash.no_update, notify_warning("Chọn mục để ghép tay trước.")
     res = assign_file(ctx, file_id, int(selected))
     if not res.ok:
-        return dash.no_update, alert_box(res.message or "Không ghép được file.", tone="crit")
-    return _load_run_data(int(run_id)), None
+        return dash.no_update, notify_error(res.message or "Không ghép được file.")
+    return _load_run_data(int(run_id)), notify_success("Đã ghép file thành công.")
 
 
 @callback(
     Output("brw-store", "data", allow_duplicate=True),
-    Output("brw-alert", "children", allow_duplicate=True),
+    Output("brw-notifications", "children", allow_duplicate=True),
     Input({"type": "brw-ignore-btn", "index": ALL}, "n_clicks"),
     Input({"type": "brw-remove-file-btn", "index": ALL}, "n_clicks"),
     State("brw-run-id", "data"),
@@ -1281,13 +1303,13 @@ def _ignore_file(_n1: Any, _n2: Any, run_id: Any) -> tuple[Any, Any]:
         return dash.no_update, dash.no_update
     res = ignore_file(ctx, int(triggered["index"]))
     if not res.ok:
-        return dash.no_update, alert_box(res.message or "Không bỏ được file.", tone="crit")
-    return _load_run_data(int(run_id)), None
+        return dash.no_update, notify_error(res.message or "Không bỏ được file.")
+    return _load_run_data(int(run_id)), notify_success("Đã bỏ file.")
 
 
 @callback(
     Output("brw-store", "data", allow_duplicate=True),
-    Output("brw-alert", "children", allow_duplicate=True),
+    Output("brw-notifications", "children", allow_duplicate=True),
     Input({"type": "brw-skip-btn", "index": ALL}, "n_clicks"),
     State("brw-store", "data"),
     prevent_initial_call=True,
@@ -1304,13 +1326,14 @@ def _toggle_skip(_n: Any, store_data: Any) -> tuple[Any, Any]:
     skipped = not (str(item.get("status")) == "SKIPPED" and item.get("skip_reason") == "USER_SKIP")
     res = skip_item(ctx, item_id, skipped)
     if not res.ok:
-        return dash.no_update, alert_box(res.message or "Không cập nhật được mục.", tone="crit")
-    return _load_run_data(int(store_data["id"])), None
+        return dash.no_update, notify_error(res.message or "Không cập nhật được mục.")
+    msg = "Đã bỏ qua mục này." if skipped else "Đã khôi phục mục này."
+    return _load_run_data(int(store_data["id"])), notify_success(msg)
 
 
 @callback(
     Output("brw-store", "data", allow_duplicate=True),
-    Output("brw-alert", "children", allow_duplicate=True),
+    Output("brw-notifications", "children", allow_duplicate=True),
     Input("brw-save-params-btn", "n_clicks"),
     State({"type": "brw-param-input", "index": ALL}, "value"),
     State("brw-store", "data"),
@@ -1347,23 +1370,23 @@ def _save_params(_n: Any, values: Any, store_data: Any) -> tuple[Any, Any]:
             if param_name in overrides:
                 res = set_param_override(ctx, int(item_id_s), param_name, None)
                 if not res.ok:
-                    return dash.no_update, alert_box(res.message or "Không lưu được tham số.", tone="crit")
+                    return dash.no_update, notify_error(res.message or "Không lưu được tham số.")
                 changed += 1
             continue
         if new_value == format_param_value(overrides.get(param_name)):
             continue
         res = set_param_override(ctx, int(item_id_s), param_name, new_value)
         if not res.ok:
-            return dash.no_update, alert_box(res.message or "Không lưu được tham số.", tone="crit")
+            return dash.no_update, notify_error(res.message or "Không lưu được tham số.")
         changed += 1
     if changed == 0:
-        return dash.no_update, alert_box("Không có tham số nào thay đổi.", tone="info")
-    return _load_run_data(int(store_data["id"])), alert_box(f"Đã lưu {changed} tham số.", tone="info")
+        return dash.no_update, notify_info("Không có tham số nào thay đổi.")
+    return _load_run_data(int(store_data["id"])), notify_success(f"Đã lưu {changed} tham số.")
 
 
 @callback(
     Output("brw-store", "data", allow_duplicate=True),
-    Output("brw-alert", "children", allow_duplicate=True),
+    Output("brw-notifications", "children", allow_duplicate=True),
     Input({"type": "brw-param-reset-btn", "index": ALL}, "n_clicks"),
     State("brw-store", "data"),
     prevent_initial_call=True,
@@ -1379,36 +1402,40 @@ def _reset_param(_n: Any, store_data: Any) -> tuple[Any, Any]:
     item_id_s, param_name = index.split(":", 1)
     res = set_param_override(ctx, int(item_id_s), param_name, None)
     if not res.ok:
-        return dash.no_update, alert_box(res.message or "Không về mặc định được.", tone="crit")
-    return _load_run_data(int(store_data["id"])), None
+        return dash.no_update, notify_error(res.message or "Không về mặc định được.")
+    return _load_run_data(int(store_data["id"])), notify_success("Đã đặt lại tham số về mặc định.")
 
 
 @callback(
     Output("brw-store", "data", allow_duplicate=True),
-    Output("brw-alert", "children", allow_duplicate=True),
+    Output("brw-notifications", "children", allow_duplicate=True),
     Input("brw-precheck-btn", "n_clicks"),
     State("brw-run-id", "data"),
     prevent_initial_call=True,
 )
 def _run_precheck(_n: Any, run_id: Any) -> tuple[Any, Any]:
+    if not _n:
+        return dash.no_update, dash.no_update
     ctx = get_current_ctx()
     if ctx is None or run_id is None:
         return dash.no_update, dash.no_update
     res = precheck(ctx, int(run_id))
     if not res.ok:
-        return dash.no_update, alert_box(res.message or "Không kiểm tra trước được.", tone="crit")
-    return _load_run_data(int(run_id)), alert_box("Đã kiểm tra trước xong.", tone="info")
+        return dash.no_update, notify_error(res.message or "Không kiểm tra trước được.")
+    return _load_run_data(int(run_id)), notify_success("Đã kiểm tra trước xong.")
 
 
 @callback(
     Output("brw-store", "data", allow_duplicate=True),
-    Output("brw-alert", "children", allow_duplicate=True),
+    Output("brw-notifications", "children", allow_duplicate=True),
     Input({"type": "brw-replace-upload", "index": ALL}, "contents"),
     State({"type": "brw-replace-upload", "index": ALL}, "filename"),
     State("brw-run-id", "data"),
     prevent_initial_call=True,
 )
 def _replace_item_files(contents: Any, filenames: Any, run_id: Any) -> tuple[Any, Any]:
+    if not contents:
+        return dash.no_update, dash.no_update
     triggered = dash.callback_context.triggered_id
     ctx = get_current_ctx()
     if not isinstance(triggered, dict) or ctx is None or run_id is None:
@@ -1427,11 +1454,11 @@ def _replace_item_files(contents: Any, filenames: Any, run_id: Any) -> tuple[Any
     target_names = names_list[idx] if idx < len(names_list) else None
     files, errors = decode_uploads(target_contents, target_names)
     if not files:
-        return dash.no_update, alert_box("; ".join(errors) or "Không có file nào.", tone="warn")
+        return dash.no_update, notify_warning("; ".join(errors) or "Không có file nào.")
     res = replace_files(ctx, item_id, files)
     if not res.ok:
-        return dash.no_update, alert_box(res.message or "Không thay được file.", tone="crit")
-    return _load_run_data(int(run_id)), alert_box("Đã thay file và kiểm tra lại mục.", tone="info")
+        return dash.no_update, notify_error(res.message or "Không thay được file.")
+    return _load_run_data(int(run_id)), notify_success("Đã thay file và kiểm tra lại mục.")
 
 
 @callback(
@@ -1439,7 +1466,7 @@ def _replace_item_files(contents: Any, filenames: Any, run_id: Any) -> tuple[Any
     Output("brw-step", "data", allow_duplicate=True),
     Output("brw-prod-modal", "opened"),
     Output("brw-prod-body", "children"),
-    Output("brw-alert", "children", allow_duplicate=True),
+    Output("brw-notifications", "children", allow_duplicate=True),
     Input("brw-start-btn", "n_clicks"),
     State("brw-include-warn", "checked"),
     State("brw-run-id", "data"),
@@ -1472,16 +1499,16 @@ def _start_run(_n: Any, include_warn: Any, run_id: Any) -> tuple[Any, Any, bool,
             dash.no_update,
             False,
             dash.no_update,
-            alert_box(res.message or "Không chạy được lần chạy bộ.", tone="crit"),
+            notify_error(res.message or "Không chạy được lần chạy bộ."),
         )
-    return _load_run_data(int(run_id)), 5, False, dash.no_update, None
+    return _load_run_data(int(run_id)), 5, False, dash.no_update, notify_success("Đã bắt đầu chạy các template.")
 
 
 @callback(
     Output("brw-store", "data", allow_duplicate=True),
     Output("brw-step", "data", allow_duplicate=True),
     Output("brw-prod-modal", "opened", allow_duplicate=True),
-    Output("brw-alert", "children", allow_duplicate=True),
+    Output("brw-notifications", "children", allow_duplicate=True),
     Input("brw-prod-confirm", "n_clicks"),
     Input("brw-prod-cancel", "n_clicks"),
     State("brw-include-warn", "checked"),
@@ -1506,9 +1533,9 @@ def _confirm_prod_start(_confirm: Any, _cancel: Any, include_warn: Any, run_id: 
             dash.no_update,
             dash.no_update,
             False,
-            alert_box(res.message or "Không chạy được lần chạy bộ.", tone="crit"),
+            notify_error(res.message or "Không chạy được lần chạy bộ."),
         )
-    return _load_run_data(int(run_id)), 5, False, None
+    return _load_run_data(int(run_id)), 5, False, notify_success("Đã bắt đầu chạy các template.")
 
 
 @callback(
@@ -1532,7 +1559,7 @@ def _toggle_cancel_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
 
 @callback(
     Output("brw-store", "data", allow_duplicate=True),
-    Output("brw-alert", "children", allow_duplicate=True),
+    Output("brw-notifications", "children", allow_duplicate=True),
     Output("brw-cancel-modal", "opened", allow_duplicate=True),
     Input("brw-cancel-modal-confirm", "n_clicks"),
     State("brw-run-id", "data"),
@@ -1546,5 +1573,5 @@ def _do_cancel(_n: Any, run_id: Any) -> tuple[Any, Any, bool]:
         return dash.no_update, dash.no_update, False
     res = cancel(ctx, int(run_id))
     if not res.ok:
-        return dash.no_update, alert_box(res.message or "Không hủy được lần chạy bộ.", tone="crit"), False
-    return _load_run_data(int(run_id)), alert_box("Đã hủy lần chạy bộ.", tone="info"), False
+        return dash.no_update, notify_error(res.message or "Không hủy được lần chạy bộ."), False
+    return _load_run_data(int(run_id)), notify_success("Đã hủy lần chạy bộ."), False

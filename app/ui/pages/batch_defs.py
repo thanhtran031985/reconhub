@@ -496,28 +496,33 @@ def _submit_create(
     Output("bdef-archive-modal", "opened"),
     Output("bdef-delete-modal", "opened"),
     Output("bdef-action-target", "data"),
+    Output("bdef-redirect", "href", allow_duplicate=True),
     Input({"type": "bdef-action-archive", "index": ALL}, "n_clicks"),
     Input("bdef-archive-modal-cancel", "n_clicks"),
     Input({"type": "bdef-action-delete", "index": ALL}, "n_clicks"),
     Input("bdef-delete-modal-cancel", "n_clicks"),
+    Input({"type": "bdef-action-open", "index": ALL}, "n_clicks"),
     prevent_initial_call=True,
 )
 def _open_action_modal(
-    archive_clicks: Any, cancel_arch: Any, delete_clicks: Any, cancel_del: Any
-) -> tuple[bool, bool, Any]:
+    archive_clicks: Any, cancel_arch: Any, delete_clicks: Any, cancel_del: Any, open_clicks: Any
+) -> tuple[bool, bool, Any, Any]:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
-        return False, False, dash.no_update
+        return False, False, dash.no_update, dash.no_update
     triggered = ctx_dash.triggered_id
     if triggered in ("bdef-archive-modal-cancel", "bdef-delete-modal-cancel"):
-        return False, False, dash.no_update
+        return False, False, dash.no_update, dash.no_update
+    if isinstance(triggered, dict) and triggered.get("type") == "bdef-action-open":
+        if any(c for c in (open_clicks or []) if c):
+            return False, False, dash.no_update, f"/batches/{triggered['index']}"
     if isinstance(triggered, dict) and triggered.get("type") == "bdef-action-archive":
         if any(c for c in (archive_clicks or []) if c):
-            return True, False, {"action": "archive", "id": triggered["index"]}
+            return True, False, {"action": "archive", "id": triggered["index"]}, dash.no_update
     if isinstance(triggered, dict) and triggered.get("type") == "bdef-action-delete":
         if any(c for c in (delete_clicks or []) if c):
-            return False, True, {"action": "delete", "id": triggered["index"]}
-    return False, False, dash.no_update
+            return False, True, {"action": "delete", "id": triggered["index"]}, dash.no_update
+    return False, False, dash.no_update, dash.no_update
 
 
 @callback(

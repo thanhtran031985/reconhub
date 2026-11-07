@@ -25,6 +25,12 @@ from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
 from app.ui.components.empty_state import empty_state
 from app.ui.components.modal_confirm import modal_confirm
+from app.ui.components.notification import (
+    notify_error,
+    notify_info,
+    notify_success,
+    notify_warning,
+)
 from app.ui.components.page_header import page_header
 from app.ui.components.status_chip import item_status_badge
 
@@ -213,23 +219,24 @@ def render_matrix_table(matrix_data: dict[str, Any], selected_ids: set[int] | No
                             gap=0,
                         )
                     ),
-                    dmc.TableTd(dmc.Text(str(row.get("file_count", 0)), size="sm")),
-                    dmc.TableTd(item_status_badge(str(row.get("status")))),
-                    dmc.TableTd(dmc.Text(_fmt_num(row.get("excel_total")), size="sm")),
-                    dmc.TableTd(dmc.Text(_fmt_num(row.get("db_total")), size="sm")),
-                    dmc.TableTd(dmc.Text(_fmt_num(row.get("diff_total")), size="sm")),
+                    dmc.TableTd(dmc.Text(str(row.get("file_count", 0)), size="sm", ta="center")),
+                    dmc.TableTd(item_status_badge(str(row.get("status"))), style={"whiteSpace": "nowrap", "minWidth": 110, "textAlign": "center"}),
+                    dmc.TableTd(dmc.Text(_fmt_num(row.get("excel_total")), size="sm", ta="right")),
+                    dmc.TableTd(dmc.Text(_fmt_num(row.get("db_total")), size="sm", ta="right")),
+                    dmc.TableTd(dmc.Text(_fmt_num(row.get("diff_total")), size="sm", ta="right")),
                     dmc.TableTd(
-                        dmc.Text(str(row.get("cnt_matched")) if row.get("cnt_matched") is not None else "—", size="sm")
+                        dmc.Text(str(row.get("cnt_matched")) if row.get("cnt_matched") is not None else "—", size="sm", ta="right")
                     ),
                     dmc.TableTd(
                         dmc.Text(
-                            str(row.get("cnt_mismatch")) if row.get("cnt_mismatch") is not None else "—", size="sm"
+                            str(row.get("cnt_mismatch")) if row.get("cnt_mismatch") is not None else "—", size="sm", ta="right"
                         )
                     ),
                     dmc.TableTd(
                         dmc.Text(
                             str(row.get("cnt_missing_in_db")) if row.get("cnt_missing_in_db") is not None else "—",
                             size="sm",
+                            ta="right",
                         )
                     ),
                     dmc.TableTd(
@@ -238,10 +245,11 @@ def render_matrix_table(matrix_data: dict[str, Any], selected_ids: set[int] | No
                             if row.get("cnt_missing_in_excel") is not None
                             else "—",
                             size="sm",
+                            ta="right",
                         )
                     ),
-                    dmc.TableTd(dmc.Text(_fmt_pct(row.get("match_rate")), size="sm")),
-                    dmc.TableTd(dmc.Text(_fmt_delta(row.get("match_rate_delta")), size="sm")),
+                    dmc.TableTd(dmc.Text(_fmt_pct(row.get("match_rate")), size="sm", ta="center")),
+                    dmc.TableTd(dmc.Text(_fmt_delta(row.get("match_rate_delta")), size="sm", ta="center")),
                     dmc.TableTd(check_cell),
                     dmc.TableTd(dmc.Group(actions, gap="xs")),
                 ]
@@ -255,6 +263,8 @@ def render_matrix_table(matrix_data: dict[str, Any], selected_ids: set[int] | No
         "height": "32px",
         "fontSize": "12px",
         "fontWeight": 600,
+        "textAlign": "center",
+        "whiteSpace": "nowrap",
     }
     return dmc.Paper(
         dmc.TableScrollContainer(
@@ -362,6 +372,7 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
             dcc.Store(id="brr-store"),
             dcc.Store(id="brr-refresh-trigger", data=0),
             dcc.Download(id="brr-download"),
+            html.Div(id="brr-notifications"),
             html.Div(id="brr-header"),
             html.Div(id="brr-kpis"),
             html.Div(id="brr-alert"),
@@ -442,7 +453,7 @@ def _render_result(store_data: Any) -> tuple[Any, Any, Any]:
 
 @callback(
     Output("brr-store", "data", allow_duplicate=True),
-    Output("brr-alert", "children", allow_duplicate=True),
+    Output("brr-notifications", "children", allow_duplicate=True),
     Input("brr-retry-btn", "n_clicks"),
     State("brr-run-id", "data"),
     prevent_initial_call=True,
@@ -455,17 +466,16 @@ def _retry_failed(_n: Any, run_id: Any) -> tuple[Any, Any]:
         return dash.no_update, dash.no_update
     res = retry_failed(ctx, int(run_id))
     if not res.ok:
-        return dash.no_update, alert_box(res.message or "Không chạy lại được.", tone="crit")
+        return dash.no_update, notify_error(res.message or "Không chạy lại được.")
     started = (res.data or {}).get("started", 0)
-    return _load_matrix_data(int(run_id)), alert_box(
-        f"Đã chạy lại {started} mục lỗi. Theo dõi tiến độ ở trang chạy bộ.",
-        tone="info",
+    return _load_matrix_data(int(run_id)), notify_info(
+        f"Đã chạy lại {started} mục lỗi. Theo dõi tiến độ ở trang chạy bộ."
     )
 
 
 @callback(
     Output("brr-store", "data", allow_duplicate=True),
-    Output("brr-alert", "children", allow_duplicate=True),
+    Output("brr-notifications", "children", allow_duplicate=True),
     Input({"type": "brr-rerun-btn", "index": ALL}, "n_clicks"),
     State("brr-run-id", "data"),
     prevent_initial_call=True,
@@ -477,13 +487,13 @@ def _rerun_one(_n: Any, run_id: Any) -> tuple[Any, Any]:
         return dash.no_update, dash.no_update
     res = rerun_item(ctx, int(triggered["index"]))
     if not res.ok:
-        return dash.no_update, alert_box(res.message or "Không chạy lại được mục.", tone="crit")
-    return _load_matrix_data(int(run_id)), alert_box("Đã chạy lại mục. Theo dõi tiến độ ở trang chạy bộ.", tone="info")
+        return dash.no_update, notify_error(res.message or "Không chạy lại được mục.")
+    return _load_matrix_data(int(run_id)), notify_info("Đã chạy lại mục. Theo dõi tiến độ ở trang chạy bộ.")
 
 
 @callback(
     Output("brr-download", "data", allow_duplicate=True),
-    Output("brr-alert", "children", allow_duplicate=True),
+    Output("brr-notifications", "children", allow_duplicate=True),
     Input({"type": "brr-download-btn", "index": ALL}, "n_clicks"),
     State("brr-store", "data"),
     prevent_initial_call=True,
@@ -502,7 +512,7 @@ def _download_item_file(_n: Any, store_data: Any) -> tuple[Any, Any]:
     run_id = int(row["current_run_id"])
     res = export_run(ctx, run_id)
     if not res.ok or not res.data:
-        return dash.no_update, alert_box(res.message or "Không xuất được file.", tone="crit")
+        return dash.no_update, notify_error(res.message or "Không xuất được file.")
     f_path = Path(str(res.data["export_path"])).resolve()
     return dcc.send_file(str(f_path), filename=f"ReconHub_Run_{run_id}.xlsx"), dash.no_update  # type: ignore[attr-defined,no-untyped-call]
 
@@ -510,7 +520,7 @@ def _download_item_file(_n: Any, store_data: Any) -> tuple[Any, Any]:
 @callback(
     Output("brr-download", "data", allow_duplicate=True),
     Output("brr-zip-list", "children"),
-    Output("brr-alert", "children", allow_duplicate=True),
+    Output("brr-notifications", "children", allow_duplicate=True),
     Input("brr-zip-btn", "n_clicks"),
     State("brr-run-id", "data"),
     prevent_initial_call=True,
@@ -523,7 +533,7 @@ def _download_zip(_n: Any, run_id: Any) -> tuple[Any, Any, Any]:
         return dash.no_update, dash.no_update, dash.no_update
     res = build_zip(ctx, int(run_id))
     if not res.ok or not res.data:
-        return dash.no_update, dash.no_update, alert_box(res.message or "Không tạo được file .zip.", tone="crit")
+        return dash.no_update, dash.no_update, notify_error(res.message or "Không tạo được file .zip.")
     zip_path = Path(str(res.data["zip_path"])).resolve()
     names: list[str] = []
     try:
@@ -531,18 +541,17 @@ def _download_zip(_n: Any, run_id: Any) -> tuple[Any, Any, Any]:
             names = zf.namelist()
     except Exception:
         names = []
+    cached_note = " (dùng lại file đã tạo trước đó)" if res.data.get("cached") else ""
     return (
         dcc.send_file(str(zip_path), filename=str(res.data["file_name"])),  # type: ignore[attr-defined,no-untyped-call]
         render_zip_file_list(names),
-        alert_box(
-            "Đã tạo file .zip." + (" (dùng lại file đã tạo trước đó)" if res.data.get("cached") else ""), tone="info"
-        ),
+        notify_success(f"Đã tạo file .zip thành công.{cached_note}"),
     )
 
 
 @callback(
     Output("brr-store", "data", allow_duplicate=True),
-    Output("brr-alert", "children", allow_duplicate=True),
+    Output("brr-notifications", "children", allow_duplicate=True),
     Input("brr-mark-checked-btn", "n_clicks"),
     State({"type": "brr-select-cb", "index": ALL}, "checked"),
     State("brr-store", "data"),
@@ -556,7 +565,7 @@ def _mark_checked_selected(_n: Any, _checked: Any, store_data: Any) -> tuple[Any
         return dash.no_update, dash.no_update
     run_ids = _selected_child_run_ids(store_data, _checked)
     if not run_ids:
-        return dash.no_update, alert_box("Chọn ít nhất một mục có run để đánh dấu kiểm tra.", tone="warn")
+        return dash.no_update, notify_warning("Chọn ít nhất một mục có run để đánh dấu kiểm tra.")
     errors: list[str] = []
     done = 0
     for run_id in run_ids:
@@ -568,8 +577,8 @@ def _mark_checked_selected(_n: Any, _checked: Any, store_data: Any) -> tuple[Any
     run = (store_data or {}).get("run") or {}
     reloaded = _load_matrix_data(int(run.get("id", 0))) if run.get("id") else store_data
     if errors:
-        return reloaded, alert_box(f"Đã đánh dấu {done} run. Lỗi: {'; '.join(errors)}", tone="warn")
-    return reloaded, alert_box(f"Đã đánh dấu kiểm tra {done} run.", tone="info")
+        return reloaded, notify_warning(f"Đã đánh dấu {done} run. Lỗi: {'; '.join(errors)}")
+    return reloaded, notify_success(f"Đã đánh dấu kiểm tra {done} run thành công.")
 
 
 @callback(
@@ -593,7 +602,7 @@ def _toggle_purge_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
 
 @callback(
     Output("brr-store", "data", allow_duplicate=True),
-    Output("brr-alert", "children", allow_duplicate=True),
+    Output("brr-notifications", "children", allow_duplicate=True),
     Output("brr-purge-modal", "opened", allow_duplicate=True),
     Input("brr-purge-modal-confirm", "n_clicks"),
     State("brr-purge-modal-input", "value"),
@@ -608,13 +617,13 @@ def _purge_selected(_n: Any, confirm_text: Any, _checked: Any, store_data: Any) 
     if ctx is None:
         return dash.no_update, dash.no_update, False
     if (confirm_text or "") != "XOA":
-        return dash.no_update, alert_box("Gõ đúng XOA để xác nhận xóa dữ liệu tạm.", tone="warn"), True
+        return dash.no_update, notify_warning("Gõ đúng XOA để xác nhận xóa dữ liệu tạm."), True
     run_ids = _selected_child_run_ids(store_data, _checked)
     if not run_ids:
-        return dash.no_update, alert_box("Chọn ít nhất một mục có run để xóa dữ liệu tạm.", tone="warn"), True
+        return dash.no_update, notify_warning("Chọn ít nhất một mục có run để xóa dữ liệu tạm."), True
     res = purge_runs(ctx, run_ids)
     if not res.ok:
-        return dash.no_update, alert_box(res.message or "Không xóa được dữ liệu tạm.", tone="crit"), True
+        return dash.no_update, notify_error(res.message or "Không xóa được dữ liệu tạm."), True
     run = (store_data or {}).get("run") or {}
     reloaded = _load_matrix_data(int(run.get("id", 0))) if run.get("id") else store_data
-    return reloaded, alert_box(f"Đã xóa dữ liệu tạm của {len(run_ids)} run.", tone="info"), False
+    return reloaded, notify_success(f"Đã xóa dữ liệu tạm của {len(run_ids)} run thành công."), False

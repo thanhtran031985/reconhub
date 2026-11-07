@@ -342,7 +342,8 @@ def layout(def_id: str | int | None = 1, **kwargs: Any) -> Any:
     trial_period = datetime.now().strftime("%Y-%m")
     return html.Div(
         style={
-            "height": "calc(100vh - 48px)",
+            "height": "100%",
+            "minHeight": 0,
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
@@ -836,21 +837,22 @@ def _save_def(
 
 @callback(
     Output("bdef-add-modal", "opened"),
+    Output("bdef-remove-modal", "opened", allow_duplicate=True),
     Input("bdef-add-open-btn", "n_clicks"),
     Input("bdef-add-cancel", "n_clicks"),
     State("bdef-add-modal", "opened"),
     prevent_initial_call=True,
 )
-def _toggle_add_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
+def _toggle_add_modal(_open: Any, _cancel: Any, opened: bool) -> tuple[Any, Any]:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
-        return False
+        return False, dash.no_update
     trig = ctx_dash.triggered_id
     if trig == "bdef-add-cancel":
-        return False
+        return False, False
     if trig == "bdef-add-open-btn" and bool(_open):
-        return True
-    return False
+        return True, False
+    return False, dash.no_update
 
 
 @callback(
@@ -1014,22 +1016,23 @@ def _submit_add_templates(
 @callback(
     Output("bdef-remove-modal", "opened"),
     Output("bdef-remove-target", "data"),
+    Output("bdef-add-modal", "opened", allow_duplicate=True),
     Input({"type": "bdef-item-remove", "index": ALL}, "n_clicks"),
     Input("bdef-remove-modal-cancel", "n_clicks"),
     State("bdef-remove-modal", "opened"),
     prevent_initial_call=True,
 )
-def _open_remove_modal(remove_clicks: Any, _cancel: Any, opened: bool) -> tuple[bool, Any]:
+def _open_remove_modal(remove_clicks: Any, _cancel: Any, opened: bool) -> tuple[bool, Any, Any]:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
-        return False, dash.no_update
+        return False, dash.no_update, dash.no_update
     triggered = ctx_dash.triggered_id
     if triggered == "bdef-remove-modal-cancel":
-        return False, dash.no_update
+        return False, dash.no_update, dash.no_update
     if isinstance(triggered, dict) and triggered.get("type") == "bdef-item-remove":
         if any(c for c in (remove_clicks or []) if c):
-            return True, {"item_id": triggered["index"]}
-    return False, dash.no_update
+            return True, {"item_id": triggered["index"]}, False
+    return False, dash.no_update, dash.no_update
 
 
 @callback(

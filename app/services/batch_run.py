@@ -1363,7 +1363,7 @@ def _run_precheck(engine: Engine, ctx: Ctx, run: dict[str, Any], item_ids: list[
                     dict(item),
                     {
                         "config": cfg,
-                        "template_active": tmpl_row is not None and tmpl_row[0] == "ACTIVE",
+                        "template_active": tmpl_row is not None and tmpl_row[0] != "ARCHIVED" and version_row is not None,
                         "version_row": dict(version_row) if version_row is not None else None,
                         "period": run["PERIOD"],
                         "def_override": _parse_json(def_item["PARAMS_OVERRIDE_JSON"], {}) if def_item else {},
