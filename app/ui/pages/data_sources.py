@@ -45,6 +45,7 @@ from app.ui.components.drawer import drawer_right
 from app.ui.components.empty_state import empty_state
 from app.ui.components.kpi_card import kpi_card
 from app.ui.components.modal_confirm import modal_confirm
+from app.ui.components.page_header import page_header
 from app.ui.components.status_chip import status_chip
 from app.ui.formatters import format_bytes, format_datetime
 
@@ -80,6 +81,10 @@ def render_data_sources_table(
             description="Đăng ký kết nối Oracle để thực hiện truy vấn và đối soát dữ liệu.",
             action=button_primary("Thêm nguồn đối soát", id="ds-add-btn-empty", icon="lucide:plus"),
         )
+
+    td_style = {"whiteSpace": "nowrap", "verticalAlign": "middle"}
+    td_center_style = {"textAlign": "center", "verticalAlign": "middle", "whiteSpace": "nowrap"}
+    td_right_style = {"textAlign": "right", "whiteSpace": "nowrap", "verticalAlign": "middle"}
 
     rows = []
     for it in items:
@@ -137,26 +142,15 @@ def render_data_sources_table(
                             color="blue",
                         )
                     ),
-                    style={"textAlign": "center", "verticalAlign": "middle", "whiteSpace": "nowrap"},
+                    style=td_center_style,
                 ),
-                dmc.TableTd(
-                    dmc.Text(name, fw=600, size="sm"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}
-                ),
-                dmc.TableTd(status_chip(env, size="xs"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
-                dmc.TableTd(
-                    dmc.Text(f"{host}:{port}/{service}", className="rh-code", size="xs"),
-                    style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
-                ),
-                dmc.TableTd(dmc.Text(user, size="sm"), style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
-                dmc.TableTd(
-                    dmc.Text(schema, className="rh-code", size="xs"),
-                    style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
-                ),
-                dmc.TableTd(check_badge, style={"whiteSpace": "nowrap", "verticalAlign": "middle"}),
-                dmc.TableTd(
-                    dmc.Badge(f"{tmpl_count} template", variant="light", color="gray", size="xs"),
-                    style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
-                ),
+                dmc.TableTd(dmc.Text(name, fw=600, size="sm"), style=td_style),
+                dmc.TableTd(status_chip(env, size="xs"), style=td_style),
+                dmc.TableTd(dmc.Text(f"{host}:{port}/{service}", className="rh-code", size="xs"), style=td_style),
+                dmc.TableTd(dmc.Text(user, size="sm"), style=td_style),
+                dmc.TableTd(dmc.Text(schema, className="rh-code", size="xs"), style=td_style),
+                dmc.TableTd(check_badge, style=td_style),
+                dmc.TableTd(dmc.Badge(f"{tmpl_count} template", variant="light", color="gray", size="xs"), style=td_style),
                 dmc.TableTd(
                     dmc.Group(
                         [
@@ -182,28 +176,36 @@ def render_data_sources_table(
                         gap="xs",
                         justify="flex-end",
                     ),
-                    style={"textAlign": "right", "whiteSpace": "nowrap", "verticalAlign": "middle"},
+                    style=td_right_style,
                 ),
             ]
         )
         rows.append(row)
 
+    th_style = {
+        "position": "sticky",
+        "top": 0,
+        "zIndex": 1,
+        "backgroundColor": "var(--mantine-color-body, #fff)",
+        "whiteSpace": "nowrap",
+    }
     headers = [
-        dmc.TableTh("Kích hoạt", style={"minWidth": "90px", "textAlign": "center", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Tên nguồn", style={"minWidth": "160px", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Môi trường", style={"minWidth": "110px", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Máy chủ (Host:Port/Service)", style={"minWidth": "240px", "whiteSpace": "nowrap"}),
-        dmc.TableTh("User", style={"minWidth": "120px", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Schema", style={"minWidth": "120px", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Kiểm tra gần nhất", style={"minWidth": "160px", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Sử dụng", style={"minWidth": "110px", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Thao tác", style={"minWidth": "100px", "textAlign": "right", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Kích hoạt", style={"minWidth": "90px", "textAlign": "center", **th_style}),
+        dmc.TableTh("Tên nguồn", style={"minWidth": "160px", **th_style}),
+        dmc.TableTh("Môi trường", style={"minWidth": "110px", **th_style}),
+        dmc.TableTh("Máy chủ (Host:Port/Service)", style={"minWidth": "240px", **th_style}),
+        dmc.TableTh("User", style={"minWidth": "120px", **th_style}),
+        dmc.TableTh("Schema", style={"minWidth": "120px", **th_style}),
+        dmc.TableTh("Kiểm tra gần nhất", style={"minWidth": "160px", **th_style}),
+        dmc.TableTh("Sử dụng", style={"minWidth": "110px", **th_style}),
+        dmc.TableTh("Thao tác", style={"minWidth": "100px", "textAlign": "right", **th_style}),
     ]
 
     return dmc.Card(
         [
             dmc.TableScrollContainer(
                 minWidth=1180,
+                style={"flex": 1, "minHeight": 0, "overflowY": "auto"},
                 children=dmc.Table(
                     [
                         dmc.TableThead(dmc.TableTr(headers)),
@@ -213,13 +215,14 @@ def render_data_sources_table(
                     highlightOnHover=True,
                     withTableBorder=False,
                     withColumnBorders=False,
-                    verticalSpacing="sm",
+                    verticalSpacing="xs",
                 ),
             ),
         ],
         withBorder=True,
         radius="sm",
         padding=0,
+        style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
     )
 
 
@@ -597,78 +600,105 @@ def layout() -> Any:
             py="xl",
         )
 
-    return dmc.Container(
-        [
+    return html.Div(
+        style={
+            "height": "calc(100vh - 48px)",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+        },
+        children=[
             dcc.Store(id="ds-store-list"),
             dcc.Store(id="ds-store-storage"),
             dcc.Store(id="ds-active-trigger"),
-            dmc.Stack(
-                [
-                    dmc.Group(
-                        [
-                            dmc.Stack(
-                                [
-                                    dmc.Title("Data Sources & Lưu trữ", order=2),
-                                    dmc.Text(
-                                        "Quản lý kết nối Oracle đối soát và hạ tầng lưu trữ RECON_APP.",
-                                        size="sm",
-                                        c="dimmed",
-                                    ),
-                                ],
-                                gap=2,
-                            ),
-                            dmc.Group(
-                                [
-                                    dmc.ActionIcon(
-                                        DashIconify(icon="lucide:refresh-cw", width=16),
-                                        id="ds-refresh-btn",
-                                        variant="subtle",
-                                        color="gray",
-                                        size="lg",
-                                    ),
-                                    button_primary("Thêm nguồn đối soát", id="ds-add-btn", icon="lucide:plus"),
-                                ],
-                                gap="sm",
-                            ),
-                        ],
-                        justify="space-between",
-                        align="flex-start",
+            # Header
+            page_header(
+                title="Data Sources & Lưu trữ",
+                subtitle="Quản lý kết nối Oracle đối soát và hạ tầng lưu trữ RECON_APP.",
+                actions=[
+                    dmc.ActionIcon(
+                        DashIconify(icon="lucide:refresh-cw", width=14),
+                        id="ds-refresh-btn",
+                        variant="subtle",
+                        color="gray",
+                        size="sm",
                     ),
-                    # 2 Tabs
-                    dmc.Tabs(
-                        id="ds-tabs",
-                        value="sources",
-                        children=[
-                            dmc.TabsList(
-                                [
-                                    dmc.TabsTab(
-                                        "Nguồn đối soát",
-                                        value="sources",
-                                        leftSection=DashIconify(icon="lucide:database", width=16),
-                                    ),
-                                    dmc.TabsTab(
-                                        "Lưu trữ RECON_APP",
-                                        value="storage",
-                                        leftSection=DashIconify(icon="lucide:hard-drive", width=16),
-                                    ),
-                                ]
-                            ),
-                            dmc.TabsPanel(
-                                [
-                                    html.Div(id="ds-active-alert", style={"paddingTop": "12px"}),
-                                    html.Div(id="ds-sources-content", style={"paddingTop": "12px"}),
-                                ],
+                    button_primary("Thêm nguồn đối soát", id="ds-add-btn", icon="lucide:plus", size="xs"),
+                ],
+                style={"marginBottom": "8px"},
+            ),
+            # 2 Tabs
+            dmc.Tabs(
+                id="ds-tabs",
+                value="sources",
+                style={
+                    "flex": 1,
+                    "minHeight": 0,
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "overflow": "hidden",
+                },
+                children=[
+                    dmc.TabsList(
+                        [
+                            dmc.TabsTab(
+                                "Nguồn đối soát",
                                 value="sources",
+                                leftSection=DashIconify(icon="lucide:database", width=14),
                             ),
-                            dmc.TabsPanel(
-                                html.Div(id="ds-storage-content", style={"paddingTop": "16px"}),
+                            dmc.TabsTab(
+                                "Lưu trữ RECON_APP",
                                 value="storage",
+                                leftSection=DashIconify(icon="lucide:hard-drive", width=14),
+                            ),
+                        ]
+                    ),
+                    dmc.TabsPanel(
+                        [
+                            html.Div(id="ds-active-alert", style={"paddingTop": "8px"}),
+                            html.Div(
+                                id="ds-sources-content",
+                                style={
+                                    "flex": 1,
+                                    "minHeight": 0,
+                                    "display": "flex",
+                                    "flexDirection": "column",
+                                    "overflow": "hidden",
+                                    "paddingTop": "8px",
+                                },
                             ),
                         ],
+                        value="sources",
+                        style={
+                            "flex": 1,
+                            "minHeight": 0,
+                            "display": "flex",
+                            "flexDirection": "column",
+                            "overflow": "hidden",
+                        },
+                    ),
+                    dmc.TabsPanel(
+                        html.Div(
+                            id="ds-storage-content",
+                            style={
+                                "flex": 1,
+                                "minHeight": 0,
+                                "display": "flex",
+                                "flexDirection": "column",
+                                "overflowY": "auto",
+                                "paddingTop": "12px",
+                            },
+                        ),
+                        value="storage",
+                        style={
+                            "flex": 1,
+                            "minHeight": 0,
+                            "display": "flex",
+                            "flexDirection": "column",
+                            "overflow": "hidden",
+                        },
                     ),
                 ],
-                gap="lg",
-                py="xl",
             ),
             # Drawer Thêm/Sửa Nguồn
             drawer_right(
@@ -778,7 +808,6 @@ def layout() -> Any:
             ),
             dcc.Store(id="ds-purge-preview-store"),
         ],
-        size="xl",
     )
 
 

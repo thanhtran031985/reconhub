@@ -59,6 +59,7 @@ from app.services.report_template import (
 )
 from app.ui.components.alert_box import alert_box
 from app.ui.components.empty_state import empty_state
+from app.ui.components.page_header import page_header
 from app.ui.components.report_widgets import render_param_form, render_result_table
 
 try:
@@ -428,42 +429,51 @@ def layout(**kwargs: Any) -> Any:
             dcc.Store(id="admin-state-store", data={"mode": "list"}),
             dcc.Store(id="admin-dryrun-store", data=None),
             dcc.Store(id="admin-alert-store", data=None),
-            dmc.Stack(
-                [
-                    dmc.Group(
-                        [
-                            dmc.Title("Quản trị báo cáo", order=1),
-                            dcc.Link(
-                                dmc.Button(
-                                    "+ Báo cáo mới",
-                                    id="admin-new-btn",
-                                    variant="filled",
-                                ),
-                                href="/report-admin?new=1",
-                            ),
-                        ],
-                        justify="space-between",
-                        align="center",
-                    ),
-                    html.Div(id="admin-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
-                    html.Div(
-                        id="admin-list-container",
-                        children=render_report_list(reports),
-                    ),
-                    dcc.Loading(
-                        id="admin-wizard-loading",
-                        type="circle",
-                        children=html.Div(
-                            id="admin-wizard-container",
-                            children=[],
-                            style={"display": "none"},
+            page_header(
+                title="Quản trị báo cáo",
+                subtitle="Danh sách Report Master và wizard cấu hình template báo cáo",
+                actions=[
+                    dcc.Link(
+                        dmc.Button(
+                            "+ Báo cáo mới",
+                            id="admin-new-btn",
+                            size="sm",
+                            variant="filled",
+                            leftSection=DashIconify(icon="lucide:plus", width=14),
                         ),
+                        href="/report-admin?new=1",
                     ),
                 ],
-                gap="lg",
-                p="lg",
             ),
-        ]
+            html.Div(id="admin-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
+            html.Div(
+                id="admin-list-container",
+                children=render_report_list(reports),
+                style={
+                    "flex": "1 1 0%",
+                    "minHeight": 0,
+                    "overflowY": "auto",
+                    "padding": "16px 20px",
+                },
+            ),
+            dcc.Loading(
+                id="admin-wizard-loading",
+                type="circle",
+                children=html.Div(
+                    id="admin-wizard-container",
+                    children=[],
+                    style={"display": "none"},
+                ),
+                style={"flex": "1 1 0%", "minHeight": 0, "display": "flex", "flexDirection": "column"},
+            ),
+        ],
+        style={
+            "height": "calc(100vh - 48px)",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "backgroundColor": "var(--mantine-color-body)",
+        },
     )
 
 
@@ -2234,8 +2244,22 @@ def handle_wizard_render(
 def handle_mode_display(state: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
     """Ẩn/hiện danh sách và wizard theo mode."""
     if state and state.get("mode") == "wizard":
-        return {"display": "none"}, {"display": "block"}
-    return {"display": "block"}, {"display": "none"}
+        return {"display": "none"}, {
+            "display": "flex",
+            "flexDirection": "column",
+            "flex": "1 1 0%",
+            "minHeight": 0,
+            "overflowY": "auto",
+            "padding": "16px 20px",
+        }
+    return {
+        "display": "flex",
+        "flexDirection": "column",
+        "flex": "1 1 0%",
+        "minHeight": 0,
+        "overflowY": "auto",
+        "padding": "16px 20px",
+    }, {"display": "none"}
 
 
 @callback(

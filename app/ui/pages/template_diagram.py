@@ -15,6 +15,7 @@ from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.code_block import code_block
 from app.ui.components.empty_state import empty_state
+from app.ui.components.page_header import page_header
 
 try:
     dash.register_page(  # type: ignore[no-untyped-call]
@@ -73,7 +74,7 @@ def render_diagram_card(
                     ),
                 ],
             ),
-            # Vùng hiển thị sơ đồ Mermaid
+            # Vùng hiển thị sơ đồ Mermaid (bounded với overflow)
             html.Div(
                 html.Pre(
                     diagram_code,
@@ -84,15 +85,16 @@ def render_diagram_card(
                         "margin": "0 auto",
                         "background": "transparent",
                         "border": "none",
-                        "padding": "16px 0",
+                        "padding": "12px 0",
                     },
                 ),
                 style={
-                    "overflowX": "auto",
+                    "overflow": "auto",
+                    "maxHeight": "420px",
                     "backgroundColor": "#f8fafc",
                     "borderRadius": "8px",
-                    "padding": "16px",
-                    "marginBottom": "12px",
+                    "padding": "12px",
+                    "marginBottom": "8px",
                     "textAlign": "center",
                 },
             ),
@@ -184,54 +186,7 @@ def layout(template_id: str | None = None, **kwargs: Any) -> Any:
             tone="crit",
         )
 
-    # 3. Dựng Breadcrumb và Header
-    breadcrumbs = dmc.Breadcrumbs(
-        [
-            dmc.Anchor("Trang chủ", href="/", size="sm", underline=False),
-            dmc.Anchor("Cấu hình", href="#", size="sm", underline=False),
-            dmc.Anchor("Templates", href="/templates", size="sm", underline=False),
-            dmc.Text(t_code, size="sm", fw=700),
-            dmc.Text("Sơ đồ diễn giải", size="sm", c="dimmed"),
-        ],
-        separator=" / ",
-        mb="md",
-    )
-
-    header = dmc.Group(
-        justify="space-between",
-        align="flex-start",
-        mb="lg",
-        children=[
-            dmc.Stack(
-                [
-                    dmc.Title(f"Sơ đồ diễn giải template: {t_code}", order=1, size="h2"),
-                    dmc.Text(
-                        f"Sơ đồ trực quan sinh tự động từ cấu hình phiên bản v{t_version} ({t_name}).",
-                        size="sm",
-                        c="dimmed",
-                    ),
-                ],
-                gap=4,
-            ),
-            dmc.Group(
-                [
-                    dmc.Anchor(
-                        button_subtle("Danh sách template", icon="lucide:arrow-left"),
-                        href="/templates",
-                        underline=False,
-                    ),
-                    dmc.Anchor(
-                        button_primary("Sửa cấu hình template", icon="lucide:settings"),
-                        href=f"/templates/{template_id}/edit",
-                        underline=False,
-                    ),
-                ],
-                gap="sm",
-            ),
-        ],
-    )
-
-    # Tabs điều hướng nhanh (Cấu hình vs Sơ đồ diễn giải)
+    # 3. Tabs điều hướng nhanh (Cấu hình vs Sơ đồ diễn giải)
     nav_tabs = dmc.Group(
         [
             dmc.Anchor(
@@ -242,7 +197,7 @@ def layout(template_id: str | None = None, **kwargs: Any) -> Any:
             button_primary("Sơ đồ diễn giải", icon="lucide:workflow"),
         ],
         gap="xs",
-        mb="lg",
+        mb="xs",
     )
 
     # 4. Danh sách các Card sơ đồ theo Screen04
@@ -296,13 +251,46 @@ def layout(template_id: str | None = None, **kwargs: Any) -> Any:
             )
         )
 
-    return dmc.Container(
-        size="xl",
-        py="lg",
+    return html.Div(
+        style={
+            "height": "calc(100vh - 48px)",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+        },
         children=[
-            breadcrumbs,
-            header,
-            nav_tabs,
-            dmc.Stack(cards, gap="xl"),
+            page_header(
+                title=f"Sơ đồ diễn giải template: {t_code}",
+                subtitle=f"Sơ đồ trực quan sinh tự động từ cấu hình phiên bản v{t_version} ({t_name}).",
+                actions=[
+                    dmc.Anchor(
+                        button_subtle("Danh sách template", icon="lucide:arrow-left", size="xs"),
+                        href="/templates",
+                        underline=False,
+                    ),
+                    dmc.Anchor(
+                        button_primary("Sửa cấu hình template", icon="lucide:settings", size="xs"),
+                        href=f"/templates/{template_id}/edit",
+                        underline=False,
+                    ),
+                ],
+                style={"marginBottom": "8px"},
+            ),
+            dmc.Box(
+                nav_tabs,
+                style={"flexShrink": 0, "marginBottom": "8px"},
+            ),
+            dmc.Box(
+                style={
+                    "flex": 1,
+                    "minHeight": 0,
+                    "overflowY": "auto",
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "gap": "12px",
+                    "paddingRight": "8px",
+                },
+                children=cards,
+            ),
         ],
     )

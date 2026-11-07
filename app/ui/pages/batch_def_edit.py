@@ -166,28 +166,39 @@ def render_def_items_table(
                 ]
             )
         )
-    return dmc.Table(
-        [
-            dmc.TableThead(
-                dmc.TableTr(
-                    [
-                        dmc.TableTh("#"),
-                        dmc.TableTh("Template"),
-                        dmc.TableTh("Version"),
-                        dmc.TableTh("Mẫu tên file"),
-                        dmc.TableTh("Gộp"),
-                        dmc.TableTh("Bắt buộc"),
-                        dmc.TableTh("Ưu tiên"),
-                        dmc.TableTh("Data Source"),
-                        dmc.TableTh("Tham số ghi đè"),
-                        dmc.TableTh(""),
-                    ]
-                )
-            ),
-            dmc.TableTbody(rows),
-        ],
-        striped=True,
-        highlightOnHover=True,
+    th_style = {
+        "position": "sticky",
+        "top": 0,
+        "zIndex": 1,
+        "backgroundColor": "var(--mantine-color-body, #fff)",
+        "whiteSpace": "nowrap",
+    }
+    return dmc.TableScrollContainer(
+        minWidth=900,
+        children=dmc.Table(
+            [
+                dmc.TableThead(
+                    dmc.TableTr(
+                        [
+                            dmc.TableTh("#", style=th_style),
+                            dmc.TableTh("Template", style=th_style),
+                            dmc.TableTh("Version", style=th_style),
+                            dmc.TableTh("Mẫu tên file", style=th_style),
+                            dmc.TableTh("Gộp", style=th_style),
+                            dmc.TableTh("Bắt buộc", style=th_style),
+                            dmc.TableTh("Ưu tiên", style=th_style),
+                            dmc.TableTh("Data Source", style=th_style),
+                            dmc.TableTh("Tham số ghi đè", style=th_style),
+                            dmc.TableTh("", style=th_style),
+                        ]
+                    )
+                ),
+                dmc.TableTbody(rows),
+            ],
+            striped=True,
+            highlightOnHover=True,
+            verticalSpacing="xs",
+        ),
     )
 
 
@@ -317,56 +328,131 @@ def layout(def_id: str | int | None = 1, **kwargs: Any) -> Any:
     except (TypeError, ValueError):
         return dmc.Container(alert_box("Bộ đối soát không hợp lệ.", tone="crit"))
     trial_period = datetime.now().strftime("%Y-%m")
-    return dmc.Container(
-        [
+    return html.Div(
+        style={
+            "height": "calc(100vh - 48px)",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+        },
+        children=[
             dcc.Store(id="bdef-edit-store"),
             dcc.Store(id="bdef-edits-store", data={}),
             dcc.Store(id="bdef-remove-target"),
             dcc.Store(id="bdef-def-id", data=def_id_int),
             dcc.Store(id="bdef-addable-store"),
             dcc.Location(id="bdef-edit-redirect", refresh=True),
-            dmc.Stack(
+            # Header row
+            dmc.Box(
                 [
                     dmc.Anchor(
                         dmc.Group(
                             [
-                                DashIconify(icon="lucide:arrow-left", width=16),
-                                dmc.Text("Quay lại danh sách bộ", size="sm"),
+                                DashIconify(icon="lucide:arrow-left", width=14),
+                                dmc.Text("Quay lại danh sách bộ", size="xs"),
                             ],
                             gap="xs",
                         ),
                         href="/batches",
                         underline=False,
+                        mb=4,
                     ),
                     html.Div(id="bdef-edit-header"),
                     html.Div(id="bdef-edit-alert"),
-                    html.Div(id="bdef-edit-content"),
+                ],
+                style={"flexShrink": 0, "marginBottom": "8px"},
+            ),
+            # Master–Detail 2 cột
+            dmc.Box(
+                style={
+                    "display": "flex",
+                    "flexDirection": "row",
+                    "flex": 1,
+                    "minHeight": 0,
+                    "gap": "12px",
+                    "overflow": "hidden",
+                },
+                children=[
+                    # Master (Trái): Danh sách template con trong bộ
+                    dmc.Paper(
+                        [
+                            html.Div(
+                                id="bdef-edit-content",
+                                style={
+                                    "flex": 1,
+                                    "minHeight": 0,
+                                    "overflowY": "auto",
+                                    "display": "flex",
+                                    "flexDirection": "column",
+                                },
+                            ),
+                        ],
+                        withBorder=True,
+                        radius="sm",
+                        p="xs",
+                        style={
+                            "flex": 1,
+                            "minWidth": 0,
+                            "minHeight": 0,
+                            "height": "100%",
+                            "display": "flex",
+                            "flexDirection": "column",
+                        },
+                    ),
+                    # Detail (Phải): Kỳ thử & xem trước tham số
                     dmc.Paper(
                         dmc.Stack(
                             [
-                                dmc.Title("Kỳ thử và xem trước tham số", order=4),
+                                dmc.Title("Kỳ thử & xem trước tham số", order=5),
                                 dmc.Group(
                                     [
                                         dmc.TextInput(
                                             id="bdef-trial-period",
                                             label="Kỳ thử (YYYY-MM)",
                                             value=trial_period,
-                                            style={"width": 160},
+                                            size="xs",
+                                            style={"width": 140},
                                         ),
-                                        button_primary("Xem trước tham số", id="bdef-preview-btn", icon="lucide:eye"),
+                                        button_primary(
+                                            "Xem trước",
+                                            id="bdef-preview-btn",
+                                            icon="lucide:eye",
+                                            size="xs",
+                                        ),
                                     ],
                                     align="flex-end",
-                                    gap="sm",
+                                    gap="xs",
                                 ),
-                                html.Div(id="bdef-preview-content"),
+                                html.Div(
+                                    id="bdef-preview-content",
+                                    style={
+                                        "flex": 1,
+                                        "minHeight": 0,
+                                        "overflowY": "auto",
+                                        "marginTop": "8px",
+                                    },
+                                ),
                             ],
-                            gap="sm",
+                            gap="xs",
+                            style={"flex": 1, "minHeight": 0},
                         ),
-                        p="md",
+                        p="xs",
                         withBorder=True,
+                        radius="sm",
+                        style={
+                            "width": "380px",
+                            "minWidth": "380px",
+                            "maxWidth": "380px",
+                            "minHeight": 0,
+                            "height": "100%",
+                            "display": "flex",
+                            "flexDirection": "column",
+                        },
                     ),
-                    dmc.Modal(
-                        id="bdef-add-modal",
+                ],
+            ),
+            dmc.Modal(
+                id="bdef-add-modal",
                         title="Thêm template vào bộ",
                         size="xl",
                         centered=True,
@@ -408,22 +494,19 @@ def layout(def_id: str | int | None = 1, **kwargs: Any) -> Any:
                             )
                         ],
                     ),
-                    modal_confirm(
-                        id="bdef-remove-modal",
-                        title="Gỡ template khỏi bộ",
-                        description="Template sẽ được gỡ khỏi bộ đối soát. Các lần chạy bộ cũ không bị ảnh hưởng.",
-                        confirm_label="Gỡ khỏi bộ",
-                    ),
-                    modal_confirm(
-                        id="bdef-archive-modal",
-                        title="Lưu trữ bộ đối soát",
-                        description="Bộ đối soát đã lưu trữ không thể tạo lần chạy mới. Các lần chạy cũ vẫn xem được.",
-                        confirm_label="Lưu trữ",
-                    ),
-                ],
-                gap="md",
+            modal_confirm(
+                id="bdef-remove-modal",
+                title="Gỡ template khỏi bộ",
+                description="Template sẽ được gỡ khỏi bộ đối soát. Các lần chạy bộ cũ không bị ảnh hưởng.",
+                confirm_label="Gỡ khỏi bộ",
             ),
-        ]
+            modal_confirm(
+                id="bdef-archive-modal",
+                title="Lưu trữ bộ đối soát",
+                description="Bộ đối soát đã lưu trữ không thể tạo lần chạy mới. Các lần chạy cũ vẫn xem được.",
+                confirm_label="Lưu trữ",
+            ),
+        ],
     )
 
 

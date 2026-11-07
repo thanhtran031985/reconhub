@@ -18,7 +18,7 @@ Chỉ mục theo dõi toàn bộ quá trình chuyển đổi giao diện ReconHu
 | **UI-01** | Compact Lists | ✅ DONE | UI-00B | M | `/templates`, `/history`, `/batches`, `/report-runs`, `/reports` | [docs/tasks/UI-01/task.md](UI-01/task.md) |
 | **UI-02** | Reports & Analytics | ✅ DONE | UI-00B | L | `/`, `/runs/<id>`, `/batch-runs/<id>/result`, `/issues`, `/reports/<id>` | [docs/tasks/UI-02/task.md](UI-02/task.md) |
 | **UI-03** | Admin Master–Detail | ✅ DONE | UI-00B, UI-01 | L | `/lookups`, `/users`, `/roles`, `/menus` | [docs/tasks/UI-03/task.md](UI-03/task.md) |
-| **UI-04** | Configuration Master–Detail | ⬜ TODO | UI-00B, UI-03 | XL | `/data-sources`, `/batches/<def_id>`, `/report-admin` (UI-04.1→04.4), `/templates/<id>/diagram` | [docs/tasks/UI-04/task.md](UI-04/task.md) |
+| **UI-04** | Configuration Master–Detail | ✅ DONE | UI-00B, UI-03 | XL | `/data-sources`, `/batches/<def_id>`, `/report-admin` (UI-04.1→04.4), `/templates/<id>/diagram` | [docs/tasks/UI-04/task.md](UI-04/task.md) |
 | **UI-05** | Template Wizard | ⬜ TODO | UI-00B | XL | `/templates/new`, `/templates/<id>/edit` | [docs/tasks/UI-05/task.md](UI-05/task.md) |
 | **UI-06** | Batch & Run Wizards | ⬜ TODO | UI-00B, UI-05 | L | `/batch-runs`, `/runs/new` | [docs/tasks/UI-06/task.md](UI-06/task.md) |
 | **UI-07** | System & Auth | ⬜ TODO | UI-00B | S | `/login`, `/account`, `/forbidden`, `/suspended`, `/dev/ui` | [docs/tasks/UI-07/task.md](UI-07/task.md) |
