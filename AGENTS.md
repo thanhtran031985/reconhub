@@ -73,6 +73,8 @@ Trạng thái: ⬜ chưa làm · 🔄 đang làm · ❓ có code chưa rà soát
 ## Giao diện (chi tiết: rule `ui-dash`)
 Máy tính trước (1440×900, dùng được 1366×768). Tiếng Việt có dấu, giữ thuật ngữ Template, Profile, Measure, Group by, Data Source, Run, Dry-run. Không emoji, không dấu chấm than. Màu trạng thái luôn kèm icon và chữ. Mỗi bảng/màn có 4 trạng thái: đang tải, trống, lỗi (giữ dữ liệu cũ + Thử lại), có dữ liệu. Mã, số hóa đơn, SQL dùng font mono.
 
+Phong cách: Fluent Compact + Master–Detail (chi tiết rule ui-dash, mẫu designs/reference/preview-fluent.html). Không áp dụng docs/design/DESIGN_STYLE_PROMPTS.md trừ khi được yêu cầu.
+
 ## Bảo mật môi trường
 KHÔNG đọc `.env` (biến nằm trong `.env.example`; cần biến mới thì thêm vào đó và báo người dùng điền). KHÔNG ghi vào Oracle UAT/PROD. Test chỉ dùng schema test do người dùng chỉ định.
 
