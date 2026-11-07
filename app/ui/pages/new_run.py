@@ -34,6 +34,7 @@ from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.code_block import code_block
 from app.ui.components.file_drop import file_drop
 from app.ui.components.modal_confirm import modal_confirm
+from app.ui.components.page_header import page_header
 
 
 def compute_quick_range(mode: str, now_dt: datetime | None = None) -> tuple[str, str]:
@@ -982,56 +983,54 @@ def layout() -> Any:
             dcc.Store(id="new-run-state-store", data={"is_running": False, "run_id": None, "stage": 0, "pct": 0}),
             dcc.Interval(id="new-run-progress-interval", interval=1000, n_intervals=0, disabled=True),
             dcc.Location(id="new-run-redirect-location", refresh=True),
-            # Header
-            dmc.Group(
-                justify="space-between",
-                align="flex-start",
-                mb="md",
+            # Compact Header (flexShrink: 0)
+            page_header(
+                title="Chạy đối soát",
+                subtitle="Upload file, kiểm tra template nhận diện, nhập khoảng ngày giờ tìm kiếm rồi chạy.",
+                actions=[dmc.Badge("UAT", color="teal", variant="light", size="sm")],
+            ),
+            # Scrollable Body Container (flex: 1, minHeight: 0, overflowY: "auto")
+            html.Div(
                 children=[
-                    html.Div(
-                        [
-                            dmc.Title("Chạy đối soát", order=2, fw=700),
-                            dmc.Text(
-                                "Upload file, kiểm tra template nhận diện, nhập khoảng ngày giờ tìm kiếm rồi chạy.",
-                                size="sm",
-                                c="dimmed",
-                                mt=4,
+                    # Grid 2 cột: Cột 1 File, Cột 2 Params
+                    dmc.Grid(
+                        gutter="md",
+                        align="stretch",
+                        children=[
+                            dmc.GridCol(
+                                span=6,
+                                id="new-run-file-col",
+                                style={"display": "flex", "flexDirection": "column"},
+                                children=render_file_section(None, initial_template, active_templates),
                             ),
-                        ]
+                            dmc.GridCol(
+                                span=6,
+                                id="new-run-params-col",
+                                style={"display": "flex", "flexDirection": "column"},
+                                children=render_params_section(initial_template, data_sources, active_templates),
+                            ),
+                        ],
                     ),
-                    dmc.Badge("UAT", color="teal", variant="light", size="lg"),
-                ],
-            ),
-            # Grid 2 cột: Cột 1 File, Cột 2 Params
-            dmc.Grid(
-                gutter="md",
-                align="stretch",
-                children=[
-                    dmc.GridCol(
-                        span=6,
-                        id="new-run-file-col",
-                        style={"display": "flex", "flexDirection": "column"},
-                        children=render_file_section(None, initial_template, active_templates),
+                    # 3. Thực thi
+                    html.Div(
+                        id="new-run-exec-container",
+                        children=render_execution_section(is_ready=False, lock_reason="Chọn file dữ liệu để bật nút chạy."),
                     ),
-                    dmc.GridCol(
-                        span=6,
-                        id="new-run-params-col",
-                        style={"display": "flex", "flexDirection": "column"},
-                        children=render_params_section(initial_template, data_sources, active_templates),
+                    # Câu lệnh SQL hệ thống sẽ chạy (chỉ đọc, xem sau khi chạy)
+                    html.Div(
+                        id="new-run-sql-container",
+                        children=render_sql_preview_section(initial_template, None, init_sql_params),
                     ),
                 ],
-            ),
-            # 3. Thực thi, đặt trên Câu lệnh SQL để không phải kéo
-            # xuống mỗi lần chạy. Id các container giữ nguyên nên các
-            # callback cập nhật SQL / thực thi không đổi.
-            html.Div(
-                id="new-run-exec-container",
-                children=render_execution_section(is_ready=False, lock_reason="Chọn file dữ liệu để bật nút chạy."),
-            ),
-            # Câu lệnh SQL hệ thống sẽ chạy (chỉ đọc, xem sau khi chạy)
-            html.Div(
-                id="new-run-sql-container",
-                children=render_sql_preview_section(initial_template, None, init_sql_params),
+                style={
+                    "flex": "1 1 0%",
+                    "minHeight": 0,
+                    "overflowY": "auto",
+                    "padding": "16px 20px",
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "gap": "16px",
+                },
             ),
             # Modal xác nhận PROD
             modal_confirm(
@@ -1044,7 +1043,13 @@ def layout() -> Any:
                 opened=False,
             ),
         ],
-        style={"padding": "24px"},
+        style={
+            "height": "calc(100vh - 48px)",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "backgroundColor": "var(--mantine-color-body)",
+        },
     )
 
 

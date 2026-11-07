@@ -39,6 +39,7 @@ from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
 from app.ui.components.empty_state import empty_state
 from app.ui.components.modal_confirm import modal_confirm
+from app.ui.components.page_header import page_header
 from app.ui.components.status_chip import item_status_badge, run_status_badge
 
 try:
@@ -961,26 +962,50 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
                 recent = res_runs.data.get("items", [])
         preselected = kwargs.get("def")
         preselected_id = int(preselected) if preselected and str(preselected).isdigit() else None
-        return dmc.Container(
+        return html.Div(
             [
                 dcc.Location(id="brw-redirect", refresh=True),
-                alert_box(defs_error, tone="crit") if defs_error else dmc.Text(""),
-                render_new_run_form(defs, preselected_id),
-                dmc.Paper(
-                    dmc.Stack(
-                        [
-                            dmc.Text("Lần chạy gần đây", fw=600),
-                            render_recent_runs(recent),
-                        ],
-                        gap="sm",
-                    ),
-                    p="md",
-                    withBorder=True,
+                page_header(
+                    title="Khởi tạo lần chạy bộ",
+                    subtitle="Chọn bộ đối soát và thời gian để bắt đầu quy trình chạy đối soát hàng loạt",
                 ),
-            ]
+                html.Div(
+                    [
+                        alert_box(defs_error, tone="crit") if defs_error else dmc.Text(""),
+                        render_new_run_form(defs, preselected_id),
+                        dmc.Paper(
+                            dmc.Stack(
+                                [
+                                    dmc.Text("Lần chạy gần đây", fw=600),
+                                    render_recent_runs(recent),
+                                ],
+                                gap="sm",
+                            ),
+                            p="md",
+                            withBorder=True,
+                        ),
+                    ],
+                    style={
+                        "flex": "1 1 0%",
+                        "minHeight": 0,
+                        "overflowY": "auto",
+                        "padding": "16px 20px",
+                        "display": "flex",
+                        "flexDirection": "column",
+                        "gap": "16px",
+                    },
+                ),
+            ],
+            style={
+                "height": "calc(100vh - 48px)",
+                "display": "flex",
+                "flexDirection": "column",
+                "overflow": "hidden",
+                "backgroundColor": "var(--mantine-color-body)",
+            },
         )
     run_id_int = int(run_id) if str(run_id).isdigit() else 0
-    return dmc.Container(
+    return html.Div(
         [
             dcc.Store(id="brw-run-id", data=run_id_int),
             dcc.Store(id="brw-store"),
@@ -988,51 +1013,85 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
             dcc.Store(id="brw-refresh-trigger", data=0),
             dcc.Location(id="brw-redirect", refresh=True),
             dcc.Interval(id="brw-interval", interval=2000, disabled=True),
-            dmc.Stack(
+            # Fixed Top: Header & Stepper
+            dmc.Box(
                 [
                     html.Div(id="brw-header"),
                     html.Div(id="brw-stepper"),
+                ],
+                style={
+                    "flexShrink": 0,
+                    "padding": "12px 20px 8px 20px",
+                    "borderBottom": "1px solid var(--mantine-color-default-border)",
+                    "backgroundColor": "var(--mantine-color-body)",
+                },
+            ),
+            # Middle Scrollable Body
+            html.Div(
+                [
                     html.Div(id="brw-alert"),
                     html.Div(id="brw-content"),
-                    dmc.Group(
-                        [
-                            button_subtle("Quay lại", id="brw-prev-btn"),
-                            button_primary("Tiếp tục", id="brw-next-btn"),
-                        ],
-                        justify="space-between",
-                    ),
-                    modal_confirm(
-                        id="brw-cancel-modal",
-                        title="Hủy lần chạy bộ",
-                        description="Lần chạy bộ đang chạy sẽ dừng ở bước kiểm tra tiếp theo. Run con đã xong vẫn giữ kết quả.",
-                        confirm_label="Hủy lần chạy",
-                    ),
-                    dmc.Modal(
-                        id="brw-prod-modal",
-                        title="Xác nhận chạy trên Data Source PROD",
-                        opened=False,
-                        centered=True,
-                        children=[
-                            dmc.Stack(
-                                [
-                                    html.Div(id="brw-prod-body"),
-                                    dmc.Group(
-                                        [
-                                            button_subtle("Hủy", id="brw-prod-cancel"),
-                                            button_primary("Xác nhận chạy", id="brw-prod-confirm"),
-                                        ],
-                                        justify="flex-end",
-                                        gap="sm",
-                                    ),
-                                ],
-                                gap="sm",
-                            )
-                        ],
-                    ),
                 ],
-                gap="md",
+                style={
+                    "flex": "1 1 0%",
+                    "minHeight": 0,
+                    "overflowY": "auto",
+                    "padding": "16px 20px",
+                },
             ),
-        ]
+            # Fixed Footer Nav
+            dmc.Group(
+                [
+                    button_subtle("Quay lại", id="brw-prev-btn", size="sm"),
+                    button_primary("Tiếp tục", id="brw-next-btn", size="sm"),
+                ],
+                justify="space-between",
+                align="center",
+                style={
+                    "flexShrink": 0,
+                    "height": "48px",
+                    "padding": "0 20px",
+                    "borderTop": "1px solid var(--mantine-color-default-border)",
+                    "backgroundColor": "var(--mantine-color-body)",
+                    "display": "flex",
+                },
+            ),
+            modal_confirm(
+                id="brw-cancel-modal",
+                title="Hủy lần chạy bộ",
+                description="Lần chạy bộ đang chạy sẽ dừng ở bước kiểm tra tiếp theo. Run con đã xong vẫn giữ kết quả.",
+                confirm_label="Hủy lần chạy",
+            ),
+            dmc.Modal(
+                id="brw-prod-modal",
+                title="Xác nhận chạy trên Data Source PROD",
+                opened=False,
+                centered=True,
+                children=[
+                    dmc.Stack(
+                        [
+                            html.Div(id="brw-prod-body"),
+                            dmc.Group(
+                                [
+                                    button_subtle("Hủy", id="brw-prod-cancel", size="sm"),
+                                    button_primary("Xác nhận chạy", id="brw-prod-confirm", size="sm"),
+                                ],
+                                justify="flex-end",
+                                gap="sm",
+                            ),
+                        ],
+                        gap="sm",
+                    )
+                ],
+            ),
+        ],
+        style={
+            "height": "calc(100vh - 48px)",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "backgroundColor": "var(--mantine-color-body)",
+        },
     )
 
 
