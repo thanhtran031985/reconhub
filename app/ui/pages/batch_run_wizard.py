@@ -1150,7 +1150,14 @@ def _render_wizard(store_data: Any, step_data: Any) -> tuple[Any, Any, Any]:
     prevent_initial_call=True,
 )
 def _navigate(_prev: Any, _next: Any, step_data: Any, store_data: Any) -> tuple[Any, Any]:
-    triggered = dash.callback_context.triggered_id
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return dash.no_update, dash.no_update
+    triggered = ctx_dash.triggered_id
+    if triggered == "brw-prev-btn" and not _prev:
+        return dash.no_update, dash.no_update
+    if triggered == "brw-next-btn" and not _next:
+        return dash.no_update, dash.no_update
     if not isinstance(store_data, dict) or store_data.get("error"):
         return dash.no_update, dash.no_update
     status = str(store_data.get("status", "DRAFT"))
@@ -1178,6 +1185,8 @@ def _navigate(_prev: Any, _next: Any, step_data: Any, store_data: Any) -> tuple[
     prevent_initial_call=True,
 )
 def _create_run(_n: Any, def_val: Any, period: Any, name: Any) -> tuple[Any, Any]:
+    if not _n:
+        return dash.no_update, dash.no_update
     ctx = get_current_ctx()
     if ctx is None:
         return alert_box("Bạn cần đăng nhập.", tone="crit"), dash.no_update
@@ -1237,7 +1246,7 @@ def _upload_files(contents: Any, filenames: Any, run_id: Any) -> tuple[Any, Any,
 def _assign_file(_n: Any, select_values: Any, run_id: Any) -> tuple[Any, Any]:
     triggered = dash.callback_context.triggered_id
     ctx = get_current_ctx()
-    if not isinstance(triggered, dict) or ctx is None or run_id is None:
+    if not isinstance(triggered, dict) or not any(c for c in (_n or []) if c) or ctx is None or run_id is None:
         return dash.no_update, dash.no_update
     file_id = int(triggered["index"])
     selected: str | None = None
@@ -1268,6 +1277,8 @@ def _ignore_file(_n1: Any, _n2: Any, run_id: Any) -> tuple[Any, Any]:
     ctx = get_current_ctx()
     if not isinstance(triggered, dict) or ctx is None or run_id is None:
         return dash.no_update, dash.no_update
+    if not any(c for c in (_n1 or []) if c) and not any(c for c in (_n2 or []) if c):
+        return dash.no_update, dash.no_update
     res = ignore_file(ctx, int(triggered["index"]))
     if not res.ok:
         return dash.no_update, alert_box(res.message or "Không bỏ được file.", tone="crit")
@@ -1284,7 +1295,7 @@ def _ignore_file(_n1: Any, _n2: Any, run_id: Any) -> tuple[Any, Any]:
 def _toggle_skip(_n: Any, store_data: Any) -> tuple[Any, Any]:
     triggered = dash.callback_context.triggered_id
     ctx = get_current_ctx()
-    if not isinstance(triggered, dict) or ctx is None or not isinstance(store_data, dict):
+    if not isinstance(triggered, dict) or not any(c for c in (_n or []) if c) or ctx is None or not isinstance(store_data, dict):
         return dash.no_update, dash.no_update
     item_id = int(triggered["index"])
     item = next((i for i in (store_data.get("items") or []) if int(i["id"]) == item_id), None)
@@ -1306,6 +1317,8 @@ def _toggle_skip(_n: Any, store_data: Any) -> tuple[Any, Any]:
     prevent_initial_call=True,
 )
 def _save_params(_n: Any, values: Any, store_data: Any) -> tuple[Any, Any]:
+    if not _n:
+        return dash.no_update, dash.no_update
     ctx = get_current_ctx()
     if ctx is None or not isinstance(store_data, dict):
         return dash.no_update, dash.no_update
@@ -1433,6 +1446,8 @@ def _replace_item_files(contents: Any, filenames: Any, run_id: Any) -> tuple[Any
     prevent_initial_call=True,
 )
 def _start_run(_n: Any, include_warn: Any, run_id: Any) -> tuple[Any, Any, bool, Any, Any]:
+    if not _n:
+        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
     ctx = get_current_ctx()
     if ctx is None or run_id is None:
         return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
@@ -1474,8 +1489,13 @@ def _start_run(_n: Any, include_warn: Any, run_id: Any) -> tuple[Any, Any, bool,
     prevent_initial_call=True,
 )
 def _confirm_prod_start(_confirm: Any, _cancel: Any, include_warn: Any, run_id: Any) -> tuple[Any, Any, bool, Any]:
-    triggered = dash.callback_context.triggered_id
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return dash.no_update, dash.no_update, False, dash.no_update
+    triggered = ctx_dash.triggered_id
     if triggered == "brw-prod-cancel":
+        return dash.no_update, dash.no_update, False, dash.no_update
+    if triggered == "brw-prod-confirm" and not _confirm:
         return dash.no_update, dash.no_update, False, dash.no_update
     ctx = get_current_ctx()
     if ctx is None or run_id is None:
@@ -1499,7 +1519,15 @@ def _confirm_prod_start(_confirm: Any, _cancel: Any, include_warn: Any, run_id: 
     prevent_initial_call=True,
 )
 def _toggle_cancel_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
-    return not opened
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False
+    triggered = ctx_dash.triggered_id
+    if triggered == "brw-cancel-modal-cancel":
+        return False
+    if triggered == "brw-cancel-btn" and bool(_open):
+        return True
+    return False
 
 
 @callback(
@@ -1511,6 +1539,8 @@ def _toggle_cancel_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
     prevent_initial_call=True,
 )
 def _do_cancel(_n: Any, run_id: Any) -> tuple[Any, Any, bool]:
+    if not _n:
+        return dash.no_update, dash.no_update, False
     ctx = get_current_ctx()
     if ctx is None or run_id is None:
         return dash.no_update, dash.no_update, False

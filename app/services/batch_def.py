@@ -106,10 +106,10 @@ def _active_template(conn: Connection, template_id: int) -> tuple[RowMapping, Ro
     tmpl = conn.execute(select(recon_template).where(recon_template.c.ID == template_id)).mappings().first()
     if tmpl is None:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy template với id {template_id}.")
-    if tmpl["STATUS"] != "ACTIVE":
+    if tmpl["STATUS"] == "ARCHIVED":
         raise ServiceError(
             ErrorCode.BATCH_TEMPLATE_NOT_ACTIVE,
-            f"Template {tmpl['CODE']} chưa kích hoạt (trạng thái {tmpl['STATUS']}).",
+            f"Template {tmpl['CODE']} đã lưu trữ.",
         )
     ver = (
         conn.execute(
@@ -124,7 +124,10 @@ def _active_template(conn: Connection, template_id: int) -> tuple[RowMapping, Ro
         .first()
     )
     if ver is None:
-        raise ServiceError(ErrorCode.BATCH_TEMPLATE_NOT_ACTIVE, f"Template {tmpl['CODE']} chưa có phiên bản kích hoạt.")
+        raise ServiceError(
+            ErrorCode.BATCH_TEMPLATE_NOT_ACTIVE,
+            f"Template {tmpl['CODE']} chưa kích hoạt (trạng thái {tmpl['STATUS']}).",
+        )
     raw_cfg = ver["CONFIG_JSON"]
     config = TemplateConfig.model_validate(raw_cfg if isinstance(raw_cfg, dict) else json.loads(str(raw_cfg)))
     return tmpl, ver, config
@@ -750,12 +753,10 @@ def addable_templates(
         ver = vers.get(tid)
         if tid in in_def:
             addable, reason = False, "Đã có trong bộ"
-        elif tmpl["STATUS"] == "DRAFT":
-            addable, reason = False, "Cần dry-run và kích hoạt trước"
         elif tmpl["STATUS"] == "ARCHIVED":
             addable, reason = False, "Template đã lưu trữ"
-        elif tmpl["STATUS"] == "ACTIVE" and ver is None:
-            addable, reason = False, "Template chưa có phiên bản kích hoạt"
+        elif ver is None:
+            addable, reason = False, "Cần dry-run và kích hoạt trước"
         else:
             addable, reason = True, None
         if not include_unavailable and not addable:
@@ -765,7 +766,7 @@ def addable_templates(
                 "template_id": tid,
                 "code": str(tmpl["CODE"]),
                 "name": str(tmpl["NAME"]),
-                "status": str(tmpl["STATUS"]),
+                "status": "ACTIVE" if ver is not None else str(tmpl["STATUS"]),
                 "version": int(ver["VERSION"]) if ver is not None else None,
                 "data_source_id": int(ver["DATA_SOURCE_ID"]) if ver is not None and ver["DATA_SOURCE_ID"] else None,
                 "addable": addable,

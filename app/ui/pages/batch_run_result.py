@@ -448,6 +448,8 @@ def _render_result(store_data: Any) -> tuple[Any, Any, Any]:
     prevent_initial_call=True,
 )
 def _retry_failed(_n: Any, run_id: Any) -> tuple[Any, Any]:
+    if not _n:
+        return dash.no_update, dash.no_update
     ctx = get_current_ctx()
     if ctx is None or run_id is None:
         return dash.no_update, dash.no_update
@@ -471,7 +473,7 @@ def _retry_failed(_n: Any, run_id: Any) -> tuple[Any, Any]:
 def _rerun_one(_n: Any, run_id: Any) -> tuple[Any, Any]:
     triggered = dash.callback_context.triggered_id
     ctx = get_current_ctx()
-    if not isinstance(triggered, dict) or ctx is None or run_id is None:
+    if not isinstance(triggered, dict) or not any(c for c in (_n or []) if c) or ctx is None or run_id is None:
         return dash.no_update, dash.no_update
     res = rerun_item(ctx, int(triggered["index"]))
     if not res.ok:
@@ -489,7 +491,7 @@ def _rerun_one(_n: Any, run_id: Any) -> tuple[Any, Any]:
 def _download_item_file(_n: Any, store_data: Any) -> tuple[Any, Any]:
     triggered = dash.callback_context.triggered_id
     ctx = get_current_ctx()
-    if not isinstance(triggered, dict) or ctx is None or not isinstance(store_data, dict):
+    if not isinstance(triggered, dict) or not any(c for c in (_n or []) if c) or ctx is None or not isinstance(store_data, dict):
         return dash.no_update, dash.no_update
     row = next(
         (r for r in (store_data.get("rows") or []) if int(r["item_id"]) == int(triggered["index"])),
@@ -514,6 +516,8 @@ def _download_item_file(_n: Any, store_data: Any) -> tuple[Any, Any]:
     prevent_initial_call=True,
 )
 def _download_zip(_n: Any, run_id: Any) -> tuple[Any, Any, Any]:
+    if not _n:
+        return dash.no_update, dash.no_update, dash.no_update
     ctx = get_current_ctx()
     if ctx is None or run_id is None:
         return dash.no_update, dash.no_update, dash.no_update
@@ -545,6 +549,8 @@ def _download_zip(_n: Any, run_id: Any) -> tuple[Any, Any, Any]:
     prevent_initial_call=True,
 )
 def _mark_checked_selected(_n: Any, _checked: Any, store_data: Any) -> tuple[Any, Any]:
+    if not _n:
+        return dash.no_update, dash.no_update
     ctx = get_current_ctx()
     if ctx is None:
         return dash.no_update, dash.no_update
@@ -574,7 +580,15 @@ def _mark_checked_selected(_n: Any, _checked: Any, store_data: Any) -> tuple[Any
     prevent_initial_call=True,
 )
 def _toggle_purge_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
-    return not opened
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False
+    triggered = ctx_dash.triggered_id
+    if triggered == "brr-purge-modal-cancel":
+        return False
+    if triggered == "brr-purge-btn" and bool(_open):
+        return True
+    return False
 
 
 @callback(
@@ -588,6 +602,8 @@ def _toggle_purge_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
     prevent_initial_call=True,
 )
 def _purge_selected(_n: Any, confirm_text: Any, _checked: Any, store_data: Any) -> tuple[Any, Any, bool]:
+    if not _n:
+        return dash.no_update, dash.no_update, False
     ctx = get_current_ctx()
     if ctx is None:
         return dash.no_update, dash.no_update, False

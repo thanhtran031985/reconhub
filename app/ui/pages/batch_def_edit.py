@@ -749,6 +749,8 @@ def _save_def(
     desc: str | None,
     max_parallel: Any,
 ) -> tuple[Any, Any, Any, Any]:
+    if not _n:
+        return dash.no_update, dash.no_update, dash.no_update, ""
     ctx = get_current_ctx()
     if ctx is None:
         return alert_box("Bạn cần đăng nhập.", tone="crit"), dash.no_update, dash.no_update, ""
@@ -826,7 +828,15 @@ def _save_def(
     prevent_initial_call=True,
 )
 def _toggle_add_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
-    return not opened
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False
+    trig = ctx_dash.triggered_id
+    if trig == "bdef-add-cancel":
+        return False
+    if trig == "bdef-add-open-btn" and bool(_open):
+        return True
+    return False
 
 
 @callback(
@@ -942,6 +952,8 @@ def _submit_add_templates(
     priorities: Any,
     priority_ids: Any,
 ) -> tuple[Any, Any, bool]:
+    if not _n:
+        return dash.no_update, dash.no_update, True
     ctx = get_current_ctx()
     if ctx is None:
         return alert_box("Bạn cần đăng nhập.", tone="crit"), dash.no_update, True
@@ -993,10 +1005,16 @@ def _submit_add_templates(
     State("bdef-remove-modal", "opened"),
     prevent_initial_call=True,
 )
-def _open_remove_modal(_remove: Any, _cancel: Any, opened: bool) -> tuple[bool, Any]:
-    triggered = dash.callback_context.triggered_id
+def _open_remove_modal(remove_clicks: Any, _cancel: Any, opened: bool) -> tuple[bool, Any]:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False, dash.no_update
+    triggered = ctx_dash.triggered_id
+    if triggered == "bdef-remove-modal-cancel":
+        return False, dash.no_update
     if isinstance(triggered, dict) and triggered.get("type") == "bdef-item-remove":
-        return True, {"item_id": triggered["index"]}
+        if any(c for c in (remove_clicks or []) if c):
+            return True, {"item_id": triggered["index"]}
     return False, dash.no_update
 
 
@@ -1010,6 +1028,8 @@ def _open_remove_modal(_remove: Any, _cancel: Any, opened: bool) -> tuple[bool, 
     prevent_initial_call=True,
 )
 def _confirm_remove_item(_n: Any, target: Any, def_id: int) -> tuple[Any, Any, bool]:
+    if not _n:
+        return dash.no_update, dash.no_update, False
     ctx = get_current_ctx()
     if ctx is None:
         return alert_box("Bạn cần đăng nhập.", tone="crit"), dash.no_update, False
@@ -1032,7 +1052,15 @@ def _confirm_remove_item(_n: Any, target: Any, def_id: int) -> tuple[Any, Any, b
     prevent_initial_call=True,
 )
 def _toggle_archive_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
-    return not opened
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False
+    triggered = ctx_dash.triggered_id
+    if triggered == "bdef-edit-archive-modal-cancel":
+        return False
+    if triggered == "bdef-archive-btn" and bool(_open):
+        return True
+    return False
 
 
 @callback(
@@ -1045,16 +1073,21 @@ def _toggle_archive_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
     prevent_initial_call=True,
 )
 def _run_def_action(_confirm: Any, _activate: Any, def_id: int) -> tuple[Any, Any, bool]:
-    triggered = dash.callback_context.triggered_id
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return dash.no_update, dash.no_update, False
+    triggered = ctx_dash.triggered_id
     ctx = get_current_ctx()
     if ctx is None:
         return alert_box("Bạn cần đăng nhập.", tone="crit"), dash.no_update, False
-    if triggered == "bdef-activate-btn":
+    if triggered == "bdef-activate-btn" and bool(_activate):
         res = activate_batch_def(ctx, def_id)
         action_name = "kích hoạt"
-    else:
+    elif triggered == "bdef-edit-archive-modal-confirm" and bool(_confirm):
         res = archive_batch_def(ctx, def_id)
         action_name = "lưu trữ"
+    else:
+        return dash.no_update, dash.no_update, False
     if not res.ok:
         return alert_box(res.message or f"Không {action_name} được bộ.", tone="crit"), dash.no_update, False
     refreshed = get_batch_def(ctx, def_id)
@@ -1071,6 +1104,8 @@ def _run_def_action(_confirm: Any, _activate: Any, def_id: int) -> tuple[Any, An
     prevent_initial_call=True,
 )
 def _run_preview(_n: Any, def_id: int, period: str | None) -> Any:
+    if not _n:
+        return dash.no_update
     ctx = get_current_ctx()
     if ctx is None:
         return render_preview_result(None, error="Bạn cần đăng nhập.")
