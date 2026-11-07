@@ -25,6 +25,7 @@ from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
 from app.ui.components.empty_state import empty_state
 from app.ui.components.modal_confirm import modal_confirm
+from app.ui.components.page_header import page_header
 from app.ui.components.status_chip import item_status_badge
 
 try:
@@ -73,45 +74,18 @@ def render_result_header(matrix_data: dict[str, Any]) -> Any:
     run = matrix_data.get("run") or {}
     total = int(matrix_data.get("total_items", 0))
     with_results = int((matrix_data.get("kpis") or {}).get("items_with_results", 0))
-    return dmc.Stack(
-        [
-            dmc.Group(
-                [
-                    dmc.Stack(
-                        [
-                            dmc.Title(f"Kết quả lần chạy bộ #{run.get('id')}", order=2),
-                            dmc.Text(
-                                f"{matrix_data.get('def_code', '')} — {matrix_data.get('def_name', '')} · "
-                                f"Kỳ {run.get('period', '')} · {run.get('name', '')}",
-                                size="sm",
-                                c="dimmed",
-                            ),
-                            dmc.Text(
-                                f"Người chạy {run.get('created_by', '')} · {with_results}/{total} mục có kết quả",
-                                size="xs",
-                                c="dimmed",
-                            ),
-                        ],
-                        gap=2,
-                    ),
-                    dmc.Group(
-                        [
-                            dmc.Anchor(
-                                button_subtle("Theo dõi tiến độ", icon="lucide:loader"),
-                                href=f"/batch-runs/{run.get('id')}",
-                                underline=False,
-                            ),
-                            button_primary("Chạy lại run lỗi", icon="lucide:rotate-ccw", id="brr-retry-btn"),
-                            button_primary("Tải tất cả (.zip)", icon="lucide:download", id="brr-zip-btn"),
-                        ],
-                        gap="sm",
-                    ),
-                ],
-                justify="space-between",
-                align="flex-start",
+    return page_header(
+        title=f"Kết quả lần chạy bộ #{run.get('id')}",
+        subtitle=f"{matrix_data.get('def_code', '')} — {matrix_data.get('def_name', '')} · Kỳ {run.get('period', '')} · {run.get('name', '')} · Người chạy {run.get('created_by', '')} · {with_results}/{total} mục có kết quả",
+        actions=[
+            dmc.Anchor(
+                button_subtle("Theo dõi tiến độ", icon="lucide:loader", size="xs"),
+                href=f"/batch-runs/{run.get('id')}",
+                underline=False,
             ),
+            button_primary("Chạy lại run lỗi", icon="lucide:rotate-ccw", id="brr-retry-btn", size="xs"),
+            button_primary("Tải tất cả (.zip)", icon="lucide:download", id="brr-zip-btn", size="xs"),
         ],
-        gap="sm",
     )
 
 
@@ -122,45 +96,57 @@ def render_result_kpis(kpis: dict[str, Any]) -> Any:
                 dmc.Stack(
                     [
                         dmc.Text("Khớp hết", size="xs", c="dimmed"),
-                        dmc.Text(str(kpis.get("all_matched_items", 0)), fw=700, size="xl"),
-                    ]
+                        dmc.Text(str(kpis.get("all_matched_items", 0)), fw=700, size="md"),
+                    ],
+                    gap=2,
                 ),
-                p="sm",
+                p="xs",
                 withBorder=True,
+                radius="sm",
+                style={"minWidth": 120},
             ),
             dmc.Paper(
                 dmc.Stack(
                     [
                         dmc.Text("Có lệch", size="xs", c="dimmed"),
-                        dmc.Text(str(kpis.get("mismatch_items", 0)), fw=700, size="xl"),
+                        dmc.Text(str(kpis.get("mismatch_items", 0)), fw=700, size="md"),
                         dmc.Text(f"Tổng chênh {_fmt_num(kpis.get('mismatch_total_diff'))}", size="xs", c="dimmed"),
-                    ]
+                    ],
+                    gap=2,
                 ),
-                p="sm",
+                p="xs",
                 withBorder=True,
+                radius="sm",
+                style={"minWidth": 140},
             ),
             dmc.Paper(
                 dmc.Stack(
                     [
                         dmc.Text("Lỗi / chưa chạy", size="xs", c="dimmed"),
-                        dmc.Text(str(kpis.get("error_items", 0)), fw=700, size="xl"),
-                    ]
+                        dmc.Text(str(kpis.get("error_items", 0)), fw=700, size="md"),
+                    ],
+                    gap=2,
                 ),
-                p="sm",
+                p="xs",
                 withBorder=True,
+                radius="sm",
+                style={"minWidth": 120},
             ),
             dmc.Paper(
                 dmc.Stack(
                     [
                         dmc.Text("Bỏ qua", size="xs", c="dimmed"),
-                        dmc.Text(str(kpis.get("skipped_items", 0)), fw=700, size="xl"),
-                    ]
+                        dmc.Text(str(kpis.get("skipped_items", 0)), fw=700, size="md"),
+                    ],
+                    gap=2,
                 ),
-                p="sm",
+                p="xs",
                 withBorder=True,
+                radius="sm",
+                style={"minWidth": 120},
             ),
         ],
-        gap="sm",
+        gap="xs",
     )
 
 
@@ -261,33 +247,52 @@ def render_matrix_table(matrix_data: dict[str, Any], selected_ids: set[int] | No
                 ]
             )
         )
-    return dmc.Table(
-        [
-            dmc.TableThead(
-                dmc.TableTr(
-                    [
-                        dmc.TableTh(""),
-                        dmc.TableTh("Template"),
-                        dmc.TableTh("Số file"),
-                        dmc.TableTh("Trạng thái"),
-                        dmc.TableTh("Tổng Excel"),
-                        dmc.TableTh("Tổng DB"),
-                        dmc.TableTh("Chênh lệch"),
-                        dmc.TableTh("Khớp"),
-                        dmc.TableTh("Lệch"),
-                        dmc.TableTh("Thiếu DB"),
-                        dmc.TableTh("Thiếu Excel"),
-                        dmc.TableTh("Tỷ lệ khớp"),
-                        dmc.TableTh("So tháng trước"),
-                        dmc.TableTh("Kiểm tra"),
-                        dmc.TableTh("Thao tác"),
-                    ]
-                )
+    th_style = {
+        "position": "sticky",
+        "top": 0,
+        "backgroundColor": "var(--p2, #FAFAFA)",
+        "zIndex": 1,
+        "height": "32px",
+        "fontSize": "12px",
+        "fontWeight": 600,
+    }
+    return dmc.Paper(
+        dmc.TableScrollContainer(
+            minWidth=1100,
+            style={"height": "100%", "overflow": "auto"},
+            children=dmc.Table(
+                [
+                    dmc.TableThead(
+                        dmc.TableTr(
+                            [
+                                dmc.TableTh("", style=th_style),
+                                dmc.TableTh("Template", style=th_style),
+                                dmc.TableTh("Số file", style=th_style),
+                                dmc.TableTh("Trạng thái", style=th_style),
+                                dmc.TableTh("Tổng Excel", style=th_style),
+                                dmc.TableTh("Tổng DB", style=th_style),
+                                dmc.TableTh("Chênh lệch", style=th_style),
+                                dmc.TableTh("Khớp", style=th_style),
+                                dmc.TableTh("Lệch", style=th_style),
+                                dmc.TableTh("Thiếu DB", style=th_style),
+                                dmc.TableTh("Thiếu Excel", style=th_style),
+                                dmc.TableTh("Tỷ lệ khớp", style=th_style),
+                                dmc.TableTh("So tháng trước", style=th_style),
+                                dmc.TableTh("Kiểm tra", style=th_style),
+                                dmc.TableTh("Thao tác", style=th_style),
+                            ]
+                        )
+                    ),
+                    dmc.TableTbody(rows),
+                ],
+                striped=True,
+                highlightOnHover=True,
+                style={"fontSize": "13px"},
             ),
-            dmc.TableTbody(rows),
-        ],
-        striped=True,
-        highlightOnHover=True,
+        ),
+        withBorder=True,
+        radius="sm",
+        style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
     )
 
 
@@ -343,7 +348,7 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
     ctx = get_current_ctx()
     gate = page_gate(ctx, MENU_CODE)
     if gate:
-        return dmc.Container(
+        return dmc.Box(
             [
                 dcc.Location(id="brr-forbidden-redirect", href=gate),
                 alert_box("Bạn không có quyền truy cập trang Kết quả lần chạy bộ.", tone="crit"),
@@ -351,43 +356,50 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
         )
     run_id_int = int(run_id) if run_id is not None and str(run_id).isdigit() else 0
     can_purge_bulk = bool(ctx is not None and is_admin(ctx))
-    return dmc.Container(
+    return dmc.Box(
         [
             dcc.Store(id="brr-run-id", data=run_id_int),
             dcc.Store(id="brr-store"),
             dcc.Store(id="brr-refresh-trigger", data=0),
             dcc.Download(id="brr-download"),
-            dmc.Stack(
+            html.Div(id="brr-header"),
+            html.Div(id="brr-kpis"),
+            html.Div(id="brr-alert"),
+            dmc.Group(
                 [
-                    html.Div(id="brr-header"),
-                    html.Div(id="brr-kpis"),
-                    html.Div(id="brr-alert"),
-                    dmc.Group(
-                        [
-                            button_primary(
-                                "Đánh dấu đã kiểm tra", icon="lucide:check-check", id="brr-mark-checked-btn"
-                            ),
-                            button_danger(
-                                "Xóa dữ liệu tạm",
-                                id="brr-purge-btn",
-                                disabled=not can_purge_bulk,
-                            ),
-                        ],
-                        gap="sm",
+                    button_primary(
+                        "Đánh dấu đã kiểm tra", icon="lucide:check-check", id="brr-mark-checked-btn", size="xs"
                     ),
-                    html.Div(id="brr-content"),
-                    html.Div(id="brr-zip-list"),
-                    modal_confirm(
-                        id="brr-purge-modal",
-                        title="Xóa dữ liệu tạm các run đã chọn",
-                        description="Xóa dữ liệu tạm của các run con đã chọn. Chỉ Admin xóa hàng loạt.",
-                        confirm_text="XOA",
-                        confirm_label="Xóa dữ liệu tạm",
+                    button_danger(
+                        "Xóa dữ liệu tạm",
+                        id="brr-purge-btn",
+                        disabled=not can_purge_bulk,
+                        size="xs",
                     ),
                 ],
-                gap="md",
+                gap="xs",
             ),
-        ]
+            html.Div(
+                id="brr-content",
+                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
+            ),
+            html.Div(id="brr-zip-list"),
+            modal_confirm(
+                id="brr-purge-modal",
+                title="Xóa dữ liệu tạm các run đã chọn",
+                description="Xóa dữ liệu tạm của các run con đã chọn. Chỉ Admin xóa hàng loạt.",
+                confirm_text="XOA",
+                confirm_label="Xóa dữ liệu tạm",
+            ),
+        ],
+        style={
+            "height": "100%",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "padding": "12px 16px",
+            "gap": "8px",
+        },
     )
 
 

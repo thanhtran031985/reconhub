@@ -28,7 +28,9 @@ from app.services.report_run import (
 )
 from app.services.report_template import get_version, list_templates
 from app.ui.components.alert_box import alert_box
+from app.ui.components.button import button_subtle
 from app.ui.components.empty_state import empty_state
+from app.ui.components.page_header import page_header
 from app.ui.components.report_widgets import (
     _format_cell,
     _lov_options,
@@ -127,7 +129,7 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
         for entry in row.get("params", []):
             if entry.get("control_type") in ("SELECT", "MULTI_SELECT"):
                 options_by_code[str(entry["code"])] = _lov_options(ctx, int(first["active_version_id"]), entry)
-    return html.Div(
+    return dmc.Box(
         [
             dcc.Location(id="viewer-location", refresh=False),
             dcc.Store(id="viewer-report-store", data=report),
@@ -137,150 +139,151 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
             dcc.Store(id="viewer-page-store", data=1),
             dcc.Store(id="viewer-sort-store", data=[]),
             dcc.Store(id="viewer-export-store", data={}),
-            dmc.Stack(
+            page_header(
+                title=str(report["name"]),
+                subtitle=str(report.get("description") or ""),
+                actions=[
+                    dcc.Link(button_subtle("← Danh sách", size="xs"), href="/reports"),
+                ],
+            ),
+            dmc.Tabs(
+                [
+                    dmc.TabsList(
+                        [
+                            dmc.TabsTab(
+                                t["name"],
+                                value=str(t["id"]),
+                                id=f"viewer-tab-{t['id']}",
+                            )
+                            for t in active_templates
+                        ]
+                    )
+                ],
+                id="viewer-tabs",
+                value=str(first["id"]),
+                style={"marginBottom": "4px"},
+            ),
+            dmc.Paper(
+                [
+                    dmc.Title("Tham số báo cáo", order=4, size="sm", mb="xs"),
+                    html.Div(
+                        id="viewer-param-form",
+                        children=render_param_form(preview, options_by_code),
+                    ),
+                    dmc.Group(
+                        [
+                            dmc.Button(
+                                "Xem báo cáo",
+                                id="viewer-run-btn",
+                                variant="filled",
+                                size="xs",
+                            ),
+                            html.Div(
+                                id="viewer-run-error",
+                                **{"aria-live": "polite"},  # type: ignore[arg-type]
+                            ),
+                        ],
+                        mt="xs",
+                    ),
+                ],
+                withBorder=True,
+                radius="sm",
+                p="xs",
+            ),
+            dmc.Paper(
                 [
                     dmc.Group(
                         [
                             dmc.Stack(
                                 [
-                                    dmc.Title(str(report["name"]), order=1),
+                                    dmc.Title("Kết quả", order=4, size="sm"),
                                     dmc.Text(
-                                        str(report.get("description") or ""),
+                                        "Chưa chạy",
+                                        id="viewer-result-count",
                                         c="dimmed",
+                                        size="xs",
+                                        **{"aria-live": "polite"},
                                     ),
                                 ],
                                 gap=0,
                             ),
-                            dcc.Link("← Danh sách", href="/reports"),
+                            dmc.Group(
+                                [
+                                    dmc.Select(
+                                        id="viewer-page-size",
+                                        data=PAGE_SIZE_OPTIONS,
+                                        value="50",
+                                        w=140,
+                                        size="xs",
+                                        clearable=False,
+                                        **{"aria-label": "Số dòng mỗi trang"},
+                                    ),
+                                    dmc.Button(
+                                        "Xuất Excel",
+                                        id="viewer-export-btn",
+                                        variant="filled",
+                                        size="xs",
+                                        disabled=True,
+                                    ),
+                                ],
+                                gap="xs",
+                            ),
                         ],
                         justify="space-between",
-                        align="start",
+                        align="center",
+                        mb="xs",
                     ),
-                    dmc.Tabs(
-                        [
-                            dmc.TabsList(
-                                [
-                                    dmc.TabsTab(
-                                        t["name"],
-                                        value=str(t["id"]),
-                                        id=f"viewer-tab-{t['id']}",
-                                    )
-                                    for t in active_templates
-                                ]
-                            )
-                        ],
-                        id="viewer-tabs",
-                        value=str(first["id"]),
+                    html.Div(
+                        id="viewer-export-status",
+                        style={"marginTop": 4},
+                        **{"aria-live": "polite"},  # type: ignore[arg-type]
                     ),
-                    dmc.Paper(
-                        [
-                            dmc.Title("Tham số báo cáo", order=3, mb="sm"),
-                            html.Div(
-                                id="viewer-param-form",
-                                children=render_param_form(preview, options_by_code),
+                    dcc.Loading(
+                        id="viewer-loading",
+                        type="circle",
+                        style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
+                        children=html.Div(
+                            id="viewer-result-container",
+                            style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
+                            children=empty_state(
+                                "Nhập tham số và bấm Xem báo cáo.",
+                                "Kết quả hiển thị theo từng trang từ máy chủ.",
                             ),
-                            dmc.Group(
-                                [
-                                    dmc.Button(
-                                        "Xem báo cáo",
-                                        id="viewer-run-btn",
-                                        variant="filled",
-                                    ),
-                                    html.Div(
-                                        id="viewer-run-error",
-                                        **{"aria-live": "polite"},  # type: ignore[arg-type]
-                                    ),
-                                ],
-                                mt="md",
+                        ),
+                    ),
+                    dmc.Group(
+                        [
+                            dmc.Pagination(
+                                id="viewer-pagination",
+                                total=1,
+                                value=1,
+                                size="xs",
                             ),
                         ],
-                        withBorder=True,
-                        radius="lg",
-                        p="md",
-                    ),
-                    dmc.Paper(
-                        [
-                            dmc.Group(
-                                [
-                                    dmc.Stack(
-                                        [
-                                            dmc.Title("Kết quả", order=3),
-                                            dmc.Text(
-                                                "Chưa chạy",
-                                                id="viewer-result-count",
-                                                c="dimmed",
-                                                size="sm",
-                                                **{"aria-live": "polite"},
-                                            ),
-                                        ],
-                                        gap=0,
-                                    ),
-                                    dmc.Group(
-                                        [
-                                            dmc.Select(
-                                                id="viewer-page-size",
-                                                data=PAGE_SIZE_OPTIONS,
-                                                value="50",
-                                                w=170,
-                                                clearable=False,
-                                                **{"aria-label": "Số dòng mỗi trang"},
-                                            ),
-                                            dmc.Button(
-                                                "Xuất Excel",
-                                                id="viewer-export-btn",
-                                                variant="filled",
-                                                disabled=True,
-                                            ),
-                                        ]
-                                    ),
-                                ],
-                                justify="space-between",
-                                align="start",
-                            ),
-                            html.Div(
-                                id="viewer-export-status",
-                                style={"marginTop": 8},
-                                **{"aria-live": "polite"},  # type: ignore[arg-type]
-                            ),
-                            dcc.Loading(
-                                id="viewer-loading",
-                                type="circle",
-                                children=html.Div(
-                                    id="viewer-result-container",
-                                    children=empty_state(
-                                        "Nhập tham số và bấm Xem báo cáo.",
-                                        "Kết quả hiển thị theo từng trang từ máy chủ.",
-                                    ),
-                                ),
-                            ),
-                            dmc.Group(
-                                [
-                                    dmc.Pagination(
-                                        id="viewer-pagination",
-                                        total=1,
-                                        value=1,
-                                        size="sm",
-                                    ),
-                                ],
-                                justify="center",
-                                mt="md",
-                            ),
-                        ],
-                        withBorder=True,
-                        radius="lg",
-                        p="md",
-                    ),
-                    dcc.Interval(
-                        id="viewer-export-poll",
-                        interval=2000,
-                        n_intervals=0,
-                        disabled=True,
+                        justify="center",
+                        mt="xs",
                     ),
                 ],
-                gap="lg",
-                p="lg",
+                withBorder=True,
+                radius="sm",
+                p="xs",
+                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
             ),
-        ]
+            dcc.Interval(
+                id="viewer-export-poll",
+                interval=2000,
+                n_intervals=0,
+                disabled=True,
+            ),
+        ],
+        style={
+            "height": "100%",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "padding": "12px 16px",
+            "gap": "8px",
+        },
     )
 
 

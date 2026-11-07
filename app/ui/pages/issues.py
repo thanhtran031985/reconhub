@@ -43,14 +43,14 @@ def render_header(kpis: dict[str, int]) -> dmc.Stack:
     title_text = f"Xử lý chênh lệch: {open_cnt} đang mở"
     return dmc.Stack(
         [
-            dmc.Title(title_text, order=1, id="issues-page-title"),
+            dmc.Title(title_text, order=3, size="h4", id="issues-page-title"),
             dmc.Text(
                 "Chênh lệch theo template và khóa logic, được theo dõi và giữ qua các lần chạy đối soát.",
                 c="dimmed",
-                size="sm",
+                size="xs",
             ),
         ],
-        gap=4,
+        gap=2,
     )
 
 
@@ -58,7 +58,7 @@ def render_kpi_cards(kpis: dict[str, int]) -> dmc.SimpleGrid:
     """Các thẻ KPI tổng quan trạng thái chênh lệch."""
     return dmc.SimpleGrid(
         cols={"base": 1, "xs": 2, "md": 5},
-        spacing="md",
+        spacing="xs",
         children=[
             kpi_card(
                 label="Tổng chênh lệch",
@@ -118,7 +118,7 @@ def render_filter_bar(
 
     return dmc.Paper(
         withBorder=True,
-        p="sm",
+        p="xs",
         radius="sm",
         children=dmc.Group(
             [
@@ -127,14 +127,16 @@ def render_filter_bar(
                     data=tmpl_options,
                     value="ALL",
                     searchable=True,
-                    style={"width": 260},
+                    style={"width": 240},
+                    size="xs",
                     placeholder="Lọc theo template",
                 ),
                 dmc.Select(
                     id="issues-filter-status",
                     data=status_options,
                     value="ALL",
-                    style={"width": 180},
+                    style={"width": 160},
+                    size="xs",
                     placeholder="Trạng thái",
                 ),
                 dmc.Select(
@@ -142,18 +144,20 @@ def render_filter_bar(
                     data=assignee_options,
                     value="ALL",
                     searchable=True,
-                    style={"width": 220},
+                    style={"width": 200},
+                    size="xs",
                     placeholder="Người xử lý",
                 ),
                 dmc.TextInput(
                     id="issues-filter-search",
                     placeholder="Tìm theo khóa...",
-                    leftSection=DashIconify(icon="lucide:search", width=16),
-                    style={"flex": 1, "minWidth": 180},
+                    leftSection=DashIconify(icon="lucide:search", width=14),
+                    size="xs",
+                    style={"flex": 1, "minWidth": 160},
                 ),
-                button_subtle("Làm mới", id="issues-refresh-btn", icon="lucide:refresh-cw"),
+                button_subtle("Làm mới", id="issues-refresh-btn", icon="lucide:refresh-cw", size="xs"),
             ],
-            gap="sm",
+            gap="xs",
             align="center",
         ),
     )
@@ -172,6 +176,15 @@ def render_issues_table(
             icon="lucide:check-circle-2",
         )
 
+    th_style = {
+        "position": "sticky",
+        "top": 0,
+        "backgroundColor": "var(--p2, #FAFAFA)",
+        "zIndex": 1,
+        "height": "32px",
+        "fontSize": "12px",
+        "fontWeight": 600,
+    }
     headers = []
     if can_edit:
         all_selected = len(issues) > 0 and all(it["ID"] in selected_ids for it in issues)
@@ -189,6 +202,7 @@ def render_issues_table(
                 ),
                 w=44,
                 style={
+                    **th_style,
                     "width": "44px",
                     "minWidth": "44px",
                     "maxWidth": "44px",
@@ -201,13 +215,13 @@ def render_issues_table(
 
     headers.extend(
         [
-            dmc.TableTh("Khóa đối soát", style={"minWidth": "160px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Template & Profile", style={"minWidth": "180px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Trạng thái xử lý", style={"minWidth": "140px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Nguyên nhân", style={"minWidth": "150px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Người xử lý", style={"minWidth": "140px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Lần đầu / Gần nhất", style={"minWidth": "130px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Thao tác", style={"minWidth": "90px", "textAlign": "right", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Khóa đối soát", style={**th_style, "minWidth": "160px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Template & Profile", style={**th_style, "minWidth": "180px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Trạng thái xử lý", style={**th_style, "minWidth": "140px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Nguyên nhân", style={**th_style, "minWidth": "150px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Người xử lý", style={**th_style, "minWidth": "140px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Lần đầu / Gần nhất", style={**th_style, "minWidth": "130px", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Thao tác", style={**th_style, "minWidth": "90px", "textAlign": "right", "whiteSpace": "nowrap"}),
         ]
     )
 
@@ -325,12 +339,12 @@ def render_issues_table(
     pagination_bar = dmc.Group(
         justify="space-between",
         align="center",
-        p="md",
+        p="xs",
         style={"borderTop": "1px solid var(--border-subtle, #e2e8f0)"},
         children=[
             dmc.Text(
                 f"Hiển thị {len(issues)} chênh lệch",
-                size="sm",
+                size="xs",
                 c="dimmed",
                 fw=500,
             ),
@@ -341,6 +355,7 @@ def render_issues_table(
         [
             dmc.TableScrollContainer(
                 minWidth=1100,
+                style={"height": "100%", "overflow": "auto"},
                 children=dmc.Table(
                     [
                         dmc.TableThead(dmc.TableTr(headers)),
@@ -350,7 +365,8 @@ def render_issues_table(
                     highlightOnHover=True,
                     withTableBorder=False,
                     withColumnBorders=False,
-                    verticalSpacing="sm",
+                    verticalSpacing="xs",
+                    style={"fontSize": "13px"},
                 ),
             ),
             pagination_bar,
@@ -358,6 +374,7 @@ def render_issues_table(
         withBorder=True,
         padding=0,
         radius="sm",
+        style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
     )
 
 
@@ -405,7 +422,7 @@ def layout(**kwargs: Any) -> Any:
         {"value": str(u["ID"]), "label": f"{u['FULL_NAME'] or u['USERNAME']} (@{u['USERNAME']})"} for u in assignees
     ]
 
-    return dmc.Stack(
+    return dmc.Box(
         [
             # Stores lưu trạng thái UI
             dcc.Store(id="issues-selected-store", data=[]),
@@ -421,6 +438,7 @@ def layout(**kwargs: Any) -> Any:
             # Bảng dữ liệu chênh lệch
             html.Div(
                 id="issues-table-container",
+                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
                 children=dmc.Center(dmc.Loader(size="md", my="xl")),
             ),
             # Drawer cập nhật issue đơn lẻ
@@ -485,8 +503,14 @@ def layout(**kwargs: Any) -> Any:
                 ),
             ),
         ],
-        gap="md",
-        p="md",
+        style={
+            "height": "100%",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "padding": "12px 16px",
+            "gap": "8px",
+        },
     )
 
 

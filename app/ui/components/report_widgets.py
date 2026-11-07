@@ -227,6 +227,15 @@ def render_result_table(layout: dict[str, Any], rows: list[dict[str, Any]]) -> A
             "Không có dòng nào.",
             "Thử đổi tham số hoặc khoảng thời gian rồi chạy lại.",
         )
+    th_style = {
+        "position": "sticky",
+        "top": 0,
+        "backgroundColor": "var(--p2, #FAFAFA)",
+        "zIndex": 1,
+        "height": "32px",
+        "fontSize": "12px",
+        "fontWeight": 600,
+    }
     header = [
         dmc.TableTh(
             dmc.Button(
@@ -236,7 +245,7 @@ def render_result_table(layout: dict[str, Any], rows: list[dict[str, Any]]) -> A
                 id={"type": "viewer-sort", "index": c["field_name"]},
                 **{"aria-label": f"Sắp xếp theo {c['label']}"},
             ),
-            style={"textAlign": "right" if c.get("alignment") == "RIGHT" else "left"},
+            style={**th_style, "textAlign": "right" if c.get("alignment") == "RIGHT" else "left"},
         )
         for c in columns
     ]
@@ -247,19 +256,26 @@ def render_result_table(layout: dict[str, Any], rows: list[dict[str, Any]]) -> A
                 [
                     dmc.TableTd(
                         _format_cell(row.get(c["field_name"]), c),
-                        style={"textAlign": "right" if c.get("alignment") == "RIGHT" else "left"},
+                        style={"textAlign": "right" if c.get("alignment") == "RIGHT" else "left", "height": "32px"},
                     )
                     for c in columns
                 ]
             )
         )
-    return dmc.ScrollArea(
-        dmc.Table(
-            [dmc.TableThead(dmc.TableTr(header)), dmc.TableTbody(body)],
-            striped=True,
-            highlightOnHover=True,
-            withTableBorder=True,
-            withColumnBorders=False,
+    return dmc.Paper(
+        dmc.TableScrollContainer(
+            minWidth=800,
+            style={"height": "100%", "overflow": "auto"},
+            children=dmc.Table(
+                [dmc.TableThead(dmc.TableTr(header)), dmc.TableTbody(body)],
+                striped=True,
+                highlightOnHover=True,
+                withTableBorder=False,
+                withColumnBorders=False,
+                style={"fontSize": "13px"},
+            ),
         ),
-        h=520,
+        withBorder=True,
+        radius="sm",
+        style={"flex": 1, "minHeight": 0, "overflow": "hidden", "display": "flex", "flexDirection": "column"},
     )

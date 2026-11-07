@@ -243,12 +243,12 @@ def render_header(run_info: dict[str, Any]) -> Any:
     return dmc.Group(
         justify="space-between",
         align="flex-start",
-        mb="md",
+        mb="xs",
         children=[
             html.Div(
                 [
-                    dmc.Title(f"Run #{r_id} · {tmpl_name}", order=2, fw=700),
-                    dmc.Text(sub_title, size="xs", c="dimmed", mt=4),
+                    dmc.Title(f"Run #{r_id} · {tmpl_name}", order=3, size="h4", fw=700),
+                    dmc.Text(sub_title, size="xs", c="dimmed", mt=2),
                 ]
             ),
             dmc.Stack(
@@ -256,7 +256,7 @@ def render_header(run_info: dict[str, Any]) -> Any:
                     dmc.Group(action_btns, gap="xs", justify="flex-end"),
                     dmc.Group([chk_chip, temp_chip], gap="xs", justify="flex-end"),
                 ],
-                gap="xs",
+                gap=4,
                 align="flex-end",
             ),
         ],
@@ -324,8 +324,8 @@ def render_kpi_cards(summary: dict[str, Any], main_measure_name: str | None = No
 
     return dmc.SimpleGrid(
         cols={"base": 1, "sm": 2, "md": 4},
-        spacing="md",
-        mb="lg",
+        spacing="xs",
+        mb="xs",
         children=[
             kpi_card(
                 label="Control total file",
@@ -379,11 +379,11 @@ def render_ratio_bar_and_tabs(summary: dict[str, Any], active_tab: str = "ALL") 
 
     ratio_bar = html.Div(
         style={
-            "height": 10,
-            "borderRadius": 5,
+            "height": 6,
+            "borderRadius": 3,
             "display": "flex",
             "overflow": "hidden",
-            "marginBottom": 16,
+            "marginBottom": 6,
             "background": "var(--surface-2, rgba(255,255,255,0.06))",
         },
         children=[
@@ -429,28 +429,36 @@ def render_ratio_bar_and_tabs(summary: dict[str, Any], active_tab: str = "ALL") 
     return html.Div(
         [
             ratio_bar,
-            dmc.Group(tab_buttons, gap="xs", mb="md", style={"flexWrap": "wrap"}),
+            dmc.Group(tab_buttons, gap="xs", mb="xs", style={"flexWrap": "wrap"}),
         ]
     )
 
 
 def build_grid_headers(measures: list[dict[str, Any]], only_diff_cols: bool = False) -> dmc.TableThead:
     """Sinh 2 tầng header chuẩn DMC: Tầng 1 gồm Key, Trạng thái, Trạng thái đối soát, và Colspan từng Measure; Tầng 2 gồm Excel, DB, Chênh."""
+    th_base = {
+        "position": "sticky",
+        "backgroundColor": "var(--p2, #FAFAFA)",
+        "zIndex": 2,
+        "height": "28px",
+        "fontSize": "12px",
+        "fontWeight": 600,
+    }
     top_ths = [
         dmc.TableTh(
             "Số hóa đơn / Khóa",
             tableProps={"rowSpan": 2},
-            style={"verticalAlign": "middle", "minWidth": "220px", "whiteSpace": "nowrap", "textAlign": "center"},
+            style={**th_base, "top": 0, "zIndex": 3, "verticalAlign": "middle", "minWidth": "220px", "whiteSpace": "nowrap", "textAlign": "center"},
         ),
         dmc.TableTh(
             "Trạng thái",
             tableProps={"rowSpan": 2},
-            style={"verticalAlign": "middle", "minWidth": "120px", "whiteSpace": "nowrap", "textAlign": "center"},
+            style={**th_base, "top": 0, "zIndex": 3, "verticalAlign": "middle", "minWidth": "120px", "whiteSpace": "nowrap", "textAlign": "center"},
         ),
         dmc.TableTh(
             "Đối soát & Xử lý",
             tableProps={"rowSpan": 2},
-            style={"verticalAlign": "middle", "minWidth": "160px", "whiteSpace": "nowrap", "textAlign": "center"},
+            style={**th_base, "top": 0, "zIndex": 3, "verticalAlign": "middle", "minWidth": "160px", "whiteSpace": "nowrap", "textAlign": "center"},
         ),
     ]
     sub_ths = []
@@ -462,6 +470,8 @@ def build_grid_headers(measures: list[dict[str, Any]], only_diff_cols: bool = Fa
                 lbl,
                 tableProps={"colSpan": 3},
                 style={
+                    **th_base,
+                    "top": 0,
                     "textAlign": "center",
                     "whiteSpace": "nowrap",
                     "borderLeft": "1px solid var(--line, rgba(255,255,255,0.1))",
@@ -473,6 +483,8 @@ def build_grid_headers(measures: list[dict[str, Any]], only_diff_cols: bool = Fa
                 dmc.TableTh(
                     "Excel",
                     style={
+                        **th_base,
+                        "top": "28px",
                         "minWidth": "110px",
                         "textAlign": "right",
                         "whiteSpace": "nowrap",
@@ -481,11 +493,11 @@ def build_grid_headers(measures: list[dict[str, Any]], only_diff_cols: bool = Fa
                 ),
                 dmc.TableTh(
                     "DB",
-                    style={"minWidth": "110px", "textAlign": "right", "whiteSpace": "nowrap"},
+                    style={**th_base, "top": "28px", "minWidth": "110px", "textAlign": "right", "whiteSpace": "nowrap"},
                 ),
                 dmc.TableTh(
                     "Chênh",
-                    style={"minWidth": "110px", "textAlign": "right", "whiteSpace": "nowrap"},
+                    style={**th_base, "top": "28px", "minWidth": "110px", "textAlign": "right", "whiteSpace": "nowrap"},
                 ),
             ]
         )
@@ -643,12 +655,12 @@ def render_result_grid(
     pagination_bar = dmc.Group(
         justify="space-between",
         align="center",
-        p="md",
+        p="xs",
         style={"borderTop": "1px solid var(--line, #e2e8f0)"},
         children=[
             dmc.Text(
                 f"Hiển thị {start_idx:,} – {end_idx:,} trong tổng số {total_rows:,} dòng".replace(",", "."),
-                size="sm",
+                size="xs",
                 c="dimmed",
                 fw=500,
             ),
@@ -656,64 +668,60 @@ def render_result_grid(
                 id="run-res-pagination",
                 total=total_pages,
                 value=current_page,
-                size="sm",
+                size="xs",
             ),
         ],
     )
 
-    return dmc.Stack(
+    return dmc.Box(
         [
             dmc.Group(
                 justify="space-between",
-                align="flex-end",
+                align="center",
                 children=[
                     dmc.Group(
                         [
                             dmc.TextInput(
                                 id="run-res-search-input",
-                                label="Tìm số hóa đơn / khóa",
-                                placeholder="Nhập mã hóa đơn hoặc khóa...",
+                                placeholder="Tìm số hóa đơn hoặc khóa...",
                                 value=search_query,
-                                size="sm",
-                                style={"width": 320},
-                                leftSection=DashIconify(icon="lucide:search", width=16),
+                                size="xs",
+                                style={"width": 280},
+                                leftSection=DashIconify(icon="lucide:search", width=14),
+                                **{"aria-label": "Số hóa đơn / Khóa"},
                             ),
-                            html.Div(
-                                dmc.Checkbox(
-                                    id="run-res-only-diff-check",
-                                    label="Chỉ hiện cột lệch",
-                                    checked=only_diff_cols,
-                                    size="sm",
-                                ),
-                                style={
-                                    "height": "36px",
-                                    "display": "flex",
-                                    "alignItems": "center",
-                                },
+                            dmc.Checkbox(
+                                id="run-res-only-diff-check",
+                                label="Chỉ hiện cột lệch",
+                                checked=only_diff_cols,
+                                size="xs",
                             ),
                         ],
-                        gap="md",
-                        align="flex-end",
+                        gap="sm",
+                        align="center",
                     ),
                     dmc.Text(
                         f"Hiển thị {start_idx:,} – {end_idx:,} trong tổng số {total_rows:,} dòng".replace(",", "."),
-                        size="sm",
+                        size="xs",
                         c="dimmed",
                         fw=500,
                     ),
                 ],
+                mb="xs",
             ),
             dmc.Card(
                 [
                     dmc.TableScrollContainer(
                         minWidth=min_w,
+                        style={"flex": 1, "height": "100%", "overflow": "auto"},
                         children=dmc.Table(
                             [thead, tbody],
                             striped=False,
                             highlightOnHover=True,
                             withTableBorder=False,
                             withColumnBorders=True,
-                            verticalSpacing="sm",
+                            verticalSpacing="xs",
+                            style={"fontSize": "13px"},
                         ),
                     ),
                     pagination_bar,
@@ -721,9 +729,10 @@ def render_result_grid(
                 withBorder=True,
                 radius="sm",
                 padding=0,
+                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
             ),
         ],
-        gap="md",
+        style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
     )
 
 
@@ -1524,7 +1533,7 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
     total_rows = rows_res.data.get("total", len(initial_rows)) if rows_res.ok and rows_res.data else len(initial_rows)
     measures = _resolve_grid_measures(ctx, run_data, initial_rows)
 
-    return html.Div(
+    return dmc.Box(
         id="run-result-root",
         children=[
             # Stores
@@ -1554,15 +1563,15 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
                             dmc.TabsTab(
                                 "Kết quả đối soát",
                                 value="results",
-                                leftSection=DashIconify(icon="lucide:table-properties", width=16),
+                                leftSection=DashIconify(icon="lucide:table-properties", width=14),
                             ),
                             dmc.TabsTab(
                                 "Câu lệnh SQL đối soát DB",
                                 value="sql",
-                                leftSection=DashIconify(icon="lucide:database", width=16),
+                                leftSection=DashIconify(icon="lucide:database", width=14),
                             ),
                         ],
-                        mb="md",
+                        mb="xs",
                     ),
                     dmc.TabsPanel(
                         value="results",
@@ -1575,6 +1584,7 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
                             # Grid kết quả
                             html.Div(
                                 id="run-res-grid-container",
+                                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
                                 children=render_result_grid(
                                     measures=measures,
                                     rows=initial_rows,
@@ -1586,12 +1596,15 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
                                 ),
                             ),
                         ],
+                        style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
                     ),
                     dmc.TabsPanel(
                         value="sql",
+                        style={"flex": 1, "minHeight": 0, "overflow": "auto", "padding": "8px"},
                         children=render_sql_tab_content(run_data, summary_data),
                     ),
                 ],
+                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
             ),
             # Drawer chi tiết dòng
             drawer_right(
@@ -1639,7 +1652,14 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
                 opened=False,
             ),
         ],
-        style={"padding": "24px"},
+        style={
+            "height": "100%",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "padding": "12px 16px",
+            "gap": "6px",
+        },
     )
 
 

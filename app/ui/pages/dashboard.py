@@ -15,6 +15,7 @@ from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.empty_state import empty_state
 from app.ui.components.kpi_card import kpi_card
+from app.ui.components.page_header import page_header
 from app.ui.components.status_chip import status_chip
 from app.ui.formatters import format_bytes
 from app.ui.layout.shell import first_nav_href
@@ -61,22 +62,15 @@ def render_header(total: int, unchecked: int, last_run_time: str) -> dmc.Group:
     title_text = f"{my.capitalize()}: {total} run, {unchecked} chưa kiểm tra"
     sub_text = f"Tổng quan đối soát. Run gần nhất lúc {last_run_time}."
 
-    return dmc.Group(
-        [
-            dmc.Stack(
-                [
-                    dmc.Title(title_text, order=1, id="dashboard-title"),
-                    dmc.Text(sub_text, c="dimmed", size="sm", id="dashboard-sub"),
-                ],
-                gap=4,
-            ),
+    return page_header(
+        title=title_text,
+        subtitle=sub_text,
+        actions=[
             dmc.Anchor(
-                button_primary("Chạy đối soát", icon="lucide:play"),
+                button_primary("Chạy đối soát", icon="lucide:play", size="xs"),
                 href="/runs/new",
             ),
         ],
-        justify="space-between",
-        align="flex-start",
     )
 
 
@@ -97,7 +91,7 @@ def render_kpi_grid(stats: dict[str, Any]) -> dmc.SimpleGrid:
 
     return dmc.SimpleGrid(
         cols={"base": 1, "sm": 2, "md": 4},
-        spacing="md",
+        spacing="sm",
         children=[
             kpi_card(
                 label="Run trong kỳ",
@@ -133,7 +127,7 @@ def render_diff_rate_by_template(diff_rates: list[dict[str, Any]]) -> dmc.Card:
     """Card thống kê tỉ lệ lệch theo template (PRD C1)."""
     header_group = dmc.Group(
         [
-            dmc.Text("Tỉ lệ lệch theo template", fw=600, size="md"),
+            dmc.Text("Tỉ lệ lệch theo template", fw=600, size="sm"),
             dmc.Anchor(
                 button_subtle("Quản lý template", size="xs", icon="lucide:layout-template"),
                 href="/templates",
@@ -141,7 +135,7 @@ def render_diff_rate_by_template(diff_rates: list[dict[str, Any]]) -> dmc.Card:
         ],
         justify="space-between",
         align="center",
-        p="md",
+        p="xs",
     )
 
     if not diff_rates:
@@ -150,15 +144,24 @@ def render_diff_rate_by_template(diff_rates: list[dict[str, Any]]) -> dmc.Card:
                 title="Chưa có dữ liệu theo template",
                 description="Tỉ lệ lệch sẽ được tổng hợp khi có các lần chạy đối soát hoàn thành.",
             ),
-            p="xl",
+            p="md",
         )
     else:
+        th_style = {
+            "position": "sticky",
+            "top": 0,
+            "backgroundColor": "var(--p2, #FAFAFA)",
+            "zIndex": 1,
+            "height": "32px",
+            "fontSize": "12px",
+            "fontWeight": 600,
+        }
         headers = [
-            dmc.TableTh("Template"),
-            dmc.TableTh("Số run", style={"textAlign": "center"}),
-            dmc.TableTh("Tổng nhóm so sánh", style={"textAlign": "right"}),
-            dmc.TableTh("Nhóm lệch", style={"textAlign": "right"}),
-            dmc.TableTh("Tỉ lệ lệch", style={"minWidth": "200px"}),
+            dmc.TableTh("Template", style=th_style),
+            dmc.TableTh("Số run", style={**th_style, "textAlign": "center"}),
+            dmc.TableTh("Tổng nhóm so sánh", style={**th_style, "textAlign": "right"}),
+            dmc.TableTh("Nhóm lệch", style={**th_style, "textAlign": "right"}),
+            dmc.TableTh("Tỉ lệ lệch", style={**th_style, "minWidth": "160px"}),
         ]
 
         rows = []
@@ -179,30 +182,34 @@ def render_diff_rate_by_template(diff_rates: list[dict[str, Any]]) -> dmc.Card:
                         dmc.TableTd(
                             dmc.Stack(
                                 [
-                                    dmc.Text(t_name, fw=500, size="sm"),
+                                    dmc.Text(t_name, fw=500, size="xs"),
                                     dmc.Text(t_code, c="dimmed", size="xs", className="rh-code"),
                                 ],
                                 gap=2,
-                            )
+                            ),
+                            style={"height": "32px"},
                         ),
                         dmc.TableTd(
-                            dmc.Text(str(r_cnt), size="sm", style={"textAlign": "center"}),
+                            dmc.Text(str(r_cnt), size="xs", style={"textAlign": "center"}),
+                            style={"height": "32px"},
                         ),
                         dmc.TableTd(
                             dmc.Text(
                                 f"{tot_comp:,}".replace(",", "."),
-                                size="sm",
+                                size="xs",
                                 style={"textAlign": "right"},
                             ),
+                            style={"height": "32px"},
                         ),
                         dmc.TableTd(
                             dmc.Text(
                                 f"{tot_diff:,}".replace(",", "."),
-                                size="sm",
+                                size="xs",
                                 c="red" if tot_diff > 0 else "dimmed",
                                 fw=600 if tot_diff > 0 else 400,
                                 style={"textAlign": "right"},
                             ),
+                            style={"height": "32px"},
                         ),
                         dmc.TableTd(
                             dmc.Group(
@@ -210,7 +217,7 @@ def render_diff_rate_by_template(diff_rates: list[dict[str, Any]]) -> dmc.Card:
                                     dmc.Progress(
                                         value=min(100.0, diff_pct),
                                         color=progress_color,
-                                        size="sm",
+                                        size="xs",
                                         style={"flex": 1},
                                     ),
                                     dmc.Text(
@@ -218,36 +225,43 @@ def render_diff_rate_by_template(diff_rates: list[dict[str, Any]]) -> dmc.Card:
                                         size="xs",
                                         fw=600,
                                         c=progress_color,
-                                        style={"minWidth": "48px", "textAlign": "right"},
+                                        style={"minWidth": "42px", "textAlign": "right"},
                                     ),
                                 ],
                                 gap="xs",
                                 align="center",
-                            )
+                            ),
+                            style={"height": "32px"},
                         ),
                     ]
                 )
             )
 
-        content = dmc.Table(
-            [
-                dmc.TableThead(dmc.TableTr(headers)),
-                dmc.TableTbody(rows),
-            ],
-            highlightOnHover=True,
-            withTableBorder=False,
-            withColumnBorders=False,
+        content = dmc.TableScrollContainer(
+            minWidth=450,
+            style={"height": "100%", "overflow": "auto"},
+            children=dmc.Table(
+                [
+                    dmc.TableThead(dmc.TableTr(headers)),
+                    dmc.TableTbody(rows),
+                ],
+                highlightOnHover=True,
+                withTableBorder=False,
+                withColumnBorders=False,
+                style={"fontSize": "13px"},
+            ),
         )
 
     return dmc.Card(
         [
             header_group,
             dmc.Divider(),
-            html.Div(content, style={"overflowX": "auto"}),
+            html.Div(content, style={"flex": 1, "minHeight": 0, "overflow": "hidden", "display": "flex", "flexDirection": "column"}),
         ],
         withBorder=True,
         padding=0,
         radius="sm",
+        style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
     )
 
 
@@ -255,7 +269,7 @@ def render_recent_runs_card(recent_items: list[dict[str, Any]]) -> dmc.Card:
     """Card danh sách các lần chạy gần đây nhất."""
     header_group = dmc.Group(
         [
-            dmc.Text("Run gần đây", fw=600, size="md"),
+            dmc.Text("Run gần đây", fw=600, size="sm"),
             dmc.Anchor(
                 button_subtle("Xem lịch sử", size="xs", icon="lucide:history"),
                 href="/history",
@@ -263,7 +277,7 @@ def render_recent_runs_card(recent_items: list[dict[str, Any]]) -> dmc.Card:
         ],
         justify="space-between",
         align="center",
-        p="md",
+        p="xs",
     )
 
     if not recent_items:
@@ -272,17 +286,26 @@ def render_recent_runs_card(recent_items: list[dict[str, Any]]) -> dmc.Card:
                 title="Chưa có run nào",
                 description="Bắt đầu chạy đối soát để theo dõi tiến độ và kết quả.",
             ),
-            p="xl",
+            p="md",
         )
     else:
+        th_style = {
+            "position": "sticky",
+            "top": 0,
+            "backgroundColor": "var(--p2, #FAFAFA)",
+            "zIndex": 1,
+            "height": "32px",
+            "fontSize": "12px",
+            "fontWeight": 600,
+        }
         table_headers = [
-            dmc.TableTh("Run"),
-            dmc.TableTh("Template"),
-            dmc.TableTh("Profile"),
-            dmc.TableTh("Khoảng tìm kiếm"),
-            dmc.TableTh("Trạng thái"),
-            dmc.TableTh("Kiểm tra"),
-            dmc.TableTh("Khớp", style={"textAlign": "right"}),
+            dmc.TableTh("Run", style=th_style),
+            dmc.TableTh("Template", style=th_style),
+            dmc.TableTh("Profile", style=th_style),
+            dmc.TableTh("Khoảng tìm kiếm", style=th_style),
+            dmc.TableTh("Trạng thái", style=th_style),
+            dmc.TableTh("Kiểm tra", style=th_style),
+            dmc.TableTh("Khớp", style={**th_style, "textAlign": "right"}),
         ]
 
         table_rows = []
@@ -318,9 +341,9 @@ def render_recent_runs_card(recent_items: list[dict[str, Any]]) -> dmc.Card:
             m_pct = r.get("match_pct")
             if m_pct is not None and status_val == "DONE":
                 pct_str = f"{m_pct:.1f}%".replace(".", ",")
-                pct_text = dmc.Text(pct_str, size="sm", fw=500, style={"textAlign": "right"})
+                pct_text = dmc.Text(pct_str, size="xs", fw=500, style={"textAlign": "right"})
             else:
-                pct_text = dmc.Text("—", size="sm", c="dimmed", style={"textAlign": "right"})
+                pct_text = dmc.Text("—", size="xs", c="dimmed", style={"textAlign": "right"})
 
             table_rows.append(
                 dmc.TableTr(
@@ -332,41 +355,49 @@ def render_recent_runs_card(recent_items: list[dict[str, Any]]) -> dmc.Card:
                                 className="rh-code",
                                 fw=600,
                                 underline="hover",
-                            )
+                                size="xs",
+                            ),
+                            style={"height": "32px"},
                         ),
-                        dmc.TableTd(r.get("template_name", "Template")),
-                        dmc.TableTd(r.get("profile_code", "—")),
+                        dmc.TableTd(r.get("template_name", "Template"), style={"height": "32px", "fontSize": "13px"}),
+                        dmc.TableTd(r.get("profile_code", "—"), style={"height": "32px", "fontSize": "13px"}),
                         dmc.TableTd(
                             format_date_range(r.get("p_from"), r.get("p_to")),
                             className="rh-code",
-                            style={"whiteSpace": "nowrap"},
+                            style={"whiteSpace": "nowrap", "height": "32px", "fontSize": "12px"},
                         ),
-                        dmc.TableTd(chip_node),
-                        dmc.TableTd(chk_chip),
-                        dmc.TableTd(pct_text),
+                        dmc.TableTd(chip_node, style={"height": "32px"}),
+                        dmc.TableTd(chk_chip, style={"height": "32px"}),
+                        dmc.TableTd(pct_text, style={"height": "32px"}),
                     ]
                 )
             )
 
-        table_content = dmc.Table(
-            [
-                dmc.TableThead(dmc.TableTr(table_headers)),
-                dmc.TableTbody(table_rows),
-            ],
-            highlightOnHover=True,
-            withTableBorder=False,
-            withColumnBorders=False,
+        table_content = dmc.TableScrollContainer(
+            minWidth=520,
+            style={"height": "100%", "overflow": "auto"},
+            children=dmc.Table(
+                [
+                    dmc.TableThead(dmc.TableTr(table_headers)),
+                    dmc.TableTbody(table_rows),
+                ],
+                highlightOnHover=True,
+                withTableBorder=False,
+                withColumnBorders=False,
+                style={"fontSize": "13px"},
+            ),
         )
 
     return dmc.Card(
         [
             header_group,
             dmc.Divider(),
-            html.Div(table_content, style={"overflowX": "auto"}),
+            html.Div(table_content, style={"flex": 1, "minHeight": 0, "overflow": "hidden", "display": "flex", "flexDirection": "column"}),
         ],
         withBorder=True,
         padding=0,
         radius="sm",
+        style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
     )
 
 
@@ -392,15 +423,20 @@ def layout() -> html.Div:
                 alert_box("Bạn không có quyền truy cập Dashboard.", tone="crit"),
             ]
         )
-    return html.Div(
+    return dmc.Box(
         [
             dcc.Store(id="dashboard-refresh-trigger", data=0),
             dcc.Loading(
                 id="dashboard-loading",
                 type="circle",
-                children=html.Div(id="dashboard-content-container"),
+                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
+                children=html.Div(
+                    id="dashboard-content-container",
+                    style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
+                ),
             ),
-        ]
+        ],
+        style={"height": "100%", "display": "flex", "flexDirection": "column", "overflow": "hidden"},
     )
 
 
@@ -424,20 +460,25 @@ def render_dashboard(_refresh: int) -> Any:
 
         # Kiểm tra trạng thái rỗng
         if total == 0:
-            return dmc.Stack(
+            return dmc.Box(
                 [
                     render_header(total=0, unchecked=0, last_run_time="—"),
                     empty_state(
                         title="Chưa có run nào trong kỳ",
                         description="Upload một file và chạy đối soát theo template đã đăng ký.",
                         action=dmc.Anchor(
-                            button_primary("Chạy đối soát", icon="lucide:play"),
+                            button_primary("Chạy đối soát", icon="lucide:play", size="xs"),
                             href="/runs/new",
                         ),
                     ),
                 ],
-                gap="lg",
-                p="lg",
+                style={
+                    "height": "100%",
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "padding": "12px 16px",
+                    "gap": "10px",
+                },
             )
 
         header_node = render_header(total, unchecked, last_time)
@@ -445,15 +486,25 @@ def render_dashboard(_refresh: int) -> Any:
         recent_card = render_recent_runs_card(recent_items)
         diff_card = render_diff_rate_by_template(diff_rates)
 
-        return dmc.Stack(
+        return dmc.Box(
             [
                 header_node,
                 kpis_node,
-                recent_card,
-                diff_card,
+                dmc.SimpleGrid(
+                    [recent_card, diff_card],
+                    cols={"base": 1, "lg": 2},
+                    spacing="sm",
+                    style={"flex": 1, "minHeight": 0, "overflow": "hidden"},
+                ),
             ],
-            gap="lg",
-            p="lg",
+            style={
+                "height": "100%",
+                "display": "flex",
+                "flexDirection": "column",
+                "overflow": "hidden",
+                "padding": "12px 16px",
+                "gap": "10px",
+            },
         )
 
     except Exception as e:

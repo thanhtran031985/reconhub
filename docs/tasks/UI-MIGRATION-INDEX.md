@@ -16,7 +16,7 @@ Chỉ mục theo dõi toàn bộ quá trình chuyển đổi giao diện ReconHu
 | **UI-00A** | UI Inventory & Fluent Migration Assessment | ✅ DONE | — | M | Toàn bộ 26 pages (Đã kiểm kê & chụp 62 baseline screenshots) | [docs/ui-migration.md](../ui-migration.md) |
 | **UI-00B** | Fluent Foundation | ✅ DONE | UI-00A | M | Foundation components (`AppShell`, `PageHeader`, `CommandBar`, `FilterBar`, `DataGrid`, `MasterDetailLayout`, `WizardShell`, `SkeletonGrid`, `ErrorState`) | [docs/tasks/UI-00B/task.md](UI-00B/task.md) |
 | **UI-01** | Compact Lists | ✅ DONE | UI-00B | M | `/templates`, `/history`, `/batches`, `/report-runs`, `/reports` | [docs/tasks/UI-01/task.md](UI-01/task.md) |
-| **UI-02** | Reports & Analytics | ⬜ TODO | UI-00B | L | `/`, `/runs/<id>`, `/batch-runs/<id>/result`, `/issues`, `/reports/<id>` | [docs/tasks/UI-02/task.md](UI-02/task.md) |
+| **UI-02** | Reports & Analytics | ✅ DONE | UI-00B | L | `/`, `/runs/<id>`, `/batch-runs/<id>/result`, `/issues`, `/reports/<id>` | [docs/tasks/UI-02/task.md](UI-02/task.md) |
 | **UI-03** | Admin Master–Detail | ⬜ TODO | UI-00B, UI-01 | L | `/lookups`, `/users`, `/roles`, `/menus` | [docs/tasks/UI-03/task.md](UI-03/task.md) |
 | **UI-04** | Configuration Master–Detail | ⬜ TODO | UI-00B, UI-03 | XL | `/data-sources`, `/batches/<def_id>`, `/report-admin` (UI-04.1→04.4), `/templates/<id>/diagram` | [docs/tasks/UI-04/task.md](UI-04/task.md) |
 | **UI-05** | Template Wizard | ⬜ TODO | UI-00B | XL | `/templates/new`, `/templates/<id>/edit` | [docs/tasks/UI-05/task.md](UI-05/task.md) |
