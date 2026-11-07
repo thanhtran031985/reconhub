@@ -698,7 +698,20 @@ def render_app_shell(pathname: str | None, is_collapsed_data: Any) -> Any:
     ctx = get_current_ctx()
 
     if pathname == "/login":
-        return dash.page_container
+        return html.Div(
+            [
+                dash.page_container,
+                html.Div(
+                    [
+                        html.Div(id="app-shell"),
+                        html.Div(id="app-shell-navbar"),
+                        html.Div(id="app-sidebar-toggle-btn"),
+                        html.Div(id="app-sidebar-toggle-tooltip"),
+                    ],
+                    style={"display": "none"},
+                ),
+            ]
+        )
 
     is_mini = bool(is_collapsed_data)
 

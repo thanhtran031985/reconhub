@@ -80,11 +80,6 @@ def render_def_items_table(
         return empty_state(
             title="Bộ này chưa có template nào",
             description="Thêm template từ danh sách template đã đăng ký và đang Active để bắt đầu.",
-            action=(
-                button_primary("Thêm template vào bộ", icon="lucide:plus", id="bdef-empty-add-btn", size="xs")
-                if can_write
-                else None
-            ),
         )
 
     preview_map = preview_map or {}
@@ -117,7 +112,10 @@ def render_def_items_table(
     }
 
     for idx, it in enumerate(filtered_items, start=1):
-        item_id = int(it.get("id") or 0)
+        try:
+            item_id = int(it.get("id") or it.get("template_id") or idx)
+        except (ValueError, TypeError):
+            item_id = int(it.get("template_id") or idx)
         archived = str(it.get("template_status", "")) == "ARCHIVED"
         override_text = _params_text(it.get("params_override") or {})
         ds_text = f"DS #{it['data_source_id']}" if it.get("data_source_id") else "Mặc định template"
@@ -349,70 +347,159 @@ def render_preview_result(preview: dict[str, Any] | None, error: str | None = No
 
 def render_addable_list(
     templates: list[dict[str, Any]] | None,
+    focused_id: int | None = None,
     error: str | None = None,
 ) -> Any:
-    """Hàm thuần dựng danh sách template trong hộp thoại Thêm template."""
+    """Hàm thuần dựng danh sách template dạng 2 cột theo layout Screen13."""
     if error:
         return alert_box(title="Không tải được danh sách template", message=error, tone="crit")
     if not templates:
         return empty_state(
             title="Không có template nào khớp",
-            description="Thử thay đổi từ khóa tìm kiếm hoặc bỏ lọc.",
+            description="Thử thay đổi từ khóa tìm kiếm hoặc chọn 'Tất cả template'.",
         )
-    rows = []
+
+    focused_tmpl = None
+    if focused_id is not None:
+        focused_tmpl = next((t for t in templates if int(t.get("template_id") or 0) == focused_id), None)
+    if focused_tmpl is None and templates:
+        focused_tmpl = templates[0]
+
+    list_rows = []
     for t in templates:
         tid = int(t.get("template_id") or 0)
         addable = bool(t.get("addable"))
-        rows.append(
-            dmc.TableTr(
-                [
-                    dmc.TableTd(
-                        dmc.Checkbox(
-                            id={"type": "bdef-add-check", "index": tid},
-                            disabled=not addable,
-                            size="xs",
-                        ),
-                        style={"textAlign": "center"},
+        reason = t.get("reason")
+        is_cur = focused_tmpl is not None and int(focused_tmpl.get("template_id") or 0) == tid
+
+        item_content = dmc.Group(
+            [
+                dmc.Checkbox(
+                    id={"type": "bdef-add-check", "index": tid},
+                    disabled=not addable,
+                    size="xs",
+                    style={"alignSelf": "flex-start", "marginTop": "4px"},
+                ),
+                dmc.Box(
+                    dmc.Stack(
+                        [
+                            dmc.Text(str(t.get("name") or ""), fw=600, size="xs"),
+                            dmc.Text(str(t.get("code") or ""), size="xs", className="rh-code", c="dimmed"),
+                            dmc.Group(
+                                [
+                                    status_chip(str(t.get("status", ""))),
+                                    dmc.Badge(f"v{t.get('version') or '?'}", size="xs", variant="light", color="gray"),
+                                    dmc.Badge(f"DS #{t['data_source_id']}" if t.get("data_source_id") else "DS Mặc định", size="xs", variant="light", color="gray"),
+                                ],
+                                gap=4,
+                            ),
+                            dmc.Text(str(reason), size="xs", c="red") if reason else html.Span(),
+                        ],
+                        gap=2,
                     ),
-                    dmc.TableTd(
-                        dmc.Stack(
-                            [
-                                dmc.Text(str(t.get("code", "")), fw=600, size="xs", className="rh-code"),
-                                dmc.Text(str(t.get("name", "")), size="xs", c="dimmed"),
-                            ],
-                            gap=0,
-                        )
-                    ),
-                    dmc.TableTd(status_chip(str(t.get("status", ""))), style={"textAlign": "center"}),
-                    dmc.TableTd(dmc.Text(f"v{t.get('version') or '?'}", size="xs", className="rh-code", ta="center")),
-                    dmc.TableTd(
-                        dmc.Text(
-                            str(t.get("reason") or "Thêm được"),
-                            size="xs",
-                            c="red" if not addable else "dimmed",
-                        )
-                    ),
-                ]
+                    id={"type": "bdef-add-focus-btn", "index": tid},
+                    style={"flex": 1, "cursor": "pointer"},
+                ),
+            ],
+            gap="xs",
+            wrap="nowrap",
+            align="flex-start",
+        )
+
+        list_rows.append(
+            dmc.Box(
+                item_content,
+                p="xs",
+                style={
+                    "borderBottom": "1px solid var(--line, #E0E0E0)",
+                    "backgroundColor": "var(--primary-soft, #EBF3FC)" if is_cur else "transparent",
+                    "opacity": 0.6 if not addable else 1,
+                    "borderRadius": "4px",
+                },
             )
         )
-    th_add = {"textAlign": "center", "fontSize": "11px", "fontWeight": 600}
-    return dmc.Table(
+
+    addable_count = sum(1 for t in templates if t.get("addable"))
+    count_hint = dmc.Text(
+        f"Hiển thị {len(templates)} template đã đăng ký · {addable_count} template thêm được.",
+        size="xs",
+        c="dimmed",
+        style={"padding": "4px 8px"},
+    )
+
+    list_panel = dmc.Stack(
         [
-            dmc.TableThead(
-                dmc.TableTr(
-                    [
-                        dmc.TableTh("", style={**th_add, "width": "40px"}),
-                        dmc.TableTh("Template", style=th_add),
-                        dmc.TableTh("Trạng thái", style=th_add),
-                        dmc.TableTh("Version", style=th_add),
-                        dmc.TableTh("Ghi chú", style=th_add),
-                    ]
-                )
+            dmc.Paper(
+                list_rows,
+                withBorder=True,
+                radius="sm",
+                style={"maxHeight": "280px", "overflowY": "auto"},
             ),
-            dmc.TableTbody(rows),
+            count_hint,
         ],
-        striped=True,
-        style={"fontSize": "12px"},
+        gap=2,
+        style={"flex": 1.25, "minWidth": 0},
+    )
+
+    # Right Column: Detail Panel
+    detail_children: list[Any] = []
+    if focused_tmpl:
+        f_code = str(focused_tmpl.get("code", ""))
+        f_name = str(focused_tmpl.get("name", ""))
+        f_status = str(focused_tmpl.get("status", ""))
+        f_reason = str(focused_tmpl.get("reason") or "")
+        f_ver = str(focused_tmpl.get("version") or "?")
+        f_ds = f"DS #{focused_tmpl['data_source_id']}" if focused_tmpl.get("data_source_id") else "Mặc định"
+
+        status_text = f_status + (f" · {f_reason}" if f_reason else "")
+        status_val_node = dmc.Text(status_text, size="xs", c="red") if f_reason else dmc.Text(status_text, size="xs")
+
+        detail_children = [
+            dmc.Title(f_name, order=5),
+            dmc.Table(
+                dmc.TableTbody(
+                    [
+                        dmc.TableTr([dmc.TableTd(dmc.Text("Mã template", size="xs", fw=600)), dmc.TableTd(dmc.Text(f_code, size="xs", className="rh-code"))]),
+                        dmc.TableTr([dmc.TableTd(dmc.Text("Trạng thái", size="xs", fw=600)), dmc.TableTd(status_val_node)]),
+                        dmc.TableTr([dmc.TableTd(dmc.Text("Version Active", size="xs", fw=600)), dmc.TableTd(dmc.Text(f"v{f_ver} (bộ luôn dùng version Active mới nhất)", size="xs"))]),
+                        dmc.TableTr([dmc.TableTd(dmc.Text("Data Source", size="xs", fw=600)), dmc.TableTd(dmc.Text(f_ds, size="xs", className="rh-code"))]),
+                    ]
+                ),
+                style={"fontSize": "11px"},
+            ),
+            dmc.Text(
+                "Cấu hình này thuộc template, không sửa ở đây. Muốn đổi mapping hay nguồn DB: vào màn Templates.",
+                size="xs",
+                c="dimmed",
+                style={"marginTop": "8px"},
+            ),
+        ]
+    else:
+        detail_children = [
+            dmc.Text("Chọn một template ở danh sách để xem cấu hình đã đăng ký.", size="xs", c="dimmed")
+        ]
+
+    detail_panel = dmc.Paper(
+        dmc.Stack(detail_children, gap="xs"),
+        p="sm",
+        withBorder=True,
+        radius="sm",
+        style={
+            "backgroundColor": "var(--surface-2, #FAFAFA)",
+            "flex": 1,
+            "minWidth": 0,
+            "minHeight": "240px",
+        },
+    )
+
+    return dmc.Box(
+        dmc.Group(
+            [list_panel, detail_panel],
+            gap="md",
+            align="flex-start",
+            grow=False,
+            style={"width": "100%", "display": "flex"},
+        )
     )
 
 
@@ -435,12 +522,14 @@ def layout(def_id: str | int | None = 1, **kwargs: Any) -> Any:
     return html.Div(
         style={
             "height": "100%",
+            "maxHeight": "100%",
             "minHeight": 0,
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
             "padding": "8px 14px",
             "gap": "6px",
+            "boxSizing": "border-box",
         },
         children=[
             dcc.Store(id="bdef-edit-store"),
@@ -448,6 +537,7 @@ def layout(def_id: str | int | None = 1, **kwargs: Any) -> Any:
             dcc.Store(id="bdef-remove-target"),
             dcc.Store(id="bdef-def-id", data=def_id_val),
             dcc.Store(id="bdef-addable-store"),
+            dcc.Store(id="bdef-add-focus", data=None),
             dcc.Store(id="bdef-preview-store", data={}),
             dcc.Location(id="bdef-edit-redirect", refresh=True),
 
@@ -477,21 +567,24 @@ def layout(def_id: str | int | None = 1, **kwargs: Any) -> Any:
                 style={
                     "display": "grid",
                     "gridTemplateColumns": "310px minmax(0, 1fr)",
+                    "gridTemplateRows": "minmax(0, 1fr)",
                     "flex": 1,
                     "minHeight": 0,
                     "gap": "8px",
                     "overflow": "hidden",
                 },
                 children=[
-                    # Cột TRÁI: Master Config (cuộn độc lập)
+                    # Cột TRÁI: Master Config (cuộn độc lập khi tràn)
                     dmc.Box(
                         style={
                             "display": "flex",
                             "flexDirection": "column",
                             "gap": "6px",
                             "minHeight": 0,
+                            "height": "100%",
                             "overflowY": "auto",
-                            "paddingRight": "2px",
+                            "overflowX": "hidden",
+                            "paddingRight": "6px",
                         },
                         children=[
                             # Card 1: Thông tin bộ
@@ -543,7 +636,39 @@ def layout(def_id: str | int | None = 1, **kwargs: Any) -> Any:
                                 radius="sm",
                             ),
 
-                            # Card 2: Công thức tham số theo kỳ
+                            # Card 2: Xem trước với kỳ (ĐẶT TRÊN Card Công thức tham số theo kỳ)
+                            dmc.Paper(
+                                dmc.Stack(
+                                    [
+                                        dmc.Title("Xem trước với kỳ", order=5),
+                                        dmc.Group(
+                                            [
+                                                dmc.MonthPickerInput(
+                                                    id="bdef-trial-period",
+                                                    label="Kỳ thử",
+                                                    placeholder="Chọn tháng...",
+                                                    value=trial_period,
+                                                    valueFormat="YYYY-MM",
+                                                    leftSection=DashIconify(icon="lucide:calendar", width=14),
+                                                    size="xs",
+                                                    style={"flex": 1},
+                                                    styles={"input": {"fontSize": "11px", "height": "28px", "minHeight": "28px"}},
+                                                ),
+                                                button_subtle("Tính lại", id="bdef-preview-btn", icon="lucide:refresh-cw", size="xs"),
+                                            ],
+                                            align="flex-end",
+                                            gap="xs",
+                                        ),
+                                        dmc.Text(id="bdef-trial-hint", size="xs", c="dimmed"),
+                                    ],
+                                    gap=4,
+                                ),
+                                p="xs",
+                                withBorder=True,
+                                radius="sm",
+                            ),
+
+                            # Card 3: Công thức tham số theo kỳ
                             dmc.Paper(
                                 dmc.Stack(
                                     [
@@ -573,117 +698,95 @@ def layout(def_id: str | int | None = 1, **kwargs: Any) -> Any:
                                 radius="sm",
                             ),
 
-                            # Card 3: Xem trước với kỳ
-                            dmc.Paper(
-                                dmc.Stack(
-                                    [
-                                        dmc.Title("Xem trước với kỳ", order=5),
-                                        dmc.Group(
-                                            [
-                                                dmc.TextInput(
-                                                    id="bdef-trial-period",
-                                                    label="Kỳ thử (YYYY-MM)",
-                                                    value=trial_period,
-                                                    size="xs",
-                                                    style={"flex": 1},
-                                                    styles={"input": {"fontSize": "11px", "height": "28px", "minHeight": "28px"}},
-                                                ),
-                                                button_subtle("Tính lại", id="bdef-preview-btn", icon="lucide:refresh-cw", size="xs"),
-                                            ],
-                                            align="flex-end",
-                                            gap="xs",
-                                        ),
-                                        dmc.Text(id="bdef-trial-hint", size="xs", c="dimmed"),
-                                        alert_box(
-                                            title="Gợi ý kiểm tra",
-                                            message="Cột 'Giá trị với kỳ thử' bên phải giúp soát công thức trước khi lưu.",
-                                            tone="info",
-                                        ),
-                                    ],
-                                    gap=4,
-                                ),
-                                p="xs",
-                                withBorder=True,
-                                radius="sm",
-                            ),
-
                             html.Div(id="bdef-archived-alert"),
                         ],
                     ),
 
-                    # Cột PHẢI: Detail Templates
-                    dmc.Paper(
+                    # Cột PHẢI: 2 Cards riêng biệt (Card Template trong bộ + Card Lưu đối soát)
+                    dmc.Box(
                         style={
                             "display": "flex",
                             "flexDirection": "column",
                             "minHeight": 0,
                             "height": "100%",
+                            "flex": 1,
+                            "gap": "6px",
                             "overflow": "hidden",
                         },
-                        withBorder=True,
-                        radius="sm",
                         children=[
-                            # Toolbar trên bảng template
-                            dmc.Group(
-                                [
-                                    dmc.Group(
-                                        [
-                                            dmc.Title("Template trong bộ", order=5),
-                                            html.Span(id="bdef-items-count", style={"fontSize": "11px", "color": "var(--ink-soft, #616161)"}),
-                                        ],
-                                        gap="xs",
-                                    ),
-                                    dmc.Group(
-                                        [
-                                            dmc.TextInput(
-                                                id="bdef-items-search",
-                                                placeholder="Tìm template, hệ thống...",
-                                                size="xs",
-                                                w=220,
-                                                styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "11px"}},
-                                            ),
-                                            button_primary("Thêm template vào bộ", icon="lucide:plus", id="bdef-add-open-btn", size="xs"),
-                                        ],
-                                        gap="xs",
-                                    ),
-                                ],
-                                justify="space-between",
-                                align="center",
-                                p="xs",
-                                style={"borderBottom": "1px solid var(--line, #E0E0E0)", "backgroundColor": "var(--surface-2, #FAFAFA)", "flexShrink": 0},
-                            ),
-
-                            # Bảng template
-                            html.Div(
-                                id="bdef-edit-content",
+                            # Card 1: Template trong bộ (chiếm toàn bộ phần trên, không scroll page)
+                            dmc.Paper(
                                 style={
+                                    "display": "flex",
+                                    "flexDirection": "column",
                                     "flex": 1,
                                     "minHeight": 0,
                                     "overflow": "hidden",
-                                    "display": "flex",
-                                    "flexDirection": "column",
                                 },
-                            ),
-
-                            # Sticky Footer
-                            dmc.Group(
-                                [
-                                    dmc.Text(id="bdef-dirty-hint", size="xs", c="dimmed"),
+                                withBorder=True,
+                                radius="sm",
+                                children=[
+                                    # Toolbar trên bảng template
                                     dmc.Group(
                                         [
-                                            button_primary("Lưu bộ đối soát", id="bdef-save-btn", icon="lucide:save", size="xs"),
+                                            dmc.Group(
+                                                [
+                                                    dmc.Title("Template trong bộ", order=5),
+                                                    html.Span(id="bdef-items-count", style={"fontSize": "11px", "color": "var(--ink-soft, #616161)"}),
+                                                ],
+                                                gap="xs",
+                                            ),
+                                            dmc.Group(
+                                                [
+                                                    dmc.TextInput(
+                                                        id="bdef-items-search",
+                                                        placeholder="Tìm template, hệ thống...",
+                                                        size="xs",
+                                                        w=220,
+                                                        styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "11px"}},
+                                                    ),
+                                                    button_primary("Thêm template vào bộ", icon="lucide:plus", id="bdef-add-open-btn", size="xs"),
+                                                ],
+                                                gap="xs",
+                                            ),
                                         ],
-                                        gap="xs",
+                                        justify="space-between",
+                                        align="center",
+                                        p="xs",
+                                        style={"borderBottom": "1px solid var(--line, #E0E0E0)", "backgroundColor": "var(--surface-2, #FAFAFA)", "flexShrink": 0},
+                                    ),
+
+                                    # Bảng template (cuộn nội bộ)
+                                    html.Div(
+                                        id="bdef-edit-content",
+                                        style={
+                                            "flex": 1,
+                                            "minHeight": 0,
+                                            "overflow": "auto",
+                                            "display": "flex",
+                                            "flexDirection": "column",
+                                        },
                                     ),
                                 ],
-                                justify="space-between",
-                                align="center",
+                            ),
+
+                            # Card 2: Button lưu đối soát chiếm phần dưới (luôn ghim đáy, không cuộn)
+                            dmc.Paper(
                                 p="xs",
+                                withBorder=True,
+                                radius="sm",
                                 style={
-                                    "borderTop": "1px solid var(--line, #E0E0E0)",
                                     "backgroundColor": "var(--surface-2, #FAFAFA)",
                                     "flexShrink": 0,
                                 },
+                                children=dmc.Group(
+                                    [
+                                        dmc.Text(id="bdef-dirty-hint", size="xs", c="dimmed"),
+                                        button_primary("Lưu bộ đối soát", id="bdef-save-btn", icon="lucide:save", size="xs"),
+                                    ],
+                                    justify="space-between",
+                                    align="center",
+                                ),
                             ),
                         ],
                     ),
@@ -693,9 +796,14 @@ def layout(def_id: str | int | None = 1, **kwargs: Any) -> Any:
             # Modal Thêm template vào bộ
             dmc.Modal(
                 id="bdef-add-modal",
+                opened=False,
                 title="Thêm template vào bộ",
-                size="xl",
+                size="1040px",
                 centered=True,
+                closeOnClickOutside=False,
+                closeOnEscape=True,
+                withCloseButton=True,
+                styles={"body": {"maxHeight": "82vh", "overflowY": "auto"}},
                 children=[
                     dmc.Stack(
                         [
@@ -703,33 +811,38 @@ def layout(def_id: str | int | None = 1, **kwargs: Any) -> Any:
                                 [
                                     dmc.TextInput(
                                         id="bdef-add-search",
-                                        placeholder="Tìm theo mã hoặc tên template...",
+                                        label="Tìm template đã đăng ký",
+                                        placeholder="Tên, mã template, Data Source…",
                                         leftSection=DashIconify(icon="lucide:search", width=14),
                                         style={"flex": 1},
                                         size="xs",
+                                        styles={"input": {"fontSize": "11px", "height": "28px"}},
                                     ),
                                     dmc.Select(
                                         id="bdef-add-filter",
+                                        label="Hiển thị",
                                         data=[
                                             {"label": "Chỉ template thêm được", "value": "addable"},
-                                            {"label": "Tất cả", "value": "all"},
+                                            {"label": "Tất cả template", "value": "all"},
                                         ],
                                         value="addable",
-                                        style={"width": 190},
+                                        style={"width": 200},
                                         size="xs",
+                                        styles={"input": {"fontSize": "11px", "height": "28px"}},
                                     ),
                                 ],
                                 gap="xs",
                             ),
-                            html.Div(
-                                id="bdef-add-list",
-                                style={"maxHeight": "280px", "overflowY": "auto"},
-                            ),
+                            html.Div(id="bdef-add-list"),
                             html.Div(id="bdef-add-config"),
                             dmc.Group(
                                 [
+                                    html.Span(
+                                        id="bdef-add-summary-hint",
+                                        style={"fontSize": "11px", "color": "var(--ink-soft, #616161)", "marginRight": "auto"},
+                                    ),
                                     button_subtle("Hủy", id="bdef-add-cancel", size="xs"),
-                                    button_primary("Thêm template", id="bdef-add-submit", size="xs"),
+                                    button_primary("Thêm template", id="bdef-add-submit", size="xs", disabled=True),
                                 ],
                                 justify="flex-end",
                                 gap="xs",
@@ -882,9 +995,9 @@ def _render_items(store_data: Any, search: str | None, preview_data: Any) -> tup
     Input("bdef-preview-btn", "n_clicks"),
 )
 def _calc_preview(def_id: Any, period: str | None, _n: Any) -> tuple[dict[str, Any], str]:
-    p = (period or "").strip()
-    if not p:
-        return {}, "Nhập kỳ thử dạng YYYY-MM."
+    p = str(period or "").strip()[:7]
+    if not p or len(p) < 7:
+        return {}, "Chọn kỳ thử dạng YYYY-MM."
     hint = f"Kỳ thử: {p}-01 00:00:00 → cuối tháng 23:59:59"
     if str(def_id).lower() == "new":
         return {}, hint
@@ -1017,7 +1130,18 @@ def _save_def(
         # Thêm các item nếu có
         pending_items = store_data.get("items") or []
         if pending_items:
-            add_batch_def_items(ctx, new_id, pending_items)
+            clean_items = [
+                {
+                    "template_id": int(it["template_id"]),
+                    "file_pattern": str(it.get("file_pattern", "*")),
+                    "multi_file": bool(it.get("multi_file", False)),
+                    "is_required": bool(it.get("is_required", True)),
+                    "priority": int(it.get("priority", 100)),
+                    "params_override": it.get("params_override") or {},
+                }
+                for it in pending_items
+            ]
+            add_batch_def_items(ctx, new_id, clean_items)
         return notify_success("Tạo bộ đối soát thành công."), dash.no_update, {}, "", f"/batches/{new_id}"
 
     # Đang sửa bộ đã có
@@ -1093,22 +1217,40 @@ def _save_def(
 
 @callback(
     Output("bdef-add-modal", "opened"),
-    Output("bdef-remove-modal", "opened", allow_duplicate=True),
+    Output("bdef-add-modal", "title"),
     Input("bdef-add-open-btn", "n_clicks"),
     Input("bdef-add-cancel", "n_clicks"),
-    State("bdef-add-modal", "opened"),
+    State("bdef-edit-store", "data"),
     prevent_initial_call=True,
 )
-def _toggle_add_modal(_open: Any, _cancel: Any, opened: bool) -> tuple[Any, Any]:
+def _toggle_add_modal(_open: Any, _cancel: Any, store_data: Any) -> tuple[Any, Any]:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
-        return False, dash.no_update
+        return dash.no_update, dash.no_update
     trig = ctx_dash.triggered_id
     if trig == "bdef-add-cancel":
-        return False, False
+        return False, dash.no_update
     if trig == "bdef-add-open-btn" and bool(_open):
-        return True, False
-    return False, dash.no_update
+        batch_name = (store_data or {}).get("name") or "Bộ đối soát"
+        return True, f'Thêm template vào bộ "{batch_name}"'
+    return dash.no_update, dash.no_update
+
+
+@callback(
+    Output("bdef-add-focus", "data"),
+    Input({"type": "bdef-add-focus-btn", "index": ALL}, "n_clicks"),
+    prevent_initial_call=True,
+)
+def _on_add_item_focus(clicks: Any) -> Any:
+    if not any(c for c in (clicks or []) if c):
+        return dash.no_update
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return dash.no_update
+    trig = ctx_dash.triggered_id
+    if isinstance(trig, dict) and "index" in trig:
+        return int(trig["index"])
+    return dash.no_update
 
 
 @callback(
@@ -1117,9 +1259,12 @@ def _toggle_add_modal(_open: Any, _cancel: Any, opened: bool) -> tuple[Any, Any]
     Input("bdef-add-modal", "opened"),
     Input("bdef-add-search", "value"),
     Input("bdef-add-filter", "value"),
+    Input("bdef-add-focus", "data"),
     State("bdef-def-id", "data"),
 )
-def _load_addable(opened: bool, search: str | None, filter_value: str | None, def_id: Any) -> tuple[Any, Any]:
+def _load_addable(
+    opened: bool, search: str | None, filter_value: str | None, focus_id: int | None, def_id: Any
+) -> tuple[Any, Any]:
     if not opened:
         return None, dash.no_update
     ctx = get_current_ctx()
@@ -1130,19 +1275,26 @@ def _load_addable(opened: bool, search: str | None, filter_value: str | None, de
     res = addable_templates(ctx, did, q=(search or "").strip() or None, include_unavailable=(filter_value == "all"))
     if not res.ok:
         return render_addable_list(None, error=res.message), None
-    return render_addable_list(res.data), res.data
+    return render_addable_list(res.data, focused_id=focus_id), res.data
 
 
 @callback(
     Output("bdef-add-config", "children"),
+    Output("bdef-add-submit", "disabled"),
+    Output("bdef-add-submit", "children"),
+    Output("bdef-add-summary-hint", "children"),
     Input({"type": "bdef-add-check", "index": ALL}, "checked"),
     Input({"type": "bdef-add-check", "index": ALL}, "id"),
     State("bdef-addable-store", "data"),
+    State("bdef-edit-store", "data"),
 )
-def _render_add_config(checked_list: Any, check_ids: Any, addable: Any) -> Any:
+def _render_add_config(checked_list: Any, check_ids: Any, addable: Any, store_data: Any) -> tuple[Any, bool, str, str]:
+    curr_items = (store_data or {}).get("items") or []
+    curr_cnt = len(curr_items)
+
     selected = [int(c["index"]) for c, v in zip(check_ids or [], checked_list or [], strict=False) if v]
     if not selected:
-        return None
+        return None, True, "Thêm template", f"Bộ hiện có {curr_cnt} template · Chưa chọn template nào."
     by_id = {int(t["template_id"]): t for t in (addable or [])}
     rows = []
     th_cfg = {"textAlign": "center", "fontSize": "11px", "fontWeight": 600}
@@ -1183,9 +1335,14 @@ def _render_add_config(checked_list: Any, check_ids: Any, addable: Any) -> Any:
                 ]
             )
         )
-    return dmc.Stack(
+    table_content = dmc.Stack(
         [
             dmc.Divider(label=f"Cách chạy trong bộ ({len(selected)} template đã chọn)", labelPosition="left"),
+            dmc.Text(
+                "Mẫu tên file được gợi ý từ mã template; sửa cho khớp tên file hệ thống xuất ra. Tham số để mặc định theo template, ghi đè sau ở bảng chính nếu cần.",
+                size="xs",
+                c="dimmed",
+            ),
             dmc.Table(
                 [
                     dmc.TableThead(
@@ -1207,6 +1364,9 @@ def _render_add_config(checked_list: Any, check_ids: Any, addable: Any) -> Any:
         ],
         gap="xs",
     )
+    btn_text = f"Thêm {len(selected)} template"
+    sum_hint = f"Bộ sẽ có {curr_cnt + len(selected)} template."
+    return table_content, False, btn_text, sum_hint
 
 
 @callback(
@@ -1276,9 +1436,12 @@ def _submit_add_templates(
         pattern = cfg.get("bdef-add-pattern") or f"*{code_by_id.get(tmpl_id, '')}*"
         items_to_add.append(
             {
+                "id": tmpl_id,
                 "template_id": tmpl_id,
                 "template_code": code_by_id.get(tmpl_id, ""),
                 "template_name": name_by_id.get(tmpl_id, ""),
+                "template_status": "ACTIVE",
+                "template_version": 1,
                 "file_pattern": pattern,
                 "multi_file": bool(cfg.get("bdef-add-multi", False)),
                 "is_required": bool(cfg.get("bdef-add-required", True)),
@@ -1308,23 +1471,22 @@ def _submit_add_templates(
 @callback(
     Output("bdef-remove-modal", "opened"),
     Output("bdef-remove-target", "data"),
-    Output("bdef-add-modal", "opened", allow_duplicate=True),
     Input({"type": "bdef-item-remove", "index": ALL}, "n_clicks"),
     Input("bdef-remove-modal-cancel", "n_clicks"),
     State("bdef-remove-modal", "opened"),
     prevent_initial_call=True,
 )
-def _open_remove_modal(remove_clicks: Any, _cancel: Any, opened: bool) -> tuple[bool, Any, Any]:
+def _open_remove_modal(remove_clicks: Any, _cancel: Any, opened: bool) -> tuple[bool, Any]:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
-        return False, dash.no_update, dash.no_update
+        return False, dash.no_update
     triggered = ctx_dash.triggered_id
     if triggered == "bdef-remove-modal-cancel":
-        return False, dash.no_update, dash.no_update
+        return False, dash.no_update
     if isinstance(triggered, dict) and triggered.get("type") == "bdef-item-remove":
         if any(c for c in (remove_clicks or []) if c):
-            return True, {"item_id": triggered["index"]}, False
-    return False, dash.no_update, dash.no_update
+            return True, {"item_id": triggered["index"]}
+    return False, dash.no_update
 
 
 @callback(
@@ -1348,7 +1510,10 @@ def _confirm_remove_item(_n: Any, target: Any, def_id: Any, store_data: Any) -> 
 
     target_id = target["item_id"]
     if str(def_id).lower() == "new":
-        curr_items = [it for it in (store_data.get("items") or []) if it.get("id") != target_id]
+        curr_items = [
+            it for it in (store_data.get("items") or [])
+            if str(it.get("id")) != str(target_id) and str(it.get("template_id")) != str(target_id)
+        ]
         store_data["items"] = curr_items
         store_data["cnt_items"] = len(curr_items)
         return notify_success("Đã gỡ template."), store_data, False

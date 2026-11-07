@@ -149,3 +149,7 @@ def test_render_addable_list_reasons():
     out = _dump(render_addable_list(templates))
     assert "DTP_TMPL" in out
     assert "Template đã lưu trữ" in out
+
+    out_focused = _dump(render_addable_list(templates, focused_id=2))
+    assert "OLD_TMPL" in out_focused
+    assert "Cấu hình này thuộc template" in out_focused

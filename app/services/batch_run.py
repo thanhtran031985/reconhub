@@ -42,6 +42,7 @@ from app.db.metadata import (
 from app.engine.filters import apply_time_filter
 from app.engine.mapping import detect_template
 from app.engine.merge_files import merge_excel_files, sum_control_totals
+from app.engine.sql_builder import build_source_sql
 from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.template_config import TemplateConfig
 from app.services import service
@@ -207,12 +208,94 @@ def _load_items(conn: Connection, run_id: int, with_files: bool = True) -> list[
             .all()
         ):
             code_map[int(t["ID"])] = (str(t["CODE"]), str(t["NAME"]))
+
+    ds_ids = sorted({int(r["DATA_SOURCE_ID"]) for r in item_rows if r.get("DATA_SOURCE_ID")})
+    ds_map: dict[int, tuple[str, str]] = {}
+    if ds_ids:
+        for ds in (
+            conn.execute(
+                select(recon_data_source.c.ID, recon_data_source.c.NAME, recon_data_source.c.ENV).where(
+                    recon_data_source.c.ID.in_(ds_ids)
+                )
+            )
+            .mappings()
+            .all()
+        ):
+            ds_map[int(ds["ID"])] = (str(ds["NAME"]), str(ds["ENV"]))
+
+    tmpl_vers = sorted({(int(r["TEMPLATE_ID"]), int(r.get("TEMPLATE_VERSION") or 1)) for r in item_rows})
+    cfg_map: dict[tuple[int, int], Any] = {}
+    if tmpl_vers:
+        for tid, ver in tmpl_vers:
+            ver_row = (
+                conn.execute(
+                    select(recon_template_version.c.CONFIG_JSON)
+                    .where(recon_template_version.c.TEMPLATE_ID == tid)
+                    .where(recon_template_version.c.VERSION == ver)
+                )
+                .mappings()
+                .first()
+            )
+            if ver_row:
+                raw_c = ver_row["CONFIG_JSON"]
+                cfg_dict = json.loads(raw_c) if isinstance(raw_c, str) else raw_c
+                try:
+                    cfg_map[(tid, ver)] = TemplateConfig.model_validate(cfg_dict)
+                except Exception:
+                    pass
+
+    run_ids = [int(r["CURRENT_RUN_ID"]) for r in item_rows if r.get("CURRENT_RUN_ID")]
+    child_map: dict[int, dict[str, Any]] = {}
+    if run_ids:
+        for cr in (
+            conn.execute(
+                select(recon_run.c.ID, recon_run.c.STATUS, recon_run.c.PROGRESS_PCT).where(
+                    recon_run.c.ID.in_(run_ids)
+                )
+            )
+            .mappings()
+            .all()
+        ):
+            child_map[int(cr["ID"])] = {
+                "status": str(cr["STATUS"]),
+                "progress_pct": int(cr["PROGRESS_PCT"] or 0),
+            }
+
     items = []
     for r in item_rows:
         d = _run_item_dict(dict(r), files_by_item.get(r["ID"], []) if with_files else [])
         code, name = code_map.get(int(r["TEMPLATE_ID"]), ("", ""))
+        ds_name, ds_env = ds_map.get(int(r.get("DATA_SOURCE_ID") or 0), ("", ""))
         d["template_code"] = code
         d["template_name"] = name
+        d["data_source_name"] = ds_name
+        d["data_source_env"] = ds_env
+
+        c_info = child_map.get(int(r.get("CURRENT_RUN_ID") or 0))
+        if c_info:
+            d["child_status"] = c_info["status"]
+            d["progress_pct"] = c_info["progress_pct"]
+            if str(d["status"]) in ("QUEUED", "RUNNING") and c_info["status"] in ("RUNNING", "DONE", "FAILED"):
+                d["status"] = c_info["status"]
+        else:
+            d["child_status"] = None
+            d["progress_pct"] = 0
+
+        cfg_obj = cfg_map.get((int(r["TEMPLATE_ID"]), int(r.get("TEMPLATE_VERSION") or 1)))
+        if cfg_obj:
+            try:
+                p_spec = next((p for p in cfg_obj.profiles if p.code == r["PROFILE_CODE"]), None)
+                res_params = d.get("params_resolved") or {}
+                sql_txt, binds_dict = build_source_sql(cfg_obj, profile=p_spec, params=res_params)
+                d["source_sql"] = sql_txt
+                d["source_binds"] = binds_dict
+            except Exception:
+                d["source_sql"] = ""
+                d["source_binds"] = {}
+        else:
+            d["source_sql"] = ""
+            d["source_binds"] = {}
+
         items.append(d)
     return items
 
@@ -237,6 +320,11 @@ def _load_run_full(conn: Connection, run: dict[str, Any]) -> dict[str, Any]:
     def_row = _get_def(conn, int(run["BATCH_DEF_ID"]))
     out["def_code"] = str(def_row["CODE"])
     out["def_name"] = str(def_row["NAME"])
+    if out["items"]:
+        first = out["items"][0]
+        out["data_source_id"] = first.get("data_source_id")
+        out["data_source_name"] = first.get("data_source_name")
+        out["data_source_env"] = first.get("data_source_env")
     return out
 
 
@@ -294,7 +382,13 @@ def _serialize_params(params: dict[str, Any]) -> dict[str, Any]:
 
 @service
 @requires_menu("batch_run")
-def create_batch_run(ctx: Ctx, batch_def_id: int, period: str, name: str | None = None) -> dict[str, Any]:
+def create_batch_run(
+    ctx: Ctx,
+    batch_def_id: int,
+    period: str,
+    name: str | None = None,
+    data_source_id: int | None = None,
+) -> dict[str, Any]:
     """Tạo lần chạy bộ (DRAFT) cho bộ đang ACTIVE với kỳ tháng YYYY-MM.
 
     Snapshot: template, version ACTIVE lúc tạo, profile, Data Source, tham số
@@ -377,7 +471,7 @@ def create_batch_run(ctx: Ctx, batch_def_id: int, period: str, name: str | None 
                     f"Template id {def_item['TEMPLATE_ID']} không có version đang hoạt động.",
                 )
             cfg = TemplateConfig.model_validate(_parse_config(version_row["CONFIG_JSON"]))
-            ds_id = def_item["DATA_SOURCE_ID"] or version_row["DATA_SOURCE_ID"]
+            ds_id = data_source_id or def_item["DATA_SOURCE_ID"] or version_row["DATA_SOURCE_ID"]
             if ds_id is None:
                 raise ServiceError(
                     ErrorCode.NOT_FOUND,
@@ -425,7 +519,12 @@ def create_batch_run(ctx: Ctx, batch_def_id: int, period: str, name: str | None 
             entity_id=run_id,
             action="CREATE_BATCH_RUN",
             actor=ctx.username,
-            new_data={"batch_def_id": batch_def_id, "period": period, "name": name or default_name},
+            new_data={
+                "batch_def_id": batch_def_id,
+                "period": period,
+                "name": name or default_name,
+                "data_source_id": data_source_id,
+            },
             now=_now(),
         )
         out = _run_dict(_get_run(conn, run_id))
@@ -433,6 +532,41 @@ def create_batch_run(ctx: Ctx, batch_def_id: int, period: str, name: str | None 
         out["files"] = []
         out["period_warning"] = period_warning
         return out
+
+
+@service
+@requires_menu("batch_run")
+def update_batch_run_data_source(
+    ctx: Ctx,
+    run_id: int,
+    data_source_id: int,
+) -> dict[str, Any]:
+    """Cập nhật Data Source nguồn cho toàn bộ mục của lần chạy bộ DRAFT."""
+    require_role(ctx, *ALLOWED_EDITOR_ROLES)
+    engine = get_recon_engine()
+    with engine.begin() as conn:
+        run = _get_run(conn, run_id)
+        _check_run_editor(ctx, run, engine)
+        _require_draft(run)
+        conn.execute(
+            update(recon_batch_run_item)
+            .where(recon_batch_run_item.c.BATCH_RUN_ID == run_id)
+            .values(
+                DATA_SOURCE_ID=int(data_source_id),
+                UPDATED_BY=ctx.username,
+                UPDATED_AT=_now(),
+            )
+        )
+        write_audit_log(
+            conn=conn,
+            entity="BATCH_RUN",
+            entity_id=run_id,
+            action="UPDATE_BATCH_RUN_DATA_SOURCE",
+            actor=ctx.username,
+            new_data={"data_source_id": int(data_source_id)},
+            now=_now(),
+        )
+        return _load_run_full(conn, dict(run))
 
 
 @service
@@ -468,6 +602,7 @@ def list_active_defs(ctx: Ctx) -> list[dict[str, Any]]:
 def get_batch_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
     """Lấy chi tiết lần chạy bộ kèm các mục và file đã tải."""
     engine = get_recon_engine()
+    sync_batch_status(engine, run_id)
     with engine.connect() as conn:
         run = check_owned(conn, recon_batch_run, "ID", run_id, ctx, engine=engine)
         return _load_run_full(conn, dict(run))
@@ -1057,7 +1192,7 @@ def sync_batch_status(engine: Engine, batch_run_id: int) -> dict[str, Any]:
                 child = conn.execute(
                     select(recon_run.c.STATUS).where(recon_run.c.ID == int(item["CURRENT_RUN_ID"]))
                 ).first()
-                if child is not None and child[0] in ("DONE", "FAILED"):
+                if child is not None and child[0] in ("DONE", "FAILED", "RUNNING"):
                     conn.execute(
                         update(recon_batch_run_item)
                         .where(recon_batch_run_item.c.ID == item["ID"])

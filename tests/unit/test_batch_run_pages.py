@@ -254,10 +254,12 @@ class TestRenderSteps:
 
         item = _item(files=[_file()], params_run_override={"p_ky": "202603"})
         node = render_step_content(3, _run([item], files=[_file()]))
+        dp_inputs = _find_all(node, dmc.DatePickerInput)
+        dp_values = [i.value for i in dp_inputs]
+        assert "2026-02-01" in dp_values
         inputs = _find_all(node, dmc.TextInput)
         values = [i.value for i in inputs]
         assert "202603" in values
-        assert "2026-02-01T00:00:00" in values
         assert "Đã sửa" in _texts(node)
 
     def test_step3_empty_when_no_files(self):
@@ -283,7 +285,6 @@ class TestRenderSteps:
         texts = _texts(node)
         assert "Cảnh báo" in texts
         assert "Control total lệch ở file: a.xlsx." in texts
-        assert "Chạy 1 template" in texts
 
     def test_step5_shows_progress_and_run_link(self):
         from app.ui.pages.batch_run_wizard import render_step_content
@@ -292,7 +293,7 @@ class TestRenderSteps:
         node = render_step_content(5, _run([item], files=[_file()], status="DONE"))
         texts = _texts(node)
         assert "Run #42" in texts
-        assert "Xem kết quả" in texts
+        assert "Hoàn thành đối soát" in texts
 
     def test_header_shows_archived_warning(self):
         from app.ui.pages.batch_run_wizard import render_wizard_header

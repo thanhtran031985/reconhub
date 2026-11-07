@@ -908,18 +908,7 @@ def render_step4(run: dict[str, Any], include_warn: bool = True) -> Any:
             # Toolbar precheck
             dmc.Group(
                 [
-                    dmc.Group(
-                        [
-                            button_primary("Kiểm tra trước", icon="lucide:clipboard-check", id="brw-precheck-btn", size="xs"),
-                            dmc.Checkbox(
-                                id="brw-include-warn",
-                                label="Chạy cả template có cảnh báo",
-                                checked=include_warn,
-                                size="xs",
-                            ),
-                        ],
-                        gap="sm",
-                    ),
+                    button_primary("Kiểm tra trước", icon="lucide:clipboard-check", id="brw-precheck-btn", size="xs"),
                     dmc.Text(
                         "Mục lỗi có nút Thay file để thay file riêng mục đó và kiểm tra lại.",
                         size="xs",
@@ -1283,11 +1272,13 @@ def render_new_run_form(defs: list[dict[str, Any]], preselected_def: int | None)
                     cols=2,
                     spacing="xs",
                     children=[
-                        dmc.TextInput(
+                        dmc.MonthPickerInput(
                             id="brw-new-period",
                             label="Kỳ đối soát *",
                             value=current_p,
-                            placeholder="YYYY-MM",
+                            valueFormat="YYYY-MM",
+                            placeholder="Chọn tháng...",
+                            leftSection=DashIconify(icon="lucide:calendar", width=14),
                             required=True,
                             size="xs",
                             styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
@@ -1518,13 +1509,15 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
                         [
                             html.Span(id="brw-footer-why", style={"fontSize": "11px", "color": "var(--ink-soft, #616161)"}),
                             dmc.Box(
-                                dmc.Checkbox(
-                                    id="brw-include-warn",
-                                    label="Chạy cả template có cảnh báo",
-                                    checked=True,
-                                    size="xs",
-                                    styles={"label": {"fontSize": "11px", "cursor": "pointer"}},
-                                ),
+                                children=[
+                                    dmc.Checkbox(
+                                        id="brw-include-warn",
+                                        label="Chạy cả template có cảnh báo",
+                                        checked=True,
+                                        size="xs",
+                                        styles={"label": {"fontSize": "11px", "cursor": "pointer"}},
+                                    ),
+                                ],
                                 id="brw-footer-warn-wrapper",
                                 style={"display": "none"},
                             ),
@@ -1740,49 +1733,83 @@ def _render_wizard(store_data: Any, step_data: Any) -> tuple[Any, Any, Any, str,
 
 
 @callback(
+    Output("brw-store", "data", allow_duplicate=True),
     Output("brw-step", "data", allow_duplicate=True),
     Output("brw-notifications", "children", allow_duplicate=True),
     Output("brw-redirect", "href", allow_duplicate=True),
+    Output("brw-interval", "disabled", allow_duplicate=True),
+    Output("brw-prod-modal", "opened"),
+    Output("brw-prod-body", "children"),
     Input("brw-prev-btn", "n_clicks"),
     Input("brw-next-btn", "n_clicks"),
     State("brw-step", "data"),
     State("brw-store", "data"),
+    State("brw-run-id", "data"),
+    State("brw-include-warn", "checked"),
     prevent_initial_call=True,
 )
-def _navigate(_prev: Any, _next: Any, step_data: Any, store_data: Any) -> tuple[Any, Any, Any]:
+def _navigate(
+    _prev: Any,
+    _next: Any,
+    step_data: Any,
+    store_data: Any,
+    run_id: Any,
+    include_warn: Any,
+) -> tuple[Any, Any, Any, Any, Any, bool, Any]:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
-        return dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, False, dash.no_update
     triggered = ctx_dash.triggered_id
     if triggered == "brw-prev-btn" and not _prev:
-        return dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, False, dash.no_update
     if triggered == "brw-next-btn" and not _next:
-        return dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, False, dash.no_update
     if not isinstance(store_data, dict) or store_data.get("error"):
-        return dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, False, dash.no_update
 
     status = str(store_data.get("status", "DRAFT"))
     step = int(step_data) if step_data is not None else (5 if status == "RUNNING" else 2)
 
     if triggered == "brw-prev-btn":
-        return max(step - 1, 1), dash.no_update, dash.no_update
+        return dash.no_update, max(step - 1, 1), dash.no_update, dash.no_update, dash.no_update, False, dash.no_update
 
     if step in (2, 3):
         blockers = wizard_blockers(store_data)
         if blockers:
-            return step, notify_warning("; ".join(blockers), title="Chưa thể tiếp tục"), dash.no_update
+            return dash.no_update, step, notify_warning("; ".join(blockers), title="Chưa thể tiếp tục"), dash.no_update, dash.no_update, False, dash.no_update
+        return dash.no_update, step + 1, dash.no_update, dash.no_update, dash.no_update, False, dash.no_update
 
     if step == 4:
-        return 5, dash.no_update, dash.no_update
+        return dash.no_update, 5, dash.no_update, dash.no_update, dash.no_update, False, dash.no_update
 
     if step == 5:
         if status == "DRAFT":
-            # Khi DRAFT ở bước 5, bấm Chạy template do callback _start_run xử lý
-            return dash.no_update, dash.no_update, dash.no_update
-        # Bấm ở bước 5 khi đã xong -> chuyển trang kết quả
-        return dash.no_update, dash.no_update, f"/batch-runs/{store_data['id']}/result"
+            ctx = get_current_ctx()
+            if ctx is None or run_id is None:
+                return dash.no_update, dash.no_update, notify_error("Bạn cần đăng nhập để chạy."), dash.no_update, dash.no_update, False, dash.no_update
+            res = start(ctx, int(run_id), include_warn=bool(include_warn), confirm_prod=False)
+            if not res.ok:
+                if res.code == "PROD_CONFIRM_REQUIRED":
+                    details = res.details or {}
+                    prod_ds = details.get("prod_data_sources") or []
+                    body = dmc.Stack(
+                        [
+                            dmc.Text(
+                                "Lần chạy bộ dùng Data Source thuộc môi trường PROD. Xác nhận một lần cho cả lần chạy:",
+                                size="xs",
+                            ),
+                            dmc.List([dmc.ListItem(str(name)) for name in prod_ds]),
+                        ],
+                        gap="xs",
+                    )
+                    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, True, body
+                return dash.no_update, dash.no_update, notify_error(res.message or "Không chạy được lần chạy bộ."), dash.no_update, dash.no_update, False, dash.no_update
+            return _load_run_data(int(run_id)), 5, notify_success("Đã bắt đầu chạy các template."), dash.no_update, False, False, dash.no_update
 
-    return min(step + 1, 5), dash.no_update, dash.no_update
+        # Bấm ở bước 5 khi đã xong -> chuyển trang kết quả
+        return dash.no_update, dash.no_update, dash.no_update, f"/batch-runs/{store_data['id']}/result", dash.no_update, False, dash.no_update
+
+    return dash.no_update, min(step + 1, 5), dash.no_update, dash.no_update, dash.no_update, False, dash.no_update
 
 
 @callback(
@@ -1824,6 +1851,8 @@ def _create_run(_n: Any, def_val: Any, ds_val: Any, period: Any, name: Any) -> t
     if not def_val:
         return notify_warning("Chọn bộ đối soát trước."), dash.no_update
     period_str = (period or "").strip()
+    if len(period_str) >= 7 and PERIOD_RE.match(period_str[:7]):
+        period_str = period_str[:7]
     if not PERIOD_RE.match(period_str):
         return notify_warning("Kỳ phải đúng dạng YYYY-MM, ví dụ: 2026-02."), dash.no_update
     data_source_id = int(ds_val) if ds_val else None
@@ -2086,48 +2115,16 @@ def _replace_item_files(contents: Any, filenames: Any, run_id: Any) -> tuple[Any
 
 
 @callback(
-    Output("brw-store", "data", allow_duplicate=True),
-    Output("brw-step", "data", allow_duplicate=True),
-    Output("brw-prod-modal", "opened"),
-    Output("brw-prod-body", "children"),
     Output("brw-notifications", "children", allow_duplicate=True),
-    Output("brw-interval", "disabled", allow_duplicate=True),
-    Input("brw-start-btn", "n_clicks"),
-    State("brw-include-warn", "checked"),
+    Output("brw-redirect", "href", allow_duplicate=True),
+    Input("brw-save-draft-btn", "n_clicks"),
     State("brw-run-id", "data"),
     prevent_initial_call=True,
 )
-def _start_run(_n: Any, include_warn: Any, run_id: Any) -> tuple[Any, Any, bool, Any, Any, Any]:
-    if not _n:
-        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update, dash.no_update
-    ctx = get_current_ctx()
-    if ctx is None or run_id is None:
-        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update, dash.no_update
-    res = start(ctx, int(run_id), include_warn=bool(include_warn), confirm_prod=False)
-    if not res.ok:
-        if res.code == "PROD_CONFIRM_REQUIRED":
-            details = res.details or {}
-            prod_ds = details.get("prod_data_sources") or []
-            body = dmc.Stack(
-                [
-                    dmc.Text(
-                        "Lần chạy bộ dùng Data Source thuộc môi trường PROD. Xác nhận một lần cho cả lần chạy:",
-                        size="xs",
-                    ),
-                    dmc.List([dmc.ListItem(str(name)) for name in prod_ds]),
-                ],
-                gap="xs",
-            )
-            return dash.no_update, dash.no_update, True, body, dash.no_update, dash.no_update
-        return (
-            dash.no_update,
-            dash.no_update,
-            False,
-            dash.no_update,
-            notify_error(res.message or "Không chạy được lần chạy bộ."),
-            dash.no_update,
-        )
-    return _load_run_data(int(run_id)), 5, False, dash.no_update, notify_success("Đã bắt đầu chạy các template."), False
+def _save_draft(_n: Any, run_id: Any) -> tuple[Any, Any]:
+    if not _n or not run_id:
+        return dash.no_update, dash.no_update
+    return notify_success(f"Đã lưu nháp lần chạy bộ #{run_id}."), "/batch-runs"
 
 
 @callback(
