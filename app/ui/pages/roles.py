@@ -38,6 +38,7 @@ from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.empty_state import empty_state
 from app.ui.components.modal_confirm import modal_confirm
+from app.ui.components.page_header import page_header
 from app.ui.layout.shell import _SIDEBAR_SKIP_CODES, get_nav_items_for_menus
 
 try:
@@ -706,32 +707,31 @@ def layout() -> Any:
 
     return html.Div(
         id="roles-page-root",
+        style={
+            "height": "calc(100vh - 48px)",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+        },
         children=[
             dcc.Store(id="roles-selected-store", data=first_id),
             dcc.Store(id="roles-form-store", data=first_snapshot),
             dcc.Store(id="roles-dirty-store", data=False),
-            dmc.Group(
-                justify="space-between",
-                align="flex-start",
-                mb="lg",
-                children=[
-                    html.Div(
-                        [
-                            dmc.Title("Vai trò và phân quyền", order=2, fw=700),
-                            dmc.Text(
-                                "Phân quyền theo menu: vai trò có menu nào thì người dùng "
-                                "thấy menu đó và thao tác được trong màn đó.",
-                                size="sm",
-                                c="dimmed",
-                                mt=4,
-                            ),
-                        ]
-                    ),
-                ],
+            page_header(
+                title="Vai trò và phân quyền",
+                subtitle="Phân quyền theo menu: vai trò có menu nào thì người dùng thấy menu đó và thao tác được trong màn đó.",
+                style={"marginBottom": "8px"},
             ),
             dmc.Tabs(
                 id="roles-tabs",
                 value="roles",
+                style={
+                    "flex": 1,
+                    "minHeight": 0,
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "overflow": "hidden",
+                },
                 children=[
                     dmc.TabsList(
                         [
@@ -742,71 +742,110 @@ def layout() -> Any:
                     ),
                     dmc.TabsPanel(
                         value="roles",
-                        pt="md",
+                        style={
+                            "flex": 1,
+                            "minHeight": 0,
+                            "display": "flex",
+                            "flexDirection": "column",
+                            "overflow": "hidden",
+                            "paddingTop": "8px",
+                        },
                         children=[
-                            dmc.Grid(
-                                [
-                                    dmc.GridCol(
-                                        dmc.Paper(
-                                            [
-                                                dmc.Group(
-                                                    [
-                                                        dmc.Text("Vai trò", fw=700, size="md"),
-                                                        dmc.Badge(
-                                                            f"{len(rows)} vai trò",
-                                                            id="roles-count-badge",
-                                                            size="xs",
-                                                            color="gray",
-                                                            variant="light",
-                                                        ),
-                                                    ],
-                                                    justify="space-between",
-                                                    mb="sm",
-                                                ),
-                                                dmc.TextInput(
-                                                    id="roles-search-input",
-                                                    placeholder="Tên hoặc mã vai trò",
-                                                    leftSection=DashIconify(icon="lucide:search", width=16),
-                                                    debounce=300,
-                                                ),
-                                                dmc.Box(
-                                                    id="roles-list",
-                                                    children=render_roles_list(ctx, selected_id=first_id),
-                                                    mt="md",
-                                                ),
-                                                button_primary(
-                                                    "+ Thêm vai trò",
-                                                    id="roles-add-btn",
-                                                    icon="lucide:plus",
-                                                    fullWidth=True,
-                                                    mt="md",
-                                                ),
-                                            ],
-                                            withBorder=True,
-                                            radius="md",
-                                            p="md",
-                                        ),
-                                        span=4,
-                                    ),
-                                    dmc.GridCol(
-                                        html.Div(
-                                            id="roles-detail",
-                                            children=render_role_detail(ctx, first_id)
-                                            if first_id
-                                            else empty_state(
-                                                "Chưa có vai trò nào.",
-                                                "Thêm vai trò để giao quyền cho người dùng khác.",
+                            dmc.Box(
+                                style={
+                                    "display": "flex",
+                                    "flexDirection": "row",
+                                    "flex": 1,
+                                    "minHeight": 0,
+                                    "gap": "12px",
+                                    "overflow": "hidden",
+                                },
+                                children=[
+                                    # Master (Trái): Danh sách vai trò
+                                    dmc.Paper(
+                                        [
+                                            dmc.Group(
+                                                [
+                                                    dmc.Text("Vai trò", fw=700, size="sm"),
+                                                    dmc.Badge(
+                                                        f"{len(rows)} vai trò",
+                                                        id="roles-count-badge",
+                                                        size="xs",
+                                                        color="gray",
+                                                        variant="light",
+                                                    ),
+                                                ],
+                                                justify="space-between",
+                                                mb="xs",
                                             ),
-                                        ),
-                                        span=8,
+                                            dmc.TextInput(
+                                                id="roles-search-input",
+                                                placeholder="Tên hoặc mã vai trò",
+                                                leftSection=DashIconify(icon="lucide:search", width=14),
+                                                size="xs",
+                                                debounce=300,
+                                                mb="xs",
+                                            ),
+                                            dmc.Box(
+                                                id="roles-list",
+                                                children=render_roles_list(ctx, selected_id=first_id),
+                                                style={"flex": 1, "minHeight": 0, "overflowY": "auto"},
+                                            ),
+                                            button_primary(
+                                                "+ Thêm vai trò",
+                                                id="roles-add-btn",
+                                                icon="lucide:plus",
+                                                fullWidth=True,
+                                                size="xs",
+                                                mt="xs",
+                                            ),
+                                        ],
+                                        withBorder=True,
+                                        radius="sm",
+                                        p="xs",
+                                        style={
+                                            "width": "320px",
+                                            "minWidth": "320px",
+                                            "maxWidth": "320px",
+                                            "display": "flex",
+                                            "flexDirection": "column",
+                                            "minHeight": 0,
+                                            "height": "100%",
+                                        },
                                     ),
-                                ]
+                                    # Detail (Phải): Form vai trò & phân quyền
+                                    html.Div(
+                                        id="roles-detail",
+                                        children=render_role_detail(ctx, first_id)
+                                        if first_id
+                                        else empty_state(
+                                            "Chưa có vai trò nào.",
+                                            "Thêm vai trò để giao quyền cho người dùng khác.",
+                                        ),
+                                        style={
+                                            "flex": 1,
+                                            "minWidth": 0,
+                                            "minHeight": 0,
+                                            "height": "100%",
+                                            "overflowY": "auto",
+                                            "display": "flex",
+                                            "flexDirection": "column",
+                                        },
+                                    ),
+                                ],
                             ),
                         ],
                     ),
                     dmc.TabsPanel(
                         value="users",
-                        pt="md",
+                        style={
+                            "flex": 1,
+                            "minHeight": 0,
+                            "display": "flex",
+                            "flexDirection": "column",
+                            "overflowY": "auto",
+                            "paddingTop": "8px",
+                        },
                         children=[
                             dmc.Select(
                                 id="roles-effective-user",
@@ -826,7 +865,14 @@ def layout() -> Any:
                     ),
                     dmc.TabsPanel(
                         value="sim",
-                        pt="md",
+                        style={
+                            "flex": 1,
+                            "minHeight": 0,
+                            "display": "flex",
+                            "flexDirection": "column",
+                            "overflowY": "auto",
+                            "paddingTop": "8px",
+                        },
                         children=[
                             dmc.Select(
                                 id="roles-sim-user",

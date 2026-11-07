@@ -26,6 +26,7 @@ from app.services.perm import is_admin, page_gate
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.empty_state import empty_state
+from app.ui.components.page_header import page_header
 
 try:
     dash.register_page(  # type: ignore[no-untyped-call]
@@ -430,27 +431,37 @@ def render_menus_table(saved: dict[str, Any], draft: dict[str, Any], q: str = ""
                     style=row_style,
                 )
             )
-    return dmc.Table(
-        [
-            dmc.TableThead(
-                dmc.TableTr(
-                    [
-                        dmc.TableTh("Thứ tự"),
-                        dmc.TableTh("Tên hiển thị"),
-                        dmc.TableTh("Mã · đường dẫn"),
-                        dmc.TableTh("Nhóm"),
-                        dmc.TableTh("Vai trò bật"),
-                        dmc.TableTh("Trạng thái"),
-                        dmc.TableTh("Thao tác"),
-                    ]
-                )
-            ),
-            dmc.TableTbody(rows),
-        ],
-        withTableBorder=True,
-        withColumnBorders=True,
-        highlightOnHover=True,
-        verticalSpacing="sm",
+    th_style = {
+        "position": "sticky",
+        "top": 0,
+        "zIndex": 1,
+        "backgroundColor": "var(--mantine-color-body, #fff)",
+        "whiteSpace": "nowrap",
+    }
+    return dmc.TableScrollContainer(
+        minWidth=750,
+        children=dmc.Table(
+            [
+                dmc.TableThead(
+                    dmc.TableTr(
+                        [
+                            dmc.TableTh("Thứ tự", style=th_style),
+                            dmc.TableTh("Tên hiển thị", style=th_style),
+                            dmc.TableTh("Mã · đường dẫn", style=th_style),
+                            dmc.TableTh("Nhóm", style=th_style),
+                            dmc.TableTh("Vai trò bật", style=th_style),
+                            dmc.TableTh("Trạng thái", style=th_style),
+                            dmc.TableTh("Thao tác", style=th_style),
+                        ]
+                    )
+                ),
+                dmc.TableTbody(rows),
+            ],
+            withTableBorder=True,
+            withColumnBorders=True,
+            highlightOnHover=True,
+            verticalSpacing="xs",
+        ),
     )
 
 
@@ -584,130 +595,149 @@ def layout() -> Any:
     new_alert, removed_alert = _alerts(tree, tree)
     return html.Div(
         id="menus-page-root",
+        style={
+            "height": "calc(100vh - 48px)",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+        },
         children=[
             dcc.Store(id="menus-saved-store", data=tree),
             dcc.Store(id="menus-draft-store", data=tree),
             dcc.Store(id="menus-dirty-store", data=False),
             dcc.Store(id="menus-hide-target-store", data=None),
             html.Div(id="menus-beforeunload-sink", style={"display": "none"}),
-            dmc.Group(
-                justify="space-between",
-                align="flex-start",
-                mb="lg",
-                children=[
-                    html.Div(
-                        [
-                            dmc.Title("Danh sách menu", order=2, fw=700),
-                            dmc.Text(
-                                "Menu do code khai báo; chỉnh tên hiển thị, nhóm, thứ tự và "
-                                "tạm ẩn menu tại đây. Thay đổi có hiệu lực trong tối đa "
-                                "5 giây mà không cần đăng nhập lại.",
-                                size="sm",
-                                c="dimmed",
-                                mt=4,
-                            ),
-                        ]
-                    ),
-                ],
+            # Header
+            page_header(
+                title="Danh sách menu",
+                subtitle="Menu do code khai báo; chỉnh tên hiển thị, nhóm, thứ tự và tạm ẩn menu tại đây.",
+                style={"marginBottom": "4px"},
             ),
-            dmc.Box(id="menus-new-alert", children=[new_alert] if new_alert else None, mb="md"),
+            dmc.Box(id="menus-new-alert", children=[new_alert] if new_alert else None),
             dmc.Box(
                 id="menus-removed-alert",
                 children=[removed_alert] if removed_alert else None,
-                mb="md",
             ),
             html.Div(id="menus-error-box"),
-            dmc.Box(id="menus-toast", mb="md"),
-            dmc.Grid(
-                [
-                    dmc.GridCol(
-                        dmc.Paper(
-                            [
-                                dmc.Group(
-                                    [
-                                        dmc.TextInput(
-                                            id="menus-search-input",
-                                            placeholder="Tìm menu theo tên, mã hoặc đường dẫn",
-                                            leftSection=DashIconify(icon="lucide:search", width=16),
-                                            debounce=300,
-                                            style={"flex": 1},
-                                        ),
-                                        dmc.Select(
-                                            id="menus-filter-select",
-                                            data=_FILTER_OPTIONS,
-                                            value="all",
-                                            style={"width": 220},
-                                        ),
-                                    ],
-                                    mb="md",
-                                ),
-                                dmc.Group(
-                                    [
-                                        button_subtle(
-                                            "Khôi phục mặc định tất cả",
-                                            id="menus-reset-all-btn",
-                                            icon="lucide:rotate-ccw",
-                                        ),
-                                        button_subtle(
-                                            "Đã xem tất cả",
-                                            id="menus-mark-all-seen-btn",
-                                            icon="lucide:check-check",
-                                        ),
-                                    ],
-                                    mb="md",
-                                ),
-                                html.Div(
-                                    id="menus-table-box",
-                                    children=[render_menus_table(tree, tree)],
-                                ),
-                            ],
-                            withBorder=True,
-                            radius="md",
-                            p="md",
-                        ),
-                        span=8,
+            dmc.Box(id="menus-toast"),
+            # Master–Detail 2 cột
+            dmc.Box(
+                style={
+                    "display": "flex",
+                    "flexDirection": "row",
+                    "flex": 1,
+                    "minHeight": 0,
+                    "gap": "12px",
+                    "overflow": "hidden",
+                },
+                children=[
+                    # Master (Trái): Table Box
+                    dmc.Paper(
+                        [
+                            dmc.Group(
+                                [
+                                    dmc.TextInput(
+                                        id="menus-search-input",
+                                        placeholder="Tìm menu theo tên, mã hoặc đường dẫn",
+                                        leftSection=DashIconify(icon="lucide:search", width=14),
+                                        debounce=300,
+                                        size="xs",
+                                        style={"flex": 1},
+                                    ),
+                                    dmc.Select(
+                                        id="menus-filter-select",
+                                        data=_FILTER_OPTIONS,
+                                        value="all",
+                                        size="xs",
+                                        style={"width": 180},
+                                    ),
+                                    button_subtle(
+                                        "Khôi phục mặc định",
+                                        id="menus-reset-all-btn",
+                                        icon="lucide:rotate-ccw",
+                                        size="xs",
+                                    ),
+                                    button_subtle(
+                                        "Đã xem tất cả",
+                                        id="menus-mark-all-seen-btn",
+                                        icon="lucide:check-check",
+                                        size="xs",
+                                    ),
+                                ],
+                                mb="xs",
+                                gap="xs",
+                            ),
+                            html.Div(
+                                id="menus-table-box",
+                                children=[render_menus_table(tree, tree)],
+                                style={"flex": 1, "minHeight": 0, "overflowY": "auto"},
+                            ),
+                        ],
+                        withBorder=True,
+                        radius="sm",
+                        p="xs",
+                        style={
+                            "flex": 1,
+                            "minWidth": 0,
+                            "minHeight": 0,
+                            "height": "100%",
+                            "display": "flex",
+                            "flexDirection": "column",
+                        },
                     ),
-                    dmc.GridCol(
-                        html.Div(
-                            [
-                                dmc.Paper(
-                                    [
-                                        dmc.Text("Xem trước thanh bên", fw=700, size="md", mb="sm"),
-                                        html.Div(
-                                            id="menus-preview-box",
-                                            children=[render_menus_preview(ctx, tree, tree)],
-                                        ),
-                                    ],
-                                    withBorder=True,
-                                    radius="md",
-                                    p="md",
-                                    bg="gray.1",
-                                    mb="md",
-                                ),
-                                dmc.Paper(
-                                    [
-                                        dmc.Text(
-                                            "Trang khi menu bị ẩn",
-                                            fw=700,
-                                            size="md",
-                                            mb="sm",
-                                        ),
-                                        html.Div(
-                                            id="menus-suspended-box",
-                                            children=[render_suspended_preview(tree)],
-                                        ),
-                                    ],
-                                    withBorder=True,
-                                    radius="md",
-                                    p="md",
-                                    bg="gray.1",
-                                ),
-                            ]
-                        ),
-                        span=4,
+                    # Detail (Phải): Preview Box
+                    dmc.Paper(
+                        [
+                            dmc.Paper(
+                                [
+                                    dmc.Text("Xem trước thanh bên", fw=700, size="sm", mb="xs"),
+                                    html.Div(
+                                        id="menus-preview-box",
+                                        children=[render_menus_preview(ctx, tree, tree)],
+                                    ),
+                                ],
+                                withBorder=True,
+                                radius="sm",
+                                p="xs",
+                                bg="gray.1",
+                                mb="xs",
+                            ),
+                            dmc.Paper(
+                                [
+                                    dmc.Text(
+                                        "Trang khi menu bị ẩn",
+                                        fw=700,
+                                        size="sm",
+                                        mb="xs",
+                                    ),
+                                    html.Div(
+                                        id="menus-suspended-box",
+                                        children=[render_suspended_preview(tree)],
+                                    ),
+                                ],
+                                withBorder=True,
+                                radius="sm",
+                                p="xs",
+                                bg="gray.1",
+                            ),
+                        ],
+                        withBorder=True,
+                        radius="sm",
+                        p="xs",
+                        style={
+                            "width": "340px",
+                            "minWidth": "340px",
+                            "maxWidth": "340px",
+                            "minHeight": 0,
+                            "height": "100%",
+                            "overflowY": "auto",
+                            "display": "flex",
+                            "flexDirection": "column",
+                        },
                     ),
-                ]
+                ],
             ),
+            # Sticky dirty bar ở chân
             dmc.Paper(
                 dmc.Group(
                     [
@@ -719,18 +749,19 @@ def layout() -> Any:
                         ),
                         dmc.Group(
                             [
-                                button_subtle("Hủy thay đổi", id="menus-discard-btn", disabled=True),
-                                button_primary("Lưu", id="menus-save-btn", disabled=True),
-                            ]
+                                button_subtle("Hủy thay đổi", id="menus-discard-btn", disabled=True, size="xs"),
+                                button_primary("Lưu", id="menus-save-btn", disabled=True, size="xs"),
+                            ],
+                            gap="xs",
                         ),
                     ],
                     justify="space-between",
                 ),
                 withBorder=True,
-                radius="md",
-                p="md",
-                mt="lg",
-                style={"position": "sticky", "bottom": 0, "zIndex": 10},
+                radius="sm",
+                p="xs",
+                mt="xs",
+                style={"flexShrink": 0},
             ),
             dmc.Modal(
                 id="menus-hide-modal",

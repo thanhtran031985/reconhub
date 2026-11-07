@@ -173,6 +173,13 @@ def render_users_table(
             )
             rows.append(tr)
 
+        th_style = {
+            "padding": "8px 12px",
+            "position": "sticky",
+            "top": 0,
+            "background": "var(--bg-subtle, #f8fafc)",
+            "zIndex": 1,
+        }
         table = dmc.Table(
             striped=True,
             highlightOnHover=True,
@@ -180,22 +187,27 @@ def render_users_table(
                 html.Thead(
                     html.Tr(
                         [
-                            html.Th("Username", style={"padding": "10px 14px"}),
-                            html.Th("Họ tên", style={"padding": "10px 14px"}),
-                            html.Th("Email", style={"padding": "10px 14px"}),
-                            html.Th("Vai trò", style={"padding": "10px 14px"}),
-                            html.Th("Trạng thái", style={"padding": "10px 14px"}),
-                            html.Th("Đăng nhập cuối", style={"padding": "10px 14px"}),
-                            html.Th("", style={"padding": "10px 14px"}),
+                            html.Th("Username", style=th_style),
+                            html.Th("Họ tên", style=th_style),
+                            html.Th("Email", style=th_style),
+                            html.Th("Vai trò", style=th_style),
+                            html.Th("Trạng thái", style=th_style),
+                            html.Th("Đăng nhập cuối", style=th_style),
+                            html.Th("", style=th_style),
                         ],
-                        style={"background": "var(--bg-subtle, #f8fafc)"},
                     )
                 ),
                 html.Tbody(rows),
             ],
         )
 
-        return dmc.Paper(table, withBorder=True, radius="sm", shadow="xs")
+        return dmc.Paper(
+            table,
+            withBorder=True,
+            radius="sm",
+            shadow="xs",
+            style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflowY": "auto"},
+        )
     except Exception as exc:
         return alert_box(
             f"Không tải được danh sách người dùng. Đang hiển thị dữ liệu cũ. Chi tiết: {exc}",
@@ -242,71 +254,81 @@ def layout() -> Any:
 
     return html.Div(
         id="users-page-root",
+        style={
+            "height": "calc(100vh - 48px)",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+        },
         children=[
             # Header
             dmc.Group(
                 justify="space-between",
-                align="flex-start",
-                mb="lg",
+                align="center",
+                mb="xs",
+                style={"flexShrink": 0},
                 children=[
-                    html.Div(
-                        [
+                    dmc.Group(
+                        gap="xs",
+                        align="baseline",
+                        children=[
                             dmc.Title(
                                 header_title_text,
                                 id="users-header-title",
-                                order=2,
-                                fw=700,
+                                order=4,
+                                size=18,
+                                fw=600,
+                                style={"lineHeight": 1.3},
                             ),
                             dmc.Text(
-                                "Đăng nhập bằng tài khoản của ứng dụng. Một người có thể có nhiều vai trò. "
-                                "Luôn còn ít nhất một Admin hoạt động.",
-                                size="sm",
+                                "Một người có thể có nhiều vai trò. Luôn còn ít nhất một Admin hoạt động.",
+                                size="xs",
                                 c="dimmed",
-                                mt=4,
                             ),
-                        ]
+                        ],
                     ),
                     dmc.Group(
                         [
-                            button_primary("Thêm người dùng", id="users-add-btn", icon="lucide:plus"),
-                            button_subtle("", id="users-refresh-btn", icon="lucide:refresh-cw"),
+                            button_primary("Thêm người dùng", id="users-add-btn", icon="lucide:plus", size="xs"),
+                            button_subtle("", id="users-refresh-btn", icon="lucide:refresh-cw", size="xs"),
                         ],
-                        gap="sm",
+                        gap="xs",
                     ),
                 ],
             ),
             # Filter bar
             dmc.Group(
                 align="flex-end",
-                mb="md",
-                gap="md",
+                mb="xs",
+                gap="xs",
+                style={"flexShrink": 0},
                 children=[
                     dmc.TextInput(
                         id="users-search-input",
-                        label="Tìm",
-                        placeholder="Username, họ tên, email",
-                        leftSection=DashIconify(icon="lucide:search", width=16),
+                        placeholder="Tìm username, họ tên, email…",
+                        leftSection=DashIconify(icon="lucide:search", width=14),
                         style={"width": 260},
+                        size="xs",
                         debounce=300,
                     ),
                     dmc.Select(
                         id="users-role-filter",
-                        label="Vai trò",
-                        data=[{"label": "Tất cả", "value": "ALL"}, *_role_options(ctx)],
+                        data=[{"label": "Tất cả vai trò", "value": "ALL"}, *_role_options(ctx)],
                         value="ALL",
-                        style={"width": 180},
+                        size="xs",
+                        style={"width": 160},
                     ),
                     dmc.Select(
                         id="users-status-filter",
-                        label="Trạng thái",
                         data=[
-                            {"label": "Tất cả", "value": "ALL"},
+                            {"label": "Tất cả trạng thái", "value": "ALL"},
                             {"label": "Hoạt động", "value": "ACTIVE"},
                             {"label": "Tạm khóa", "value": "LOCKED"},
                             {"label": "Đã tắt", "value": "DISABLED"},
                         ],
                         value="ALL",
-                        style={"width": 180},
+                        size="xs",
+                        style={"width": 160},
                     ),
                 ],
             ),
@@ -314,6 +336,13 @@ def layout() -> Any:
             html.Div(
                 id="users-table-container",
                 children=render_users_table(ctx),
+                style={
+                    "flex": 1,
+                    "minHeight": 0,
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "overflow": "hidden",
+                },
             ),
             # Drawer Thêm / Sửa người dùng
             drawer_right(
@@ -506,7 +535,6 @@ def layout() -> Any:
             # Notification container
             html.Div(id="users-notification-container"),
         ],
-        style={"padding": "24px"},
     )
 
 

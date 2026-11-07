@@ -71,9 +71,13 @@ def page_header(
 
     container_children.append(header_row)
 
+    root_style: dict[str, Any] = {"flexShrink": 0, "minWidth": 0}
+    if "style" in kwargs:
+        root_style.update(kwargs.pop("style"))
+
     root_kwargs: dict[str, Any] = {
         "mb": "xs",
-        "style": {"flexShrink": 0, "minWidth": 0},
+        "style": root_style,
     }
     if id is not None:
         root_kwargs["id"] = id
