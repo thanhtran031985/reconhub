@@ -480,7 +480,7 @@ def _rerun_one(_n: Any, run_id: Any) -> tuple[Any, Any]:
 
 
 @callback(
-    Output("brr-download", "data"),
+    Output("brr-download", "data", allow_duplicate=True),
     Output("brr-alert", "children", allow_duplicate=True),
     Input({"type": "brr-download-btn", "index": ALL}, "n_clicks"),
     State("brr-store", "data"),
@@ -506,7 +506,7 @@ def _download_item_file(_n: Any, store_data: Any) -> tuple[Any, Any]:
 
 
 @callback(
-    Output("brr-download", "data"),
+    Output("brr-download", "data", allow_duplicate=True),
     Output("brr-zip-list", "children"),
     Output("brr-alert", "children", allow_duplicate=True),
     Input("brr-zip-btn", "n_clicks"),

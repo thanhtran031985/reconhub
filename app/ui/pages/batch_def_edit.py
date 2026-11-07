@@ -501,7 +501,7 @@ def layout(def_id: str | int | None = 1, **kwargs: Any) -> Any:
                 confirm_label="Gỡ khỏi bộ",
             ),
             modal_confirm(
-                id="bdef-archive-modal",
+                id="bdef-edit-archive-modal",
                 title="Lưu trữ bộ đối soát",
                 description="Bộ đối soát đã lưu trữ không thể tạo lần chạy mới. Các lần chạy cũ vẫn xem được.",
                 confirm_label="Lưu trữ",
@@ -1025,10 +1025,10 @@ def _confirm_remove_item(_n: Any, target: Any, def_id: int) -> tuple[Any, Any, b
 
 
 @callback(
-    Output("bdef-archive-modal", "opened"),
+    Output("bdef-edit-archive-modal", "opened"),
     Input("bdef-archive-btn", "n_clicks"),
-    Input("bdef-archive-modal-cancel", "n_clicks"),
-    State("bdef-archive-modal", "opened"),
+    Input("bdef-edit-archive-modal-cancel", "n_clicks"),
+    State("bdef-edit-archive-modal", "opened"),
     prevent_initial_call=True,
 )
 def _toggle_archive_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
@@ -1038,8 +1038,8 @@ def _toggle_archive_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
 @callback(
     Output("bdef-edit-alert", "children", allow_duplicate=True),
     Output("bdef-edit-store", "data", allow_duplicate=True),
-    Output("bdef-archive-modal", "opened", allow_duplicate=True),
-    Input("bdef-archive-modal-confirm", "n_clicks"),
+    Output("bdef-edit-archive-modal", "opened", allow_duplicate=True),
+    Input("bdef-edit-archive-modal-confirm", "n_clicks"),
     Input("bdef-activate-btn", "n_clicks"),
     State("bdef-def-id", "data"),
     prevent_initial_call=True,

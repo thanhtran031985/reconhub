@@ -29,3 +29,4 @@ DONE ✅
 - `tests/unit/test_ui_shell.py`: 7 passed
 - Total: 15/15 passed (100%)
 - Lint: `ruff check` passed with zero errors.
+

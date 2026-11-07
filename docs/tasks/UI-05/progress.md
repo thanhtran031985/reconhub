@@ -27,3 +27,4 @@ DONE ✅
 - `tests/e2e/test_template_wizard_regression.py`: 7 passed
 - Total: 37/37 passed (100%)
 - Lint: `ruff check` passed with zero errors.
+

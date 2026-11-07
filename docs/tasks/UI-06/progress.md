@@ -22,3 +22,4 @@ DONE ✅
 - `tests/e2e/test_batch_run.py`: 6 passed
 - Total: 50/50 passed (100%)
 - Lint: `ruff check` passed with zero errors.
+

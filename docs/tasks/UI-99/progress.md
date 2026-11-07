@@ -55,3 +55,4 @@ Toàn bộ 26 màn hình của ReconHub đã được rà soát nghiệm thu to�
 - [x] Không còn class CSS thừa hoặc màu hex hardcode không hợp lệ trong `app/ui/**`.
 - [x] `uv run poe lint`, `uv run poe typecheck`, `uv run poe test`, `uv run poe e2e` đều XANH 100%.
 - [x] Chuyển trạng thái toàn bộ backlog sang DONE.
+
