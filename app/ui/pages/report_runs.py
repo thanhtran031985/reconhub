@@ -20,6 +20,7 @@ from app.services.report_run import (
 )
 from app.ui.components.alert_box import alert_box
 from app.ui.components.empty_state import empty_state
+from app.ui.components.page_header import page_header
 
 try:
     dash.register_page(__name__, path="/report-runs", title="Lịch sử báo cáo – ReconHub")  # type: ignore[no-untyped-call]
@@ -54,16 +55,25 @@ def render_runs_table(runs: list[dict[str, Any]], exports_by_run: dict[int, list
             "Chưa có run nào.",
             "Chạy một báo cáo ở Trung tâm báo cáo để xem lịch sử tại đây.",
         )
+    th_style = {
+        "position": "sticky",
+        "top": 0,
+        "backgroundColor": "var(--p2, #FAFAFA)",
+        "zIndex": 1,
+        "height": "34px",
+        "fontSize": "12px",
+        "fontWeight": 600,
+    }
     header = dmc.TableTr(
         [
-            dmc.TableTh("Run"),
-            dmc.TableTh("Báo cáo"),
-            dmc.TableTh("Người chạy"),
-            dmc.TableTh("Dòng"),
-            dmc.TableTh("Trạng thái"),
-            dmc.TableTh("Thời gian"),
-            dmc.TableTh("File"),
-            dmc.TableTh(""),
+            dmc.TableTh("Run", style=th_style),
+            dmc.TableTh("Báo cáo", style=th_style),
+            dmc.TableTh("Người chạy", style=th_style),
+            dmc.TableTh("Dòng", style=th_style),
+            dmc.TableTh("Trạng thái", style=th_style),
+            dmc.TableTh("Thời gian", style=th_style),
+            dmc.TableTh("File", style=th_style),
+            dmc.TableTh("", style=th_style),
         ]
     )
     body = []
@@ -82,16 +92,16 @@ def render_runs_table(runs: list[dict[str, Any]], exports_by_run: dict[int, list
         body.append(
             dmc.TableTr(
                 [
-                    dmc.TableTd(f"#{run_id}"),
-                    dmc.TableTd(str(run.get("report_code") or run["report_id"])),
-                    dmc.TableTd(str(run.get("created_by", ""))),
+                    dmc.TableTd(f"#{run_id}", style={"height": "34px"}),
+                    dmc.TableTd(str(run.get("report_code") or run["report_id"]), style={"height": "34px"}),
+                    dmc.TableTd(str(run.get("created_by", "")), style={"height": "34px"}),
                     dmc.TableTd(
                         str(run.get("row_count") if run.get("row_count") is not None else "—"),
-                        style={"textAlign": "right"},
+                        style={"textAlign": "right", "height": "34px"},
                     ),
-                    dmc.TableTd(_status_badge(str(run["status"]))),
-                    dmc.TableTd(str(run.get("created_at") or "")),
-                    dmc.TableTd(file_cell),
+                    dmc.TableTd(_status_badge(str(run["status"])), style={"height": "34px"}),
+                    dmc.TableTd(str(run.get("created_at") or ""), style={"height": "34px"}),
+                    dmc.TableTd(file_cell, style={"height": "34px"}),
                     dmc.TableTd(
                         dmc.Group(
                             [
@@ -108,19 +118,27 @@ def render_runs_table(runs: list[dict[str, Any]], exports_by_run: dict[int, list
                                 ),
                             ],
                             gap="xs",
-                        )
+                        ),
+                        style={"height": "34px"},
                     ),
                 ]
             )
         )
-    return dmc.ScrollArea(
-        dmc.Table(
-            [dmc.TableThead(header), dmc.TableTbody(body)],
-            striped=True,
-            highlightOnHover=True,
-            withTableBorder=True,
+    return dmc.Paper(
+        dmc.TableScrollContainer(
+            minWidth=800,
+            style={"height": "100%", "overflow": "auto"},
+            children=dmc.Table(
+                [dmc.TableThead(header), dmc.TableTbody(body)],
+                striped=True,
+                highlightOnHover=True,
+                withTableBorder=False,
+                style={"fontSize": "13px"},
+            ),
         ),
-        h=520,
+        withBorder=True,
+        radius="sm",
+        style={"flex": 1, "minHeight": 0, "overflow": "hidden", "display": "flex", "flexDirection": "column"},
     )
 
 
@@ -150,42 +168,45 @@ def layout() -> html.Div:
                         exports_by_run[int(run["id"])] = e_res.data.get("exports", [])
         except Exception:
             runs = []
-    return html.Div(
+    return dmc.Box(
         [
             dcc.Store(id="report-runs-page-store", data=1),
             html.Div(id="report-runs-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
-            dmc.Stack(
+            page_header(
+                title="Lịch sử báo cáo",
+                subtitle="Admin thấy tất cả; người dùng thường chỉ thấy run của mình.",
+            ),
+            dcc.Loading(
+                id="report-runs-loading",
+                type="circle",
+                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
+                children=html.Div(
+                    id="report-runs-table-container",
+                    style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
+                    children=render_runs_table(runs, exports_by_run),
+                ),
+            ),
+            dmc.Group(
                 [
-                    dmc.Title("Lịch sử báo cáo", order=1),
-                    dmc.Text(
-                        "Admin thấy tất cả; người dùng thường chỉ thấy run của mình.",
-                        c="dimmed",
-                    ),
-                    dcc.Loading(
-                        id="report-runs-loading",
-                        type="circle",
-                        children=html.Div(
-                            id="report-runs-table-container",
-                            children=render_runs_table(runs, exports_by_run),
-                        ),
-                    ),
-                    dmc.Group(
-                        [
-                            dmc.Pagination(
-                                id="report-runs-pagination",
-                                total=max(1, (total + 49) // 50),
-                                value=1,
-                                size="sm",
-                            ),
-                        ],
-                        justify="center",
-                        mt="md",
+                    dmc.Pagination(
+                        id="report-runs-pagination",
+                        total=max(1, (total + 49) // 50),
+                        value=1,
+                        size="xs",
                     ),
                 ],
-                gap="lg",
-                p="lg",
+                justify="center",
+                mt="xs",
             ),
-        ]
+        ],
+        style={
+            "height": "100%",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "padding": "12px 16px",
+            "gap": "10px",
+        },
     )
 
 

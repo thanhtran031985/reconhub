@@ -15,7 +15,9 @@ from app.services.perm import effective_menus, page_gate
 from app.services.report import list_reports, set_report_favorite
 from app.services.report_template import list_templates
 from app.ui.components.alert_box import alert_box
+from app.ui.components.command_bar import command_bar
 from app.ui.components.empty_state import empty_state
+from app.ui.components.page_header import page_header
 
 try:
     dash.register_page(__name__, path="/reports", title="Trung tâm báo cáo – ReconHub")  # type: ignore[no-untyped-call]
@@ -65,27 +67,28 @@ def render_report_card(report: dict[str, Any]) -> dmc.Card:
         [
             dmc.Group(
                 [
-                    dmc.Badge(str(report["code"]), variant="light"),
+                    dmc.Badge(str(report["code"]), variant="light", size="sm"),
                     dmc.ActionIcon(
                         DashIconify(
                             icon="lucide:star",
-                            width=18,
+                            width=16,
                         ),
                         id={"type": "reports-fav-btn", "index": report_id},
                         variant="subtle",
                         color="yellow" if is_fav else "gray",
+                        size="sm",
                         **{"aria-label": f"Yêu thích {report['code']}"},
                     ),
                 ],
                 justify="space-between",
             ),
-            dmc.Text(str(report["name"]), fw=600, size="md", mt="sm"),
+            dmc.Text(str(report["name"]), fw=600, size="sm", mt="xs"),
             dmc.Text(
                 str(report.get("description") or ""),
-                size="sm",
+                size="xs",
                 c="dimmed",
                 lineClamp=2,
-                style={"flex": 1},
+                style={"flex": 1, "minHeight": "32px"},
             ),
             dmc.Group(
                 [
@@ -93,25 +96,26 @@ def render_report_card(report: dict[str, Any]) -> dmc.Card:
                         f"{int(report.get('template_count', 0))} template",
                         color="green",
                         variant="light",
+                        size="xs",
                     ),
                     dcc.Link(
                         dmc.Button(
                             "Xem báo cáo",
                             variant="filled",
-                            size="sm",
+                            size="xs",
                             id=f"reports-open-{report_id}",
                         ),
                         href=f"/reports/{report_id}",
                     ),
                 ],
                 justify="space-between",
-                mt="md",
+                mt="xs",
             ),
         ],
         withBorder=True,
-        radius="lg",
-        p="md",
-        style={"minHeight": 205, "display": "flex", "flexDirection": "column"},
+        radius="sm",
+        p="sm",
+        style={"display": "flex", "flexDirection": "column"},
     )
 
 
@@ -131,16 +135,16 @@ def render_reports_sections(reports: list[dict[str, Any]]) -> Any:
         sections.append(
             html.Div(
                 [
-                    dmc.Title(label, order=2, size="h4", mt="lg", mb="sm"),
+                    dmc.Title(label, order=3, size="sm", mt="sm", mb="xs", c="dimmed"),
                     dmc.SimpleGrid(
                         [render_report_card(r) for r in groups[code]],
                         cols={"base": 1, "sm": 2, "lg": 3},
-                        spacing="md",
+                        spacing="sm",
                     ),
                 ]
             )
         )
-    return html.Div(sections)
+    return html.Div(sections, style={"paddingBottom": "16px"})
 
 
 def layout() -> html.Div:
@@ -174,82 +178,72 @@ def layout() -> html.Div:
         except Exception as exc:
             load_error = str(exc)
     can_admin = bool(ctx) and "report_admin" in effective_menus(ctx)
-    return html.Div(
+    header_actions = []
+    if can_admin:
+        header_actions.append(
+            dmc.Anchor(
+                dmc.Button(
+                    "+ Đăng ký báo cáo",
+                    variant="filled",
+                    size="xs",
+                    id="reports-create-btn",
+                ),
+                href="/report-admin",
+            )
+        )
+
+    return dmc.Box(
         [
             dcc.Store(id="reports-store", data=reports),
-            dmc.Stack(
-                [
-                    dmc.Group(
-                        [
-                            dmc.Stack(
-                                [
-                                    dmc.Title("Trung tâm báo cáo", order=1),
-                                    dmc.Text(
-                                        "Báo cáo động cho FIN, kế toán và vận hành.",
-                                        c="dimmed",
-                                    ),
-                                ],
-                                gap=0,
-                            ),
-                            dmc.Anchor(
-                                dmc.Button(
-                                    "+ Đăng ký báo cáo",
-                                    variant="filled",
-                                    id="reports-create-btn",
-                                ),
-                                href="/report-admin",
-                            )
-                            if can_admin
-                            else html.Div(),
-                        ],
-                        justify="space-between",
-                        align="start",
+            page_header(
+                title="Trung tâm báo cáo",
+                subtitle="Báo cáo động cho FIN, kế toán và vận hành.",
+                actions=header_actions,
+            ),
+            command_bar(
+                search_id="reports-search",
+                search_placeholder="Tên, mã, mô tả…",
+                filters=[
+                    dmc.Select(
+                        id="reports-category",
+                        data=CATEGORY_OPTIONS,
+                        value="all",
+                        w=160,
+                        size="xs",
+                        **{"aria-label": "Nhóm báo cáo"},
                     ),
-                    dmc.Group(
-                        [
-                            dmc.TextInput(
-                                id="reports-search",
-                                placeholder="Tên, mã, mô tả…",
-                                leftSection=DashIconify(icon="lucide:search", width=16),
-                                style={"flex": 1},
-                                **{"aria-label": "Tìm báo cáo"},
-                            ),
-                            dmc.Select(
-                                id="reports-category",
-                                data=CATEGORY_OPTIONS,
-                                value="all",
-                                w=210,
-                                **{"aria-label": "Nhóm báo cáo"},
-                            ),
-                            dmc.Checkbox(
-                                id="reports-fav-only",
-                                label="Chỉ yêu thích",
-                            ),
-                        ],
-                        align="end",
-                        wrap="wrap",
-                    ),
-                    html.Div(
-                        id="reports-error-area",
-                        children=alert_box(load_error, tone="crit"),
-                        **{"aria-live": "polite"},  # type: ignore[arg-type]
-                    )
-                    if load_error
-                    else html.Div(),
-                    dcc.Loading(
-                        id="reports-loading",
-                        type="circle",
-                        children=html.Div(
-                            id="reports-cards-container",
-                            children=render_reports_sections(reports),
-                            **{"aria-live": "polite"},  # type: ignore[arg-type]
-                        ),
+                    dmc.Checkbox(
+                        id="reports-fav-only",
+                        label="Chỉ yêu thích",
+                        size="xs",
                     ),
                 ],
-                gap="lg",
-                p="lg",
             ),
-        ]
+            html.Div(
+                id="reports-error-area",
+                children=alert_box(load_error, tone="crit") if load_error else html.Div(),
+                **{"aria-live": "polite"},  # type: ignore[arg-type]
+            ),
+            dcc.Loading(
+                id="reports-loading",
+                type="circle",
+                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
+                children=html.Div(
+                    id="reports-cards-container",
+                    style={"flex": 1, "minHeight": 0, "overflow": "auto", "padding": "4px 2px"},
+                    children=render_reports_sections(reports),
+                    **{"aria-live": "polite"},  # type: ignore[arg-type]
+                ),
+            ),
+        ],
+        style={
+            "height": "100%",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "padding": "12px 16px",
+            "gap": "10px",
+        },
     )
 
 

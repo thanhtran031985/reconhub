@@ -19,6 +19,7 @@ from app.services.user import list_users
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
 from app.ui.components.empty_state import empty_state
+from app.ui.components.page_header import page_header
 from app.ui.components.status_chip import status_chip
 from app.ui.formatters import format_bytes
 
@@ -50,108 +51,121 @@ def format_date_range(p_from: str | None, p_to: str | None) -> str:
     return f"{f_str} → {t_str}"
 
 
-def render_header(count: int, month_year: str = "") -> dmc.Stack:
-    """Tiêu đề H1 và phụ đề màn hình Lịch sử."""
+def render_header(count: int, month_year: str = "") -> Any:
+    """Tiêu đề H1 và phụ đề màn hình Lịch sử chuẩn Fluent Compact."""
     my = month_year or datetime.now().strftime("tháng %m/%Y")
     title_text = f"Lịch sử: {count} run trong {my}"
-    return dmc.Stack(
-        [
-            dmc.Title(title_text, order=1, id="history-title"),
-            dmc.Text(
-                "Truy vết file gốc, version, khoảng tìm kiếm, người chạy. Chọn nhiều run để xóa dữ liệu tạm (Admin).",
-                c="dimmed",
-                size="sm",
-            ),
-        ],
-        gap=4,
+    return page_header(
+        title=dmc.Title(title_text, order=4, size=18, fw=600, id="history-title"),
+        subtitle="Truy vết file gốc, version, khoảng tìm kiếm, người chạy. Chọn nhiều run để xóa dữ liệu tạm (Admin).",
     )
 
 
 def render_filter_bar(
     templates_options: list[dict[str, str]],
     users_options: list[dict[str, str]],
-) -> dmc.Group:
+) -> Any:
     """Thanh bộ lọc 6 tiêu chí theo thiết kế Screen07 (có tìm kiếm theo thời gian chạy)."""
     now = datetime.now()
     first_day = now.replace(day=1).strftime("%Y-%m-%d")
     _, last_day_num = calendar.monthrange(now.year, now.month)
     last_day = now.replace(day=last_day_num).strftime("%Y-%m-%d")
 
-    return dmc.Group(
-        [
-            dmc.DatePickerInput(
-                id="history-filter-date-range",
-                type="range",
-                label="Thời gian chạy",
-                value=[first_day, last_day],
-                valueFormat="DD/MM/YYYY",
-                clearable=True,
-                w=220,
-            ),
-            dmc.Select(
-                id="history-filter-template",
-                label="Template",
-                placeholder="Tất cả",
-                data=[{"label": "Tất cả", "value": "ALL"}, *templates_options],
-                value="ALL",
-                w=200,
-                clearable=False,
-            ),
-            dmc.Select(
-                id="history-filter-batch",
-                label="Lần chạy bộ",
-                data=[
-                    {"label": "Tất cả", "value": "ALL"},
-                    {"label": "Chỉ run thuộc bộ", "value": "BATCH"},
-                    {"label": "Chỉ run đơn lẻ", "value": "SINGLE"},
-                ],
-                value="ALL",
-                w=180,
-                clearable=False,
-            ),
-            dmc.Select(
-                id="history-filter-checked",
-                label="Kiểm tra",
-                data=[
-                    {"label": "Tất cả", "value": "ALL"},
-                    {"label": "Chưa kiểm tra", "value": "UNCHECKED"},
-                    {"label": "Đã kiểm tra", "value": "CHECKED"},
-                ],
-                value="ALL",
-                w=160,
-                clearable=False,
-            ),
-            dmc.Select(
-                id="history-filter-purged",
-                label="Dữ liệu tạm",
-                data=[
-                    {"label": "Tất cả", "value": "ALL"},
-                    {"label": "Còn", "value": "RETAINED"},
-                    {"label": "Đã xóa", "value": "PURGED"},
-                ],
-                value="ALL",
-                w=150,
-                clearable=False,
-            ),
-            dmc.Select(
-                id="history-filter-user",
-                label="Người chạy",
-                placeholder="Tất cả",
-                data=[{"label": "Tất cả", "value": "ALL"}, *users_options],
-                value="ALL",
-                w=160,
-                clearable=False,
-            ),
-            dmc.TextInput(
-                id="history-filter-filename",
-                label="Tên file",
-                placeholder="Tìm theo tên file",
-                leftSection=DashIconify(icon="lucide:search", width=14),
-                w=200,
-            ),
-        ],
-        gap="md",
-        align="flex-end",
+    return dmc.Paper(
+        dmc.Group(
+            [
+                dmc.DatePickerInput(
+                    id="history-filter-date-range",
+                    type="range",
+                    label="Thời gian chạy",
+                    value=[first_day, last_day],
+                    valueFormat="DD/MM/YYYY",
+                    clearable=True,
+                    w=210,
+                    size="xs",
+                    styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+                ),
+                dmc.Select(
+                    id="history-filter-template",
+                    label="Template",
+                    placeholder="Tất cả",
+                    data=[{"label": "Tất cả", "value": "ALL"}, *templates_options],
+                    value="ALL",
+                    w=180,
+                    size="xs",
+                    clearable=False,
+                    styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+                ),
+                dmc.Select(
+                    id="history-filter-batch",
+                    label="Lần chạy bộ",
+                    data=[
+                        {"label": "Tất cả", "value": "ALL"},
+                        {"label": "Chỉ run thuộc bộ", "value": "BATCH"},
+                        {"label": "Chỉ run đơn lẻ", "value": "SINGLE"},
+                    ],
+                    value="ALL",
+                    w=150,
+                    size="xs",
+                    clearable=False,
+                    styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+                ),
+                dmc.Select(
+                    id="history-filter-checked",
+                    label="Kiểm tra",
+                    data=[
+                        {"label": "Tất cả", "value": "ALL"},
+                        {"label": "Chưa kiểm tra", "value": "UNCHECKED"},
+                        {"label": "Đã kiểm tra", "value": "CHECKED"},
+                    ],
+                    value="ALL",
+                    w=140,
+                    size="xs",
+                    clearable=False,
+                    styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+                ),
+                dmc.Select(
+                    id="history-filter-purged",
+                    label="Dữ liệu tạm",
+                    data=[
+                        {"label": "Tất cả", "value": "ALL"},
+                        {"label": "Còn", "value": "RETAINED"},
+                        {"label": "Đã xóa", "value": "PURGED"},
+                    ],
+                    value="ALL",
+                    w=130,
+                    size="xs",
+                    clearable=False,
+                    styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+                ),
+                dmc.Select(
+                    id="history-filter-user",
+                    label="Người chạy",
+                    placeholder="Tất cả",
+                    data=[{"label": "Tất cả", "value": "ALL"}, *users_options],
+                    value="ALL",
+                    w=140,
+                    size="xs",
+                    clearable=False,
+                    styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+                ),
+                dmc.TextInput(
+                    id="history-filter-filename",
+                    label="Tên file",
+                    placeholder="Tìm theo tên file",
+                    leftSection=DashIconify(icon="lucide:search", width=14),
+                    w=180,
+                    size="xs",
+                    styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+                ),
+            ],
+            gap="xs",
+            align="flex-end",
+        ),
+        withBorder=True,
+        p="xs",
+        radius="sm",
+        bg="var(--p2, #FAFAFA)",
     )
 
 
@@ -237,24 +251,41 @@ def render_runs_table(
                     "textAlign": "center",
                     "verticalAlign": "middle",
                     "padding": "0 8px",
+                    "position": "sticky",
+                    "top": 0,
+                    "backgroundColor": "var(--p2, #FAFAFA)",
+                    "zIndex": 1,
+                    "borderBottom": "1px solid var(--line, #E0E0E0)",
                 },
             )
         )
 
+    th_base = {
+        "position": "sticky",
+        "top": 0,
+        "backgroundColor": "var(--p2, #FAFAFA)",
+        "zIndex": 1,
+        "height": "34px",
+        "fontSize": "12px",
+        "fontWeight": 600,
+        "borderBottom": "1px solid var(--line, #E0E0E0)",
+        "whiteSpace": "nowrap",
+    }
+
     headers.extend(
         [
-            dmc.TableTh("Run", style={"minWidth": "80px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Thời gian chạy", style={"minWidth": "110px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Template", style={"minWidth": "150px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Profile", style={"minWidth": "110px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Khoảng tìm kiếm", style={"minWidth": "160px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("File", style={"minWidth": "160px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Người chạy", style={"minWidth": "100px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Trạng thái", style={"minWidth": "120px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Khớp", style={"minWidth": "80px", "textAlign": "right", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Kiểm tra", style={"minWidth": "130px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Dữ liệu tạm", style={"minWidth": "150px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Thao tác", style={"minWidth": "110px", "textAlign": "right", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Run", style={**th_base, "minWidth": "80px"}),
+            dmc.TableTh("Thời gian chạy", style={**th_base, "minWidth": "110px"}),
+            dmc.TableTh("Template", style={**th_base, "minWidth": "150px"}),
+            dmc.TableTh("Profile", style={**th_base, "minWidth": "110px"}),
+            dmc.TableTh("Khoảng tìm kiếm", style={**th_base, "minWidth": "160px"}),
+            dmc.TableTh("File", style={**th_base, "minWidth": "160px"}),
+            dmc.TableTh("Người chạy", style={**th_base, "minWidth": "100px"}),
+            dmc.TableTh("Trạng thái", style={**th_base, "minWidth": "120px"}),
+            dmc.TableTh("Khớp", style={**th_base, "minWidth": "80px", "textAlign": "right"}),
+            dmc.TableTh("Kiểm tra", style={**th_base, "minWidth": "130px"}),
+            dmc.TableTh("Dữ liệu tạm", style={**th_base, "minWidth": "150px"}),
+            dmc.TableTh("Thao tác", style={**th_base, "minWidth": "110px", "textAlign": "right"}),
         ]
     )
 
@@ -482,12 +513,13 @@ def render_runs_table(
     pagination_bar = dmc.Group(
         justify="space-between",
         align="center",
-        p="md",
-        style={"borderTop": "1px solid var(--border-subtle, #e2e8f0)"},
+        px="sm",
+        py=6,
+        style={"borderTop": "1px solid var(--line, #E0E0E0)", "backgroundColor": "var(--p2, #FAFAFA)", "flexShrink": 0},
         children=[
             dmc.Text(
                 f"Hiển thị {start_idx} – {end_idx} trong tổng số {total} run",
-                size="sm",
+                size="xs",
                 c="dimmed",
                 fw=500,
             ),
@@ -495,15 +527,16 @@ def render_runs_table(
                 id="history-pagination",
                 total=max(total_pages, 1),
                 value=current_page,
-                size="sm",
+                size="xs",
             ),
         ],
     )
 
-    return dmc.Card(
+    return dmc.Paper(
         [
             dmc.TableScrollContainer(
                 minWidth=1320,
+                style={"flex": 1, "minHeight": 0, "overflow": "auto"},
                 children=dmc.Table(
                     [
                         dmc.TableThead(dmc.TableTr(headers)),
@@ -513,14 +546,23 @@ def render_runs_table(
                     highlightOnHover=True,
                     withTableBorder=False,
                     withColumnBorders=False,
-                    verticalSpacing="sm",
+                    verticalSpacing=4,
+                    style={"fontSize": "13px"},
                 ),
             ),
             pagination_bar,
         ],
         withBorder=True,
-        padding=0,
         radius="sm",
+        style={
+            "flex": 1,
+            "minHeight": 0,
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "backgroundColor": "var(--p, #FFFFFF)",
+            "border": "1px solid var(--line, #E0E0E0)",
+        },
     )
 
 
@@ -648,31 +690,38 @@ def layout() -> html.Div:
 
     is_admin_user = is_admin(ctx)
 
-    return html.Div(
+    return dmc.Box(
         [
             dcc.Store(id="history-selected-runs-store", data=[]),
             dcc.Store(id="history-page-store", data=1),
             dcc.Store(id="history-refresh-trigger", data=0),
             html.Div(id="history-notification-area"),
-            dmc.Stack(
-                [
-                    render_header(count=0),
-                    render_filter_bar(tpl_options, usr_options),
-                    html.Div(
-                        id="history-bulk-alert-container",
-                        children=render_bulk_alert(0, is_admin_user),
-                    ),
-                    dcc.Loading(
-                        id="history-loading",
-                        type="circle",
-                        children=html.Div(id="history-table-container"),
-                    ),
-                ],
-                gap="lg",
-                p="lg",
+            render_header(count=0),
+            render_filter_bar(tpl_options, usr_options),
+            html.Div(
+                id="history-bulk-alert-container",
+                children=render_bulk_alert(0, is_admin_user),
+            ),
+            dcc.Loading(
+                id="history-loading",
+                type="circle",
+                children=html.Div(
+                    id="history-table-container",
+                    style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
+                ),
+                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
             ),
             render_bulk_purge_modal(),
-        ]
+        ],
+        style={
+            "height": "100%",
+            "minHeight": 0,
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "padding": "12px 16px",
+            "gap": "8px",
+        },
     )
 
 

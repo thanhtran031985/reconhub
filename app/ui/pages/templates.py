@@ -24,9 +24,11 @@ from app.services.template_export_import import (
 )
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
+from app.ui.components.command_bar import command_bar
 from app.ui.components.empty_state import empty_state
 from app.ui.components.file_drop import file_drop
 from app.ui.components.modal_confirm import modal_confirm
+from app.ui.components.page_header import page_header
 from app.ui.components.status_chip import status_chip
 
 try:
@@ -316,30 +318,44 @@ def render_templates_content(
         )
         rows.append(row)
 
+    th_base_style: dict[str, Any] = {
+        "textAlign": "center",
+        "whiteSpace": "nowrap",
+        "position": "sticky",
+        "top": 0,
+        "backgroundColor": "var(--p2, #FAFAFA)",
+        "zIndex": 1,
+        "fontSize": "12px",
+        "fontWeight": 600,
+        "height": "34px",
+        "borderBottom": "1px solid var(--line, #E0E0E0)",
+    }
+
     headers = [
-        dmc.TableTh("Thao tác", style={"minWidth": "160px", "textAlign": "center", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Mã template", style={"minWidth": "160px", "textAlign": "center", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Thao tác", style={**th_base_style, "minWidth": "160px"}),
+        dmc.TableTh("Mã template", style={**th_base_style, "minWidth": "160px"}),
         dmc.TableTh(
             "Tên & Nhận diện file",
-            style={"minWidth": "240px", "textAlign": "center", "whiteSpace": "nowrap"},
+            style={**th_base_style, "minWidth": "240px"},
         ),
-        dmc.TableTh("Số trường", style={"minWidth": "100px", "textAlign": "center", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Profiles", style={"minWidth": "180px", "textAlign": "center", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Phiên bản", style={"minWidth": "85px", "textAlign": "center", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Chủ sở hữu", style={"minWidth": "110px", "textAlign": "center", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Trạng thái", style={"minWidth": "140px", "textAlign": "center", "whiteSpace": "nowrap"}),
-        dmc.TableTh("Run gần nhất", style={"minWidth": "140px", "textAlign": "center", "whiteSpace": "nowrap"}),
+        dmc.TableTh("Số trường", style={**th_base_style, "minWidth": "100px"}),
+        dmc.TableTh("Profiles", style={**th_base_style, "minWidth": "180px"}),
+        dmc.TableTh("Phiên bản", style={**th_base_style, "minWidth": "85px"}),
+        dmc.TableTh("Chủ sở hữu", style={**th_base_style, "minWidth": "110px"}),
+        dmc.TableTh("Trạng thái", style={**th_base_style, "minWidth": "140px"}),
+        dmc.TableTh("Run gần nhất", style={**th_base_style, "minWidth": "140px"}),
     ]
 
     pagination_bar = dmc.Group(
         justify="space-between",
         align="center",
-        p="md",
-        style={"borderTop": "1px solid var(--border-subtle, #e2e8f0)"},
+        px="sm",
+        py=6,
+        style={"borderTop": "1px solid var(--line, #E0E0E0)", "backgroundColor": "var(--p2, #FAFAFA)", "flexShrink": 0},
         children=[
             dmc.Text(
                 f"Hiển thị {start_idx + 1 if total_items > 0 else 0} – {end_idx} trong tổng số {total_items} template",
-                size="sm",
+                size="xs",
                 c="dimmed",
                 fw=500,
             ),
@@ -347,15 +363,16 @@ def render_templates_content(
                 id="tmpl-pagination",
                 total=max(total_pages, 1),
                 value=current_page,
-                size="sm",
+                size="xs",
             ),
         ],
     )
 
-    return dmc.Card(
+    return dmc.Paper(
         [
             dmc.TableScrollContainer(
                 minWidth=1200,
+                style={"flex": 1, "minHeight": 0, "overflow": "auto"},
                 children=dmc.Table(
                     [
                         dmc.TableThead(dmc.TableTr(headers)),
@@ -365,14 +382,22 @@ def render_templates_content(
                     highlightOnHover=True,
                     withTableBorder=False,
                     withColumnBorders=False,
-                    verticalSpacing="sm",
+                    verticalSpacing=4,
                 ),
             ),
             pagination_bar,
         ],
         withBorder=True,
         radius="sm",
-        padding=0,
+        style={
+            "flex": 1,
+            "minHeight": 0,
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "border": "1px solid var(--line, #E0E0E0)",
+            "backgroundColor": "var(--p, #FFFFFF)",
+        },
     )
 
 
@@ -380,92 +405,72 @@ def layout() -> Any:
     ctx = get_current_ctx()
     gate = page_gate(ctx, MENU_CODE)
     if gate:
-        return dmc.Container(
+        return dmc.Box(
             [
                 dcc.Location(id="templates-forbidden-redirect", href=gate),
                 alert_box("Bạn không có quyền truy cập trang Templates.", tone="crit"),
-            ]
+            ],
+            p="md",
         )
-    return dmc.Container(
+
+    header_actions = [
+        dmc.ActionIcon(
+            DashIconify(icon="lucide:refresh-cw", width=16),
+            id="tmpl-refresh-btn",
+            variant="subtle",
+            color="gray",
+            size="md",
+        ),
+        button_subtle("Import JSON", id="tmpl-import-btn", icon="lucide:upload", size="xs"),
+        dmc.Anchor(
+            button_primary("Đăng ký template", icon="lucide:plus", size="xs"),
+            href="/templates/new",
+            underline=False,
+        ),
+    ]
+
+    header_node = page_header(
+        title="Danh sách template",
+        subtitle="Cấu hình mapping cột Excel và DB, bộ lọc ngày và các profile đối soát.",
+        actions=header_actions,
+    )
+
+    filters = [
+        dmc.Select(
+            id="tmpl-filter-status",
+            placeholder="Tất cả trạng thái",
+            data=[
+                {"value": "", "label": "Tất cả trạng thái"},
+                {"value": "ACTIVE", "label": "Đang dùng (ACTIVE)"},
+                {"value": "DRAFT", "label": "Bản nháp (DRAFT)"},
+                {"value": "ARCHIVED", "label": "Đã lưu trữ (ARCHIVED)"},
+            ],
+            value="",
+            w=200,
+            size="xs",
+            styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "13px"}},
+        )
+    ]
+
+    cmd_bar = command_bar(
+        search_id="tmpl-filter-search",
+        search_placeholder="Tìm kiếm theo mã, tên hoặc mẫu file...",
+        filters=filters,
+    )
+
+    return dmc.Box(
         [
             dcc.Store(id="tmpl-store-list"),
             dcc.Store(id="tmpl-page-store", data=1),
             dcc.Download(id="tmpl-export-download"),
             dcc.Download(id="tmpl-sample-download"),
-            dmc.Stack(
-                [
-                    # Thanh tiêu đề và nút hành động trên cùng
-                    dmc.Group(
-                        [
-                            dmc.Stack(
-                                [
-                                    dmc.Title("Danh sách template", order=2),
-                                    dmc.Text(
-                                        "Cấu hình mapping cột Excel và DB, bộ lọc ngày và các profile đối soát.",
-                                        size="sm",
-                                        c="dimmed",
-                                    ),
-                                ],
-                                gap=2,
-                            ),
-                            dmc.Group(
-                                [
-                                    dmc.ActionIcon(
-                                        DashIconify(icon="lucide:refresh-cw", width=16),
-                                        id="tmpl-refresh-btn",
-                                        variant="subtle",
-                                        color="gray",
-                                        size="lg",
-                                    ),
-                                    button_subtle("Import JSON", id="tmpl-import-btn", icon="lucide:upload"),
-                                    dmc.Anchor(
-                                        button_primary("Đăng ký template", icon="lucide:plus"),
-                                        href="/templates/new",
-                                        underline=False,
-                                    ),
-                                ],
-                                gap="sm",
-                            ),
-                        ],
-                        justify="space-between",
-                        align="flex-start",
-                    ),
-                    # Thanh lọc tìm kiếm và trạng thái
-                    dmc.Paper(
-                        dmc.Group(
-                            [
-                                dmc.TextInput(
-                                    id="tmpl-filter-search",
-                                    placeholder="Tìm kiếm theo mã, tên hoặc mẫu file...",
-                                    leftSection=DashIconify(icon="lucide:search", width=16),
-                                    style={"flex": 1},
-                                ),
-                                dmc.Select(
-                                    id="tmpl-filter-status",
-                                    placeholder="Tất cả trạng thái",
-                                    data=[
-                                        {"value": "", "label": "Tất cả trạng thái"},
-                                        {"value": "ACTIVE", "label": "Đang dùng (ACTIVE)"},
-                                        {"value": "DRAFT", "label": "Bản nháp (DRAFT)"},
-                                        {"value": "ARCHIVED", "label": "Đã lưu trữ (ARCHIVED)"},
-                                    ],
-                                    value="",
-                                    w=200,
-                                ),
-                            ],
-                            gap="md",
-                        ),
-                        withBorder=True,
-                        p="sm",
-                        radius="md",
-                    ),
-                    # Khối nội dung danh sách template
-                    html.Div(id="tmpl-content-container"),
-                    html.Button(id="tmpl-retry-btn", style={"display": "none"}),
-                ],
-                gap="lg",
-                py="xl",
+            header_node,
+            cmd_bar,
+            html.Div(
+                id="tmpl-content-container",
+                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
             ),
+            html.Button(id="tmpl-retry-btn", style={"display": "none"}),
             # Modal Import JSON
             dmc.Modal(
                 id="tmpl-import-modal",
@@ -548,7 +553,14 @@ def layout() -> Any:
             ),
             dcc.Store(id="tmpl-delete-target-id"),
         ],
-        size="xl",
+        style={
+            "height": "100%",
+            "minHeight": 0,
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "padding": "12px 16px",
+        },
     )
 
 

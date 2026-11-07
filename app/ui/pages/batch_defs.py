@@ -24,8 +24,10 @@ from app.services.batch_def import (
 from app.services.perm import page_gate
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
+from app.ui.components.command_bar import command_bar
 from app.ui.components.empty_state import empty_state
 from app.ui.components.modal_confirm import modal_confirm
+from app.ui.components.page_header import page_header
 from app.ui.components.status_chip import status_chip
 
 try:
@@ -189,24 +191,55 @@ def render_batch_defs_content(
             )
         )
 
-    return dmc.Table(
-        [
-            dmc.TableThead(
-                dmc.TableTr(
-                    [
-                        dmc.TableTh("Mã"),
-                        dmc.TableTh("Tên"),
-                        dmc.TableTh("Trạng thái"),
-                        dmc.TableTh("Số mục"),
-                        dmc.TableTh("Song song/DS"),
-                        dmc.TableTh("Thao tác"),
-                    ]
-                )
+    th_base: dict[str, Any] = {
+        "position": "sticky",
+        "top": 0,
+        "backgroundColor": "var(--p2, #FAFAFA)",
+        "zIndex": 1,
+        "height": "34px",
+        "fontSize": "12px",
+        "fontWeight": 600,
+        "borderBottom": "1px solid var(--line, #E0E0E0)",
+        "whiteSpace": "nowrap",
+    }
+
+    return dmc.Paper(
+        dmc.TableScrollContainer(
+            minWidth=800,
+            style={"flex": 1, "minHeight": 0, "overflow": "auto"},
+            children=dmc.Table(
+                [
+                    dmc.TableThead(
+                        dmc.TableTr(
+                            [
+                                dmc.TableTh("Mã", style={**th_base, "minWidth": "160px"}),
+                                dmc.TableTh("Tên", style={**th_base, "minWidth": "220px"}),
+                                dmc.TableTh("Trạng thái", style={**th_base, "minWidth": "120px"}),
+                                dmc.TableTh("Số mục", style={**th_base, "minWidth": "90px"}),
+                                dmc.TableTh("Song song/DS", style={**th_base, "minWidth": "110px"}),
+                                dmc.TableTh("Thao tác", style={**th_base, "minWidth": "160px", "textAlign": "right"}),
+                            ]
+                        )
+                    ),
+                    dmc.TableTbody(rows),
+                ],
+                striped=False,
+                highlightOnHover=True,
+                verticalSpacing=4,
+                style={"fontSize": "13px"},
             ),
-            dmc.TableTbody(rows),
-        ],
-        striped=True,
-        highlightOnHover=True,
+        ),
+        withBorder=True,
+        radius="sm",
+        style={
+            "flex": 1,
+            "minHeight": 0,
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "backgroundColor": "var(--p, #FFFFFF)",
+            "border": "1px solid var(--line, #E0E0E0)",
+        },
     )
 
 
@@ -214,75 +247,61 @@ def layout() -> Any:
     ctx = get_current_ctx()
     gate = page_gate(ctx, MENU_CODE)
     if gate:
-        return dmc.Container(
+        return dmc.Box(
             [
                 dcc.Location(id="bdef-forbidden-redirect", href=gate),
                 alert_box("Bạn không có quyền truy cập trang Bộ đối soát.", tone="crit"),
-            ]
+            ],
+            p="md",
         )
     can_write = _can_write(ctx)
-    return dmc.Container(
+
+    header_actions = [
+        dmc.ActionIcon(
+            DashIconify(icon="lucide:refresh-cw", width=16),
+            id="bdef-refresh-btn",
+            variant="subtle",
+            color="gray",
+            size="md",
+        ),
+    ]
+    if can_write:
+        header_actions.append(button_primary("Tạo bộ đối soát", icon="lucide:plus", id="bdef-create-btn", size="xs"))
+
+    header_node = page_header(
+        title="Bộ đối soát",
+        subtitle="Khai báo một lần nhóm template chạy chung mỗi kỳ: mẫu tên file, gộp file, tham số ghi đè.",
+        actions=header_actions,
+    )
+
+    filters = [
+        dmc.Select(
+            id="bdef-filter-status",
+            data=STATUS_OPTIONS,
+            value="",
+            w=180,
+            size="xs",
+            styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+        )
+    ]
+    cmd_bar = command_bar(
+        search_id="bdef-filter-search",
+        search_placeholder="Tìm theo mã hoặc tên bộ...",
+        filters=filters,
+    )
+
+    return dmc.Box(
         [
             dcc.Store(id="bdef-store-list"),
             dcc.Store(id="bdef-action-target"),
             dcc.Location(id="bdef-redirect", refresh=True),
-            dmc.Stack(
-                [
-                    dmc.Group(
-                        [
-                            dmc.Stack(
-                                [
-                                    dmc.Title("Bộ đối soát", order=2),
-                                    dmc.Text(
-                                        "Khai báo một lần nhóm template chạy chung mỗi kỳ: mẫu tên file, gộp file, tham số ghi đè.",
-                                        size="sm",
-                                        c="dimmed",
-                                    ),
-                                ],
-                                gap=2,
-                            ),
-                            dmc.Group(
-                                [
-                                    dmc.ActionIcon(
-                                        DashIconify(icon="lucide:refresh-cw", width=16),
-                                        id="bdef-refresh-btn",
-                                        variant="subtle",
-                                        color="gray",
-                                        size="lg",
-                                    ),
-                                    button_primary("Tạo bộ đối soát", icon="lucide:plus", id="bdef-create-btn")
-                                    if can_write
-                                    else dmc.Text(""),
-                                ],
-                                gap="sm",
-                            ),
-                        ],
-                        justify="space-between",
-                        align="flex-start",
-                    ),
-                    dmc.Paper(
-                        dmc.Group(
-                            [
-                                dmc.TextInput(
-                                    id="bdef-filter-search",
-                                    placeholder="Tìm theo mã hoặc tên bộ",
-                                    leftSection=DashIconify(icon="lucide:search", width=16),
-                                    style={"flex": 1},
-                                ),
-                                dmc.Select(
-                                    id="bdef-filter-status",
-                                    data=STATUS_OPTIONS,
-                                    value="",
-                                    style={"width": 200},
-                                ),
-                            ],
-                            gap="sm",
-                        ),
-                        p="sm",
-                        withBorder=True,
-                    ),
-                    html.Div(id="bdef-alert"),
-                    html.Div(id="bdef-content"),
+            header_node,
+            cmd_bar,
+            html.Div(id="bdef-alert"),
+            html.Div(
+                id="bdef-content",
+                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
+            ),
                     dmc.Modal(
                         id="bdef-create-modal",
                         title="Tạo bộ đối soát",
@@ -333,16 +352,22 @@ def layout() -> Any:
                             )
                         ],
                     ),
-                    modal_confirm(
-                        id="bdef-archive-modal",
-                        title="Lưu trữ bộ đối soát",
-                        description="Bộ đối soát đã lưu trữ không thể tạo lần chạy mới. Các lần chạy cũ vẫn xem được.",
-                        confirm_label="Lưu trữ",
-                    ),
-                ],
-                gap="md",
+            modal_confirm(
+                id="bdef-archive-modal",
+                title="Lưu trữ bộ đối soát",
+                description="Bộ đối soát đã lưu trữ không thể tạo lần chạy mới. Các lần chạy cũ vẫn xem được.",
+                confirm_label="Lưu trữ",
             ),
-        ]
+        ],
+        style={
+            "height": "100%",
+            "minHeight": 0,
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "padding": "12px 16px",
+            "gap": "8px",
+        },
     )
 
 
