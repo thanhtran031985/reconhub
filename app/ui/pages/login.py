@@ -56,18 +56,21 @@ def layout(step: str | None = None, **kwargs: Any) -> Any:
                         label="Mật khẩu mới",
                         placeholder="Nhập mật khẩu mới",
                         withAsterisk=True,
+                        size="sm",
                     ),
                     dmc.PasswordInput(
                         id="change-confirm-pw",
                         label="Nhập lại mật khẩu mới",
                         placeholder="Nhập lại mật khẩu mới",
                         withAsterisk=True,
+                        size="sm",
                     ),
                     dmc.Button(
                         "Lưu và tiếp tục",
                         id="change-submit-btn",
                         fullWidth=True,
                         color="primary",
+                        size="sm",
                         mt="sm",
                     ),
                 ],
@@ -104,6 +107,7 @@ def layout(step: str | None = None, **kwargs: Any) -> Any:
                         placeholder="username",
                         withAsterisk=True,
                         autoComplete="username",
+                        size="sm",
                     ),
                     dmc.PasswordInput(
                         id="login-password",
@@ -111,12 +115,14 @@ def layout(step: str | None = None, **kwargs: Any) -> Any:
                         placeholder="••••••••",
                         withAsterisk=True,
                         autoComplete="current-password",
+                        size="sm",
                     ),
                     dmc.Button(
                         "Đăng nhập",
                         id="login-submit-btn",
                         fullWidth=True,
                         color="primary",
+                        size="sm",
                         mt="sm",
                     ),
                     dmc.Text(
@@ -138,15 +144,16 @@ def layout(step: str | None = None, **kwargs: Any) -> Any:
                 dmc.Paper(
                     card_content,
                     withBorder=True,
-                    shadow="sm",
-                    p="xl",
+                    shadow="xs",
+                    p="lg",
                     radius="md",
-                    w=400,
+                    w=380,
                     style={"maxWidth": "95vw"},
                 ),
-                style={"minHeight": "100vh", "backgroundColor": "var(--color-bg, #f8fafc)"},
+                style={"height": "100vh", "backgroundColor": "var(--bg, #F5F5F5)", "overflow": "hidden"},
             ),
-        ]
+        ],
+        style={"height": "100vh", "overflow": "hidden"},
     )
 
 

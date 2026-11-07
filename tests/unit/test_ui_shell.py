@@ -191,7 +191,8 @@ def test_navbar_mini_mode_and_tooltips() -> None:
     for a in anchors:
         action_icons = find_components_by_type(a, "ActionIcon")
         for icon in action_icons:
-            if getattr(icon, "variant", "") == "filled":
+            style = getattr(icon, "style", {}) or {}
+            if getattr(icon, "variant", "") == "filled" or "var(--primary-soft" in style.get("backgroundColor", ""):
                 active_hrefs.append(getattr(a, "href", ""))
     assert active_hrefs == ["/templates"]
 
@@ -210,13 +211,13 @@ def test_sidebar_toggle_callbacks() -> None:
 
     # 2. Sync UI khi collapsed = True
     nav_config_mini, nav_children_mini, icon_mini, label_mini = sync_sidebar_ui(True, "/history")
-    assert nav_config_mini["width"] == 60
+    assert nav_config_mini["width"] == 48
     assert label_mini == "Mở rộng menu"
     assert icon_mini.icon == "lucide:panel-left-open"
 
     # 3. Sync UI khi collapsed = False
     nav_config_full, nav_children_full, icon_full, label_full = sync_sidebar_ui(False, "/history")
-    assert nav_config_full["width"] == 232
+    assert nav_config_full["width"] == 200
     assert label_full == "Thu nhỏ menu"
     assert icon_full.icon == "lucide:panel-left-close"
 

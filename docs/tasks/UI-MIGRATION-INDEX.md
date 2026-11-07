@@ -21,7 +21,7 @@ Chỉ mục theo dõi toàn bộ quá trình chuyển đổi giao diện ReconHu
 | **UI-04** | Configuration Master–Detail | ✅ DONE | UI-00B, UI-03 | XL | `/data-sources`, `/batches/<def_id>`, `/report-admin` (UI-04.1→04.4), `/templates/<id>/diagram` | [docs/tasks/UI-04/task.md](UI-04/task.md) |
 | **UI-05** | Template Wizard | ✅ DONE | UI-00B | XL | `/templates/new`, `/templates/<id>/edit` | [docs/tasks/UI-05/task.md](UI-05/task.md) |
 | **UI-06** | Batch & Run Wizards | ✅ DONE | UI-00B, UI-05 | L | `/batch-runs`, `/runs/new` | [docs/tasks/UI-06/task.md](UI-06/task.md) |
-| **UI-07** | System & Auth | ⬜ TODO | UI-00B | S | `/login`, `/account`, `/forbidden`, `/suspended`, `/dev/ui` | [docs/tasks/UI-07/task.md](UI-07/task.md) |
+| **UI-07** | System & Auth | ✅ DONE | UI-00B | S | `/login`, `/account`, `/forbidden`, `/suspended`, `/dev/ui` | [docs/tasks/UI-07/task.md](UI-07/task.md) |
 | **UI-99** | Global UI Review & Cleanup | ⬜ TODO | UI-01 → UI-07 | L | Toàn bộ 26 trang (Phase A: Audit Only → STOP; Phase B: Fix) | [docs/tasks/UI-99/task.md](UI-99/task.md) |
 
 ---

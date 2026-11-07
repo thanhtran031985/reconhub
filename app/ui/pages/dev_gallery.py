@@ -6,6 +6,7 @@ from typing import Any
 
 import dash
 import dash_mantine_components as dmc
+from dash import html
 
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
@@ -15,6 +16,7 @@ from app.ui.components.field import form_field
 from app.ui.components.file_drop import file_drop
 from app.ui.components.kpi_card import kpi_card
 from app.ui.components.modal_confirm import modal_confirm
+from app.ui.components.page_header import page_header
 from app.ui.components.status_chip import status_chip
 from app.ui.formatters import format_bytes, format_currency, format_datetime, format_number
 
@@ -29,13 +31,16 @@ except Exception:
 
 
 def layout() -> Any:
-    return dmc.Container(
+    return html.Div(
         [
-            dmc.Stack(
-                [
-                    dmc.Title("Thư viện thành phần giao diện (UI Gallery)", order=2),
-                    dmc.Text("Trưng bày và đối chiếu các component Dash Mantine với designs/components", c="dimmed"),
-                    # 1. StatusChip
+            page_header(
+                title="Thư viện thành phần giao diện (UI Gallery)",
+                subtitle="Trưng bày và đối chiếu các component Dash Mantine với designs/components",
+            ),
+            html.Div(
+                dmc.Stack(
+                    [
+                        # 1. StatusChip
                     dmc.Paper(
                         [
                             dmc.Title("1. StatusChip (luôn có icon + chữ)", order=4, mb="md"),
@@ -246,9 +251,21 @@ def layout() -> Any:
                         confirm_text="XOA",
                     ),
                 ],
-                gap="lg",
-                py="xl",
-            )
-        ],
-        size="lg",
-    )
+                gap="md",
+            ),
+            style={
+                "flex": "1 1 0%",
+                "minHeight": 0,
+                "overflowY": "auto",
+                "padding": "16px 20px",
+            },
+        ),
+    ],
+    style={
+        "height": "calc(100vh - 48px)",
+        "display": "flex",
+        "flexDirection": "column",
+        "overflow": "hidden",
+        "backgroundColor": "var(--mantine-color-body)",
+    },
+)

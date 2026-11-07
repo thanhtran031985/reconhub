@@ -9,6 +9,7 @@ from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
 from app.services.user import change_password
+from app.ui.components.page_header import page_header
 
 dash.register_page(  # type: ignore[no-untyped-call]
     __name__,
@@ -20,139 +21,161 @@ dash.register_page(  # type: ignore[no-untyped-call]
 def layout(**kwargs: Any) -> Any:
     ctx = get_current_ctx()
     if ctx is None:
-        return dmc.Container(
-            dmc.Alert("Vui lòng đăng nhập để xem thông tin tài khoản", color="red"),
-            size="md",
-            py="xl",
+        return html.Div(
+            page_header(title="Tài khoản", subtitle="Vui lòng đăng nhập để xem thông tin"),
+            style={"padding": "24px"},
         )
 
     roles_badges = [dmc.Badge(r, variant="light", color="primary", size="sm") for r in ctx.roles]
 
-    return dmc.Container(
-        dmc.Stack(
-            [
-                dmc.Group(
+    return html.Div(
+        [
+            page_header(
+                title="Tài khoản cá nhân",
+                subtitle=f"Thông tin người dùng @{ctx.username} và thiết lập bảo mật",
+            ),
+            html.Div(
+                dmc.Stack(
                     [
-                        dmc.Avatar(
-                            ctx.full_name[:2].upper() if ctx.full_name else "RH",
-                            radius="xl",
-                            color="primary",
-                            size="lg",
-                        ),
-                        dmc.Stack(
+                        dmc.Group(
                             [
-                                dmc.Title(ctx.full_name, order=3),
-                                dmc.Text(
-                                    f"@{ctx.username}",
-                                    c="dimmed",
-                                    size="sm",
-                                    style={"fontFamily": "var(--font-mono)"},
+                                dmc.Avatar(
+                                    ctx.full_name[:2].upper() if ctx.full_name else "RH",
+                                    radius="xl",
+                                    color="primary",
+                                    size="md",
+                                ),
+                                dmc.Stack(
+                                    [
+                                        dmc.Title(ctx.full_name, order=4),
+                                        dmc.Text(
+                                            f"@{ctx.username}",
+                                            c="dimmed",
+                                            size="xs",
+                                            style={"fontFamily": "var(--font-mono)"},
+                                        ),
+                                    ],
+                                    gap=0,
                                 ),
                             ],
-                            gap=2,
+                            gap="sm",
+                        ),
+                        dmc.Paper(
+                            dmc.Stack(
+                                [
+                                    dmc.Title("Thông tin tài khoản", order=5),
+                                    dmc.Table(
+                                        [
+                                            dmc.TableTbody(
+                                                [
+                                                    dmc.TableTr(
+                                                        [
+                                                            dmc.TableTd("Tên đăng nhập", fw=500, w=160),
+                                                            dmc.TableTd(
+                                                                ctx.username,
+                                                                style={"fontFamily": "var(--font-mono)"},
+                                                            ),
+                                                        ]
+                                                    ),
+                                                    dmc.TableTr(
+                                                        [
+                                                            dmc.TableTd("Họ và tên", fw=500),
+                                                            dmc.TableTd(ctx.full_name),
+                                                        ]
+                                                    ),
+                                                    dmc.TableTr(
+                                                        [
+                                                            dmc.TableTd("Vai trò", fw=500),
+                                                            dmc.TableTd(dmc.Group(roles_badges, gap="xs")),
+                                                        ]
+                                                    ),
+                                                ]
+                                            )
+                                        ]
+                                    ),
+                                ],
+                                gap="sm",
+                            ),
+                            withBorder=True,
+                            p="md",
+                            radius="sm",
+                        ),
+                        dmc.Paper(
+                            dmc.Stack(
+                                [
+                                    dmc.Title("Đổi mật khẩu", order=5),
+                                    html.Div(id="account-pw-alert-container"),
+                                    dmc.PasswordInput(
+                                        id="account-old-pw",
+                                        label="Mật khẩu hiện tại",
+                                        placeholder="••••••••",
+                                        withAsterisk=True,
+                                        size="sm",
+                                    ),
+                                    dmc.Group(
+                                        [
+                                            dmc.PasswordInput(
+                                                id="account-new-pw",
+                                                label="Mật khẩu mới",
+                                                placeholder="••••••••",
+                                                withAsterisk=True,
+                                                size="sm",
+                                                style={"flex": 1},
+                                            ),
+                                            dmc.PasswordInput(
+                                                id="account-confirm-pw",
+                                                label="Nhập lại mật khẩu mới",
+                                                placeholder="••••••••",
+                                                withAsterisk=True,
+                                                size="sm",
+                                                style={"flex": 1},
+                                            ),
+                                        ],
+                                        grow=True,
+                                    ),
+                                    dmc.Group(
+                                        [
+                                            dmc.Text(
+                                                "Đổi mật khẩu sẽ tự động đăng xuất khỏi các phiên đăng nhập khác.",
+                                                c="dimmed",
+                                                size="xs",
+                                            ),
+                                            dmc.Button(
+                                                "Đổi mật khẩu",
+                                                id="account-change-pw-btn",
+                                                color="primary",
+                                                size="sm",
+                                            ),
+                                        ],
+                                        justify="space-between",
+                                        mt="xs",
+                                    ),
+                                ],
+                                gap="sm",
+                            ),
+                            withBorder=True,
+                            p="md",
+                            radius="sm",
                         ),
                     ],
                     gap="md",
-                    mb="lg",
+                    maw=640,
                 ),
-                dmc.Paper(
-                    dmc.Stack(
-                        [
-                            dmc.Title("Thông tin tài khoản", order=4),
-                            dmc.Table(
-                                [
-                                    dmc.TableTbody(
-                                        [
-                                            dmc.TableTr(
-                                                [
-                                                    dmc.TableTd("Tên đăng nhập", fw=500, w=180),
-                                                    dmc.TableTd(
-                                                        ctx.username,
-                                                        style={"fontFamily": "var(--font-mono)"},
-                                                    ),
-                                                ]
-                                            ),
-                                            dmc.TableTr(
-                                                [
-                                                    dmc.TableTd("Họ và tên", fw=500),
-                                                    dmc.TableTd(ctx.full_name),
-                                                ]
-                                            ),
-                                            dmc.TableTr(
-                                                [
-                                                    dmc.TableTd("Vai trò", fw=500),
-                                                    dmc.TableTd(dmc.Group(roles_badges, gap="xs")),
-                                                ]
-                                            ),
-                                        ]
-                                    )
-                                ]
-                            ),
-                        ],
-                        gap="md",
-                    ),
-                    withBorder=True,
-                    p="lg",
-                    radius="md",
-                ),
-                dmc.Paper(
-                    dmc.Stack(
-                        [
-                            dmc.Title("Đổi mật khẩu", order=4),
-                            html.Div(id="account-pw-alert-container"),
-                            dmc.PasswordInput(
-                                id="account-old-pw",
-                                label="Mật khẩu hiện tại",
-                                placeholder="••••••••",
-                                withAsterisk=True,
-                            ),
-                            dmc.Group(
-                                [
-                                    dmc.PasswordInput(
-                                        id="account-new-pw",
-                                        label="Mật khẩu mới",
-                                        placeholder="••••••••",
-                                        withAsterisk=True,
-                                        style={"flex": 1},
-                                    ),
-                                    dmc.PasswordInput(
-                                        id="account-confirm-pw",
-                                        label="Nhập lại mật khẩu mới",
-                                        placeholder="••••••••",
-                                        withAsterisk=True,
-                                        style={"flex": 1},
-                                    ),
-                                ],
-                                grow=True,
-                            ),
-                            dmc.Group(
-                                [
-                                    dmc.Text(
-                                        "Đổi mật khẩu sẽ tự động đăng xuất khỏi các phiên đăng nhập khác.",
-                                        c="dimmed",
-                                        size="xs",
-                                    ),
-                                    dmc.Button(
-                                        "Đổi mật khẩu",
-                                        id="account-change-pw-btn",
-                                        color="primary",
-                                    ),
-                                ],
-                                justify="space-between",
-                                mt="sm",
-                            ),
-                        ],
-                        gap="md",
-                    ),
-                    withBorder=True,
-                    p="lg",
-                    radius="md",
-                ),
-            ],
-            gap="xl",
-        ),
-        size="sm",
-        py="xl",
+                style={
+                    "flex": "1 1 0%",
+                    "minHeight": 0,
+                    "overflowY": "auto",
+                    "padding": "16px 20px",
+                },
+            ),
+        ],
+        style={
+            "height": "calc(100vh - 48px)",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "backgroundColor": "var(--mantine-color-body)",
+        },
     )
 
 
