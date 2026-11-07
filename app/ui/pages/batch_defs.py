@@ -73,14 +73,16 @@ def render_batch_defs_content(
             title="Không thể tải danh sách bộ đối soát",
             message=error,
             tone="crit",
-            action=button_danger("Thử lại", id="bdef-retry-btn", size="xs"),
+            action=button_danger("Thử lại", id={"type": "bdef-retry-btn", "index": 0}, size="xs"),
         )
     if items is None or len(items) == 0:
         return empty_state(
             title="Chưa có bộ đối soát nào",
             description="Tạo bộ đối soát để khai báo một lần nhóm template chạy chung mỗi kỳ.",
             action=(
-                button_primary("Tạo bộ đối soát", icon="lucide:plus", id="bdef-empty-create-btn") if can_write else None
+                button_primary("Tạo bộ đối soát", icon="lucide:plus", id={"type": "bdef-empty-create-btn", "index": 0})
+                if can_write
+                else None
             ),
         )
 
@@ -398,7 +400,7 @@ def _render_list(store_data: Any, search: str | None, status: str | None) -> tup
 @callback(
     Output("bdef-store-list", "data"),
     Input("bdef-refresh-btn", "n_clicks"),
-    Input("bdef-retry-btn", "n_clicks"),
+    Input({"type": "bdef-retry-btn", "index": ALL}, "n_clicks"),
     prevent_initial_call=False,
 )
 def _load_list(_refresh: Any, _retry: Any) -> Any:
@@ -414,13 +416,24 @@ def _load_list(_refresh: Any, _retry: Any) -> Any:
 @callback(
     Output("bdef-create-modal", "opened"),
     Input("bdef-create-btn", "n_clicks"),
-    Input("bdef-empty-create-btn", "n_clicks"),
+    Input({"type": "bdef-empty-create-btn", "index": ALL}, "n_clicks"),
     Input("bdef-create-cancel", "n_clicks"),
     State("bdef-create-modal", "opened"),
     prevent_initial_call=True,
 )
-def _toggle_create_modal(_open: Any, _open_empty: Any, _cancel: Any, opened: bool) -> bool:
-    return not opened
+def _toggle_create_modal(open_clicks: Any, empty_clicks: Any, cancel_clicks: Any, opened: bool) -> bool:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False
+    triggered = ctx_dash.triggered_id
+    if triggered == "bdef-create-cancel":
+        return False
+    if triggered == "bdef-create-btn" and bool(open_clicks):
+        return True
+    if isinstance(triggered, dict) and triggered.get("type") == "bdef-empty-create-btn":
+        if any(c for c in (empty_clicks or []) if c):
+            return True
+    return False
 
 
 @callback(
@@ -459,17 +472,20 @@ def _submit_create(
     Output("bdef-archive-modal", "opened"),
     Output("bdef-action-target", "data"),
     Input({"type": "bdef-action-archive", "index": ALL}, "n_clicks"),
-    Input({"type": "bdef-action-activate", "index": ALL}, "n_clicks"),
     Input("bdef-archive-modal-cancel", "n_clicks"),
     State("bdef-archive-modal", "opened"),
     prevent_initial_call=True,
 )
-def _open_action_modal(archive_clicks: Any, activate_clicks: Any, _cancel: Any, opened: bool) -> tuple[bool, Any]:
-    triggered = dash.callback_context.triggered_id
-    if triggered is None or _cancel:
+def _open_action_modal(archive_clicks: Any, cancel_clicks: Any, opened: bool) -> tuple[bool, Any]:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False, dash.no_update
+    triggered = ctx_dash.triggered_id
+    if triggered == "bdef-archive-modal-cancel":
         return False, dash.no_update
     if isinstance(triggered, dict) and triggered.get("type") == "bdef-action-archive":
-        return True, {"action": "archive", "id": triggered["index"]}
+        if any(c for c in (archive_clicks or []) if c):
+            return True, {"action": "archive", "id": triggered["index"]}
     return False, dash.no_update
 
 
@@ -482,20 +498,26 @@ def _open_action_modal(archive_clicks: Any, activate_clicks: Any, _cancel: Any, 
     State("bdef-action-target", "data"),
     prevent_initial_call=True,
 )
-def _run_list_action(_confirm: Any, _activate: Any, target: Any) -> tuple[Any, Any, bool]:
-    triggered = dash.callback_context.triggered_id
+def _run_list_action(confirm_clicks: Any, activate_clicks: Any, target: Any) -> tuple[Any, Any, bool]:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return dash.no_update, dash.no_update, False
+    triggered = ctx_dash.triggered_id
     ctx = get_current_ctx()
     if ctx is None:
         return dash.no_update, alert_box("Bạn cần đăng nhập.", tone="crit"), False
     if isinstance(triggered, dict) and triggered.get("type") == "bdef-action-activate":
+        if not any(c for c in (activate_clicks or []) if c):
+            return dash.no_update, dash.no_update, False
         def_id = int(triggered["index"])
         res = activate_batch_def(ctx, def_id)
         if not res.ok:
             return dash.no_update, alert_box(res.message or "Không kích hoạt được bộ.", tone="crit"), False
         return _load_list(None, None), None, False
-    if target and target.get("action") == "archive":
-        res = archive_batch_def(ctx, int(target["id"]))
-        if not res.ok:
-            return dash.no_update, alert_box(res.message or "Không lưu trữ được bộ.", tone="crit"), False
-        return _load_list(None, None), None, False
-    return dash.no_update, None, False
+    if triggered == "bdef-archive-modal-confirm" and confirm_clicks:
+        if target and target.get("action") == "archive":
+            res = archive_batch_def(ctx, int(target["id"]))
+            if not res.ok:
+                return dash.no_update, alert_box(res.message or "Không lưu trữ được bộ.", tone="crit"), False
+            return _load_list(None, None), None, False
+    return dash.no_update, dash.no_update, False
