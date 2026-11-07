@@ -20,6 +20,12 @@ from app.ui.components.grid_defaults import (
 from app.ui.components.kpi_card import kpi_card
 from app.ui.components.master_detail import master_detail_layout
 from app.ui.components.modal_confirm import modal_confirm
+from app.ui.components.notification import (
+    notify_error,
+    notify_info,
+    notify_success,
+    notify_warning,
+)
 from app.ui.components.page_header import page_header
 from app.ui.components.skeleton_grid import skeleton_grid, skeleton_panel
 from app.ui.components.status_chip import status_chip
@@ -35,6 +41,10 @@ __all__ = [
     "button_danger",
     "button_subtle",
     "modal_confirm",
+    "notify_success",
+    "notify_error",
+    "notify_warning",
+    "notify_info",
     "drawer_right",
     "file_drop",
     "code_block",

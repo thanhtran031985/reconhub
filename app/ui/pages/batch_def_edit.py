@@ -33,6 +33,7 @@ from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
 from app.ui.components.empty_state import empty_state
 from app.ui.components.modal_confirm import modal_confirm
+from app.ui.components.notification import notify_error, notify_success
 from app.ui.components.status_chip import status_chip
 
 try:
@@ -172,6 +173,7 @@ def render_def_items_table(
         "zIndex": 1,
         "backgroundColor": "var(--mantine-color-body, #fff)",
         "whiteSpace": "nowrap",
+        "textAlign": "center",
     }
     return dmc.TableScrollContainer(
         minWidth=900,
@@ -239,9 +241,18 @@ def render_preview_result(preview: dict[str, Any] | None, error: str | None = No
                 ]
             )
         )
+    th_prev = {"textAlign": "center", "fontSize": "12px", "fontWeight": 600}
     return dmc.Table(
         [
-            dmc.TableThead(dmc.TableTr([dmc.TableTh("Template"), dmc.TableTh("Giá trị đã tính"), dmc.TableTh("Lỗi")])),
+            dmc.TableThead(
+                dmc.TableTr(
+                    [
+                        dmc.TableTh("Template", style=th_prev),
+                        dmc.TableTh("Giá trị đã tính", style=th_prev),
+                        dmc.TableTh("Lỗi", style=th_prev),
+                    ]
+                )
+            ),
             dmc.TableTbody(rows),
         ],
         striped=True,
@@ -294,16 +305,17 @@ def render_addable_list(
                 ]
             )
         )
+    th_add = {"textAlign": "center", "fontSize": "12px", "fontWeight": 600}
     return dmc.Table(
         [
             dmc.TableThead(
                 dmc.TableTr(
                     [
-                        dmc.TableTh(""),
-                        dmc.TableTh("Template"),
-                        dmc.TableTh("Trạng thái"),
-                        dmc.TableTh("Version"),
-                        dmc.TableTh("Ghi chú"),
+                        dmc.TableTh("", style=th_add),
+                        dmc.TableTh("Template", style=th_add),
+                        dmc.TableTh("Trạng thái", style=th_add),
+                        dmc.TableTh("Version", style=th_add),
+                        dmc.TableTh("Ghi chú", style=th_add),
                     ]
                 )
             ),
@@ -334,6 +346,8 @@ def layout(def_id: str | int | None = 1, **kwargs: Any) -> Any:
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
+            "padding": "12px 16px",
+            "gap": "8px",
         },
         children=[
             dcc.Store(id="bdef-edit-store"),
@@ -358,9 +372,9 @@ def layout(def_id: str | int | None = 1, **kwargs: Any) -> Any:
                         mb=4,
                     ),
                     html.Div(id="bdef-edit-header"),
-                    html.Div(id="bdef-edit-alert"),
+                    html.Div(id="bdef-edit-notifications"),
                 ],
-                style={"flexShrink": 0, "marginBottom": "8px"},
+                style={"flexShrink": 0, "marginBottom": "4px"},
             ),
             # Master–Detail 2 cột
             dmc.Box(
@@ -727,7 +741,7 @@ def _track_item_edits(
 
 
 @callback(
-    Output("bdef-edit-alert", "children"),
+    Output("bdef-edit-notifications", "children"),
     Output("bdef-edit-store", "data", allow_duplicate=True),
     Output("bdef-edits-store", "data", allow_duplicate=True),
     Output("bdef-dirty-hint", "children", allow_duplicate=True),
@@ -753,9 +767,9 @@ def _save_def(
         return dash.no_update, dash.no_update, dash.no_update, ""
     ctx = get_current_ctx()
     if ctx is None:
-        return alert_box("Bạn cần đăng nhập.", tone="crit"), dash.no_update, dash.no_update, ""
+        return notify_error("Bạn cần đăng nhập."), dash.no_update, dash.no_update, ""
     if not store_data or store_data.get("error"):
-        return alert_box("Chưa tải được bộ đối soát.", tone="crit"), dash.no_update, dash.no_update, ""
+        return notify_error("Chưa tải được bộ đối soát."), dash.no_update, dash.no_update, ""
     errors: list[str] = []
     if (
         (name or "").strip() != str(store_data.get("name", ""))
@@ -808,12 +822,12 @@ def _save_def(
         if not res.ok:
             errors.append(res.message or f"Không lưu được mục #{item_id_str}.")
     if errors:
-        return alert_box("; ".join(errors), tone="crit"), dash.no_update, dash.no_update, ""
+        return notify_error("; ".join(errors)), dash.no_update, dash.no_update, ""
     refreshed = get_batch_def(ctx, def_id)
     if not refreshed.ok:
-        return alert_box(refreshed.message or "Không tải lại được bộ.", tone="crit"), dash.no_update, dash.no_update, ""
+        return notify_error(refreshed.message or "Không tải lại được bộ."), dash.no_update, dash.no_update, ""
     return (
-        alert_box("Đã lưu bộ đối soát.", tone="ok"),
+        notify_success("Đã lưu bộ đối soát thành công."),
         refreshed.data,
         {},
         "",
@@ -921,7 +935,7 @@ def _render_add_config(checked_list: Any, check_ids: Any, addable: Any) -> Any:
 
 
 @callback(
-    Output("bdef-edit-alert", "children", allow_duplicate=True),
+    Output("bdef-edit-notifications", "children", allow_duplicate=True),
     Output("bdef-edit-store", "data", allow_duplicate=True),
     Output("bdef-add-modal", "opened", allow_duplicate=True),
     Input("bdef-add-submit", "n_clicks"),
@@ -956,10 +970,10 @@ def _submit_add_templates(
         return dash.no_update, dash.no_update, True
     ctx = get_current_ctx()
     if ctx is None:
-        return alert_box("Bạn cần đăng nhập.", tone="crit"), dash.no_update, True
+        return notify_error("Bạn cần đăng nhập."), dash.no_update, True
     selected = [int(c["index"]) for c, v in zip(check_ids or [], checked_list or [], strict=False) if v]
     if not selected:
-        return alert_box("Chưa chọn template nào để thêm.", tone="warn"), dash.no_update, True
+        return notify_error("Chưa chọn template nào để thêm.", title="Cảnh báo"), dash.no_update, True
     by_index: dict[str, dict[str, Any]] = {}
     for values, ids in [
         (patterns, pattern_ids),
@@ -990,11 +1004,11 @@ def _submit_add_templates(
         )
     res = add_batch_def_items(ctx, def_id, items)
     if not res.ok:
-        return alert_box(res.message or "Không thêm được template.", tone="crit"), dash.no_update, True
+        return notify_error(res.message or "Không thêm được template."), dash.no_update, True
     refreshed = get_batch_def(ctx, def_id)
     if not refreshed.ok:
-        return alert_box(refreshed.message or "Không tải lại được bộ.", tone="crit"), dash.no_update, True
-    return alert_box(f"Đã thêm {len(items)} template vào bộ.", tone="ok"), refreshed.data, False
+        return notify_error(refreshed.message or "Không tải lại được bộ."), dash.no_update, True
+    return notify_success(f"Đã thêm {len(items)} template vào bộ."), refreshed.data, False
 
 
 @callback(
@@ -1019,7 +1033,7 @@ def _open_remove_modal(remove_clicks: Any, _cancel: Any, opened: bool) -> tuple[
 
 
 @callback(
-    Output("bdef-edit-alert", "children", allow_duplicate=True),
+    Output("bdef-edit-notifications", "children", allow_duplicate=True),
     Output("bdef-edit-store", "data", allow_duplicate=True),
     Output("bdef-remove-modal", "opened", allow_duplicate=True),
     Input("bdef-remove-modal-confirm", "n_clicks"),
@@ -1032,16 +1046,16 @@ def _confirm_remove_item(_n: Any, target: Any, def_id: int) -> tuple[Any, Any, b
         return dash.no_update, dash.no_update, False
     ctx = get_current_ctx()
     if ctx is None:
-        return alert_box("Bạn cần đăng nhập.", tone="crit"), dash.no_update, False
+        return notify_error("Bạn cần đăng nhập."), dash.no_update, False
     if not target or not target.get("item_id"):
         return dash.no_update, dash.no_update, False
     res = remove_batch_def_item(ctx, int(target["item_id"]))
     if not res.ok:
-        return alert_box(res.message or "Không gỡ được template.", tone="crit"), dash.no_update, False
+        return notify_error(res.message or "Không gỡ được template."), dash.no_update, False
     refreshed = get_batch_def(ctx, def_id)
     if not refreshed.ok:
-        return alert_box(refreshed.message or "Không tải lại được bộ.", tone="crit"), dash.no_update, False
-    return alert_box("Đã gỡ template khỏi bộ.", tone="ok"), refreshed.data, False
+        return notify_error(refreshed.message or "Không tải lại được bộ."), dash.no_update, False
+    return notify_success("Đã gỡ template khỏi bộ."), refreshed.data, False
 
 
 @callback(
@@ -1064,7 +1078,7 @@ def _toggle_archive_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
 
 
 @callback(
-    Output("bdef-edit-alert", "children", allow_duplicate=True),
+    Output("bdef-edit-notifications", "children", allow_duplicate=True),
     Output("bdef-edit-store", "data", allow_duplicate=True),
     Output("bdef-edit-archive-modal", "opened", allow_duplicate=True),
     Input("bdef-edit-archive-modal-confirm", "n_clicks"),
@@ -1079,7 +1093,7 @@ def _run_def_action(_confirm: Any, _activate: Any, def_id: int) -> tuple[Any, An
     triggered = ctx_dash.triggered_id
     ctx = get_current_ctx()
     if ctx is None:
-        return alert_box("Bạn cần đăng nhập.", tone="crit"), dash.no_update, False
+        return notify_error("Bạn cần đăng nhập."), dash.no_update, False
     if triggered == "bdef-activate-btn" and bool(_activate):
         res = activate_batch_def(ctx, def_id)
         action_name = "kích hoạt"
@@ -1089,11 +1103,11 @@ def _run_def_action(_confirm: Any, _activate: Any, def_id: int) -> tuple[Any, An
     else:
         return dash.no_update, dash.no_update, False
     if not res.ok:
-        return alert_box(res.message or f"Không {action_name} được bộ.", tone="crit"), dash.no_update, False
+        return notify_error(res.message or f"Không {action_name} được bộ."), dash.no_update, False
     refreshed = get_batch_def(ctx, def_id)
     if not refreshed.ok:
-        return alert_box(refreshed.message or "Không tải lại được bộ.", tone="crit"), dash.no_update, False
-    return alert_box(f"Đã {action_name} bộ đối soát.", tone="ok"), refreshed.data, False
+        return notify_error(refreshed.message or "Không tải lại được bộ."), dash.no_update, False
+    return notify_success(f"Đã {action_name} bộ đối soát thành công."), refreshed.data, False
 
 
 @callback(

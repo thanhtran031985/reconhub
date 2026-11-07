@@ -577,7 +577,7 @@ def _render_login_history_table(history_logs: Any) -> Any:
                             "Thời gian",
                             style={
                                 "padding": "10px 14px",
-                                "textAlign": "left",
+                                "textAlign": "center",
                                 "position": "sticky",
                                 "top": 0,
                                 "background": "var(--bg-subtle, #f8fafc)",
@@ -587,7 +587,7 @@ def _render_login_history_table(history_logs: Any) -> Any:
                             "Kết quả",
                             style={
                                 "padding": "10px 14px",
-                                "textAlign": "left",
+                                "textAlign": "center",
                                 "position": "sticky",
                                 "top": 0,
                                 "background": "var(--bg-subtle, #f8fafc)",
@@ -597,7 +597,7 @@ def _render_login_history_table(history_logs: Any) -> Any:
                             "IP",
                             style={
                                 "padding": "10px 14px",
-                                "textAlign": "left",
+                                "textAlign": "center",
                                 "position": "sticky",
                                 "top": 0,
                                 "background": "var(--bg-subtle, #f8fafc)",

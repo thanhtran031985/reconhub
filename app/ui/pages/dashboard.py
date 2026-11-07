@@ -155,12 +155,13 @@ def render_diff_rate_by_template(diff_rates: list[dict[str, Any]]) -> dmc.Card:
             "height": "32px",
             "fontSize": "12px",
             "fontWeight": 600,
+            "textAlign": "center",
         }
         headers = [
             dmc.TableTh("Template", style=th_style),
-            dmc.TableTh("Số run", style={**th_style, "textAlign": "center"}),
-            dmc.TableTh("Tổng nhóm so sánh", style={**th_style, "textAlign": "right"}),
-            dmc.TableTh("Nhóm lệch", style={**th_style, "textAlign": "right"}),
+            dmc.TableTh("Số run", style=th_style),
+            dmc.TableTh("Tổng nhóm so sánh", style=th_style),
+            dmc.TableTh("Nhóm lệch", style=th_style),
             dmc.TableTh("Tỉ lệ lệch", style={**th_style, "minWidth": "160px"}),
         ]
 
@@ -297,6 +298,7 @@ def render_recent_runs_card(recent_items: list[dict[str, Any]]) -> dmc.Card:
             "height": "32px",
             "fontSize": "12px",
             "fontWeight": 600,
+            "textAlign": "center",
         }
         table_headers = [
             dmc.TableTh("Run", style=th_style),
@@ -305,7 +307,7 @@ def render_recent_runs_card(recent_items: list[dict[str, Any]]) -> dmc.Card:
             dmc.TableTh("Khoảng tìm kiếm", style=th_style),
             dmc.TableTh("Trạng thái", style=th_style),
             dmc.TableTh("Kiểm tra", style=th_style),
-            dmc.TableTh("Khớp", style={**th_style, "textAlign": "right"}),
+            dmc.TableTh("Khớp", style=th_style),
         ]
 
         table_rows = []

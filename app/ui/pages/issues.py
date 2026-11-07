@@ -184,6 +184,7 @@ def render_issues_table(
         "height": "32px",
         "fontSize": "12px",
         "fontWeight": 600,
+        "textAlign": "center",
     }
     headers = []
     if can_edit:
@@ -221,7 +222,7 @@ def render_issues_table(
             dmc.TableTh("Nguyên nhân", style={**th_style, "minWidth": "150px", "whiteSpace": "nowrap"}),
             dmc.TableTh("Người xử lý", style={**th_style, "minWidth": "140px", "whiteSpace": "nowrap"}),
             dmc.TableTh("Lần đầu / Gần nhất", style={**th_style, "minWidth": "130px", "whiteSpace": "nowrap"}),
-            dmc.TableTh("Thao tác", style={**th_style, "minWidth": "90px", "textAlign": "right", "whiteSpace": "nowrap"}),
+            dmc.TableTh("Thao tác", style={**th_style, "minWidth": "90px", "textAlign": "center", "whiteSpace": "nowrap"}),
         ]
     )
 

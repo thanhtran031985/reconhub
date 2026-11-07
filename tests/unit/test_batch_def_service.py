@@ -483,3 +483,43 @@ class TestAddableAndPreview:
         res = preview_params(admin_ctx, d["id"], "2026-13")
         assert res.ok is False
         assert res.code == "BATCH_FORMULA_INVALID"
+
+
+class TestDeleteBatchDef:
+    def test_delete_batch_def_success(self, batch_env, admin_ctx):
+        from app.services.batch_def import add_batch_def_items, delete_batch_def, get_batch_def
+
+        d = _create_def(admin_ctx)
+        tmpl = _make_template(batch_env, "DTP_TMPL")
+        add_batch_def_items(admin_ctx, d["id"], [_item_payload(tmpl)])
+
+        res = delete_batch_def(admin_ctx, d["id"])
+        assert res.ok is True
+        assert res.data["deleted"] is True
+
+        got = get_batch_def(admin_ctx, d["id"])
+        assert got.ok is False
+        assert got.code == "BATCH_NOT_FOUND"
+
+    def test_delete_batch_def_has_runs_rejected(self, batch_env, admin_ctx):
+        from app.services.batch_def import delete_batch_def
+
+        d = _create_def(admin_ctx)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        with batch_env.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO RECON_BATCH_RUN (BATCH_DEF_ID, NAME, PERIOD, PERIOD_FROM, "
+                    "PERIOD_TO, STATUS, INCLUDE_WARN, CNT_ITEMS, CNT_DONE, CNT_FAILED, "
+                    "CNT_SKIPPED, CNT_NOT_RUN, CREATED_BY, CREATED_AT, "
+                    "UPDATED_BY, UPDATED_AT, ROW_VERSION) VALUES (:d, 'Tháng 10/2026', "
+                    "'2026-10', :now, :now, 'DRAFT', 'Y', 1, 0, 0, 0, 0, 'admin', :now, 'admin', :now, 1)"
+                ),
+                {"d": d["id"], "now": now},
+            )
+
+        res = delete_batch_def(admin_ctx, d["id"])
+        assert res.ok is False
+        assert res.code == "CONFLICT"
+        assert "đã có 1 lần chạy" in res.message
+

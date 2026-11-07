@@ -310,14 +310,15 @@ def render_code_table(
         "top": 0,
         "backgroundColor": "var(--mantine-color-body, #fff)",
         "zIndex": 1,
+        "textAlign": "center",
     }
     headers = [
-        dmc.TableTh("STT", style={"width": "44px", "textAlign": "center", **th_style}),
+        dmc.TableTh("STT", style={"width": "44px", **th_style}),
         dmc.TableTh("Mã Code", style={"minWidth": "140px", **th_style}),
         dmc.TableTh("Nhãn hiển thị / Badge", style={"minWidth": "220px", **th_style}),
-        dmc.TableTh("Thứ tự", style={"width": "70px", "textAlign": "center", **th_style}),
-        dmc.TableTh("Trạng thái", style={"width": "110px", "textAlign": "center", **th_style}),
-        dmc.TableTh("Thao tác", style={"width": "90px", "textAlign": "right", **th_style}),
+        dmc.TableTh("Thứ tự", style={"width": "70px", **th_style}),
+        dmc.TableTh("Trạng thái", style={"width": "110px", **th_style}),
+        dmc.TableTh("Thao tác", style={"width": "90px", **th_style}),
     ]
 
     rows = []

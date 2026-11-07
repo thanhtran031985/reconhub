@@ -21,3 +21,5 @@ samples/private/*
 *.finalize-summary.json
 *.delivery.json
 samples/*.xlsx
+scratch/
+.vscode/

@@ -1063,10 +1063,10 @@ def render_detail_drawer(
             dmc.TableThead(
                 dmc.TableTr(
                     [
-                        dmc.TableTh("Chỉ tiêu (Measure)"),
-                        dmc.TableTh("Excel", style={"textAlign": "right"}),
-                        dmc.TableTh("DB Oracle", style={"textAlign": "right"}),
-                        dmc.TableTh("Chênh lệch", style={"textAlign": "right"}),
+                        dmc.TableTh("Chỉ tiêu (Measure)", style={"textAlign": "center"}),
+                        dmc.TableTh("Excel", style={"textAlign": "center"}),
+                        dmc.TableTh("DB Oracle", style={"textAlign": "center"}),
+                        dmc.TableTh("Chênh lệch", style={"textAlign": "center"}),
                     ]
                 )
             ),
@@ -1124,9 +1124,9 @@ def render_detail_drawer(
                 dmc.TableThead(
                     dmc.TableTr(
                         [
-                            dmc.TableTh("Dòng Excel"),
-                            dmc.TableTh("Số hóa đơn"),
-                            dmc.TableTh("Thành tiền", style={"textAlign": "right"}),
+                            dmc.TableTh("Dòng Excel", style={"textAlign": "center"}),
+                            dmc.TableTh("Số hóa đơn", style={"textAlign": "center"}),
+                            dmc.TableTh("Thành tiền", style={"textAlign": "center"}),
                         ]
                     )
                 ),
@@ -1160,8 +1160,8 @@ def render_detail_drawer(
                 dmc.TableThead(
                     dmc.TableTr(
                         [
-                            dmc.TableTh("INVOICE_NO"),
-                            dmc.TableTh("AMOUNT", style={"textAlign": "right"}),
+                            dmc.TableTh("INVOICE_NO", style={"textAlign": "center"}),
+                            dmc.TableTh("AMOUNT", style={"textAlign": "center"}),
                         ]
                     )
                 ),
@@ -1198,8 +1198,8 @@ def render_detail_drawer(
                 dmc.TableThead(
                     dmc.TableTr(
                         [
-                            dmc.TableTh("INVOICE_NO (Khóa)"),
-                            dmc.TableTh(f"{db_measure_name} (DB)", style={"textAlign": "right"}),
+                            dmc.TableTh("INVOICE_NO (Khóa)", style={"textAlign": "center"}),
+                            dmc.TableTh(f"{db_measure_name} (DB)", style={"textAlign": "center"}),
                         ]
                     )
                 ),
@@ -1418,12 +1418,12 @@ def render_compare_drawer_content(
         )
     else:
         headers = [
-            dmc.TableTh("Khóa (Key)"),
-            dmc.TableTh("Phân loại"),
-            dmc.TableTh("Trạng thái Run A"),
-            dmc.TableTh("Trạng thái Run B"),
-            dmc.TableTh("Lệch Run A", style={"textAlign": "right"}),
-            dmc.TableTh("Lệch Run B", style={"textAlign": "right"}),
+            dmc.TableTh("Khóa (Key)", style={"textAlign": "center"}),
+            dmc.TableTh("Phân loại", style={"textAlign": "center"}),
+            dmc.TableTh("Trạng thái Run A", style={"textAlign": "center"}),
+            dmc.TableTh("Trạng thái Run B", style={"textAlign": "center"}),
+            dmc.TableTh("Lệch Run A", style={"textAlign": "center"}),
+            dmc.TableTh("Lệch Run B", style={"textAlign": "center"}),
         ]
         rows = []
         for it in filtered_items:

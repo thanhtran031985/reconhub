@@ -29,3 +29,13 @@ pre[class*="mantine-Code"] {
 .run-res-row:hover {
   background-color: var(--surface-2, #f8fafc);
 }
+
+/* Header của table luôn canh giữa theo yêu cầu UI */
+.mantine-Table-th,
+th.mantine-Table-th,
+table th,
+.mantine-Table-table th,
+.tbl th {
+  text-align: center !important;
+}
+

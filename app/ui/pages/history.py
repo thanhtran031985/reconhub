@@ -270,6 +270,7 @@ def render_runs_table(
         "fontWeight": 600,
         "borderBottom": "1px solid var(--line, #E0E0E0)",
         "whiteSpace": "nowrap",
+        "textAlign": "center",
     }
 
     headers.extend(
@@ -282,10 +283,10 @@ def render_runs_table(
             dmc.TableTh("File", style={**th_base, "minWidth": "160px"}),
             dmc.TableTh("Người chạy", style={**th_base, "minWidth": "100px"}),
             dmc.TableTh("Trạng thái", style={**th_base, "minWidth": "120px"}),
-            dmc.TableTh("Khớp", style={**th_base, "minWidth": "80px", "textAlign": "right"}),
+            dmc.TableTh("Khớp", style={**th_base, "minWidth": "80px"}),
             dmc.TableTh("Kiểm tra", style={**th_base, "minWidth": "130px"}),
             dmc.TableTh("Dữ liệu tạm", style={**th_base, "minWidth": "150px"}),
-            dmc.TableTh("Thao tác", style={**th_base, "minWidth": "110px", "textAlign": "right"}),
+            dmc.TableTh("Thao tác", style={**th_base, "minWidth": "110px"}),
         ]
     )
 

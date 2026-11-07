@@ -24,6 +24,7 @@ from app.db.engine import get_recon_engine
 from app.db.metadata import (
     recon_batch_def,
     recon_batch_def_item,
+    recon_batch_run,
     recon_batch_run_item,
     recon_template,
     recon_template_version,
@@ -415,6 +416,46 @@ def archive_batch_def(ctx: Ctx, def_id: int) -> dict[str, Any]:
         assert updated is not None
         items = _items_with_templates(conn, def_id)
         return _def_dict(updated, len(items))
+
+
+@service
+@requires_menu("batch_def")
+def delete_batch_def(ctx: Ctx, def_id: int) -> dict[str, Any]:
+    """Xóa bộ đối soát và các mục con (chỉ cho phép khi chưa có lần chạy nào)."""
+    require_role(ctx, Role.ADMIN, Role.TEMPLATE_OWNER)
+    engine = get_recon_engine()
+    now = _now()
+    with engine.begin() as conn:
+        row = _load_def(conn, def_id)
+        cnt_runs = (
+            conn.execute(
+                select(func.count(recon_batch_run.c.ID)).where(recon_batch_run.c.BATCH_DEF_ID == def_id)
+            ).scalar()
+            or 0
+        )
+        if cnt_runs > 0:
+            raise ServiceError(
+                ErrorCode.CONFLICT,
+                f"Không thể xóa bộ đối soát '{row['CODE']}' đã có {cnt_runs} lần chạy trong hệ thống. Hãy sử dụng chức năng Lưu trữ.",
+            )
+        conn.execute(
+            recon_batch_def_item.delete().where(recon_batch_def_item.c.BATCH_DEF_ID == def_id)
+        )
+        conn.execute(
+            recon_batch_def.delete().where(recon_batch_def.c.ID == def_id)
+        )
+        write_audit_log(
+            conn=conn,
+            entity="RECON_BATCH_DEF",
+            entity_id=def_id,
+            action="DELETE_BATCH_DEF",
+            actor=ctx.username,
+            old_data={"code": str(row["CODE"]), "name": str(row["NAME"]), "status": str(row["STATUS"])},
+            new_data=None,
+            now=now,
+        )
+        return {"id": def_id, "code": str(row["CODE"]), "deleted": True}
+
 
 
 @service

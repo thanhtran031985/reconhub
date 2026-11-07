@@ -654,6 +654,7 @@ def create_shell_layout() -> Any:
             # thanh bên trong tối đa 5 giây (spec 11 mục 6).
             dcc.Store(id="app-perm-revision", data=None),
             dcc.Interval(id="app-perm-revision-check", interval=5000, n_intervals=0),
+            dmc.NotificationContainer(position="top-right", zIndex=9999),
             html.Div(id="app-shell-container"),
         ]
     )

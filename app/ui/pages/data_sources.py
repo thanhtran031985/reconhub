@@ -188,9 +188,10 @@ def render_data_sources_table(
         "zIndex": 1,
         "backgroundColor": "var(--mantine-color-body, #fff)",
         "whiteSpace": "nowrap",
+        "textAlign": "center",
     }
     headers = [
-        dmc.TableTh("Kích hoạt", style={"minWidth": "90px", "textAlign": "center", **th_style}),
+        dmc.TableTh("Kích hoạt", style={"minWidth": "90px", **th_style}),
         dmc.TableTh("Tên nguồn", style={"minWidth": "160px", **th_style}),
         dmc.TableTh("Môi trường", style={"minWidth": "110px", **th_style}),
         dmc.TableTh("Máy chủ (Host:Port/Service)", style={"minWidth": "240px", **th_style}),
@@ -198,7 +199,7 @@ def render_data_sources_table(
         dmc.TableTh("Schema", style={"minWidth": "120px", **th_style}),
         dmc.TableTh("Kiểm tra gần nhất", style={"minWidth": "160px", **th_style}),
         dmc.TableTh("Sử dụng", style={"minWidth": "110px", **th_style}),
-        dmc.TableTh("Thao tác", style={"minWidth": "100px", "textAlign": "right", **th_style}),
+        dmc.TableTh("Thao tác", style={"minWidth": "100px", **th_style}),
     ]
 
     return dmc.Card(

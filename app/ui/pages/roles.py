@@ -473,9 +473,9 @@ def render_role_detail(ctx: Ctx, role_id: int) -> Any:
                             html.Thead(
                                 html.Tr(
                                     [
-                                        html.Th("Username", style={"textAlign": "left"}),
-                                        html.Th("Họ tên", style={"textAlign": "left"}),
-                                        html.Th("Trạng thái", style={"textAlign": "left"}),
+                                        html.Th("Username", style={"textAlign": "center"}),
+                                        html.Th("Họ tên", style={"textAlign": "center"}),
+                                        html.Th("Trạng thái", style={"textAlign": "center"}),
                                     ]
                                 )
                             ),
@@ -548,8 +548,8 @@ def render_effective_panel(ctx: Ctx, user_id: int) -> Any:
                 html.Thead(
                     html.Tr(
                         [
-                            html.Th("Menu", style={"textAlign": "left"}),
-                            html.Th("Có từ vai trò", style={"textAlign": "left"}),
+                            html.Th("Menu", style={"textAlign": "center"}),
+                            html.Th("Có từ vai trò", style={"textAlign": "center"}),
                         ]
                     )
                 ),
@@ -652,10 +652,10 @@ def render_sim_panel(ctx: Ctx, user_id: int) -> Any:
                     html.Thead(
                         html.Tr(
                             [
-                                html.Th("Run", style={"textAlign": "left"}),
-                                html.Th("Template", style={"textAlign": "left"}),
-                                html.Th("Người chạy", style={"textAlign": "left"}),
-                                html.Th("Trạng thái", style={"textAlign": "left"}),
+                                html.Th("Run", style={"textAlign": "center"}),
+                                html.Th("Template", style={"textAlign": "center"}),
+                                html.Th("Người chạy", style={"textAlign": "center"}),
+                                html.Th("Trạng thái", style={"textAlign": "center"}),
                             ]
                         )
                     ),
