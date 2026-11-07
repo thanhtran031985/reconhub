@@ -299,7 +299,7 @@ def render_banners(
 
 
 def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool = False) -> Any:
-    """Tạo thanh header 56px với nút toggle sidebar, breadcrumb, nhãn ENV và User Menu."""
+    """Tạo thanh header 44px chuẩn Fluent Compact với nút toggle sidebar, breadcrumb, nhãn ENV và User Menu."""
     env_badge_color = {
         "dev": "blue",
         "test": "gray",
@@ -415,7 +415,7 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool
         justify="space-between",
         align="center",
         h="100%",
-        px="lg",
+        px="md",
     )
 
 
@@ -443,7 +443,7 @@ def get_active_nav_href(nav_groups: list[dict[str, Any]], pathname: str | None) 
 
 
 def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) -> Any:
-    """Tạo thanh navbar 232px (hoặc 60px mini) với các nhóm menu phân quyền."""
+    """Tạo thanh navbar 200px (hoặc 48px rail mini) với các nhóm menu phân quyền và vạch active 3px."""
     if ctx is None:
         nav_groups = get_nav_items_for_roles(set())
     else:
@@ -453,20 +453,20 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
     content_children: list[Any] = []
 
     if not is_mini:
-        # 1. Logo ReconHub Full
+        # 1. Logo ReconHub Full (44px)
         content_children.append(
             dmc.Box(
                 dmc.Anchor(
                     dmc.Group(
                         [
                             dmc.ThemeIcon(
-                                DashIconify(icon="lucide:layers", width=22),
-                                size="lg",
+                                DashIconify(icon="lucide:layers", width=20),
+                                size="md",
                                 radius="md",
                                 color="primary",
                                 variant="filled",
                             ),
-                            dmc.Text("ReconHub", fw=700, size="lg", c="dark"),
+                            dmc.Text("ReconHub", fw=700, size="md", c="dark"),
                         ],
                         gap="xs",
                         align="center",
@@ -475,10 +475,10 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
                     href="/",
                     underline=False,
                 ),
-                px="md",
-                h="56px",
+                px="sm",
+                h="44px",
                 style={
-                    "borderBottom": "1px solid var(--mantine-color-gray-2)",
+                    "borderBottom": "1px solid var(--line, #E0E0E0)",
                     "display": "flex",
                     "alignItems": "center",
                 },
@@ -491,12 +491,12 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
                 dmc.Text(
                     group["title"],
                     size="xs",
-                    fw=700,
+                    fw=600,
                     c="dimmed",
-                    px="md",
-                    pt="md",
-                    pb="xs",
-                    style={"letterSpacing": "0.5px"},
+                    px="sm",
+                    pt="xs",
+                    pb=2,
+                    style={"letterSpacing": "0.3px", "fontSize": "11px"},
                 )
             )
             for item in group["items"]:
@@ -505,7 +505,7 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
                 if item.get("is_new"):
                     label_node = dmc.Group(
                         [
-                            dmc.Text(item["label"], size="sm", fw=500),
+                            dmc.Text(item["label"], size="xs", fw=500),
                             dmc.Badge("Mới", size="xs", color="green", variant="light"),
                         ],
                         gap="xs",
@@ -513,26 +513,38 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
                 content_children.append(
                     dmc.NavLink(
                         label=label_node,
-                        leftSection=DashIconify(icon=item["icon"], width=18),
+                        leftSection=DashIconify(icon=item["icon"], width=16),
                         href=item["href"],
                         active=is_active,
-                        variant="filled",
-                        color="primary",
-                        px="md",
-                        py="xs",
-                        styles={"label": {"fontWeight": 500}},
+                        variant="subtle",
+                        px="xs",
+                        py=2,
+                        styles={
+                            "root": {
+                                "height": "32px",
+                                "borderRadius": "4px",
+                                "borderLeft": "3px solid var(--primary, #0F6CBD)" if is_active else "3px solid transparent",
+                                "backgroundColor": "var(--primary-soft, #EBF3FC)" if is_active else "transparent",
+                                "margin": "1px 4px",
+                            },
+                            "label": {
+                                "fontWeight": 600 if is_active else 500,
+                                "fontSize": "13px",
+                                "color": "var(--ink, #242424)",
+                            },
+                        },
                     )
                 )
     else:
-        # Mini mode (Rail 60px)
-        # 1. Logo Icon centered kèm Tooltip
+        # Mini mode (Rail 48px)
+        # 1. Logo Icon centered kèm Tooltip (44px)
         content_children.append(
             dmc.Box(
                 dmc.Anchor(
                     dmc.Tooltip(
                         dmc.ThemeIcon(
-                            DashIconify(icon="lucide:layers", width=22),
-                            size="lg",
+                            DashIconify(icon="lucide:layers", width=20),
+                            size="md",
                             radius="md",
                             color="primary",
                             variant="filled",
@@ -546,10 +558,10 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
                     underline=False,
                     style={"display": "flex", "justifyContent": "center", "alignItems": "center"},
                 ),
-                h="56px",
+                h="44px",
                 w="100%",
                 style={
-                    "borderBottom": "1px solid var(--mantine-color-gray-2)",
+                    "borderBottom": "1px solid var(--line, #E0E0E0)",
                     "display": "flex",
                     "justifyContent": "center",
                     "alignItems": "center",
@@ -557,48 +569,68 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
             )
         )
 
-        # 2. Icon các mục menu dạng ActionIcon giống icon trang chủ kèm Tooltip
+        # 2. Icon các mục menu dạng ActionIcon giống icon trang chủ kèm Tooltip & Vạch active 3px
         for idx, group in enumerate(nav_groups):
             if idx > 0:
                 content_children.append(
                     dmc.Box(
-                        dmc.Divider(color="var(--mantine-color-gray-2)"),
-                        px="sm",
+                        dmc.Divider(color="var(--line, #E0E0E0)"),
+                        px="xs",
                         py="xs",
                         w="100%",
                     )
                 )
             for item in group["items"]:
                 is_active = item["href"] == active_href
+                item_children: list[Any] = [
+                    dmc.Anchor(
+                        dmc.Tooltip(
+                            dmc.ActionIcon(
+                                DashIconify(icon=item["icon"], width=18),
+                                size="md",
+                                radius="sm",
+                                variant="subtle",
+                                style={
+                                    "color": "var(--primary, #0F6CBD)" if is_active else "var(--ink-soft, #616161)",
+                                    "backgroundColor": "var(--primary-soft, #EBF3FC)" if is_active else "transparent",
+                                },
+                            ),
+                            label=item["label"],
+                            position="right",
+                            withArrow=True,
+                            offset=12,
+                            transitionProps={"transition": "fade", "duration": 150},
+                        ),
+                        href=item["href"],
+                        underline=False,
+                        style={"display": "flex", "justifyContent": "center", "alignItems": "center"},
+                    )
+                ]
+                if is_active:
+                    item_children.append(
+                        dmc.Box(
+                            style={
+                                "position": "absolute",
+                                "left": 0,
+                                "top": "6px",
+                                "bottom": "6px",
+                                "width": "3px",
+                                "borderRadius": "2px",
+                                "backgroundColor": "var(--primary, #0F6CBD)",
+                            }
+                        )
+                    )
                 content_children.append(
                     dmc.Box(
-                        dmc.Anchor(
-                            dmc.Tooltip(
-                                dmc.ActionIcon(
-                                    DashIconify(icon=item["icon"], width=20),
-                                    size="lg",
-                                    radius="md",
-                                    variant="filled" if is_active else "subtle",
-                                    color="primary" if is_active else "gray",
-                                    styles={
-                                        "root": {
-                                            "color": "#ffffff" if is_active else "var(--mantine-color-gray-7)",
-                                        }
-                                    },
-                                ),
-                                label=item["label"],
-                                position="right",
-                                withArrow=True,
-                                offset=12,
-                                transitionProps={"transition": "fade", "duration": 150},
-                            ),
-                            href=item["href"],
-                            underline=False,
-                            style={"display": "flex", "justifyContent": "center", "alignItems": "center"},
-                        ),
-                        py=4,
+                        item_children,
+                        py=2,
                         w="100%",
-                        style={"display": "flex", "justifyContent": "center", "alignItems": "center"},
+                        style={
+                            "display": "flex",
+                            "justifyContent": "center",
+                            "alignItems": "center",
+                            "position": "relative",
+                        },
                     )
                 )
 
@@ -672,17 +704,46 @@ def render_app_shell(pathname: str | None, is_collapsed_data: Any) -> Any:
 
     main_content: list[Any] = []
     if banners:
-        main_content.append(dmc.Box(banners, px="lg", pt="md"))
-    main_content.append(dash.page_container)
+        main_content.append(dmc.Box(banners, px="md", pt="xs"))
+    main_content.append(
+        dmc.Box(
+            dash.page_container,
+            h="100%",
+            style={
+                "minHeight": 0,
+                "overflow": "auto",
+                "display": "flex",
+                "flexDirection": "column",
+                "flex": 1,
+            },
+        )
+    )
 
     return dmc.AppShell(
         id="app-shell",
-        header={"height": 56},
-        navbar={"width": 60 if is_mini else 232, "breakpoint": "sm"},
+        header={"height": 44},
+        navbar={"width": 48 if is_mini else 200, "breakpoint": "sm"},
         children=[
-            dmc.AppShellHeader(header_content),
-            dmc.AppShellNavbar(id="app-shell-navbar", children=navbar_content),
-            dmc.AppShellMain(main_content),
+            dmc.AppShellHeader(
+                header_content,
+                style={"borderBottom": "1px solid var(--line, #E0E0E0)"},
+            ),
+            dmc.AppShellNavbar(
+                id="app-shell-navbar",
+                children=navbar_content,
+                style={"borderRight": "1px solid var(--line, #E0E0E0)"},
+            ),
+            dmc.AppShellMain(
+                main_content,
+                style={
+                    "height": "calc(100vh - 44px)",
+                    "minHeight": 0,
+                    "overflow": "hidden",
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "backgroundColor": "var(--bg, #F5F5F5)",
+                },
+            ),
         ],
     )
 
@@ -742,7 +803,7 @@ def sync_sidebar_ui(is_collapsed: Any, pathname: str | None) -> tuple[Any, ...]:
 
     is_mini = bool(is_collapsed)
     ctx = get_current_ctx()
-    navbar_config = {"width": 60 if is_mini else 232, "breakpoint": "sm"}
+    navbar_config = {"width": 48 if is_mini else 200, "breakpoint": "sm"}
     navbar_children = create_navbar(ctx, pathname, is_mini=is_mini)
     toggle_icon = DashIconify(
         icon="lucide:panel-left-open" if is_mini else "lucide:panel-left-close",

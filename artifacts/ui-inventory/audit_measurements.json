@@ -1,0 +1,542 @@
+{
+  "login": {
+    "url": "/login",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 844,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "dashboard": {
+    "url": "/",
+    "desktop_1366": {
+      "scrollHeight": 1065,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 1065,
+      "bodyClientHeight": 1065
+    },
+    "has_v_scroll": true,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 1862,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "templates": {
+    "url": "/templates",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 844,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "template-wizard-new": {
+    "url": "/templates/new",
+    "desktop_1366": {
+      "scrollHeight": 938,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 938,
+      "bodyClientHeight": 938
+    },
+    "has_v_scroll": true,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 1398,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "template-wizard-edit": {
+    "url": "/templates/6/edit",
+    "desktop_1366": {
+      "scrollHeight": 1778,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 1778,
+      "bodyClientHeight": 1778
+    },
+    "has_v_scroll": true,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 2564,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "template-diagram": {
+    "url": "/templates/6/diagram",
+    "desktop_1366": {
+      "scrollHeight": 4132,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 4132,
+      "bodyClientHeight": 4132
+    },
+    "has_v_scroll": true,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 3182,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "runs-new": {
+    "url": "/runs/new",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 844,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "history": {
+    "url": "/history",
+    "desktop_1366": {
+      "scrollHeight": 2181,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 2181,
+      "bodyClientHeight": 2181
+    },
+    "has_v_scroll": true,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 2565,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "run-result": {
+    "url": "/runs/663",
+    "desktop_1366": {
+      "scrollHeight": 2644,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 2644,
+      "bodyClientHeight": 2644
+    },
+    "has_v_scroll": true,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 3442,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "batch-defs": {
+    "url": "/batches",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 844,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "batch-def-edit": {
+    "url": "/batches/1",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 844,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "batch-runs": {
+    "url": "/batch-runs",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 844,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "batch-run-result": {
+    "url": "/batch-runs/1/result",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 844,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "issues": {
+    "url": "/issues",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 1263,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "reports": {
+    "url": "/reports",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 1513,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "report-viewer": {
+    "url": "/reports/1",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 844,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "report-runs": {
+    "url": "/report-runs",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 844,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "report-admin": {
+    "url": "/report-admin",
+    "desktop_1366": {
+      "scrollHeight": 831,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 831,
+      "bodyClientHeight": 831
+    },
+    "has_v_scroll": true,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 1154,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "data-sources": {
+    "url": "/data-sources",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 844,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "lookups": {
+    "url": "/lookups",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 1250,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "users": {
+    "url": "/users",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 913,
+      "clientHeight": 844,
+      "scrollWidth": 581,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": true
+  },
+  "roles": {
+    "url": "/roles",
+    "desktop_1366": {
+      "scrollHeight": 1496,
+      "clientHeight": 768,
+      "scrollWidth": 1374,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 1496,
+      "bodyClientHeight": 1496
+    },
+    "has_v_scroll": true,
+    "has_h_scroll": true,
+    "mobile_390": {
+      "scrollHeight": 2256,
+      "clientHeight": 844,
+      "scrollWidth": 398,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": true
+  },
+  "menus": {
+    "url": "/menus",
+    "desktop_1366": {
+      "scrollHeight": 3017,
+      "clientHeight": 768,
+      "scrollWidth": 1374,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 3017,
+      "bodyClientHeight": 3017
+    },
+    "has_v_scroll": true,
+    "has_h_scroll": true,
+    "mobile_390": {
+      "scrollHeight": 3174,
+      "clientHeight": 844,
+      "scrollWidth": 701,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": true
+  },
+  "account": {
+    "url": "/account",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 844,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "forbidden": {
+    "url": "/forbidden",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 844,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "suspended": {
+    "url": "/suspended",
+    "desktop_1366": {
+      "scrollHeight": 768,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 768,
+      "bodyClientHeight": 768
+    },
+    "has_v_scroll": false,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 844,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  },
+  "dev-gallery": {
+    "url": "/dev/ui",
+    "desktop_1366": {
+      "scrollHeight": 2122,
+      "clientHeight": 768,
+      "scrollWidth": 1366,
+      "clientWidth": 1366,
+      "bodyScrollHeight": 2122,
+      "bodyClientHeight": 2122
+    },
+    "has_v_scroll": true,
+    "has_h_scroll": false,
+    "mobile_390": {
+      "scrollHeight": 2760,
+      "clientHeight": 844,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "mobile_h_overflow": false
+  }
+}
