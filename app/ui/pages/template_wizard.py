@@ -2965,81 +2965,115 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
             dcc.Store(id="wizard-active-profile-store", data=initial_active_prof_code),
             dcc.Location(id="wizard-redirect-location", refresh=True),
             dcc.Interval(id="wizard-autosave-interval", interval=15000, n_intervals=0),
-            # Header
-            dmc.Group(
-                justify="space-between",
-                align="flex-start",
-                mb="md",
-                children=[
-                    html.Div(
-                        [
-                            dmc.Title(
-                                header_title_text,
-                                id="wizard-header-title",
-                                order=2,
-                                fw=700,
+            # Header + Stepper fixed top
+            dmc.Box(
+                [
+                    dmc.Group(
+                        justify="space-between",
+                        align="center",
+                        mb="xs",
+                        children=[
+                            html.Div(
+                                [
+                                    dmc.Title(
+                                        header_title_text,
+                                        id="wizard-header-title",
+                                        order=4,
+                                        fw=600,
+                                    ),
+                                    dmc.Text(
+                                        subtitle_text,
+                                        id="wizard-header-subtitle",
+                                        size="xs",
+                                        c="dimmed",
+                                        mt=2,
+                                    ),
+                                ]
                             ),
-                            dmc.Text(
-                                subtitle_text,
-                                id="wizard-header-subtitle",
-                                size="sm",
-                                c="dimmed",
-                                mt=4,
+                            dmc.SegmentedControl(
+                                id="wizard-view-tabs",
+                                value="config",
+                                data=[
+                                    {"label": "Cấu hình template", "value": "config"},
+                                    {"label": "Sơ đồ diễn giải", "value": "diagram"},
+                                ],
+                                size="xs",
+                                radius="sm",
                             ),
-                        ]
-                    ),
-                    dmc.SegmentedControl(
-                        id="wizard-view-tabs",
-                        value="config",
-                        data=[
-                            {"label": "Cấu hình template", "value": "config"},
-                            {"label": "Sơ đồ diễn giải", "value": "diagram"},
                         ],
-                        radius="sm",
+                    ),
+                    # Stepper 5 bước (hiển thị khi ở tab Cấu hình)
+                    html.Div(
+                        id="wizard-stepper-box",
+                        children=dmc.Stepper(
+                            id="wizard-stepper",
+                            active=0,
+                            size="xs",
+                            children=[
+                                dmc.StepperStep(label="File mẫu", description="Upload & cấu trúc"),
+                                dmc.StepperStep(label="Định nghĩa trường", description="Chuẩn hóa & ánh xạ"),
+                                dmc.StepperStep(label="Nguồn DB", description="Oracle & điều kiện lọc"),
+                                dmc.StepperStep(label="Profile so sánh", description="Group by & measures"),
+                                dmc.StepperStep(label="Dry-run", description="Chạy thử & kích hoạt"),
+                            ],
+                        ),
                     ),
                 ],
-            ),
-            # Stepper 5 bước (hiển thị khi ở tab Cấu hình)
-            html.Div(
-                id="wizard-stepper-box",
-                children=dmc.Stepper(
-                    id="wizard-stepper",
-                    active=0,
-                    mb="lg",
-                    children=[
-                        dmc.StepperStep(label="File mẫu", description="Upload & cấu trúc"),
-                        dmc.StepperStep(label="Định nghĩa trường", description="Chuẩn hóa & ánh xạ"),
-                        dmc.StepperStep(label="Nguồn DB", description="Oracle & điều kiện lọc"),
-                        dmc.StepperStep(label="Profile so sánh", description="Group by & measures"),
-                        dmc.StepperStep(label="Dry-run", description="Chạy thử & kích hoạt"),
-                    ],
-                ),
+                style={
+                    "flexShrink": 0,
+                    "padding": "12px 20px 8px 20px",
+                    "borderBottom": "1px solid var(--mantine-color-default-border)",
+                    "backgroundColor": "var(--mantine-color-body)",
+                },
             ),
             # Content container: Step content hoặc Diagram content
-            html.Div(id="wizard-step-content", children=html.Div("Đang tải dữ liệu...")),
-            html.Div(id="wizard-diagram-content", style={"display": "none"}),
-            # Error alert container
-            dmc.Box(id="wizard-error-alert-container", mt="md"),
+            html.Div(
+                children=[
+                    html.Div(id="wizard-step-content", children=html.Div("Đang tải dữ liệu...")),
+                    html.Div(id="wizard-diagram-content", style={"display": "none"}),
+                    dmc.Box(id="wizard-error-alert-container", mt="md"),
+                ],
+                style={
+                    "flex": "1 1 0%",
+                    "minHeight": 0,
+                    "overflowY": "auto",
+                    "padding": "16px 20px",
+                },
+            ),
             # Footer Navigation
             dmc.Group(
                 id="wizard-footer-nav",
                 justify="space-between",
-                mt="xl",
+                align="center",
                 children=[
-                    button_subtle("Quay lại", id="wizard-prev-btn", disabled=True),
+                    button_subtle("Quay lại", id="wizard-prev-btn", disabled=True, size="sm"),
                     dmc.Group(
                         [
-                            button_subtle("Lưu nháp", id="wizard-save-draft-btn"),
-                            button_primary("Tiếp", id="wizard-next-btn"),
+                            button_subtle("Lưu nháp", id="wizard-save-draft-btn", size="sm"),
+                            button_primary("Tiếp", id="wizard-next-btn", size="sm"),
                         ],
                         gap="sm",
                     ),
                 ],
+                style={
+                    "flexShrink": 0,
+                    "height": "48px",
+                    "padding": "0 20px",
+                    "borderTop": "1px solid var(--mantine-color-default-border)",
+                    "backgroundColor": "var(--mantine-color-body)",
+                    "display": "flex",
+                },
             ),
             # Notification container
             html.Div(id="wizard-notification-container"),
         ],
-        style={"padding": "24px"},
+        style={
+            "height": "calc(100vh - 48px)",
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "backgroundColor": "var(--mantine-color-body)",
+        },
     )
 
 
@@ -3882,7 +3916,16 @@ def handle_switch_tabs(
         {"display": "block"},
         {"display": "block"},
         {"display": "none"},
-        {"display": "flex"},
+        {
+            "display": "flex",
+            "justifyContent": "space-between",
+            "alignItems": "center",
+            "flexShrink": 0,
+            "height": "48px",
+            "padding": "0 20px",
+            "borderTop": "1px solid var(--mantine-color-default-border)",
+            "backgroundColor": "var(--mantine-color-body)",
+        },
         dash.no_update,
     )
 
