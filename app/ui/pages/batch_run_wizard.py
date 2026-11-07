@@ -33,7 +33,9 @@ from app.services.batch_run import (
     set_param_override,
     skip_item,
     start,
+    update_batch_run_data_source,
 )
+from app.services.data_source import options_data_sources
 from app.services.perm import page_gate
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
@@ -149,15 +151,10 @@ def render_wizard_header(run: dict[str, Any]) -> Any:
     archived = [i for i in (run.get("items") or []) if i.get("skip_reason") == "TEMPLATE_ARCHIVED"]
     status = str(run.get("status", "DRAFT"))
     actions: list[Any] = []
-    if status in ("DONE", "PARTIAL"):
-        actions.append(
-            dmc.Anchor(
-                button_primary("Xem kết quả", icon="lucide:bar-chart-3", size="xs"),
-                href=f"/batch-runs/{run['id']}/result",
-                underline=False,
-            )
-        )
-    if status in ("DRAFT", "RUNNING"):
+    if status == "DRAFT":
+        actions.append(button_subtle("Lưu nháp", icon="lucide:save", id="brw-save-draft-btn", size="xs"))
+        actions.append(button_danger("Hủy lần chạy", id="brw-cancel-btn", size="xs"))
+    elif status == "RUNNING":
         actions.append(button_danger("Hủy lần chạy", id="brw-cancel-btn", size="xs"))
 
     return dmc.Stack(
@@ -196,9 +193,53 @@ def render_wizard_header(run: dict[str, Any]) -> Any:
     )
 
 
-def render_step1_summary(run: dict[str, Any]) -> Any:
+def _get_active_source_ds_options() -> list[dict[str, Any]]:
+    ctx = get_current_ctx()
+    if ctx is None:
+        return []
+    res = options_data_sources(ctx, purpose="SOURCE")
+    if not res.ok or not res.data:
+        return []
+    return [{"label": f"{d.name} ({d.env})", "value": str(d.id)} for d in res.data]
+
+
+def render_step1_summary(run: dict[str, Any], ds_options: list[dict[str, Any]] | None = None) -> Any:
     p_from = (run.get("period_from") or "")[:10]
     p_to = (run.get("period_to") or "")[:10]
+    is_draft = str(run.get("status", "DRAFT")) == "DRAFT"
+    current_ds_id = run.get("data_source_id")
+    ds_name = run.get("data_source_name") or "Mặc định"
+    ds_env = run.get("data_source_env") or ""
+    ds_display = f"{ds_name} ({ds_env})" if ds_env else ds_name
+
+    if ds_options is None:
+        ds_options = _get_active_source_ds_options()
+
+    ds_row_cell: Any
+    if is_draft and ds_options:
+        ds_row_cell = dmc.Group(
+            [
+                dmc.Select(
+                    id="brw-step1-ds-select",
+                    data=ds_options,
+                    value=str(current_ds_id) if current_ds_id else (ds_options[0]["value"] if ds_options else None),
+                    size="xs",
+                    w=220,
+                    styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "11px"}},
+                ),
+                button_subtle("Đổi Data Source", id="brw-step1-save-ds-btn", size="xs"),
+            ],
+            gap="xs",
+        )
+    else:
+        ds_row_cell = dmc.Group(
+            [
+                dmc.Badge(ds_display, color="blue", variant="light", size="xs"),
+                dmc.Text(f"DS #{current_ds_id}" if current_ds_id else "", size="xs", className="rh-code", c="dimmed"),
+            ],
+            gap="xs",
+        )
+
     return dmc.Paper(
         dmc.Stack(
             [
@@ -208,11 +249,12 @@ def render_step1_summary(run: dict[str, Any]) -> Any:
                         [
                             dmc.TableTr([dmc.TableTd(dmc.Text("Bộ đối soát", fw=600, size="xs")), dmc.TableTd(dmc.Text(f"{run.get('def_code', '')} — {run.get('def_name', '')}", size="xs"))]),
                             dmc.TableTr([dmc.TableTd(dmc.Text("Kỳ đối soát", fw=600, size="xs")), dmc.TableTd(dmc.Text(str(run.get("period", "")), size="xs", className="rh-code"))]),
+                            dmc.TableTr([dmc.TableTd(dmc.Text("Data Source nguồn", fw=600, size="xs")), dmc.TableTd(ds_row_cell)]),
                             dmc.TableTr([dmc.TableTd(dmc.Text("Tên lần chạy", fw=600, size="xs")), dmc.TableTd(dmc.Text(str(run.get("name", "")), size="xs"))]),
                             dmc.TableTr([dmc.TableTd(dmc.Text("Khoảng ngày giờ", fw=600, size="xs")), dmc.TableTd(dmc.Text(f"{p_from} 00:00:00 đến {p_to} 23:59:59 (giờ VN)", size="xs"))]),
                         ]
                     ),
-                    style={"fontSize": "12px", "maxWidth": "600px"},
+                    style={"fontSize": "12px", "maxWidth": "650px"},
                 ),
                 dmc.Text(
                     "Bấm 'Tiếp tục' bên dưới để tải và ghép file cho lần chạy bộ này.",
@@ -388,13 +430,13 @@ def render_step2(run: dict[str, Any], filter_mode: str = "all") -> Any:
             status_color = "red"
 
         skip_cell: Any = dmc.Text("")
-        if str(item.get("status")) != "SKIPPED" and str(item.get("is_required")) == "Y" and not files:
-            skip_cell = button_subtle(
-                "Bỏ qua tháng này", id={"type": "brw-skip-btn", "index": int(item["id"])}, size="xs"
-            )
-        elif str(item.get("status")) == "SKIPPED" and item.get("skip_reason") == "USER_SKIP":
+        if str(item.get("status")) == "SKIPPED" and item.get("skip_reason") == "USER_SKIP":
             skip_cell = button_subtle(
                 "Hoàn tác ✓", id={"type": "brw-skip-btn", "index": int(item["id"])}, size="xs"
+            )
+        elif str(item.get("status")) != "SKIPPED" and item.get("skip_reason") != "TEMPLATE_ARCHIVED":
+            skip_cell = button_subtle(
+                "Bỏ qua tháng này", id={"type": "brw-skip-btn", "index": int(item["id"])}, size="xs"
             )
 
         match_rows.append(
@@ -558,7 +600,6 @@ def render_step3(run: dict[str, Any]) -> Any:
         tmpl_code = str(item.get("template_code", ""))
         tmpl_name = str(item.get("template_name") or "")
         files = _matched_files(item)
-        ds_text = f"DS #{item.get('data_source_id')}" if item.get("data_source_id") else "Mặc định"
 
         resolved = item.get("params_resolved") or {}
         overrides = item.get("params_run_override") or {}
@@ -566,6 +607,8 @@ def render_step3(run: dict[str, Any]) -> Any:
         # p_from & p_to
         from_val = str(overrides.get("p_from") or resolved.get("p_from") or "")
         to_val = str(overrides.get("p_to") or resolved.get("p_to") or "")
+        from_date = from_val[:10] if len(from_val) >= 10 else None
+        to_date = to_val[:10] if len(to_val) >= 10 else None
 
         # Tham số khác
         other_params = {k: v for k, v in resolved.items() if k not in ("p_from", "p_to")}
@@ -615,48 +658,53 @@ def render_step3(run: dict[str, Any]) -> Any:
                         ),
                         style={"verticalAlign": "middle"},
                     ),
-                    dmc.TableTd(dmc.Text(ds_text, size="xs", className="rh-code", ta="center"), style={"verticalAlign": "middle"}),
                     dmc.TableTd(
                         dmc.Stack(
                             [
-                                dmc.TextInput(
+                                dmc.DatePickerInput(
                                     id={"type": "brw-param-input", "index": f"{item_id}:p_from"},
-                                    value=from_val,
+                                    value=from_date,
+                                    valueFormat="YYYY-MM-DD",
+                                    placeholder="YYYY-MM-DD",
                                     size="xs",
                                     styles={"input": {
                                         "height": "26px",
+                                        "minHeight": "26px",
                                         "fontSize": "11px",
                                         "fontFamily": "var(--mono)",
                                         "borderColor": "var(--purple)" if "p_from" in overrides else None,
                                         "backgroundColor": "var(--purple-soft)" if "p_from" in overrides else None,
                                     }},
                                 ),
-                                dmc.Text(f"= {from_val[:19].replace('T', ' ')}", size="xs", c="teal", className="rh-code"),
+                                dmc.Text(f"= {from_date} 00:00:00" if from_date else "—", size="xs", c="teal", className="rh-code"),
                             ],
                             gap=2,
                         ),
-                        style={"verticalAlign": "middle", "minWidth": 160},
+                        style={"verticalAlign": "middle", "minWidth": 150},
                     ),
                     dmc.TableTd(
                         dmc.Stack(
                             [
-                                dmc.TextInput(
+                                dmc.DatePickerInput(
                                     id={"type": "brw-param-input", "index": f"{item_id}:p_to"},
-                                    value=to_val,
+                                    value=to_date,
+                                    valueFormat="YYYY-MM-DD",
+                                    placeholder="YYYY-MM-DD",
                                     size="xs",
                                     styles={"input": {
                                         "height": "26px",
+                                        "minHeight": "26px",
                                         "fontSize": "11px",
                                         "fontFamily": "var(--mono)",
                                         "borderColor": "var(--purple)" if "p_to" in overrides else None,
                                         "backgroundColor": "var(--purple-soft)" if "p_to" in overrides else None,
                                     }},
                                 ),
-                                dmc.Text(f"= {to_val[:19].replace('T', ' ')}", size="xs", c="teal", className="rh-code"),
+                                dmc.Text(f"= {to_date} 23:59:59" if to_date else "—", size="xs", c="teal", className="rh-code"),
                             ],
                             gap=2,
                         ),
-                        style={"verticalAlign": "middle", "minWidth": 160},
+                        style={"verticalAlign": "middle", "minWidth": 150},
                     ),
                     dmc.TableTd(
                         dmc.Stack(other_cells, gap=4) if other_cells else dmc.Text("—", size="xs", c="dimmed", ta="center"),
@@ -684,38 +732,46 @@ def render_step3(run: dict[str, Any]) -> Any:
                 tone="info",
             ),
             dmc.Paper(
-                dmc.TableScrollContainer(
-                    minWidth=900,
-                    children=dmc.Table(
-                        [
-                            dmc.TableThead(
-                                dmc.TableTr(
-                                    [
-                                        dmc.TableTh("#", style={**th_style, "width": "40px"}),
-                                        dmc.TableTh("Template", style={**th_style, "minWidth": "180px", "textAlign": "left"}),
-                                        dmc.TableTh("Data Source", style={**th_style, "width": "110px"}),
-                                        dmc.TableTh("Từ ngày giờ (p_from)", style={**th_style, "minWidth": "160px"}),
-                                        dmc.TableTh("Đến ngày giờ (p_to)", style={**th_style, "minWidth": "160px"}),
-                                        dmc.TableTh("Tham số khác", style={**th_style, "minWidth": "180px"}),
-                                        dmc.TableTh("", style={**th_style, "width": "90px"}),
-                                    ]
-                                )
+                dmc.Stack(
+                    [
+                        dmc.Group(
+                            [
+                                dmc.Title("Soát và sửa tham số lần chạy", order=5),
+                                button_primary("Lưu tham số", icon="lucide:save", id="brw-save-params-btn", size="xs"),
+                            ],
+                            justify="space-between",
+                            align="center",
+                        ),
+                        dmc.TableScrollContainer(
+                            minWidth=850,
+                            children=dmc.Table(
+                                [
+                                    dmc.TableThead(
+                                        dmc.TableTr(
+                                            [
+                                                dmc.TableTh("#", style={**th_style, "width": "40px"}),
+                                                dmc.TableTh("Template", style={**th_style, "minWidth": "180px", "textAlign": "left"}),
+                                                dmc.TableTh("Từ ngày (p_from)", style={**th_style, "minWidth": "150px"}),
+                                                dmc.TableTh("Đến ngày (p_to)", style={**th_style, "minWidth": "150px"}),
+                                                dmc.TableTh("Tham số khác", style={**th_style, "minWidth": "180px"}),
+                                                dmc.TableTh("", style={**th_style, "width": "90px"}),
+                                            ]
+                                        )
+                                    ),
+                                    dmc.TableTbody(rows),
+                                ],
+                                striped=False,
+                                highlightOnHover=True,
+                                verticalSpacing=4,
+                                style={"fontSize": "12px"},
                             ),
-                            dmc.TableTbody(rows),
-                        ],
-                        striped=False,
-                        highlightOnHover=True,
-                        verticalSpacing=4,
-                        style={"fontSize": "12px"},
-                    ),
+                        ),
+                    ],
+                    gap="xs",
                 ),
                 p="xs",
                 withBorder=True,
                 radius="sm",
-            ),
-            dmc.Group(
-                [button_primary("Lưu tham số", icon="lucide:save", id="brw-save-params-btn", size="xs")],
-                justify="flex-end",
             ),
         ],
         gap="xs",
@@ -730,9 +786,6 @@ def render_step4(run: dict[str, Any], include_warn: bool = True) -> Any:
         if st in counts:
             counts[st] += 1
     skipped_count = int(run.get("cnt_skipped", 0))
-
-    runnable = runnable_items(run)
-    runnable_count = len(runnable) if include_warn else counts["READY"]
 
     th_style = {
         "position": "sticky",
@@ -910,28 +963,6 @@ def render_step4(run: dict[str, Any], include_warn: bool = True) -> Any:
                 withBorder=True,
                 radius="sm",
             ),
-
-            # Nút Chạy
-            dmc.Group(
-                [
-                    button_primary(
-                        f"Chạy {runnable_count} template",
-                        icon="lucide:play",
-                        id="brw-start-btn",
-                        disabled=runnable_count == 0,
-                        size="sm",
-                    ),
-                    dmc.Text(
-                        "Chưa có template nào sẵn sàng chạy, bấm 'Kiểm tra trước'."
-                        if runnable_count == 0
-                        else f"Sẽ chạy {runnable_count} template. Mục lỗi và mục chưa kiểm tra sẽ không chạy.",
-                        size="xs",
-                        c="dimmed",
-                    ),
-                ],
-                gap="sm",
-                align="center",
-            ),
         ],
         gap="xs",
     )
@@ -945,11 +976,33 @@ def render_step5(run: dict[str, Any]) -> Any:
         if st in counts:
             counts[st] += 1
 
-    runnable_total = sum(counts.values())
+    runnable = runnable_items(run)
+    runnable_total = len(runnable)
     finished = counts["DONE"] + counts["FAILED"] + counts["NOT_RUN"]
-    pct = round(finished / runnable_total * 100) if runnable_total else 0
     status = str(run.get("status", "DRAFT"))
+    if status in ("DONE", "PARTIAL"):
+        pct = 100
+    elif status == "DRAFT":
+        pct = 0
+    else:
+        active_items = [it for it in items if str(it.get("status")) != "SKIPPED"]
+        if active_items:
+            pct_list = []
+            for it in active_items:
+                st = str(it.get("status"))
+                if st in ("DONE", "FAILED", "NOT_RUN"):
+                    pct_list.append(100)
+                elif st == "RUNNING":
+                    pct_list.append(max(int(it.get("progress_pct") or 50), 20))
+                elif st == "QUEUED":
+                    pct_list.append(15)
+                else:
+                    pct_list.append(0)
+            pct = round(sum(pct_list) / len(active_items))
+        else:
+            pct = 100
     par = run.get("max_parallel_per_ds", 2)
+    default_ds_name = run.get("data_source_name") or "Data Source nguồn"
 
     th_style = {
         "position": "sticky",
@@ -964,24 +1017,87 @@ def render_step5(run: dict[str, Any]) -> Any:
         "borderBottom": "1px solid var(--line, #E0E0E0)",
     }
 
+    # Review câu lệnh SQL nguồn của các template
+    accordion_items = []
+    for it in items:
+        sql_code = str(it.get("source_sql") or "-- Chưa có câu lệnh SQL nguồn").strip()
+        binds = it.get("source_binds") or {}
+        bind_str = ", ".join(f":{k} = {v}" for k, v in binds.items()) if binds else "Không có bind param"
+        ds_badge_text = f"{it.get('data_source_name') or 'DS #' + str(it.get('data_source_id') or '?')} ({it.get('data_source_env', '')})"
+        accordion_items.append(
+            dmc.AccordionItem(
+                [
+                    dmc.AccordionControl(
+                        dmc.Group(
+                            [
+                                dmc.Text(f"{it.get('template_code')} — {it.get('template_name')}", fw=600, size="xs"),
+                                dmc.Badge(ds_badge_text, size="xs", variant="light", color="blue"),
+                                item_status_badge(str(it.get("status"))),
+                            ],
+                            gap="xs",
+                        )
+                    ),
+                    dmc.AccordionPanel(
+                        dmc.Stack(
+                            [
+                                dmc.Text(f"Tham số bind: {bind_str}", size="xs", className="rh-code", c="dimmed"),
+                                dmc.Code(sql_code, block=True, style={"fontSize": "11px", "maxHeight": "200px", "overflow": "auto"}),
+                            ],
+                            gap=4,
+                        )
+                    ),
+                ],
+                value=str(it.get("id")),
+            )
+        )
+
+    sql_review_card = dmc.Paper(
+        dmc.Stack(
+            [
+                dmc.Group(
+                    [
+                        DashIconify(icon="lucide:database", width=16, color="var(--primary)"),
+                        dmc.Title("Xem trước câu lệnh SQL nguồn của các template", order=5),
+                        dmc.Text(f"({len(items)} template sẽ query trên {default_ds_name})", size="xs", c="dimmed"),
+                    ],
+                    gap="xs",
+                ),
+                dmc.Accordion(accordion_items, chevronPosition="right"),
+            ],
+            gap="xs",
+        ),
+        p="xs",
+        withBorder=True,
+        radius="sm",
+    )
+
     rows = []
     for idx, item in enumerate(items, start=1):
         item_st = str(item.get("status"))
         stage_text = "Chờ xếp hàng"
         pct_val = 0
         if item_st == "DONE":
-            stage_text = "Đã hoàn thành"
+            stage_text = "Hoàn thành đối soát"
             pct_val = 100
         elif item_st == "FAILED":
-            stage_text = "Thất bại"
+            stage_text = item.get("error_msg") or "Lỗi khi chạy"
             pct_val = 100
         elif item_st == "RUNNING":
-            stage_text = "Đang chạy đối soát..."
-            pct_val = 50
+            item_prog = item.get("progress_pct") or 50
+            stage_text = f"Đang đọc Excel & truy vấn DB... ({item_prog}%)"
+            pct_val = max(int(item_prog), 20)
+        elif item_st == "QUEUED":
+            stage_text = "Đang trong hàng đợi"
+            pct_val = 15
+        elif item_st == "SKIPPED":
+            stage_text = "Đã bỏ qua tháng này"
+            pct_val = 0
         elif item_st == "NOT_RUN":
-            stage_text = "Không chạy"
+            stage_text = "Không chạy (chưa sẵn sàng)"
+            pct_val = 0
 
         prog_color = "teal" if item_st == "DONE" else ("red" if item_st == "FAILED" else "blue")
+        ds_cell_text = f"{item.get('data_source_name') or 'DS #' + str(item.get('data_source_id') or '—')} ({item.get('data_source_env', '')})"
 
         rows.append(
             dmc.TableTr(
@@ -1009,110 +1125,117 @@ def render_step5(run: dict[str, Any]) -> Any:
                             gap=2,
                         )
                     ),
-                    dmc.TableTd(dmc.Text(f"DS #{item.get('data_source_id') or '—'}", size="xs", className="rh-code", ta="center")),
+                    dmc.TableTd(dmc.Text(ds_cell_text, size="xs", className="rh-code", ta="center")),
                     dmc.TableTd(dmc.Text(stage_text, size="xs")),
                     dmc.TableTd(
-                        dmc.Progress(value=pct_val, color=prog_color, size="sm", radius="xs", striped=item_st == "RUNNING", animated=item_st == "RUNNING"),
-                        style={"minWidth": 140},
+                        dmc.Group(
+                            [
+                                dmc.Progress(
+                                    value=pct_val,
+                                    color=prog_color,
+                                    size="sm",
+                                    radius="xs",
+                                    striped=item_st == "RUNNING",
+                                    animated=item_st == "RUNNING",
+                                    style={"flex": 1},
+                                ),
+                                dmc.Text(f"{pct_val}%", size="xs", c="dimmed", style={"minWidth": "32px", "textAlign": "right"}),
+                            ],
+                            gap=6,
+                        ),
+                        style={"minWidth": 160},
                     ),
                     dmc.TableTd(dmc.Group([item_status_badge(item_st)], justify="center")),
                 ]
             )
         )
 
-    return dmc.Stack(
-        [
-            # 4 KPI cards
-            dmc.SimpleGrid(
-                cols={"base": 2, "sm": 4},
-                spacing="xs",
-                children=[
-                    dmc.Paper(
-                        dmc.Stack([dmc.Text("Xếp hàng", size="xs", c="dimmed"), dmc.Text(str(counts["QUEUED"]), fw=700, size="lg", c="gray")], gap=2),
-                        p="xs", withBorder=True, radius="sm",
+    stack_children: list[Any] = [
+        # 4 KPI cards
+        dmc.SimpleGrid(
+            cols={"base": 2, "sm": 4},
+            spacing="xs",
+            children=[
+                dmc.Paper(
+                    dmc.Stack([dmc.Text("Xếp hàng", size="xs", c="dimmed"), dmc.Text(str(counts["QUEUED"]), fw=700, size="lg", c="gray")], gap=2),
+                    p="xs", withBorder=True, radius="sm",
+                ),
+                dmc.Paper(
+                    dmc.Stack([dmc.Text("Đang chạy", size="xs", c="dimmed"), dmc.Text(str(counts["RUNNING"]), fw=700, size="lg", c="blue")], gap=2),
+                    p="xs", withBorder=True, radius="sm",
+                ),
+                dmc.Paper(
+                    dmc.Stack([dmc.Text("Đã xong", size="xs", c="dimmed"), dmc.Text(str(counts["DONE"]), fw=700, size="lg", c="teal")], gap=2),
+                    p="xs", withBorder=True, radius="sm",
+                ),
+                dmc.Paper(
+                    dmc.Stack([dmc.Text("Lỗi", size="xs", c="dimmed"), dmc.Text(str(counts["FAILED"]), fw=700, size="lg", c="red")], gap=2),
+                    p="xs", withBorder=True, radius="sm",
+                ),
+            ],
+        ),
+
+        # Card tiến độ tổng
+        dmc.Paper(
+            dmc.Stack(
+                [
+                    dmc.Group(
+                        [
+                            dmc.Title("Tiến độ tổng", order=5),
+                            dmc.Text(f"{finished}/{runnable_total} template · {pct}%", size="xs", fw=600),
+                        ],
+                        justify="space-between",
                     ),
-                    dmc.Paper(
-                        dmc.Stack([dmc.Text("Đang chạy", size="xs", c="dimmed"), dmc.Text(str(counts["RUNNING"]), fw=700, size="lg", c="blue")], gap=2),
-                        p="xs", withBorder=True, radius="sm",
-                    ),
-                    dmc.Paper(
-                        dmc.Stack([dmc.Text("Đã xong", size="xs", c="dimmed"), dmc.Text(str(counts["DONE"]), fw=700, size="lg", c="teal")], gap=2),
-                        p="xs", withBorder=True, radius="sm",
-                    ),
-                    dmc.Paper(
-                        dmc.Stack([dmc.Text("Lỗi", size="xs", c="dimmed"), dmc.Text(str(counts["FAILED"]), fw=700, size="lg", c="red")], gap=2),
-                        p="xs", withBorder=True, radius="sm",
+                    dmc.Progress(value=pct, size="md", color="blue", radius="xs", striped=status == "RUNNING", animated=status == "RUNNING"),
+                    dmc.Text(
+                        f"Tối đa {par} run song song mỗi Data Source. Tiến độ tự cập nhật mỗi 2 giây.",
+                        size="xs",
+                        c="dimmed",
                     ),
                 ],
+                gap=4,
             ),
+            p="xs",
+            withBorder=True,
+            radius="sm",
+        ),
 
-            # Card tiến độ tổng
-            dmc.Paper(
-                dmc.Stack(
+        # Review câu lệnh SQL
+        sql_review_card,
+
+        # Bảng danh sách mục đang chạy
+        dmc.Paper(
+            dmc.TableScrollContainer(
+                minWidth=800,
+                children=dmc.Table(
                     [
-                        dmc.Group(
-                            [
-                                dmc.Title("Tiến độ tổng", order=5),
-                                dmc.Text(f"{finished}/{runnable_total} template · {pct}%", size="xs", fw=600),
-                            ],
-                            justify="space-between",
+                        dmc.TableThead(
+                            dmc.TableTr(
+                                [
+                                    dmc.TableTh("#", style={**th_style, "width": "40px"}),
+                                    dmc.TableTh("Template", style={**th_style, "minWidth": "180px", "textAlign": "left"}),
+                                    dmc.TableTh("Data Source", style={**th_style, "width": "140px"}),
+                                    dmc.TableTh("Bước thực hiện", style={**th_style, "width": "180px"}),
+                                    dmc.TableTh("Tiến độ", style={**th_style, "minWidth": "160px"}),
+                                    dmc.TableTh("Trạng thái", style={**th_style, "width": "120px"}),
+                                ]
+                            )
                         ),
-                        dmc.Progress(value=pct, size="md", color="blue", radius="xs", striped=status == "RUNNING", animated=status == "RUNNING"),
-                        dmc.Text(
-                            f"Tối đa {par} run song song mỗi Data Source. Người dùng có thể rời trang, tiến độ tự cập nhật mỗi 2 giây.",
-                            size="xs",
-                            c="dimmed",
-                        ),
+                        dmc.TableTbody(rows),
                     ],
-                    gap=4,
+                    striped=False,
+                    highlightOnHover=True,
+                    verticalSpacing=4,
+                    style={"fontSize": "12px"},
                 ),
-                p="xs",
-                withBorder=True,
-                radius="sm",
             ),
+            p="xs",
+            withBorder=True,
+            radius="sm",
+        ),
+    ]
 
-            # Nút Xem kết quả khi đã xong
-            dmc.Anchor(
-                button_primary("Xem kết quả", icon="lucide:bar-chart-3", id="brw-goto-result-btn", size="xs"),
-                href=f"/batch-runs/{run['id']}/result",
-                underline=False,
-            )
-            if status in ("DONE", "PARTIAL")
-            else dmc.Text(""),
-
-            # Bảng danh sách mục đang chạy
-            dmc.Paper(
-                dmc.TableScrollContainer(
-                    minWidth=800,
-                    children=dmc.Table(
-                        [
-                            dmc.TableThead(
-                                dmc.TableTr(
-                                    [
-                                        dmc.TableTh("#", style={**th_style, "width": "40px"}),
-                                        dmc.TableTh("Template", style={**th_style, "minWidth": "180px", "textAlign": "left"}),
-                                        dmc.TableTh("Data Source", style={**th_style, "width": "110px"}),
-                                        dmc.TableTh("Bước", style={**th_style, "width": "160px"}),
-                                        dmc.TableTh("Tiến độ", style={**th_style, "minWidth": "160px"}),
-                                        dmc.TableTh("Trạng thái", style={**th_style, "width": "120px"}),
-                                    ]
-                                )
-                            ),
-                            dmc.TableTbody(rows),
-                        ],
-                        striped=False,
-                        highlightOnHover=True,
-                        verticalSpacing=4,
-                        style={"fontSize": "12px"},
-                    ),
-                ),
-                p="xs",
-                withBorder=True,
-                radius="sm",
-            ),
-        ],
-        gap="xs",
-    )
+    return dmc.Stack(stack_children, gap="xs")
 
 
 def render_step_content(step: int, run: dict[str, Any]) -> Any:
@@ -1129,6 +1252,7 @@ def render_step_content(step: int, run: dict[str, Any]) -> Any:
 
 def render_new_run_form(defs: list[dict[str, Any]], preselected_def: int | None) -> Any:
     options = [{"label": f"{d.get('code')} — {d.get('name')}", "value": str(d["id"])} for d in defs]
+    ds_options = _get_active_source_ds_options()
     current_p = current_month_period()
     return dmc.Paper(
         dmc.Stack(
@@ -1142,6 +1266,17 @@ def render_new_run_form(defs: list[dict[str, Any]], preselected_def: int | None)
                     placeholder="Chọn bộ đối soát",
                     required=True,
                     size="xs",
+                    styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+                ),
+                dmc.Select(
+                    id="brw-new-data-source",
+                    label="Data Source nguồn *",
+                    data=ds_options,
+                    value=ds_options[0]["value"] if ds_options else None,
+                    placeholder="Chọn Data Source",
+                    required=True,
+                    size="xs",
+                    description="Mặc định chọn Data Source đang hoạt động. Các bước sau sẽ query và so sánh ở Data Source này.",
                     styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
                 ),
                 dmc.SimpleGrid(
@@ -1376,21 +1511,81 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
                 },
             ),
 
-            # Fixed Footer Nav
+            # Fixed Footer Nav: White background, pill capsule buttons with icons (Fluent Compact)
             dmc.Group(
                 [
-                    button_subtle("Quay lại", id="brw-prev-btn", size="xs"),
-                    html.Span(id="brw-footer-why", style={"fontSize": "11px", "color": "var(--ink-soft, #616161)"}),
-                    button_primary("Tiếp tục", id="brw-next-btn", size="xs"),
+                    dmc.Group(
+                        [
+                            html.Span(id="brw-footer-why", style={"fontSize": "11px", "color": "var(--ink-soft, #616161)"}),
+                            dmc.Box(
+                                dmc.Checkbox(
+                                    id="brw-include-warn",
+                                    label="Chạy cả template có cảnh báo",
+                                    checked=True,
+                                    size="xs",
+                                    styles={"label": {"fontSize": "11px", "cursor": "pointer"}},
+                                ),
+                                id="brw-footer-warn-wrapper",
+                                style={"display": "none"},
+                            ),
+                        ],
+                        gap="md",
+                        align="center",
+                    ),
+                    dmc.Paper(
+                        dmc.Group(
+                            [
+                                dmc.Button(
+                                    "Quay lại",
+                                    id="brw-prev-btn",
+                                    leftSection=DashIconify(icon="lucide:arrow-left", width=14),
+                                    variant="subtle",
+                                    color="gray",
+                                    size="xs",
+                                    radius="xl",
+                                    style={
+                                        "fontWeight": 500,
+                                        "height": "30px",
+                                        "padding": "0 14px",
+                                        "color": "var(--ink, #1E1E1E)",
+                                    },
+                                ),
+                                dmc.Button(
+                                    "Tiếp tục",
+                                    id="brw-next-btn",
+                                    rightSection=DashIconify(icon="lucide:arrow-right", width=14),
+                                    color="primary",
+                                    size="xs",
+                                    radius="xl",
+                                    style={
+                                        "fontWeight": 600,
+                                        "height": "30px",
+                                        "padding": "0 16px",
+                                        "boxShadow": "0 1px 3px rgba(0, 120, 212, 0.25)",
+                                    },
+                                ),
+                            ],
+                            gap="xs",
+                            align="center",
+                        ),
+                        radius="xl",
+                        p=3,
+                        withBorder=True,
+                        style={
+                            "backgroundColor": "#FFFFFF",
+                            "borderColor": "var(--line, #E0E0E0)",
+                            "boxShadow": "0 1px 3px rgba(0, 0, 0, 0.05)",
+                        },
+                    ),
                 ],
                 justify="space-between",
                 align="center",
                 style={
                     "flexShrink": 0,
-                    "height": "40px",
-                    "padding": "0 14px",
+                    "height": "48px",
+                    "padding": "0 16px",
                     "borderTop": "1px solid var(--line, #E0E0E0)",
-                    "backgroundColor": "var(--surface-2, #FAFAFA)",
+                    "backgroundColor": "#FFFFFF",
                     "display": "flex",
                 },
             ),
@@ -1446,7 +1641,8 @@ def _load_run(run_id: Any, _refresh: Any, _tick: Any) -> tuple[Any, bool]:
     data = _load_run_data(int(run_id))
     if isinstance(data, dict) and data.get("error"):
         return data, True
-    return data, str(data.get("status")) != "RUNNING"
+    status = str(data.get("status", ""))
+    return data, status not in ("RUNNING", "QUEUED")
 
 
 @callback(
@@ -1454,19 +1650,23 @@ def _load_run(run_id: Any, _refresh: Any, _tick: Any) -> tuple[Any, bool]:
     Output("brw-stepper", "children"),
     Output("brw-content", "children"),
     Output("brw-footer-why", "children"),
+    Output("brw-footer-warn-wrapper", "style"),
     Output("brw-next-btn", "children"),
+    Output("brw-next-btn", "disabled"),
     Output("brw-prev-btn", "style"),
     Input("brw-store", "data"),
     Input("brw-step", "data"),
 )
-def _render_wizard(store_data: Any, step_data: Any) -> tuple[Any, Any, Any, str, str, dict[str, Any]]:
+def _render_wizard(store_data: Any, step_data: Any) -> tuple[Any, Any, Any, str, dict[str, Any], str, bool, dict[str, Any]]:
     if store_data is None:
         return (
             dmc.Skeleton(height=36, radius="sm"),
             dmc.Skeleton(height=36, radius="sm"),
             dmc.Stack([dmc.Skeleton(height=36, radius="sm") for _ in range(5)], gap="xs"),
             "",
+            {"display": "none"},
             "Tiếp tục",
+            False,
             {"display": "none"},
         )
     if isinstance(store_data, dict) and store_data.get("error"):
@@ -1475,7 +1675,9 @@ def _render_wizard(store_data: Any, step_data: Any) -> tuple[Any, Any, Any, str,
             dmc.Text(""),
             dmc.Text(""),
             "",
+            {"display": "none"},
             "Tiếp tục",
+            False,
             {"display": "none"},
         )
 
@@ -1488,30 +1690,51 @@ def _render_wizard(store_data: Any, step_data: Any) -> tuple[Any, Any, Any, str,
 
     why = ""
     next_label = "Tiếp tục"
+    next_disabled = False
+    warn_style = {"display": "none"}
+
     if step == 2:
         blockers = wizard_blockers(store_data)
         if blockers:
             why = f"Còn {len(blockers)} mục cần xử lý."
     elif step == 4:
+        next_label = "Tiếp tục"
         runnable = runnable_items(store_data)
-        next_label = f"Chạy {len(runnable)} template"
         if not runnable:
-            why = "Chưa có template nào sẵn sàng, bấm 'Kiểm tra trước'."
+            why = "Chưa kiểm tra trước hoặc có mục lỗi."
+        else:
+            why = f"{len(runnable)} template sẵn sàng."
     elif step == 5:
-        next_label = "Xem kết quả"
-        if status in ("DONE", "PARTIAL"):
+        if status == "DRAFT":
+            runnable = runnable_items(store_data)
+            next_label = f"Chạy {len(runnable)} template"
+            next_disabled = len(runnable) == 0
+            default_ds = store_data.get("data_source_name") or ""
+            ds_env = store_data.get("data_source_env") or ""
+            ds_label = f"{default_ds} ({ds_env})" if ds_env else default_ds
+            if runnable:
+                why = f"Sẵn sàng chạy {len(runnable)} template trên {ds_label}." if ds_label else f"Sẵn sàng chạy {len(runnable)} template."
+            else:
+                why = "Chưa có template nào sẵn sàng chạy."
+            warn_style = {"display": "inline-flex"}
+        elif status in ("DONE", "PARTIAL"):
+            next_label = "Xem kết quả"
             why = "Đã hoàn thành lần chạy bộ."
         else:
+            next_label = "Xem kết quả"
             why = "Đang chạy các template..."
 
-    prev_style = {"display": "none"} if (step == 1 or step == 5) else {"display": "inline-flex"}
+    base_prev_style = {"fontWeight": 500, "height": "30px", "padding": "0 14px", "color": "var(--ink, #1E1E1E)"}
+    prev_style = {**base_prev_style, "display": "none"} if (step == 1 or (step == 5 and status != "DRAFT")) else {**base_prev_style, "display": "inline-flex"}
 
     return (
         render_wizard_header(store_data),
         _stepper(step),
         render_step_content(step, store_data),
         why,
+        warn_style,
         next_label,
+        next_disabled,
         prev_style,
     )
 
@@ -1550,16 +1773,36 @@ def _navigate(_prev: Any, _next: Any, step_data: Any, store_data: Any) -> tuple[
             return step, notify_warning("; ".join(blockers), title="Chưa thể tiếp tục"), dash.no_update
 
     if step == 4:
-        # Bấm tiếp ở bước 4 -> chạy start
-        runnable = runnable_items(store_data)
-        if not runnable:
-            return step, notify_warning("Chưa có template nào sẵn sàng, hãy bấm Kiểm tra trước."), dash.no_update
+        return 5, dash.no_update, dash.no_update
 
     if step == 5:
-        # Bấm ở bước 5 -> chuyển trang kết quả
+        if status == "DRAFT":
+            # Khi DRAFT ở bước 5, bấm Chạy template do callback _start_run xử lý
+            return dash.no_update, dash.no_update, dash.no_update
+        # Bấm ở bước 5 khi đã xong -> chuyển trang kết quả
         return dash.no_update, dash.no_update, f"/batch-runs/{store_data['id']}/result"
 
     return min(step + 1, 5), dash.no_update, dash.no_update
+
+
+@callback(
+    Output("brw-store", "data", allow_duplicate=True),
+    Output("brw-notifications", "children", allow_duplicate=True),
+    Input("brw-step1-save-ds-btn", "n_clicks"),
+    State("brw-step1-ds-select", "value"),
+    State("brw-run-id", "data"),
+    prevent_initial_call=True,
+)
+def _update_run_ds(_n: Any, ds_val: Any, run_id: Any) -> tuple[Any, Any]:
+    if not _n or not ds_val or not run_id:
+        return dash.no_update, dash.no_update
+    ctx = get_current_ctx()
+    if ctx is None:
+        return dash.no_update, notify_error("Bạn cần đăng nhập.")
+    res = update_batch_run_data_source(ctx, int(run_id), int(ds_val))
+    if not res.ok:
+        return dash.no_update, notify_error(res.message or "Không đổi Data Source được.")
+    return _load_run_data(int(run_id)), notify_success("Đã cập nhật Data Source cho lần chạy bộ.")
 
 
 @callback(
@@ -1567,11 +1810,12 @@ def _navigate(_prev: Any, _next: Any, step_data: Any, store_data: Any) -> tuple[
     Output("brw-redirect", "href"),
     Input("brw-new-submit", "n_clicks"),
     State("brw-new-def", "value"),
+    State("brw-new-data-source", "value"),
     State("brw-new-period", "value"),
     State("brw-new-name", "value"),
     prevent_initial_call=True,
 )
-def _create_run(_n: Any, def_val: Any, period: Any, name: Any) -> tuple[Any, Any]:
+def _create_run(_n: Any, def_val: Any, ds_val: Any, period: Any, name: Any) -> tuple[Any, Any]:
     if not _n:
         return dash.no_update, dash.no_update
     ctx = get_current_ctx()
@@ -1582,7 +1826,8 @@ def _create_run(_n: Any, def_val: Any, period: Any, name: Any) -> tuple[Any, Any
     period_str = (period or "").strip()
     if not PERIOD_RE.match(period_str):
         return notify_warning("Kỳ phải đúng dạng YYYY-MM, ví dụ: 2026-02."), dash.no_update
-    res = create_batch_run(ctx, int(def_val), period_str, (name or "").strip() or None)
+    data_source_id = int(ds_val) if ds_val else None
+    res = create_batch_run(ctx, int(def_val), period_str, (name or "").strip() or None, data_source_id=data_source_id)
     if not res.ok:
         return notify_error(res.message or "Không tạo được lần chạy bộ."), dash.no_update
     data = res.data or {}
@@ -1733,6 +1978,10 @@ def _save_params(_n: Any, values: Any, store_data: Any) -> tuple[Any, Any]:
         resolved = (item.get("params_resolved") or {}).get(param_name)
         overrides = item.get("params_run_override") or {}
         new_value = (entry.get("value") or "").strip()
+        if param_name == "p_from" and len(new_value) == 10 and new_value.count("-") == 2:
+            new_value = f"{new_value} 00:00:00"
+        elif param_name == "p_to" and len(new_value) == 10 and new_value.count("-") == 2:
+            new_value = f"{new_value} 23:59:59"
         resolved_str = format_param_value(resolved)
         if new_value == resolved_str:
             if param_name in overrides:
@@ -1842,17 +2091,18 @@ def _replace_item_files(contents: Any, filenames: Any, run_id: Any) -> tuple[Any
     Output("brw-prod-modal", "opened"),
     Output("brw-prod-body", "children"),
     Output("brw-notifications", "children", allow_duplicate=True),
+    Output("brw-interval", "disabled", allow_duplicate=True),
     Input("brw-start-btn", "n_clicks"),
     State("brw-include-warn", "checked"),
     State("brw-run-id", "data"),
     prevent_initial_call=True,
 )
-def _start_run(_n: Any, include_warn: Any, run_id: Any) -> tuple[Any, Any, bool, Any, Any]:
+def _start_run(_n: Any, include_warn: Any, run_id: Any) -> tuple[Any, Any, bool, Any, Any, Any]:
     if not _n:
-        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update, dash.no_update
     ctx = get_current_ctx()
     if ctx is None or run_id is None:
-        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update, dash.no_update
     res = start(ctx, int(run_id), include_warn=bool(include_warn), confirm_prod=False)
     if not res.ok:
         if res.code == "PROD_CONFIRM_REQUIRED":
@@ -1868,15 +2118,16 @@ def _start_run(_n: Any, include_warn: Any, run_id: Any) -> tuple[Any, Any, bool,
                 ],
                 gap="xs",
             )
-            return dash.no_update, dash.no_update, True, body, dash.no_update
+            return dash.no_update, dash.no_update, True, body, dash.no_update, dash.no_update
         return (
             dash.no_update,
             dash.no_update,
             False,
             dash.no_update,
             notify_error(res.message or "Không chạy được lần chạy bộ."),
+            dash.no_update,
         )
-    return _load_run_data(int(run_id)), 5, False, dash.no_update, notify_success("Đã bắt đầu chạy các template.")
+    return _load_run_data(int(run_id)), 5, False, dash.no_update, notify_success("Đã bắt đầu chạy các template."), False
 
 
 @callback(
@@ -1884,24 +2135,25 @@ def _start_run(_n: Any, include_warn: Any, run_id: Any) -> tuple[Any, Any, bool,
     Output("brw-step", "data", allow_duplicate=True),
     Output("brw-prod-modal", "opened", allow_duplicate=True),
     Output("brw-notifications", "children", allow_duplicate=True),
+    Output("brw-interval", "disabled", allow_duplicate=True),
     Input("brw-prod-confirm", "n_clicks"),
     Input("brw-prod-cancel", "n_clicks"),
     State("brw-include-warn", "checked"),
     State("brw-run-id", "data"),
     prevent_initial_call=True,
 )
-def _confirm_prod_start(_confirm: Any, _cancel: Any, include_warn: Any, run_id: Any) -> tuple[Any, Any, bool, Any]:
+def _confirm_prod_start(_confirm: Any, _cancel: Any, include_warn: Any, run_id: Any) -> tuple[Any, Any, bool, Any, Any]:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
-        return dash.no_update, dash.no_update, False, dash.no_update
+        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
     triggered = ctx_dash.triggered_id
     if triggered == "brw-prod-cancel":
-        return dash.no_update, dash.no_update, False, dash.no_update
+        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
     if triggered == "brw-prod-confirm" and not _confirm:
-        return dash.no_update, dash.no_update, False, dash.no_update
+        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
     ctx = get_current_ctx()
     if ctx is None or run_id is None:
-        return dash.no_update, dash.no_update, False, dash.no_update
+        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
     res = start(ctx, int(run_id), include_warn=bool(include_warn), confirm_prod=True)
     if not res.ok:
         return (
@@ -1909,8 +2161,9 @@ def _confirm_prod_start(_confirm: Any, _cancel: Any, include_warn: Any, run_id: 
             dash.no_update,
             False,
             notify_error(res.message or "Không chạy được lần chạy bộ."),
+            dash.no_update,
         )
-    return _load_run_data(int(run_id)), 5, False, notify_success("Đã bắt đầu chạy các template.")
+    return _load_run_data(int(run_id)), 5, False, notify_success("Đã bắt đầu chạy các template."), False
 
 
 @callback(
