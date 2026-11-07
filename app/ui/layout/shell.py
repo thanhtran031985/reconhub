@@ -84,6 +84,35 @@ def build_breadcrumbs(pathname: str | None) -> list[dict[str, str]]:
                 {"label": "Xử lý chênh lệch"},
             ]
         )
+    elif pathname == "/batches":
+        items.extend(
+            [
+                {"label": "Cấu hình"},
+                {"label": "Bộ đối soát"},
+            ]
+        )
+    elif pathname.startswith("/batches/"):
+        items.extend(
+            [
+                {"label": "Cấu hình"},
+                {"label": "Bộ đối soát", "href": "/batches"},
+                {"label": "Chi tiết"},
+            ]
+        )
+    elif pathname.startswith("/batch-runs") and pathname.endswith("/result"):
+        items.extend(
+            [
+                {"label": "Đối soát"},
+                {"label": "Kết quả lần chạy bộ"},
+            ]
+        )
+    elif pathname.startswith("/batch-runs"):
+        items.extend(
+            [
+                {"label": "Đối soát"},
+                {"label": "Chạy bộ đối soát"},
+            ]
+        )
     elif pathname == "/data-sources":
         items.extend(
             [

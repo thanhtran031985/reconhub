@@ -2,19 +2,17 @@
 
 `/batch-runs/<id>/result`: KPI, ma trận kết quả từ RECON_RUN_SUMMARY,
 chạy lại run lỗi / chạy lại một mục, tải .zip, đánh dấu kiểm tra, xóa
-dữ liệu tạm theo nhóm (gọi lại service hiện có).
+dữ liệu tạm theo nhóm. Phong cách Fluent Compact theo Screen13.
 """
 
 from __future__ import annotations
 
-import zipfile
 from pathlib import Path
 from typing import Any
 
 import dash
 import dash_mantine_components as dmc
 from dash import ALL, Input, Output, State, callback, dcc, html
-from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
 from app.services.batch_run import build_zip, matrix, rerun_item, retry_failed
@@ -80,83 +78,96 @@ def render_result_header(matrix_data: dict[str, Any]) -> Any:
     run = matrix_data.get("run") or {}
     total = int(matrix_data.get("total_items", 0))
     with_results = int((matrix_data.get("kpis") or {}).get("items_with_results", 0))
+    p_from = (run.get("period_from") or "")[:10]
+    p_to = (run.get("period_to") or "")[:10]
+    created_at = (run.get("created_at") or "")[:16].replace("T", " ")
+
     return page_header(
-        title=f"Kết quả lần chạy bộ #{run.get('id')}",
-        subtitle=f"{matrix_data.get('def_code', '')} — {matrix_data.get('def_name', '')} · Kỳ {run.get('period', '')} · {run.get('name', '')} · Người chạy {run.get('created_by', '')} · {with_results}/{total} mục có kết quả",
+        title=f"Lần chạy bộ: {run.get('name') or matrix_data.get('def_name')}",
+        subtitle=f"{matrix_data.get('def_name', '')} · {p_from} → {p_to} · {run.get('created_by', '')} lúc {created_at} · {with_results}/{total} mục có kết quả",
         actions=[
             dmc.Anchor(
                 button_subtle("Theo dõi tiến độ", icon="lucide:loader", size="xs"),
                 href=f"/batch-runs/{run.get('id')}",
                 underline=False,
             ),
-            button_primary("Chạy lại run lỗi", icon="lucide:rotate-ccw", id="brr-retry-btn", size="xs"),
-            button_primary("Tải tất cả (.zip)", icon="lucide:download", id="brr-zip-btn", size="xs"),
+            button_subtle("Chạy lại run lỗi", icon="lucide:rotate-ccw", id="brr-retry-btn", size="xs"),
+            button_primary(f"Tải tất cả (.zip, {with_results} file riêng)", icon="lucide:download", id="brr-zip-btn", size="xs"),
         ],
     )
 
 
 def render_result_kpis(kpis: dict[str, Any]) -> Any:
-    return dmc.Group(
-        [
+    mismatch_diff = kpis.get("mismatch_total_diff")
+    diff_text = f"Tổng chênh {_fmt_num(mismatch_diff)}" if mismatch_diff else "Không có chênh lệch"
+    err_count = int(kpis.get("error_items", 0))
+
+    return dmc.SimpleGrid(
+        cols={"base": 2, "sm": 4},
+        spacing="xs",
+        children=[
             dmc.Paper(
                 dmc.Stack(
                     [
                         dmc.Text("Khớp hết", size="xs", c="dimmed"),
-                        dmc.Text(str(kpis.get("all_matched_items", 0)), fw=700, size="md"),
+                        dmc.Text(str(kpis.get("all_matched_items", 0)), fw=700, size="lg", c="teal"),
+                        dmc.Text("100% khớp giá trị và số lượng", size="xs", c="dimmed"),
                     ],
                     gap=2,
                 ),
                 p="xs",
                 withBorder=True,
                 radius="sm",
-                style={"minWidth": 120},
             ),
             dmc.Paper(
                 dmc.Stack(
                     [
                         dmc.Text("Có lệch", size="xs", c="dimmed"),
-                        dmc.Text(str(kpis.get("mismatch_items", 0)), fw=700, size="md"),
-                        dmc.Text(f"Tổng chênh {_fmt_num(kpis.get('mismatch_total_diff'))}", size="xs", c="dimmed"),
+                        dmc.Text(str(kpis.get("mismatch_items", 0)), fw=700, size="lg", c="orange"),
+                        dmc.Text(diff_text, size="xs", c="dimmed"),
                     ],
                     gap=2,
                 ),
                 p="xs",
                 withBorder=True,
                 radius="sm",
-                style={"minWidth": 140},
             ),
             dmc.Paper(
                 dmc.Stack(
                     [
                         dmc.Text("Lỗi / chưa chạy", size="xs", c="dimmed"),
-                        dmc.Text(str(kpis.get("error_items", 0)), fw=700, size="md"),
+                        dmc.Text(str(err_count), fw=700, size="lg", c="red"),
+                        dmc.Text("Bấm 'Chạy lại run lỗi'" if err_count else "Không có lỗi", size="xs", c="dimmed"),
                     ],
                     gap=2,
                 ),
                 p="xs",
                 withBorder=True,
                 radius="sm",
-                style={"minWidth": 120},
             ),
             dmc.Paper(
                 dmc.Stack(
                     [
                         dmc.Text("Bỏ qua", size="xs", c="dimmed"),
-                        dmc.Text(str(kpis.get("skipped_items", 0)), fw=700, size="md"),
+                        dmc.Text(str(kpis.get("skipped_items", 0)), fw=700, size="lg", c="gray"),
+                        dmc.Text("Không có file hoặc đã Archive", size="xs", c="dimmed"),
                     ],
                     gap=2,
                 ),
                 p="xs",
                 withBorder=True,
                 radius="sm",
-                style={"minWidth": 120},
             ),
         ],
-        gap="xs",
     )
 
 
-def render_matrix_table(matrix_data: dict[str, Any], selected_ids: set[int] | None = None) -> Any:
+def render_matrix_table(
+    matrix_data: dict[str, Any],
+    selected_ids: set[int] | None = None,
+    search_q: str = "",
+    status_filter: str = "all",
+) -> Any:
     rows_data = matrix_data.get("rows") or []
     selected_ids = selected_ids or set()
     if not rows_data:
@@ -164,16 +175,60 @@ def render_matrix_table(matrix_data: dict[str, Any], selected_ids: set[int] | No
             title="Chưa có mục nào",
             description="Lần chạy bộ chưa có mục nào để hiển thị.",
         )
+
+    # Lọc client-side
+    q = search_q.strip().lower()
+    filtered = rows_data
+    if q:
+        filtered = [
+            r for r in filtered
+            if q in str(r.get("template_code", "")).lower() or q in str(r.get("template_name", "")).lower()
+        ]
+    if status_filter != "all":
+        if status_filter == "diff":
+            filtered = [r for r in filtered if str(r.get("status")) in ("DONE", "PARTIAL") and float(r.get("diff_total") or 0) != 0]
+        elif status_filter == "ok":
+            filtered = [r for r in filtered if str(r.get("status")) == "DONE" and float(r.get("diff_total") or 0) == 0]
+        elif status_filter == "fail":
+            filtered = [r for r in filtered if str(r.get("status")) in ("FAILED", "NOT_RUN")]
+        elif status_filter == "skip":
+            filtered = [r for r in filtered if str(r.get("status")) == "SKIPPED"]
+
+    if not filtered:
+        return empty_state(
+            title="Không có template khớp bộ lọc",
+            description="Hãy thử thay đổi từ khóa hoặc điều kiện lọc kết quả.",
+        )
+
+    th_style = {
+        "position": "sticky",
+        "top": 0,
+        "backgroundColor": "var(--surface-2, #FAFAFA)",
+        "zIndex": 1,
+        "height": "32px",
+        "fontSize": "11px",
+        "fontWeight": 600,
+        "textAlign": "center",
+        "whiteSpace": "nowrap",
+        "borderBottom": "1px solid var(--line, #E0E0E0)",
+    }
+
     rows = []
-    for row in rows_data:
+    for row in filtered:
         item_id = int(row["item_id"])
         run_id = row.get("current_run_id")
         can_select = run_id is not None
         checked_by = row.get("checked_by")
-        check_cell = dmc.Text(
-            f"Đã kiểm tra ({checked_by})" if checked_by else "Chưa kiểm tra",
-            size="sm",
-        )
+        purged = bool(row.get("purged_at"))
+
+        check_chips: list[Any] = []
+        if checked_by:
+            check_chips.append(dmc.Badge(f"Đã kiểm tra ({checked_by})", color="teal", variant="light", size="xs"))
+        else:
+            check_chips.append(dmc.Badge("Chưa kiểm tra", color="gray", variant="light", size="xs"))
+        if purged:
+            check_chips.append(dmc.Badge("Đã xóa dữ liệu tạm", color="gray", variant="outline", size="xs"))
+
         actions: list[Any] = []
         if run_id is not None:
             actions.append(
@@ -198,6 +253,10 @@ def render_matrix_table(matrix_data: dict[str, Any], selected_ids: set[int] | No
                     size="xs",
                 )
             )
+
+        diff_val = row.get("diff_total")
+        diff_color = "var(--crit, #C50F1F)" if diff_val and float(diff_val) != 0 else None
+
         rows.append(
             dmc.TableTr(
                 [
@@ -206,66 +265,41 @@ def render_matrix_table(matrix_data: dict[str, Any], selected_ids: set[int] | No
                             id={"type": "brr-select-cb", "index": item_id},
                             checked=item_id in selected_ids,
                             disabled=not can_select,
-                            size="sm",
+                            size="xs",
                             **{"aria-label": f"Chọn mục {row.get('template_code')}"},
-                        )
+                        ),
+                        style={"textAlign": "center"},
                     ),
                     dmc.TableTd(
                         dmc.Stack(
                             [
-                                dmc.Text(str(row.get("template_code")), className="rh-code", fw=600, size="sm"),
-                                dmc.Text(str(row.get("template_name") or ""), size="xs", c="dimmed"),
+                                dmc.Text(str(row.get("template_name") or ""), fw=600, size="xs"),
+                                dmc.Text(
+                                    f"{row.get('template_code')} · {row.get('file_count', 0)} file",
+                                    size="xs",
+                                    className="rh-code",
+                                    c="dimmed",
+                                ),
                             ],
-                            gap=0,
+                            gap=2,
                         )
                     ),
-                    dmc.TableTd(dmc.Text(str(row.get("file_count", 0)), size="sm", ta="center")),
-                    dmc.TableTd(item_status_badge(str(row.get("status"))), style={"whiteSpace": "nowrap", "minWidth": 110, "textAlign": "center"}),
-                    dmc.TableTd(dmc.Text(_fmt_num(row.get("excel_total")), size="sm", ta="right")),
-                    dmc.TableTd(dmc.Text(_fmt_num(row.get("db_total")), size="sm", ta="right")),
-                    dmc.TableTd(dmc.Text(_fmt_num(row.get("diff_total")), size="sm", ta="right")),
-                    dmc.TableTd(
-                        dmc.Text(str(row.get("cnt_matched")) if row.get("cnt_matched") is not None else "—", size="sm", ta="right")
-                    ),
-                    dmc.TableTd(
-                        dmc.Text(
-                            str(row.get("cnt_mismatch")) if row.get("cnt_mismatch") is not None else "—", size="sm", ta="right"
-                        )
-                    ),
-                    dmc.TableTd(
-                        dmc.Text(
-                            str(row.get("cnt_missing_in_db")) if row.get("cnt_missing_in_db") is not None else "—",
-                            size="sm",
-                            ta="right",
-                        )
-                    ),
-                    dmc.TableTd(
-                        dmc.Text(
-                            str(row.get("cnt_missing_in_excel"))
-                            if row.get("cnt_missing_in_excel") is not None
-                            else "—",
-                            size="sm",
-                            ta="right",
-                        )
-                    ),
-                    dmc.TableTd(dmc.Text(_fmt_pct(row.get("match_rate")), size="sm", ta="center")),
-                    dmc.TableTd(dmc.Text(_fmt_delta(row.get("match_rate_delta")), size="sm", ta="center")),
-                    dmc.TableTd(check_cell),
-                    dmc.TableTd(dmc.Group(actions, gap="xs")),
+                    dmc.TableTd(item_status_badge(str(row.get("status"))), style={"textAlign": "center"}),
+                    dmc.TableTd(dmc.Text(_fmt_num(row.get("excel_total")), size="xs", ta="right")),
+                    dmc.TableTd(dmc.Text(_fmt_num(row.get("db_total")), size="xs", ta="right")),
+                    dmc.TableTd(dmc.Text(_fmt_num(diff_val), size="xs", ta="right", fw=700 if diff_color else 400, style={"color": diff_color})),
+                    dmc.TableTd(dmc.Text(str(row.get("cnt_matched")) if row.get("cnt_matched") is not None else "—", size="xs", ta="right")),
+                    dmc.TableTd(dmc.Text(str(row.get("cnt_mismatch")) if row.get("cnt_mismatch") is not None else "—", size="xs", ta="right")),
+                    dmc.TableTd(dmc.Text(str(row.get("cnt_missing_in_db")) if row.get("cnt_missing_in_db") is not None else "—", size="xs", ta="right")),
+                    dmc.TableTd(dmc.Text(str(row.get("cnt_missing_in_excel")) if row.get("cnt_missing_in_excel") is not None else "—", size="xs", ta="right")),
+                    dmc.TableTd(dmc.Text(_fmt_pct(row.get("match_rate")), size="xs", ta="right")),
+                    dmc.TableTd(dmc.Text(_fmt_delta(row.get("match_rate_delta")), size="xs", ta="center", c="dimmed")),
+                    dmc.TableTd(dmc.Group(check_chips, gap=4)),
+                    dmc.TableTd(dmc.Group(actions, gap=4)),
                 ]
             )
         )
-    th_style = {
-        "position": "sticky",
-        "top": 0,
-        "backgroundColor": "var(--p2, #FAFAFA)",
-        "zIndex": 1,
-        "height": "32px",
-        "fontSize": "12px",
-        "fontWeight": 600,
-        "textAlign": "center",
-        "whiteSpace": "nowrap",
-    }
+
     return dmc.Paper(
         dmc.TableScrollContainer(
             minWidth=1100,
@@ -275,83 +309,38 @@ def render_matrix_table(matrix_data: dict[str, Any], selected_ids: set[int] | No
                     dmc.TableThead(
                         dmc.TableTr(
                             [
-                                dmc.TableTh("", style=th_style),
-                                dmc.TableTh("Template", style=th_style),
-                                dmc.TableTh("Số file", style=th_style),
-                                dmc.TableTh("Trạng thái", style=th_style),
-                                dmc.TableTh("Tổng Excel", style=th_style),
-                                dmc.TableTh("Tổng DB", style=th_style),
-                                dmc.TableTh("Chênh lệch", style=th_style),
-                                dmc.TableTh("Khớp", style=th_style),
-                                dmc.TableTh("Lệch", style=th_style),
-                                dmc.TableTh("Thiếu DB", style=th_style),
-                                dmc.TableTh("Thiếu Excel", style=th_style),
-                                dmc.TableTh("Tỷ lệ khớp", style=th_style),
-                                dmc.TableTh("So tháng trước", style=th_style),
-                                dmc.TableTh("Kiểm tra", style=th_style),
-                                dmc.TableTh("Thao tác", style=th_style),
+                                dmc.TableTh(
+                                    dmc.Checkbox(id="brr-select-all", size="xs", **{"aria-label": "Chọn tất cả"}),
+                                    style={**th_style, "width": "40px"},
+                                ),
+                                dmc.TableTh("Template / hệ thống", style={**th_style, "minWidth": "220px", "textAlign": "left"}),
+                                dmc.TableTh("Trạng thái", style={**th_style, "width": "110px"}),
+                                dmc.TableTh("Tổng Excel", style={**th_style, "width": "110px"}),
+                                dmc.TableTh("Tổng DB", style={**th_style, "width": "110px"}),
+                                dmc.TableTh("Chênh lệch", style={**th_style, "width": "110px"}),
+                                dmc.TableTh("Khớp", style={**th_style, "width": "60px"}),
+                                dmc.TableTh("Lệch", style={**th_style, "width": "60px"}),
+                                dmc.TableTh("Thiếu DB", style={**th_style, "width": "75px"}),
+                                dmc.TableTh("Thiếu Excel", style={**th_style, "width": "80px"}),
+                                dmc.TableTh("Tỷ lệ khớp", style={**th_style, "width": "80px"}),
+                                dmc.TableTh("So tháng trước", style={**th_style, "width": "100px"}),
+                                dmc.TableTh("Kiểm tra", style={**th_style, "minWidth": "140px"}),
+                                dmc.TableTh("Thao tác", style={**th_style, "minWidth": "160px"}),
                             ]
                         )
                     ),
                     dmc.TableTbody(rows),
                 ],
-                striped=True,
+                striped=False,
                 highlightOnHover=True,
-                style={"fontSize": "13px"},
+                verticalSpacing=4,
+                style={"fontSize": "12px"},
             ),
         ),
         withBorder=True,
         radius="sm",
         style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
     )
-
-
-def render_zip_file_list(names: list[str]) -> Any:
-    if not names:
-        return dmc.Text("")
-    return dmc.Paper(
-        dmc.Stack(
-            [
-                dmc.Text("File trong .zip", fw=600),
-                dmc.List([dmc.ListItem(name, icon=DashIconify(icon="lucide:file-text", width=14)) for name in names]),
-            ],
-            gap="xs",
-        ),
-        p="md",
-        withBorder=True,
-    )
-
-
-def _load_matrix_data(run_id: int) -> Any:
-    ctx = get_current_ctx()
-    if ctx is None:
-        return {"error": "Bạn cần đăng nhập để xem kết quả lần chạy bộ."}
-    res = matrix(ctx, run_id)
-    if not res.ok:
-        return {"error": res.message or "Không tải được kết quả lần chạy bộ."}
-    return res.data
-
-
-def _selected_child_run_ids(store_data: Any, checked_values: Any) -> list[int]:
-    if not isinstance(store_data, dict):
-        return []
-    rows = store_data.get("rows") or []
-    by_item = {int(r["item_id"]): r for r in rows}
-    ids: list[int] = []
-    states = dash.callback_context.states_list or []
-    for group in states:
-        group_entries = group if isinstance(group, list) else [group]
-        for entry in group_entries:
-            if not isinstance(entry, dict) or not isinstance(entry.get("id"), dict):
-                continue
-            if entry.get("id", {}).get("type") != "brr-select-cb":
-                continue
-            if not entry.get("value"):
-                continue
-            row = by_item.get(int(entry["id"]["index"]))
-            if row and row.get("current_run_id"):
-                ids.append(int(row["current_run_id"]))
-    return ids
 
 
 def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
@@ -362,54 +351,112 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
             [
                 dcc.Location(id="brr-forbidden-redirect", href=gate),
                 alert_box("Bạn không có quyền truy cập trang Kết quả lần chạy bộ.", tone="crit"),
-            ]
+            ],
+            p="md",
         )
     run_id_int = int(run_id) if run_id is not None and str(run_id).isdigit() else 0
     can_purge_bulk = bool(ctx is not None and is_admin(ctx))
+
     return dmc.Box(
         [
             dcc.Store(id="brr-run-id", data=run_id_int),
             dcc.Store(id="brr-store"),
+            dcc.Store(id="brr-selected-store", data=[]),
             dcc.Store(id="brr-refresh-trigger", data=0),
             dcc.Download(id="brr-download"),
             html.Div(id="brr-notifications"),
-            html.Div(id="brr-header"),
-            html.Div(id="brr-kpis"),
-            html.Div(id="brr-alert"),
-            dmc.Group(
-                [
-                    button_primary(
-                        "Đánh dấu đã kiểm tra", icon="lucide:check-check", id="brr-mark-checked-btn", size="xs"
-                    ),
-                    button_danger(
-                        "Xóa dữ liệu tạm",
-                        id="brr-purge-btn",
-                        disabled=not can_purge_bulk,
-                        size="xs",
-                    ),
-                ],
-                gap="xs",
+
+            # Header
+            html.Div(id="brr-header", style={"flexShrink": 0}),
+
+            # 4 KPIs
+            html.Div(id="brr-kpis", style={"flexShrink": 0}),
+
+            # Toolbar lọc & thao tác chọn nhiều
+            dmc.Paper(
+                dmc.Group(
+                    [
+                        dmc.Group(
+                            [
+                                dmc.TextInput(
+                                    id="brr-search-input",
+                                    placeholder="Tìm template (mã, tên)...",
+                                    size="xs",
+                                    w=220,
+                                    styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "11px"}},
+                                ),
+                                dmc.Select(
+                                    id="brr-filter-status",
+                                    data=[
+                                        {"label": "Tất cả kết quả", "value": "all"},
+                                        {"label": "Có lệch", "value": "diff"},
+                                        {"label": "Khớp hết", "value": "ok"},
+                                        {"label": "Lỗi", "value": "fail"},
+                                        {"label": "Bỏ qua", "value": "skip"},
+                                    ],
+                                    value="all",
+                                    size="xs",
+                                    w=160,
+                                    styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "11px"}},
+                                ),
+                            ],
+                            gap="xs",
+                        ),
+                        dmc.Group(
+                            [
+                                html.Span(id="brr-selected-count", style={"fontSize": "11px", "color": "var(--ink-soft)"}),
+                                button_primary(
+                                    "Đánh dấu đã kiểm tra", icon="lucide:check-check", id="brr-mark-checked-btn", size="xs"
+                                ),
+                                button_danger(
+                                    "Xóa dữ liệu tạm",
+                                    id="brr-purge-btn",
+                                    disabled=not can_purge_bulk,
+                                    size="xs",
+                                ),
+                            ],
+                            id="brr-bulk-actions",
+                            gap="xs",
+                            style={"display": "none"},
+                        ),
+                    ],
+                    justify="space-between",
+                    align="center",
+                ),
+                p="xs",
+                withBorder=True,
+                radius="sm",
+                style={"flexShrink": 0, "backgroundColor": "var(--surface-2, #FAFAFA)"},
             ),
+
+            # Content Table
             html.Div(
                 id="brr-content",
                 style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
             ),
-            html.Div(id="brr-zip-list"),
+
             modal_confirm(
                 id="brr-purge-modal",
                 title="Xóa dữ liệu tạm các run đã chọn",
-                description="Xóa dữ liệu tạm của các run con đã chọn. Chỉ Admin xóa hàng loạt.",
+                description="Xóa dòng Excel đã nạp, file gốc và cache. Giữ lại kết quả, tổng hợp và export. Chỉ Admin xóa hàng loạt.",
                 confirm_text="XOA",
                 confirm_label="Xóa dữ liệu tạm",
+            ),
+            modal_confirm(
+                id="brr-check-modal",
+                title="Đánh dấu đã kiểm tra",
+                description="Đánh dấu đã kiểm tra cho các mục đã chọn trong lần chạy bộ.",
+                confirm_label="Xác nhận",
             ),
         ],
         style={
             "height": "100%",
+            "minHeight": 0,
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
-            "padding": "12px 16px",
-            "gap": "8px",
+            "padding": "8px 14px",
+            "gap": "6px",
         },
     )
 
@@ -422,7 +469,13 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
 def _load_result(run_id: Any, _refresh: Any) -> Any:
     if run_id is None or int(run_id) <= 0:
         return {"error": "Không xác định được lần chạy bộ."}
-    return _load_matrix_data(int(run_id))
+    ctx = get_current_ctx()
+    if ctx is None:
+        return {"error": "Bạn cần đăng nhập để xem kết quả lần chạy bộ."}
+    res = matrix(ctx, int(run_id))
+    if not res.ok:
+        return {"error": res.message or "Không tải được kết quả lần chạy bộ."}
+    return res.data
 
 
 @callback(
@@ -430,13 +483,16 @@ def _load_result(run_id: Any, _refresh: Any) -> Any:
     Output("brr-kpis", "children"),
     Output("brr-content", "children"),
     Input("brr-store", "data"),
+    Input("brr-search-input", "value"),
+    Input("brr-filter-status", "value"),
+    Input("brr-selected-store", "data"),
 )
-def _render_result(store_data: Any) -> tuple[Any, Any, Any]:
+def _render_result(store_data: Any, search: str | None, status: str | None, selected_ids: Any) -> tuple[Any, Any, Any]:
     if store_data is None:
         return (
-            dmc.Skeleton(height=48, radius="md"),
-            dmc.Skeleton(height=48, radius="md"),
-            dmc.Stack([dmc.Skeleton(height=48, radius="md") for _ in range(5)], gap="sm"),
+            dmc.Skeleton(height=36, radius="sm"),
+            dmc.Skeleton(height=48, radius="sm"),
+            dmc.Stack([dmc.Skeleton(height=36, radius="sm") for _ in range(5)], gap="xs"),
         )
     if isinstance(store_data, dict) and store_data.get("error"):
         return (
@@ -444,11 +500,50 @@ def _render_result(store_data: Any) -> tuple[Any, Any, Any]:
             dmc.Text(""),
             dmc.Text(""),
         )
+    sel_set = set(int(x) for x in (selected_ids or []))
     return (
         render_result_header(store_data),
         render_result_kpis(store_data.get("kpis") or {}),
-        render_matrix_table(store_data),
+        render_matrix_table(store_data, selected_ids=sel_set, search_q=search or "", status_filter=status or "all"),
     )
+
+
+@callback(
+    Output("brr-selected-store", "data"),
+    Output("brr-selected-count", "children"),
+    Output("brr-bulk-actions", "style"),
+    Input({"type": "brr-select-cb", "index": ALL}, "checked"),
+    Input("brr-select-all", "checked"),
+    State("brr-store", "data"),
+    State("brr-selected-store", "data"),
+    prevent_initial_call=True,
+)
+def _track_selection(checked_list: Any, select_all: bool | None, store_data: Any, curr_selected: Any) -> tuple[Any, str, dict[str, Any]]:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered or not isinstance(store_data, dict):
+        return dash.no_update, "", {"display": "none"}
+    trig = ctx_dash.triggered_id
+    rows = store_data.get("rows") or []
+
+    if trig == "brr-select-all":
+        if select_all:
+            selected = [int(r["item_id"]) for r in rows if r.get("current_run_id")]
+        else:
+            selected = []
+    else:
+        # Collect checkboxes
+        states = ctx_dash.inputs_list or []
+        selected = []
+        for group in states:
+            entries = group if isinstance(group, list) else [group]
+            for entry in entries:
+                if isinstance(entry, dict) and isinstance(entry.get("id"), dict) and entry.get("id", {}).get("type") == "brr-select-cb":
+                    if entry.get("value"):
+                        selected.append(int(entry["id"]["index"]))
+
+    count = len(selected)
+    style = {"display": "flex"} if count > 0 else {"display": "none"}
+    return selected, f"Đã chọn {count} template", style
 
 
 @callback(
@@ -468,9 +563,8 @@ def _retry_failed(_n: Any, run_id: Any) -> tuple[Any, Any]:
     if not res.ok:
         return dash.no_update, notify_error(res.message or "Không chạy lại được.")
     started = (res.data or {}).get("started", 0)
-    return _load_matrix_data(int(run_id)), notify_info(
-        f"Đã chạy lại {started} mục lỗi. Theo dõi tiến độ ở trang chạy bộ."
-    )
+    refreshed = matrix(ctx, int(run_id))
+    return refreshed.data, notify_info(f"Đã chạy lại {started} mục lỗi. Theo dõi tiến độ ở trang chạy bộ.")
 
 
 @callback(
@@ -488,7 +582,8 @@ def _rerun_one(_n: Any, run_id: Any) -> tuple[Any, Any]:
     res = rerun_item(ctx, int(triggered["index"]))
     if not res.ok:
         return dash.no_update, notify_error(res.message or "Không chạy lại được mục.")
-    return _load_matrix_data(int(run_id)), notify_info("Đã chạy lại mục. Theo dõi tiến độ ở trang chạy bộ.")
+    refreshed = matrix(ctx, int(run_id))
+    return refreshed.data, notify_info("Đã chạy lại mục. Theo dõi tiến độ ở trang chạy bộ.")
 
 
 @callback(
@@ -498,87 +593,60 @@ def _rerun_one(_n: Any, run_id: Any) -> tuple[Any, Any]:
     State("brr-store", "data"),
     prevent_initial_call=True,
 )
-def _download_item_file(_n: Any, store_data: Any) -> tuple[Any, Any]:
+def _download_one(_n: Any, store_data: Any) -> tuple[Any, Any]:
     triggered = dash.callback_context.triggered_id
     ctx = get_current_ctx()
     if not isinstance(triggered, dict) or not any(c for c in (_n or []) if c) or ctx is None or not isinstance(store_data, dict):
         return dash.no_update, dash.no_update
-    row = next(
-        (r for r in (store_data.get("rows") or []) if int(r["item_id"]) == int(triggered["index"])),
-        None,
-    )
-    if row is None or not row.get("current_run_id"):
-        return dash.no_update, dash.no_update
-    run_id = int(row["current_run_id"])
-    res = export_run(ctx, run_id)
+    item_id = int(triggered["index"])
+    rows = store_data.get("rows") or []
+    target = next((r for r in rows if int(r["item_id"]) == item_id), None)
+    if not target or not target.get("current_run_id"):
+        return dash.no_update, notify_error("Mục chưa có kết quả để xuất.")
+    res = export_run(ctx, int(target["current_run_id"]))
     if not res.ok or not res.data:
         return dash.no_update, notify_error(res.message or "Không xuất được file.")
-    f_path = Path(str(res.data["export_path"])).resolve()
-    return dcc.send_file(str(f_path), filename=f"ReconHub_Run_{run_id}.xlsx"), dash.no_update  # type: ignore[attr-defined,no-untyped-call]
+    path = Path(res.data["path"])
+    return dcc.send_file(str(path)), notify_success(f"Bắt đầu tải {path.name}.")  # type: ignore[attr-defined,no-untyped-call]
 
 
 @callback(
     Output("brr-download", "data", allow_duplicate=True),
-    Output("brr-zip-list", "children"),
     Output("brr-notifications", "children", allow_duplicate=True),
     Input("brr-zip-btn", "n_clicks"),
     State("brr-run-id", "data"),
     prevent_initial_call=True,
 )
-def _download_zip(_n: Any, run_id: Any) -> tuple[Any, Any, Any]:
+def _download_zip(_n: Any, run_id: Any) -> tuple[Any, Any]:
     if not _n:
-        return dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update
     ctx = get_current_ctx()
     if ctx is None or run_id is None:
-        return dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update
     res = build_zip(ctx, int(run_id))
     if not res.ok or not res.data:
-        return dash.no_update, dash.no_update, notify_error(res.message or "Không tạo được file .zip.")
-    zip_path = Path(str(res.data["zip_path"])).resolve()
-    names: list[str] = []
-    try:
-        with zipfile.ZipFile(zip_path) as zf:
-            names = zf.namelist()
-    except Exception:
-        names = []
-    cached_note = " (dùng lại file đã tạo trước đó)" if res.data.get("cached") else ""
-    return (
-        dcc.send_file(str(zip_path), filename=str(res.data["file_name"])),  # type: ignore[attr-defined,no-untyped-call]
-        render_zip_file_list(names),
-        notify_success(f"Đã tạo file .zip thành công.{cached_note}"),
-    )
+        return dash.no_update, notify_error(res.message or "Không tạo được file .zip.")
+    zip_path = Path(res.data["zip_path"])
+    return dcc.send_file(str(zip_path)), notify_success(f"Bắt đầu tải {zip_path.name}.")  # type: ignore[attr-defined,no-untyped-call]
 
 
 @callback(
-    Output("brr-store", "data", allow_duplicate=True),
-    Output("brr-notifications", "children", allow_duplicate=True),
+    Output("brr-check-modal", "opened"),
     Input("brr-mark-checked-btn", "n_clicks"),
-    State({"type": "brr-select-cb", "index": ALL}, "checked"),
-    State("brr-store", "data"),
+    Input("brr-check-modal-cancel", "n_clicks"),
+    State("brr-check-modal", "opened"),
     prevent_initial_call=True,
 )
-def _mark_checked_selected(_n: Any, _checked: Any, store_data: Any) -> tuple[Any, Any]:
-    if not _n:
-        return dash.no_update, dash.no_update
-    ctx = get_current_ctx()
-    if ctx is None:
-        return dash.no_update, dash.no_update
-    run_ids = _selected_child_run_ids(store_data, _checked)
-    if not run_ids:
-        return dash.no_update, notify_warning("Chọn ít nhất một mục có run để đánh dấu kiểm tra.")
-    errors: list[str] = []
-    done = 0
-    for run_id in run_ids:
-        res = mark_checked(ctx, run_id)
-        if res.ok:
-            done += 1
-        else:
-            errors.append(f"Run #{run_id}: {res.message or res.code}")
-    run = (store_data or {}).get("run") or {}
-    reloaded = _load_matrix_data(int(run.get("id", 0))) if run.get("id") else store_data
-    if errors:
-        return reloaded, notify_warning(f"Đã đánh dấu {done} run. Lỗi: {'; '.join(errors)}")
-    return reloaded, notify_success(f"Đã đánh dấu kiểm tra {done} run thành công.")
+def _toggle_check_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return False
+    trig = ctx_dash.triggered_id
+    if trig == "brr-check-modal-cancel":
+        return False
+    if trig == "brr-mark-checked-btn" and bool(_open):
+        return True
+    return False
 
 
 @callback(
@@ -592,10 +660,10 @@ def _toggle_purge_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
         return False
-    triggered = ctx_dash.triggered_id
-    if triggered == "brr-purge-modal-cancel":
+    trig = ctx_dash.triggered_id
+    if trig == "brr-purge-modal-cancel":
         return False
-    if triggered == "brr-purge-btn" and bool(_open):
+    if trig == "brr-purge-btn" and bool(_open):
         return True
     return False
 
@@ -603,27 +671,59 @@ def _toggle_purge_modal(_open: Any, _cancel: Any, opened: bool) -> bool:
 @callback(
     Output("brr-store", "data", allow_duplicate=True),
     Output("brr-notifications", "children", allow_duplicate=True),
-    Output("brr-purge-modal", "opened", allow_duplicate=True),
-    Input("brr-purge-modal-confirm", "n_clicks"),
-    State("brr-purge-modal-input", "value"),
-    State({"type": "brr-select-cb", "index": ALL}, "checked"),
+    Output("brr-check-modal", "opened", allow_duplicate=True),
+    Input("brr-check-modal-confirm", "n_clicks"),
+    State("brr-run-id", "data"),
+    State("brr-selected-store", "data"),
     State("brr-store", "data"),
     prevent_initial_call=True,
 )
-def _purge_selected(_n: Any, confirm_text: Any, _checked: Any, store_data: Any) -> tuple[Any, Any, bool]:
+def _confirm_mark_checked(_n: Any, run_id: Any, selected_ids: Any, store_data: Any) -> tuple[Any, Any, bool]:
     if not _n:
         return dash.no_update, dash.no_update, False
     ctx = get_current_ctx()
-    if ctx is None:
+    if ctx is None or not isinstance(store_data, dict):
+        return dash.no_update, notify_error("Bạn cần đăng nhập."), False
+    rows = store_data.get("rows") or []
+    wanted = set(int(x) for x in (selected_ids or []))
+    child_ids = [int(r["current_run_id"]) for r in rows if int(r["item_id"]) in wanted and r.get("current_run_id")]
+    if not child_ids:
+        return dash.no_update, notify_warning("Chưa chọn run nào hợp lệ."), False
+
+    for cid in child_ids:
+        res = mark_checked(ctx, cid)
+        if not res.ok:
+            return dash.no_update, notify_error(res.message or f"Không đánh dấu được run #{cid}."), False
+
+    refreshed = matrix(ctx, int(run_id))
+    return refreshed.data, notify_success(f"Đã đánh dấu kiểm tra {len(child_ids)} run con."), False
+
+
+@callback(
+    Output("brr-store", "data", allow_duplicate=True),
+    Output("brr-notifications", "children", allow_duplicate=True),
+    Output("brr-purge-modal", "opened", allow_duplicate=True),
+    Input("brr-purge-modal-confirm", "n_clicks"),
+    State("brr-run-id", "data"),
+    State("brr-selected-store", "data"),
+    State("brr-store", "data"),
+    prevent_initial_call=True,
+)
+def _confirm_purge(_n: Any, run_id: Any, selected_ids: Any, store_data: Any) -> tuple[Any, Any, bool]:
+    if not _n:
         return dash.no_update, dash.no_update, False
-    if (confirm_text or "") != "XOA":
-        return dash.no_update, notify_warning("Gõ đúng XOA để xác nhận xóa dữ liệu tạm."), True
-    run_ids = _selected_child_run_ids(store_data, _checked)
-    if not run_ids:
-        return dash.no_update, notify_warning("Chọn ít nhất một mục có run để xóa dữ liệu tạm."), True
-    res = purge_runs(ctx, run_ids)
+    ctx = get_current_ctx()
+    if ctx is None or not isinstance(store_data, dict):
+        return dash.no_update, notify_error("Bạn cần đăng nhập."), False
+    rows = store_data.get("rows") or []
+    wanted = set(int(x) for x in (selected_ids or []))
+    child_ids = [int(r["current_run_id"]) for r in rows if int(r["item_id"]) in wanted and r.get("current_run_id")]
+    if not child_ids:
+        return dash.no_update, notify_warning("Chưa chọn run nào hợp lệ."), False
+
+    res = purge_runs(ctx, child_ids)
     if not res.ok:
-        return dash.no_update, notify_error(res.message or "Không xóa được dữ liệu tạm."), True
-    run = (store_data or {}).get("run") or {}
-    reloaded = _load_matrix_data(int(run.get("id", 0))) if run.get("id") else store_data
-    return reloaded, notify_success(f"Đã xóa dữ liệu tạm của {len(run_ids)} run thành công."), False
+        return dash.no_update, notify_error(res.message or "Không xóa được dữ liệu tạm."), False
+
+    refreshed = matrix(ctx, int(run_id))
+    return refreshed.data, notify_success(f"Đã xóa dữ liệu tạm của {len(child_ids)} run con."), False

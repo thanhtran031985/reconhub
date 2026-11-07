@@ -1,7 +1,7 @@
 """Màn danh sách Bộ đối soát — Bước 8 task 18 (Screen13).
 
 Danh sách bộ đối soát (/batches): tìm kiếm, lọc trạng thái, tạo bộ mới,
-kích hoạt/lưu trữ.
+kích hoạt/lưu trữ theo phong cách Fluent Compact + Master–Detail.
 """
 
 from __future__ import annotations
@@ -18,13 +18,12 @@ from app.core.session import get_current_ctx
 from app.services.batch_def import (
     activate_batch_def,
     archive_batch_def,
-    create_batch_def,
     delete_batch_def,
     list_batch_defs,
 )
 from app.services.perm import page_gate
 from app.ui.components.alert_box import alert_box
-from app.ui.components.button import button_danger, button_primary, button_subtle
+from app.ui.components.button import button_danger, button_primary
 from app.ui.components.command_bar import command_bar
 from app.ui.components.empty_state import empty_state
 from app.ui.components.modal_confirm import modal_confirm
@@ -44,8 +43,8 @@ except Exception:
 MENU_CODE = "batch_def"
 STATUS_OPTIONS = [
     {"label": "Tất cả trạng thái", "value": ""},
-    {"label": "Nháp", "value": "DRAFT"},
-    {"label": "Đang hoạt động", "value": "ACTIVE"},
+    {"label": "Hoạt động", "value": "ACTIVE"},
+    {"label": "Bản nháp", "value": "DRAFT"},
     {"label": "Đã lưu trữ", "value": "ARCHIVED"},
 ]
 
@@ -67,8 +66,8 @@ def render_batch_defs_content(
     """Hàm thuần dựng nội dung danh sách bộ đối soát."""
     if loading:
         return dmc.Stack(
-            [dmc.Skeleton(height=48, radius="md") for _ in range(5)],
-            gap="sm",
+            [dmc.Skeleton(height=40, radius="sm") for _ in range(5)],
+            gap="xs",
         )
     if error:
         return alert_box(
@@ -80,9 +79,13 @@ def render_batch_defs_content(
     if items is None or len(items) == 0:
         return empty_state(
             title="Chưa có bộ đối soát nào",
-            description="Tạo bộ đối soát để khai báo một lần nhóm template chạy chung mỗi kỳ.",
+            description="Tạo bộ đối soát để khai báo một lần nhóm template chạy chung mỗi kỳ: mẫu tên file, gộp file, tham số ghi đè.",
             action=(
-                button_primary("Tạo bộ đối soát", icon="lucide:plus", id={"type": "bdef-empty-create-btn", "index": 0})
+                dmc.Anchor(
+                    button_primary("Tạo bộ đối soát", icon="lucide:plus", id={"type": "bdef-empty-create-btn", "index": 0}, size="xs"),
+                    href="/batches/new",
+                    underline=False,
+                )
                 if can_write
                 else None
             ),
@@ -108,7 +111,7 @@ def render_batch_defs_content(
         status = str(it.get("status", "DRAFT"))
         menu_items: list[Any] = [
             dmc.MenuItem(
-                "Mở",
+                "Mở chi tiết",
                 id={"type": "bdef-action-open", "index": def_id},
                 href=f"/batches/{def_id}",
                 leftSection=DashIconify(icon="lucide:external-link", width=14),
@@ -183,7 +186,13 @@ def render_batch_defs_content(
                         dmc.Group(
                             [
                                 dmc.Anchor(
-                                    button_subtle("Mở", icon="lucide:edit-3", size="xs"),
+                                    dmc.ActionIcon(
+                                        DashIconify(icon="lucide:edit-3", width=14),
+                                        variant="subtle",
+                                        color="gray",
+                                        size="sm",
+                                        **{"aria-label": f"Mở {it.get('code')}"},
+                                    ),
                                     href=f"/batches/{def_id}",
                                     underline=False,
                                 ),
@@ -191,15 +200,16 @@ def render_batch_defs_content(
                                     [
                                         dmc.MenuTarget(
                                             dmc.ActionIcon(
-                                                DashIconify(icon="lucide:more-vertical", width=16),
+                                                DashIconify(icon="lucide:more-vertical", width=14),
                                                 variant="subtle",
                                                 color="gray",
                                                 size="sm",
+                                                **{"aria-label": "Thao tác khác"},
                                             )
                                         ),
                                         dmc.MenuDropdown(menu_items),
                                     ],
-                                    position="bottom-start",
+                                    position="bottom-end",
                                     withArrow=True,
                                 ),
                             ],
@@ -216,10 +226,10 @@ def render_batch_defs_content(
     th_base: dict[str, Any] = {
         "position": "sticky",
         "top": 0,
-        "backgroundColor": "var(--p2, #FAFAFA)",
+        "backgroundColor": "var(--surface-2, #FAFAFA)",
         "zIndex": 1,
         "height": "34px",
-        "fontSize": "12px",
+        "fontSize": "11px",
         "fontWeight": 600,
         "borderBottom": "1px solid var(--line, #E0E0E0)",
         "whiteSpace": "nowrap",
@@ -228,7 +238,7 @@ def render_batch_defs_content(
 
     return dmc.Paper(
         dmc.TableScrollContainer(
-            minWidth=800,
+            minWidth=820,
             style={"flex": 1, "minHeight": 0, "overflow": "auto"},
             children=dmc.Table(
                 [
@@ -236,11 +246,11 @@ def render_batch_defs_content(
                         dmc.TableTr(
                             [
                                 dmc.TableTh("Mã", style={**th_base, "minWidth": "160px"}),
-                                dmc.TableTh("Tên", style={**th_base, "minWidth": "220px"}),
+                                dmc.TableTh("Tên", style={**th_base, "minWidth": "220px", "textAlign": "left"}),
                                 dmc.TableTh("Trạng thái", style={**th_base, "minWidth": "120px"}),
-                                dmc.TableTh("Số mục", style={**th_base, "minWidth": "90px"}),
-                                dmc.TableTh("Song song/DS", style={**th_base, "minWidth": "110px"}),
-                                dmc.TableTh("Thao tác", style={**th_base, "minWidth": "160px"}),
+                                dmc.TableTh("Số mục", style={**th_base, "minWidth": "80px"}),
+                                dmc.TableTh("Song song/DS", style={**th_base, "minWidth": "100px"}),
+                                dmc.TableTh("Thao tác", style={**th_base, "minWidth": "120px"}),
                             ]
                         )
                     ),
@@ -249,7 +259,7 @@ def render_batch_defs_content(
                 striped=False,
                 highlightOnHover=True,
                 verticalSpacing=4,
-                style={"fontSize": "13px"},
+                style={"fontSize": "12px"},
             ),
         ),
         withBorder=True,
@@ -260,7 +270,7 @@ def render_batch_defs_content(
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
-            "backgroundColor": "var(--p, #FFFFFF)",
+            "backgroundColor": "var(--surface, #FFFFFF)",
             "border": "1px solid var(--line, #E0E0E0)",
         },
     )
@@ -279,17 +289,24 @@ def layout() -> Any:
         )
     can_write = _can_write(ctx)
 
-    header_actions = [
+    header_actions: list[Any] = [
         dmc.ActionIcon(
-            DashIconify(icon="lucide:refresh-cw", width=16),
+            DashIconify(icon="lucide:refresh-cw", width=14),
             id="bdef-refresh-btn",
             variant="subtle",
             color="gray",
-            size="md",
+            size="sm",
+            **{"aria-label": "Làm mới danh sách"},
         ),
     ]
     if can_write:
-        header_actions.append(button_primary("Tạo bộ đối soát", icon="lucide:plus", id="bdef-create-btn", size="xs"))
+        header_actions.append(
+            dmc.Anchor(
+                button_primary("Tạo bộ đối soát", icon="lucide:plus", id="bdef-create-btn", size="xs"),
+                href="/batches/new",
+                underline=False,
+            )
+        )
 
     header_node = page_header(
         title="Bộ đối soát",
@@ -305,7 +322,8 @@ def layout() -> Any:
             w=180,
             size="xs",
             styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
-        )
+        ),
+        html.Span(id="bdef-count-text", style={"fontSize": "11px", "color": "var(--ink-soft, #616161)", "marginLeft": "auto"}),
     ]
     cmd_bar = command_bar(
         search_id="bdef-filter-search",
@@ -325,56 +343,6 @@ def layout() -> Any:
                 id="bdef-content",
                 style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
             ),
-                    dmc.Modal(
-                        id="bdef-create-modal",
-                        title="Tạo bộ đối soát",
-                        opened=False,
-                        centered=True,
-                        children=[
-                            dmc.Stack(
-                                [
-                                    dmc.TextInput(
-                                        id="bdef-create-code",
-                                        label="Mã bộ",
-                                        placeholder="VD: DOANH_THU_CUOI_THANG",
-                                        description="Chữ hoa, số và dấu gạch dưới, bắt đầu bằng chữ hoa.",
-                                        required=True,
-                                    ),
-                                    dmc.TextInput(
-                                        id="bdef-create-name",
-                                        label="Tên bộ",
-                                        placeholder="VD: Doanh thu cuối tháng",
-                                        required=True,
-                                    ),
-                                    dmc.Textarea(
-                                        id="bdef-create-desc",
-                                        label="Mô tả",
-                                        placeholder="Mô tả ngắn về bộ đối soát",
-                                        autosize=True,
-                                        minRows=2,
-                                    ),
-                                    dmc.NumberInput(
-                                        id="bdef-create-max-parallel",
-                                        label="Số run song song mỗi Data Source",
-                                        value=2,
-                                        min=1,
-                                        max=4,
-                                        step=1,
-                                    ),
-                                    html.Div(id="bdef-create-error"),
-                                    dmc.Group(
-                                        [
-                                            button_subtle("Hủy", id="bdef-create-cancel"),
-                                            button_primary("Tạo bộ", id="bdef-create-submit"),
-                                        ],
-                                        justify="flex-end",
-                                        gap="sm",
-                                    ),
-                                ],
-                                gap="sm",
-                            )
-                        ],
-                    ),
             modal_confirm(
                 id="bdef-archive-modal",
                 title="Lưu trữ bộ đối soát",
@@ -395,30 +363,41 @@ def layout() -> Any:
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
-            "padding": "12px 16px",
-            "gap": "8px",
+            "padding": "8px 12px",
+            "gap": "6px",
         },
     )
 
 
 @callback(
     Output("bdef-content", "children"),
+    Output("bdef-count-text", "children"),
     Input("bdef-store-list", "data"),
     Input("bdef-filter-search", "value"),
     Input("bdef-filter-status", "value"),
 )
-def _render_list(store_data: Any, search: str | None, status: str | None) -> Any:
+def _render_list(store_data: Any, search: str | None, status: str | None) -> tuple[Any, str]:
     ctx = get_current_ctx()
     if store_data is None:
-        return render_batch_defs_content(None, loading=True)
+        return render_batch_defs_content(None, loading=True), ""
     if isinstance(store_data, dict) and store_data.get("error"):
-        return render_batch_defs_content(None, error=str(store_data["error"]))
-    return render_batch_defs_content(
+        return render_batch_defs_content(None, error=str(store_data["error"])), ""
+    items = store_data if isinstance(store_data, list) else []
+    filtered = items
+    if search:
+        term = search.strip().lower()
+        filtered = [
+            it for it in filtered if term in str(it.get("code", "")).lower() or term in str(it.get("name", "")).lower()
+        ]
+    if status:
+        filtered = [it for it in filtered if it.get("status") == status]
+    content = render_batch_defs_content(
         store_data,
         search_term=search or "",
         status_filter=status or "",
         can_write=_can_write(ctx),
     )
+    return content, f"{len(filtered)} bộ"
 
 
 @callback(
@@ -435,61 +414,6 @@ def _load_list(_refresh: Any, _retry: Any) -> Any:
     if not res.ok:
         return {"error": res.message or "Không tải được danh sách."}
     return res.data
-
-
-@callback(
-    Output("bdef-create-modal", "opened"),
-    Input("bdef-create-btn", "n_clicks"),
-    Input({"type": "bdef-empty-create-btn", "index": ALL}, "n_clicks"),
-    Input("bdef-create-cancel", "n_clicks"),
-    State("bdef-create-modal", "opened"),
-    prevent_initial_call=True,
-)
-def _toggle_create_modal(open_clicks: Any, empty_clicks: Any, cancel_clicks: Any, opened: bool) -> bool:
-    ctx_dash = dash.callback_context
-    if not ctx_dash.triggered:
-        return False
-    triggered = ctx_dash.triggered_id
-    if triggered == "bdef-create-cancel":
-        return False
-    if triggered == "bdef-create-btn" and bool(open_clicks):
-        return True
-    if isinstance(triggered, dict) and triggered.get("type") == "bdef-empty-create-btn":
-        if any(c for c in (empty_clicks or []) if c):
-            return True
-    return False
-
-
-@callback(
-    Output("bdef-create-error", "children"),
-    Output("bdef-redirect", "href"),
-    Output("bdef-create-modal", "opened", allow_duplicate=True),
-    Input("bdef-create-submit", "n_clicks"),
-    State("bdef-create-code", "value"),
-    State("bdef-create-name", "value"),
-    State("bdef-create-desc", "value"),
-    State("bdef-create-max-parallel", "value"),
-    prevent_initial_call=True,
-)
-def _submit_create(
-    _n: Any, code: str | None, name: str | None, desc: str | None, max_parallel: Any
-) -> tuple[Any, Any, bool]:
-    ctx = get_current_ctx()
-    if ctx is None:
-        return alert_box("Bạn cần đăng nhập.", tone="crit"), dash.no_update, True
-    res = create_batch_def(
-        ctx,
-        {
-            "code": (code or "").strip(),
-            "name": (name or "").strip(),
-            "description": (desc or "").strip() or None,
-            "max_parallel_per_ds": int(max_parallel or 2),
-        },
-    )
-    if not res.ok:
-        return alert_box(res.message or "Không tạo được bộ đối soát.", tone="crit"), dash.no_update, True
-    data = res.data or {}
-    return None, f"/batches/{data.get('id')}", False
 
 
 @callback(
