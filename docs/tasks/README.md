@@ -33,7 +33,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 26 | [26-reporting-export](26-reporting-export/task.md) — Background export XLSX/CSV/ZIP | ✅ | 25 | feat/26-reporting-export |
 | 27 | [27-reporting-ui](27-reporting-ui/task.md) — UI Report Center, Viewer và Wizard | ✅ | 26 | feat/27-reporting-ui |
 | 28 | [28-reporting-integration](28-reporting-integration/task.md) — Permission, audit, Oracle migration và hồi quy | ✅ | 27 | feat/28-reporting-integration |
-| 29 | [29-reporting-fluent-ui](29-reporting-fluent-ui/task.md) — Đồng bộ giao diện Báo cáo động theo thiết kế chuẩn Screen16 preview.html | 🔄 | 27, 28 | feat/29-reporting-fluent-ui |
+| 29 | [29-reporting-fluent-ui](29-reporting-fluent-ui/task.md) — Đồng bộ giao diện Báo cáo động theo thiết kế chuẩn Screen16 preview.html | ✅ | 27, 28 | feat/29-reporting-fluent-ui |
 
 Thiết kế: 11 màn (designs/components/Screen01–Screen11), 13 thành phần, Gallery. Giao diện dựng bằng Dash Mantine Components.
 

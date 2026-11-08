@@ -111,7 +111,7 @@ class TestServiceMenuRegistry:
             ("dashboard", "compare_runs"): ["dashboard"],
             ("dashboard", "get_previous_run"): ["dashboard"],
             ("data_source", "list_data_sources"): ["data_source"],
-            ("data_source", "options_data_sources"): ["template", "data_source"],
+            ("data_source", "options_data_sources"): ["template", "data_source", "batch_run"],
             ("excel_load", "load_excel_to_temp"): ["run"],
             ("file_service", "upload_file"): ["run", "template"],
             ("issue", "list_issues"): ["issue"],

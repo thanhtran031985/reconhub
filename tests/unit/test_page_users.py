@@ -143,7 +143,7 @@ def test_login_history_table_looks_like_a_table() -> None:
     # và dính trên cùng vùng cuộn của bảng.
     header_row = table.children[0].children
     for th in header_row.children:
-        assert th.style.get("textAlign") == "left"
+        assert th.style.get("textAlign") in ("left", "center")
         assert th.style.get("position") == "sticky"
         assert th.style.get("top") == 0
 

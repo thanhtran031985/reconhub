@@ -58,10 +58,9 @@ from app.services.report_template import (
     update_version_source,
 )
 from app.ui.components.alert_box import alert_box
-from app.ui.components.button import button_danger, button_primary, button_subtle
+from app.ui.components.button import button_danger, button_primary
 from app.ui.components.command_bar import command_bar
 from app.ui.components.empty_state import empty_state
-from app.ui.components.modal_confirm import modal_confirm
 from app.ui.components.page_header import page_header
 from app.ui.components.report_widgets import _format_cell, render_param_form, render_result_table
 from app.ui.components.status_chip import STATUS_MAP, status_chip
@@ -188,7 +187,7 @@ def _state_from_version(ctx: Ctx, template_id: int, version_id: int) -> dict[str
             "version_id": int(version_id),
             "version_status": str(detail.get("status", "DRAFT")),
             "step": 1,
-            "max_step": 1,
+            "max_step": 6 if detail.get("columns") else (2 if detail.get("sql_text") else 1),
             "analyzed": bool(detail.get("columns")),
             "dry_run_ok": str(detail.get("status")) == "DRY_RUN_OK",
         }
@@ -1484,6 +1483,8 @@ def _render_columns_preview(columns: list[dict[str, Any]]) -> Any:
     for c in visible:
         dtype = c.get("data_type", "STRING")
         field = str(c.get("field_name", "")).upper()
+        val1: Any
+        val2: Any
         if dtype == "NUMBER":
             val1 = 10000000
             val2 = 8000000

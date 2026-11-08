@@ -74,13 +74,13 @@
 - Kiểm tra cuối cùng: `uv run poe test`, `uv run poe lint`, `uv run poe typecheck`, `uv run poe e2e`.
 
 ## Chấp nhận khi
-- [ ] Màn danh sách `/report-admin` hiển thị đầy đủ bảng Fluent Compact, lọc tìm kiếm, menu thao tác 3 chấm, modal xác nhận tương tự `/batches`.
-- [ ] Màn `/reports` hiển thị bảng gom nhóm danh mục chuẩn theo `preview.html`, không dùng lưới card.
-- [ ] Bảng kết quả `/reports/<id>` có dòng tổng cho các cột `is_total=True`.
-- [ ] Bước 3 Wizard có Canvas layout 12 cột trực quan và panel LOV Master–Detail bên phải.
-- [ ] Bước 4 Wizard có bảng xem trước dữ liệu mẫu thực tế.
-- [ ] Thanh điều hướng Wizard cố định ở chân trang, không trôi theo cuộn nội dung.
-- [ ] `uv run poe typecheck`, `uv run poe lint`, `uv run poe test`, `uv run poe e2e` xanh.
+- [x] Màn danh sách `/report-admin` hiển thị đầy đủ bảng Fluent Compact, lọc tìm kiếm, menu thao tác 3 chấm, modal xác nhận tương tự `/batches`.
+- [x] Màn `/reports` hiển thị bảng gom nhóm danh mục chuẩn theo `preview.html`, không dùng lưới card.
+- [x] Bảng kết quả `/reports/<id>` có dòng tổng cho các cột `is_total=True`.
+- [x] Bước 3 Wizard có Canvas layout 12 cột trực quan và panel LOV Master–Detail bên phải.
+- [x] Bước 4 Wizard có bảng xem trước dữ liệu mẫu thực tế.
+- [x] Thanh điều hướng Wizard cố định ở chân trang, không trôi theo cuộn nội dung.
+- [x] `uv run poe typecheck`, `uv run poe lint`, `uv run poe test`, `uv run poe e2e` xanh.
 
 ## Câu hỏi mở
 - Không. Bám sát thiết kế `preview.html` và mẫu giao diện `batch_defs.py`.
