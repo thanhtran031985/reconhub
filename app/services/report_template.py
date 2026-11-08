@@ -426,11 +426,19 @@ def update_version_source(ctx: Ctx, version_id: int, payload: dict[str, Any]) ->
             raise ServiceError(ErrorCode.VALIDATION_ERROR, f"Loại nguồn không hỗ trợ: {source_type}.")
         if source_type == "CUSTOM_SQL" and not (sql_text or "").strip():
             raise ServiceError(ErrorCode.VALIDATION_ERROR, "CUSTOM_SQL cần câu lệnh SQL.")
-        if source_type in ("VIEW", "TABLE") and not ((owner or "").strip() and (obj or "").strip()):
-            raise ServiceError(
-                ErrorCode.VALIDATION_ERROR,
-                "VIEW/TABLE cần chọn schema và đối tượng.",
-            )
+        if source_type in ("VIEW", "TABLE"):
+            if not (owner or "").strip():
+                from app.engine.catalog import _resolve_schema
+                ds_val = dto.data_source_id or row["DATA_SOURCE_ID"]
+                if ds_val:
+                    owner = _resolve_schema(int(ds_val), None) or "main"
+                else:
+                    owner = "main"
+            if not ((owner or "").strip() and (obj or "").strip()):
+                raise ServiceError(
+                    ErrorCode.VALIDATION_ERROR,
+                    "VIEW/TABLE cần chọn schema và đối tượng.",
+                )
         values: dict[str, Any] = {
             "UPDATED_BY": ctx.username,
             "UPDATED_AT": now,

@@ -60,7 +60,7 @@ def list_tables(
     q: str | None = None,
     object_type: str | None = None,
 ) -> list[dict[str, str]]:
-    """Liệt kê danh sách bảng và view trong schema Oracle với cache 10 phút.
+    """Liệt kê danh sách bảng và view trong schema Oracle hoặc SQLite với cache 10 phút.
 
     Trả về danh sách: [{"name": str, "type": "TABLE" | "VIEW", "schema": str}]
     object_type: None (cả bảng và view, hành vi cũ), "TABLE" hoặc "VIEW"
@@ -68,6 +68,26 @@ def list_tables(
     """
     if object_type is not None and object_type not in ("TABLE", "VIEW"):
         raise ValueError("object_type phải là None, 'TABLE' hoặc 'VIEW'")
+
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        ds_row = conn.execute(
+            select(recon_data_source.c.DB_TYPE).where(recon_data_source.c.ID == ds_id)
+        ).mappings().first()
+
+    if ds_row and str(ds_row.get("DB_TYPE")).upper() == "SQLITE":
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            types = ("table",) if object_type == "TABLE" else ("view",) if object_type == "VIEW" else ("table", "view")
+            types_str = ", ".join(f"'{t}'" for t in types)
+            query = f"SELECT name, UPPER(type) FROM sqlite_master WHERE type IN ({types_str}) AND name NOT LIKE 'sqlite_%'"
+            if q:
+                term = q.strip().upper()
+                query += f" AND UPPER(name) LIKE '%{term}%'"
+            query += " ORDER BY name"
+            raw_rows = conn.execute(text(query)).fetchall()
+            return [{"name": str(r[0]), "type": str(r[1]), "schema": "main"} for r in raw_rows]
+
     resolved_schema = _resolve_schema(ds_id, schema)
     cache_key = (ds_id, resolved_schema, object_type or "")
     now = time.monotonic()
@@ -135,10 +155,32 @@ def list_columns(
     schema: str,
     table_name: str,
 ) -> list[dict[str, Any]]:
-    """Liệt kê thông tin các cột của bảng hoặc view Oracle với cache 10 phút.
+    """Liệt kê thông tin các cột của bảng hoặc view Oracle hoặc SQLite với cache 10 phút.
 
     Trả về danh sách: [{"name": str, "data_type": str, "nullable": bool, "length": int, "precision": int, "scale": int}]
     """
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        ds_row = conn.execute(
+            select(recon_data_source.c.DB_TYPE).where(recon_data_source.c.ID == ds_id)
+        ).mappings().first()
+
+    if ds_row and str(ds_row.get("DB_TYPE")).upper() == "SQLITE":
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            raw = conn.execute(text(f"PRAGMA table_info('{table_name}')")).fetchall()
+            return [
+                {
+                    "name": str(r[1]),
+                    "data_type": str(r[2] or "TEXT").upper(),
+                    "nullable": not bool(r[3]),
+                    "length": None,
+                    "precision": None,
+                    "scale": None,
+                }
+                for r in raw
+            ]
+
     norm_schema = schema.strip().upper()
     norm_table = table_name.strip().upper()
     cache_key = (ds_id, norm_schema, norm_table)

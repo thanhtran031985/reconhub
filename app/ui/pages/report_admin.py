@@ -18,6 +18,7 @@ from dash_iconify import DashIconify
 
 from app.core.context import Ctx
 from app.core.session import get_current_ctx
+from app.engine.catalog import list_columns as list_db_columns
 from app.services.data_source import list_data_sources
 from app.services.lookup import list_lookup_types
 from app.services.perm import page_gate
@@ -66,7 +67,12 @@ from app.ui.components.report_widgets import _format_cell, render_param_form, re
 from app.ui.components.status_chip import STATUS_MAP, status_chip
 
 try:
-    dash.register_page(__name__, path="/report-admin", title="Quản trị báo cáo – ReconHub")  # type: ignore[no-untyped-call]
+    dash.register_page(  # type: ignore[no-untyped-call]
+        f"pages.{__name__.split('.')[-1]}",
+        path_template="/report-admin/<action>",
+        path="/report-admin",
+        title="Quản trị báo cáo — ReconHub",
+    )
 except Exception:
     pass
 
@@ -281,6 +287,8 @@ def render_report_list(
     search_term: str = "",
     status_filter: str = "",
     category_filter: str = "",
+    page: int = 1,
+    page_size: int = 10,
 ) -> Any:
     """Danh sách Report Master + template/version theo phong cách Fluent Compact tương tự /batches."""
     if loading:
@@ -300,10 +308,10 @@ def render_report_list(
         return empty_state(
             title="Chưa có báo cáo nào",
             description="Bấm “Báo cáo mới” để đăng ký báo cáo và template đầu tiên.",
-            action=dcc.Link(
+            action=dmc.Anchor(
                 button_primary("Báo cáo mới", icon="lucide:plus", id="admin-empty-new-btn", size="xs"),
-                href="/report-admin?new=1",
-                style={"textDecoration": "none"},
+                href="/report-admin/new",
+                underline=False,
             ),
         )
 
@@ -394,6 +402,13 @@ def render_report_list(
             description="Hãy thử thay đổi từ khóa tìm kiếm hoặc bỏ bớt bộ lọc.",
         )
 
+    total_items = len(filtered)
+    total_pages = max(1, (total_items + page_size - 1) // page_size)
+    curr_page = min(max(1, page), total_pages)
+    start_idx = (curr_page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_items)
+    paged_items = filtered[start_idx:end_idx]
+
     th_base: dict[str, Any] = {
         "position": "sticky",
         "top": 0,
@@ -408,44 +423,78 @@ def render_report_list(
     }
 
     table_rows = []
-    for it in filtered:
+    for it in paged_items:
         tpl_id = it.get("tpl_id")
         ver_id = it.get("ver_id")
         status = it.get("status") or "DRAFT"
         is_active = it.get("is_active")
 
-        actions_list: list[Any] = []
+        menu_items: list[Any] = []
         if tpl_id:
-            actions_list.append(
-                dmc.Button(
+            menu_items.append(
+                dmc.MenuItem(
                     "Sửa",
-                    size="xs",
-                    variant="subtle",
                     id={"type": "admin-edit", "index": tpl_id},
-                    **{"aria-label": f"Sửa template {it['tpl_code']}"},
+                    href=f"/report-admin/{tpl_id}",
+                    leftSection=DashIconify(icon="lucide:edit-3", width=14),
                 )
             )
         if ver_id:
-            actions_list.append(
-                dmc.Button(
+            menu_items.append(
+                dmc.MenuItem(
                     "Clone",
-                    size="xs",
-                    variant="subtle",
                     id={"type": "admin-clone", "index": ver_id},
-                    **{"aria-label": f"Clone version {ver_id}"},
+                    leftSection=DashIconify(icon="lucide:copy", width=14),
                 )
             )
-            actions_list.append(
-                dmc.Button(
+            menu_items.append(
+                dmc.MenuItem(
                     "Lưu trữ",
-                    size="xs",
-                    variant="subtle",
-                    color="red",
                     id={"type": "admin-archive-ver", "index": ver_id},
-                    **{"aria-label": f"Lưu trữ version {ver_id}"},
+                    color="orange",
+                    leftSection=DashIconify(icon="lucide:archive", width=14),
                 )
             )
-        action_cell = dmc.Group(actions_list, gap="xs", justify="center", style={"flexWrap": "nowrap"})
+
+        action_cell = dmc.Group(
+            [
+                dmc.Anchor(
+                    dmc.ActionIcon(
+                        DashIconify(icon="lucide:edit-3", width=14),
+                        variant="subtle",
+                        color="gray",
+                        size="sm",
+                        id={"type": "admin-quick-edit", "index": tpl_id or 0},
+                        **{"aria-label": f"Sửa {it['tpl_code']}"},
+                    ),
+                    href=f"/report-admin/{tpl_id}" if tpl_id else "#",
+                    underline=False,
+                )
+                if tpl_id
+                else html.Div(),
+                dmc.Menu(
+                    [
+                        dmc.MenuTarget(
+                            dmc.ActionIcon(
+                                DashIconify(icon="lucide:more-vertical", width=14),
+                                variant="subtle",
+                                color="gray",
+                                size="sm",
+                                **{"aria-label": "Thao tác khác"},
+                            )
+                        ),
+                        dmc.MenuDropdown(menu_items),
+                    ],
+                    position="bottom-end",
+                    withArrow=True,
+                )
+                if menu_items
+                else html.Div(),
+            ],
+            gap="xs",
+            justify="center",
+            style={"flexWrap": "nowrap"},
+        )
 
         cat_badge = dmc.Badge(
             CATEGORY_LABELS.get(it["category_code"], it["category_code"] or "—"),
@@ -475,7 +524,7 @@ def render_report_list(
                                         fw=700,
                                         size="sm",
                                     ),
-                                    href=f"/report-admin?template={tpl_id}" if tpl_id else "/report-admin?new=1",
+                                    href=f"/report-admin/{tpl_id}" if tpl_id else "/report-admin/new",
                                     underline=False,
                                 ),
                                 dmc.Text(it["report_code"], size="10px", c="dimmed", className="rh-code"),
@@ -523,35 +572,66 @@ def render_report_list(
             )
         )
 
-    return dmc.Paper(
-        dmc.TableScrollContainer(
-            minWidth=880,
-            style={"flex": 1, "minHeight": 0, "overflow": "auto"},
-            children=dmc.Table(
-                [
-                    dmc.TableThead(
-                        dmc.TableTr(
-                            [
-                                dmc.TableTh("Mã", style={**th_base, "minWidth": "160px"}),
-                                dmc.TableTh(
-                                    "Tên & Mô tả", style={**th_base, "minWidth": "240px", "textAlign": "left"}
-                                ),
-                                dmc.TableTh("Nhóm", style={**th_base, "minWidth": "110px"}),
-                                dmc.TableTh("Trạng thái", style={**th_base, "minWidth": "110px"}),
-                                dmc.TableTh("Version", style={**th_base, "minWidth": "110px"}),
-                                dmc.TableTh("Chủ sở hữu", style={**th_base, "minWidth": "100px"}),
-                                dmc.TableTh("Thao tác", style={**th_base, "minWidth": "180px"}),
-                            ]
-                        )
-                    ),
-                    dmc.TableTbody(table_rows),
-                ],
-                striped=False,
-                highlightOnHover=True,
-                verticalSpacing=4,
-                style={"fontSize": "12px"},
+    pagination_bar = dmc.Group(
+        [
+            dmc.Text(
+                f"Hiển thị {start_idx + 1 if total_items > 0 else 0} – {end_idx} trong tổng số {total_items} mục",
+                size="xs",
+                c="dimmed",
+                fw=500,
             ),
-        ),
+            dmc.Pagination(
+                id="admin-pagination",
+                total=total_pages,
+                value=curr_page,
+                size="xs",
+            )
+            if total_pages > 1
+            else html.Div(id="admin-pagination", style={"display": "none"}),
+        ],
+        justify="space-between",
+        align="center",
+        px="sm",
+        py=6,
+        style={
+            "borderTop": "1px solid var(--line, #E0E0E0)",
+            "backgroundColor": "var(--surface, #FFFFFF)",
+            "flexShrink": 0,
+        },
+    )
+
+    return dmc.Paper(
+        [
+            dmc.TableScrollContainer(
+                minWidth=880,
+                style={"flex": 1, "minHeight": 0, "overflow": "auto"},
+                children=dmc.Table(
+                    [
+                        dmc.TableThead(
+                            dmc.TableTr(
+                                [
+                                    dmc.TableTh("Mã", style={**th_base, "minWidth": "160px"}),
+                                    dmc.TableTh(
+                                        "Tên & Mô tả", style={**th_base, "minWidth": "240px", "textAlign": "left"}
+                                    ),
+                                    dmc.TableTh("Nhóm", style={**th_base, "minWidth": "110px"}),
+                                    dmc.TableTh("Trạng thái", style={**th_base, "minWidth": "110px"}),
+                                    dmc.TableTh("Version", style={**th_base, "minWidth": "110px"}),
+                                    dmc.TableTh("Chủ sở hữu", style={**th_base, "minWidth": "100px"}),
+                                    dmc.TableTh("Thao tác", style={**th_base, "minWidth": "110px"}),
+                                ]
+                            )
+                        ),
+                        dmc.TableTbody(table_rows),
+                    ],
+                    striped=False,
+                    highlightOnHover=True,
+                    verticalSpacing=4,
+                    style={"fontSize": "12px"},
+                ),
+            ),
+            pagination_bar,
+        ],
         withBorder=True,
         radius="sm",
         style={
@@ -591,11 +671,10 @@ def _load_reports_with_templates(ctx: Ctx) -> list[dict[str, Any]]:
 # ─── Layout ────────────────────────────────────────────────────────────────
 
 
-def layout(**kwargs: Any) -> Any:
-    """Giao diện chính: danh sách hoặc wizard (chuyển bằng location query).
+def layout(action: str | None = None, **kwargs: Any) -> Any:
+    """Giao diện chính: danh sách hoặc wizard (/report-admin, /report-admin/new, /report-admin/<id>).
 
-    Dash pages truyền query string (?new=1, ?template=, ?clone=) thành
-    kwargs nên phải nhận **kwargs, nếu không layout crash và trang trống.
+    Hỗ trợ cả route /report-admin/<action> và query string (?new=1, ?template=, ?clone=).
     """
     ctx = get_current_ctx()
     gate = page_gate(ctx, MENU_CODE)
@@ -612,42 +691,69 @@ def layout(**kwargs: Any) -> Any:
             reports = _load_reports_with_templates(ctx)
         except Exception:
             reports = []
+
+    # Xác định initial mode: wizard hay list
+    initial_mode = "list"
+    initial_state: dict[str, Any] = {"mode": "list", "step": 1, "max_step": 1}
+
+    if action == "new" or str(kwargs.get("new", "")).lower() in ("1", "true"):
+        initial_mode = "wizard"
+        initial_state = _fresh_state()
+    elif action and action.isdigit():
+        tpl_id = int(action)
+        new_state, _ = handle_open_edit(1, tpl_id)
+        if new_state:
+            initial_mode = "wizard"
+            initial_state = new_state
+    elif kwargs.get("template"):
+        try:
+            tpl_id = int(str(kwargs.get("template")))
+            new_state, _ = handle_open_edit(1, tpl_id)
+            if new_state:
+                initial_mode = "wizard"
+                initial_state = new_state
+        except (ValueError, TypeError):
+            pass
+    elif kwargs.get("clone"):
+        try:
+            ver_id = int(str(kwargs.get("clone")))
+            new_state, _ = handle_clone(1, ver_id)
+            if new_state:
+                initial_mode = "wizard"
+                initial_state = new_state
+        except (ValueError, TypeError):
+            pass
+
     return html.Div(
         [
             dcc.Location(id="admin-location", refresh=False),
-            dcc.Store(id="admin-state-store", data={"mode": "list"}),
+            dcc.Store(id="admin-state-store", data=initial_state),
             dcc.Store(id="admin-dryrun-store", data=None),
             dcc.Store(id="admin-alert-store", data=None),
             dcc.Store(id="admin-reports-store", data=reports),
-            page_header(
-                title="Quản trị báo cáo",
-                subtitle="Danh sách Report Master và wizard cấu hình template báo cáo",
-                actions=[
-                    dmc.ActionIcon(
-                        DashIconify(icon="lucide:refresh-cw", width=14),
-                        id="admin-refresh-btn",
-                        variant="subtle",
-                        color="gray",
-                        size="sm",
-                        **{"aria-label": "Làm mới danh sách"},
-                    ),
-                    dcc.Link(
-                        dmc.Button(
-                            "+ Báo cáo mới",
-                            id="admin-new-btn",
-                            size="xs",
-                            variant="filled",
-                            leftSection=DashIconify(icon="lucide:plus", width=14),
-                        ),
-                        href="/report-admin?new=1",
-                        style={"textDecoration": "none"},
-                    ),
-                ],
-            ),
             html.Div(id="admin-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
             html.Div(
                 id="admin-list-container",
                 children=[
+                    page_header(
+                        title="Quản trị báo cáo",
+                        subtitle="Danh sách Report Master và wizard cấu hình template báo cáo",
+                        actions=[
+                            dmc.ActionIcon(
+                                DashIconify(icon="lucide:refresh-cw", width=14),
+                                id="admin-refresh-btn",
+                                variant="subtle",
+                                color="gray",
+                                size="sm",
+                                **{"aria-label": "Làm mới danh sách"},
+                            ),
+                            dmc.Anchor(
+                                button_primary("+ Báo cáo mới", icon="lucide:plus", id="admin-new-btn", size="xs"),
+                                href="/report-admin/new",
+                                underline=False,
+                            ),
+                        ],
+                    ),
                     command_bar(
                         search_id="admin-filter-search",
                         search_placeholder="Tìm theo mã hoặc tên báo cáo...",
@@ -687,13 +793,14 @@ def layout(**kwargs: Any) -> Any:
                     ),
                 ],
                 style={
+                    "display": "none" if initial_mode == "wizard" else "flex",
+                    "flexDirection": "column",
                     "flex": "1 1 0%",
                     "minHeight": 0,
-                    "display": "flex",
-                    "flexDirection": "column",
                     "overflow": "hidden",
                     "padding": "8px 12px",
                     "gap": "6px",
+                    "height": "100%",
                 },
             ),
             dcc.Loading(
@@ -701,14 +808,22 @@ def layout(**kwargs: Any) -> Any:
                 type="circle",
                 children=html.Div(
                     id="admin-wizard-container",
-                    children=[],
-                    style={"display": "none"},
+                    children=render_wizard(initial_state) if initial_mode == "wizard" else [],
+                    style={
+                        "display": "flex" if initial_mode == "wizard" else "none",
+                        "flexDirection": "column",
+                        "flex": "1 1 0%",
+                        "minHeight": 0,
+                        "overflow": "hidden",
+                        "height": "100%",
+                    },
                 ),
-                style={"flex": "1 1 0%", "minHeight": 0, "display": "flex", "flexDirection": "column"},
+                style={"flex": "1 1 0%", "minHeight": 0, "display": "flex", "flexDirection": "column", "height": "100%"},
             ),
         ],
         style={
             "height": "calc(100vh - 48px)",
+            "minHeight": 0,
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
@@ -728,7 +843,8 @@ def _ds_options(ctx: Ctx) -> list[dict[str, Any]]:
     items = res.data if hasattr(res, "data") else res
     if not isinstance(items, list):
         return []
-    return [{"label": f"{ds.name} ({ds.env})", "value": str(ds.id)} for ds in items if hasattr(ds, "id")]
+    sorted_items = sorted(items, key=lambda x: 0 if getattr(x, "db_type", "") == "SQLITE" else 1)
+    return [{"label": f"{ds.name} ({ds.env})", "value": str(ds.id)} for ds in sorted_items if hasattr(ds, "id")]
 
 
 def _lookup_options(ctx: Ctx) -> list[dict[str, str]]:
@@ -750,7 +866,7 @@ def _lookup_options(ctx: Ctx) -> list[dict[str, str]]:
 
 
 def render_step1(state: dict[str, Any]) -> Any:
-    """Bước 1: thông tin báo cáo + template."""
+    """Bước 1: thông tin chung (bố cục 4 cột theo preview.html)."""
     ctx = get_current_ctx()
     report: dict[str, Any] = {}
     template: dict[str, Any] = {}
@@ -764,150 +880,181 @@ def render_step1(state: dict[str, Any]) -> Any:
         if tpl_res.ok and isinstance(tpl_res.data, dict):
             template = tpl_res.data
         version = _version_detail(ctx, state.get("version_id"))
+
+    tpl_status = str(template.get("status") or version.get("status") or "DRAFT")
+
     return dmc.Stack(
         [
-            dmc.Title("Thông tin", order=3),
-            dmc.TextInput(
-                id="admin-s1-report-code",
-                label="Mã báo cáo",
-                value=str(report.get("code") or ""),
-                disabled=editing,
-                placeholder="VD: FIN_REVENUE",
-                **{"aria-label": "Mã báo cáo"},
-            ),
-            dmc.TextInput(
-                id="admin-s1-report-name",
-                label="Tên báo cáo",
-                value=str(report.get("name") or ""),
-                placeholder="VD: Báo cáo doanh thu",
-                **{"aria-label": "Tên báo cáo"},
-            ),
-            dmc.Select(
-                id="admin-s1-category",
-                label="Nhóm báo cáo",
-                data=CATEGORY_OPTIONS,
-                value=str(report.get("category_code") or "FINANCE"),
-                clearable=False,
-            ),
-            dmc.TextInput(
-                id="admin-s1-owner",
-                label="Chủ sở hữu",
-                value=str(report.get("owner") or ""),
-                placeholder="VD: FIN",
-            ),
-            dmc.Textarea(
-                id="admin-s1-description",
-                label="Mô tả",
-                value=str(report.get("description") or ""),
-                autosize=True,
-                minRows=2,
-            ),
-            dmc.Group(
+            html.Div(
                 [
-                    dmc.Checkbox(
-                        id="admin-s1-visible",
-                        label="Hiển thị ở Trung tâm báo cáo",
-                        checked=bool(report.get("is_visible", True)),
-                    ),
-                    dmc.Checkbox(
-                        id="admin-s1-default-fav",
-                        label="Mặc định yêu thích",
-                        checked=bool(report.get("default_favorite", False)),
+                    dmc.Title("1. Thông tin chung", order=3, style={"fontSize": "15px", "fontWeight": 600, "margin": 0}),
+                    dmc.Text(
+                        "Khai báo Report Master và template đầu tiên. Bố cục giữ đúng màn thiết kế đã duyệt.",
+                        size="xs",
+                        c="dimmed",
+                        mt=2,
+                        mb="xs",
                     ),
                 ]
             ),
-            dmc.Divider(label="Template", labelPosition="left"),
-            dmc.TextInput(
-                id="admin-s1-tpl-code",
-                label="Mã template",
-                value=str(template.get("code") or ""),
-                disabled=editing,
-                placeholder="VD: CHI_TIET",
-                **{"aria-label": "Mã template"},
-            ),
-            dmc.TextInput(
-                id="admin-s1-tpl-name",
-                label="Tên template",
-                value=str(template.get("name") or ""),
-                placeholder="VD: Chi tiết",
-            ),
-            dmc.Group(
-                [
+            dmc.SimpleGrid(
+                cols={"base": 1, "sm": 2, "md": 4},
+                spacing="sm",
+                children=[
+                    dmc.TextInput(
+                        id="admin-s1-report-code",
+                        label="Mã báo cáo *",
+                        value=str(report.get("code") or ""),
+                        disabled=editing,
+                        placeholder="VD: FIN_REVENUE",
+                        description="Viết hoa, không dấu; không đổi sau khi tạo.",
+                        inputWrapperOrder=["label", "input", "description"],
+                        style={"fontFamily": "var(--font-mono, Consolas, monospace)"},
+                        **{"aria-label": "Mã báo cáo"},
+                    ),
+                    dmc.TextInput(
+                        id="admin-s1-report-name",
+                        label="Tên báo cáo *",
+                        value=str(report.get("name") or ""),
+                        placeholder="VD: Báo cáo doanh thu",
+                        **{"aria-label": "Tên báo cáo"},
+                    ),
+                    dmc.Select(
+                        id="admin-s1-category",
+                        label="Nhóm báo cáo *",
+                        data=CATEGORY_OPTIONS,
+                        value=str(report.get("category_code") or "FINANCE"),
+                        clearable=False,
+                    ),
+                    dmc.TextInput(
+                        id="admin-s1-tpl-code",
+                        label="Mã template *",
+                        value=str(template.get("code") or ""),
+                        disabled=editing,
+                        placeholder="VD: REVENUE_DETAIL",
+                        style={"fontFamily": "var(--font-mono, Consolas, monospace)"},
+                        **{"aria-label": "Mã template"},
+                    ),
+                    dmc.TextInput(
+                        id="admin-s1-tpl-name",
+                        label="Tên template *",
+                        value=str(template.get("name") or ""),
+                        placeholder="VD: Chi tiết doanh thu",
+                    ),
                     dmc.NumberInput(
                         id="admin-s1-display-order",
-                        label="Thứ tự",
-                        value=int(template.get("display_order") or 10),
-                        min=0,
-                    ),
-                    dmc.NumberInput(
-                        id="admin-s1-timeout",
-                        label="Timeout (giây)",
-                        value=int(version.get("timeout_sec") or 300),
-                        min=1,
-                        max=600,
-                    ),
-                    dmc.NumberInput(
-                        id="admin-s1-preview-max",
-                        label="Tối đa dòng xem trước",
-                        value=int(version.get("preview_max_rows") or 100),
+                        label="Thứ tự template",
+                        value=int(template.get("display_order") or 1),
                         min=1,
                     ),
-                    dmc.NumberInput(
-                        id="admin-s1-export-max",
-                        label="Tối đa dòng export",
-                        value=int(version.get("export_max_rows") or 1000000),
-                        min=1,
+                    dmc.TextInput(
+                        id="admin-s1-owner",
+                        label="Chủ sở hữu nghiệp vụ",
+                        value=str(report.get("owner") or ""),
+                        placeholder="VD: FIN",
+                    ),
+                    dmc.Select(
+                        id="admin-s1-tpl-status",
+                        label="Trạng thái",
+                        data=[
+                            {"label": "DRAFT - Đang soạn thảo", "value": "DRAFT"},
+                            {"label": "ACTIVE - Đang dùng", "value": "ACTIVE"},
+                            {"label": "ARCHIVED - Lưu trữ", "value": "ARCHIVED"},
+                        ],
+                        value=tpl_status,
+                        disabled=True,
                     ),
                 ],
-                grow=True,
+            ),
+            dmc.Textarea(
+                id="admin-s1-description",
+                label="Mô tả báo cáo",
+                value=str(report.get("description") or ""),
+                autosize=True,
+                minRows=2,
+                placeholder="Báo cáo chi tiết và tổng hợp doanh thu theo đơn vị, khách hàng và dịch vụ.",
+                mt="xs",
             ),
             dmc.Group(
                 [
-                    dmc.Button(
-                        "Lưu và tiếp tục",
-                        id="admin-s1-save-btn",
-                        variant="filled",
+                    dmc.Checkbox(
+                        id="admin-s1-default-fav",
+                        label="Đánh dấu báo cáo yêu thích mặc định",
+                        checked=bool(report.get("default_favorite", False)),
+                    ),
+                    dmc.Checkbox(
+                        id="admin-s1-visible",
+                        label="Hiển thị trong Trung tâm báo cáo sau khi kích hoạt",
+                        checked=bool(report.get("is_visible", True)),
                     ),
                 ],
-                mt="md",
+                mt="xs",
+            ),
+            dmc.Alert(
+                "Một Report Master có thể chứa nhiều template động. Sau khi hoàn tất template này, Admin có thể thêm các template “Theo đơn vị”, “Theo khách hàng” hoặc “Theo dịch vụ”.",
+                color="orange",
+                variant="light",
+                mt="xs",
+            ),
+            html.Div(
+                [
+                    dmc.NumberInput(id="admin-s1-timeout", value=int(version.get("timeout_sec") or 300)),
+                    dmc.NumberInput(id="admin-s1-preview-max", value=int(version.get("preview_max_rows") or 100)),
+                    dmc.NumberInput(id="admin-s1-export-max", value=int(version.get("export_max_rows") or 1000000)),
+                    dmc.Button("Lưu và tiếp tục", id="admin-s1-hidden-save-btn"),
+                ],
+                style={"display": "none"},
             ),
         ],
-        gap="sm",
+        gap="xs",
     )
 
 
 def render_step2(state: dict[str, Any]) -> Any:
-    """Bước 2: nguồn dữ liệu."""
+    """Bước 2: Data Source và SQL (bố cục theo preview.html)."""
     ctx = get_current_ctx()
     version = _version_detail(ctx, state.get("version_id")) if ctx else {}
     ds_opts = _ds_options(ctx) if ctx else []
-    source_type = str(version.get("source_type") or "CUSTOM_SQL")
+    source_type = str(version.get("source_type") or "TABLE")
+    ds_id = version.get("data_source_id") or (ds_opts[0]["value"] if ds_opts else None)
+
+    # Objects được nạp tự động qua callback handle_s2_source_type_and_objects
+    initial_objects: list[dict[str, str]] = []
+
     return dmc.Stack(
         [
-            dmc.Title("Nguồn dữ liệu", order=3),
-            dmc.Text(
-                "Chưa phân tích thì không qua được bước 3.",
-                size="sm",
-                c="dimmed",
-            ),
-            dmc.Select(
-                id="admin-s2-ds",
-                label="Data Source",
-                data=ds_opts,
-                value=str(version.get("data_source_id")) if version.get("data_source_id") else None,
-                placeholder="Chọn Data Source…",
-                searchable=True,
-                clearable=True,
-            ),
-            dmc.Select(
-                id="admin-s2-source-type",
-                label="Loại nguồn",
-                data=SOURCE_TYPE_OPTIONS,
-                value=source_type,
-                clearable=False,
-            ),
-            dmc.Group(
+            html.Div(
                 [
+                    dmc.Title("2. Nguồn dữ liệu & SQL (Data Source)", order=3, style={"fontSize": "15px", "fontWeight": 600, "margin": 0}),
+                    dmc.Text(
+                        "Chọn Data Source, cấu hình nguồn dữ liệu (Table / View / Custom SQL) và phân tích SQL.",
+                        size="xs",
+                        c="dimmed",
+                        mt=2,
+                        mb="xs",
+                    ),
+                ]
+            ),
+            dmc.SimpleGrid(
+                cols={"base": 1, "sm": 2, "md": 4},
+                spacing="sm",
+                children=[
+                    dmc.Select(
+                        id="admin-s2-ds",
+                        label="Data Source *",
+                        data=ds_opts,
+                        value=str(ds_id) if ds_id else None,
+                        placeholder="Chọn Data Source…",
+                        searchable=True,
+                        clearable=False,
+                    ),
+                    dmc.Select(
+                        id="admin-s2-source-type",
+                        label="Loại nguồn",
+                        data=SOURCE_TYPE_OPTIONS,
+                        value=source_type,
+                        clearable=False,
+                    ),
                     dmc.NumberInput(
                         id="admin-s2-timeout",
                         label="Timeout (giây)",
@@ -917,117 +1064,145 @@ def render_step2(state: dict[str, Any]) -> Any:
                     ),
                     dmc.NumberInput(
                         id="admin-s2-preview-max",
-                        label="Tối đa dòng xem trước",
+                        label="Tối đa dòng preview",
                         value=int(version.get("preview_max_rows") or 100),
                         min=1,
                     ),
-                    dmc.NumberInput(
-                        id="admin-s2-export-max",
-                        label="Tối đa dòng export",
-                        value=int(version.get("export_max_rows") or 1000000),
-                        min=1,
-                    ),
-                ],
-                grow=True,
-            ),
-            html.Div(
-                id="admin-s2-sql-box",
-                children=[
-                    dmc.Textarea(
-                        id="admin-s2-sql",
-                        label="Câu lệnh SQL (CUSTOM_SQL)",
-                        value=str(version.get("sql_text") or ""),
-                        autosize=True,
-                        minRows=6,
-                        placeholder="SELECT ... FROM ... WHERE org = :p_org",
-                        **{"aria-label": "Câu lệnh SQL"},
-                    ),
-                    dmc.Group(
-                        [
-                            dmc.Button(
-                                "Phân tích SQL",
-                                id="admin-s2-analyze-btn",
-                                variant="filled",
-                            ),
-                        ],
-                        mt="sm",
-                    ),
                 ],
             ),
+            # Table / View Picker Box (hiển thị khi loại nguồn là VIEW hoặc TABLE)
             html.Div(
                 id="admin-s2-object-box",
+                style={"display": "block" if source_type in ("VIEW", "TABLE") else "none"},
                 children=[
-                    dmc.TextInput(
-                        id="admin-s2-owner",
-                        label="Schema (owner)",
-                        value=str(version.get("source_owner") or ""),
-                        placeholder="VD: FIN",
-                    ),
-                    dmc.Group(
-                        [
-                            dmc.TextInput(
-                                id="admin-s2-object",
-                                label="Đối tượng (view/table)",
-                                value=str(version.get("source_object") or ""),
-                                placeholder="VD: V_REVENUE",
+                    dmc.Paper(
+                        withBorder=True,
+                        radius="sm",
+                        p="sm",
+                        style={"backgroundColor": "var(--bg-subtle, #f8fafc)"},
+                        children=[
+                            dmc.SimpleGrid(
+                                cols={"base": 1, "sm": 2},
+                                spacing="sm",
+                                children=[
+                                    dmc.TextInput(
+                                        id="admin-s2-owner",
+                                        label="Schema (owner)",
+                                        value=str(version.get("source_owner") or ""),
+                                        placeholder="VD: DATARAW hoặc FIN (tùy chọn)",
+                                    ),
+                                    dmc.Select(
+                                        id="admin-s2-object-select",
+                                        label="Chọn Bảng / View để tự sinh SQL *",
+                                        data=initial_objects,
+                                        value=str(version.get("source_object")) if version.get("source_object") else None,
+                                        placeholder="Chọn bảng hoặc view từ Data Source...",
+                                        searchable=True,
+                                        clearable=True,
+                                    ),
+                                ],
                             ),
-                            dmc.Button(
-                                "Tải danh sách",
-                                id="admin-s2-load-objects-btn",
-                                variant="subtle",
+                            dmc.Group(
+                                [
+                                    dmc.Text(
+                                        "Khi chọn Bảng/View, hệ thống sẽ tự động sinh câu lệnh SQL và điền vào ô bên dưới. Ưu tiên VIEW đã lọc sẵn.",
+                                        size="xs",
+                                        c="dimmed",
+                                    ),
+                                    dmc.Button(
+                                        "Tải lại danh sách",
+                                        id="admin-s2-load-objects-btn",
+                                        variant="subtle",
+                                        size="xs",
+                                        leftSection=DashIconify(icon="lucide:refresh-cw", width=14),
+                                    ),
+                                ],
+                                justify="space-between",
+                                align="center",
+                                mt="xs",
+                            ),
+                            html.Div(
+                                [
+                                    dmc.TextInput(id="admin-s2-object", value=str(version.get("source_object") or "")),
+                                    dmc.Button(id="admin-s2-analyze-object-btn"),
+                                ],
+                                style={"display": "none"},
                             ),
                         ],
-                        grow=True,
-                        align="end",
-                    ),
-                    dmc.Select(
-                        id="admin-s2-object-select",
-                        label="Chọn đối tượng",
-                        data=[],
-                        placeholder="Bấm “Tải danh sách” để xem…",
-                        searchable=True,
-                        clearable=True,
-                    ),
-                    dmc.Group(
-                        [
-                            dmc.Button(
-                                "Phân tích nguồn",
-                                id="admin-s2-analyze-object-btn",
-                                variant="filled",
-                            ),
-                        ],
-                        mt="sm",
-                    ),
-                    dmc.Alert(
-                        "TABLE trực tiếp có thể rất lớn — ưu tiên VIEW đã lọc sẵn.",
-                        color="yellow",
-                        title="Cảnh báo",
-                    ),
+                    )
                 ],
             ),
-            html.Div(id="admin-s2-analyzed"),
+            # SQL Section
+            dmc.Group(
+                [
+                    dmc.Badge("SELECT / WITH SELECT only", color="orange", variant="light"),
+                    dmc.Button(
+                        "Phân tích SQL",
+                        id="admin-s2-analyze-btn",
+                        variant="filled",
+                        size="sm",
+                        leftSection=DashIconify(icon="lucide:scan", width=16),
+                    ),
+                ],
+                justify="space-between",
+                align="center",
+                mt="xs",
+            ),
+            dmc.Textarea(
+                id="admin-s2-sql",
+                value=str(version.get("sql_text") or ""),
+                autosize=True,
+                minRows=7,
+                placeholder="SELECT invoice_no, invoice_date, customer_name, total_amount\nFROM fin_invoice\nWHERE invoice_date >= :p_from_date...",
+                style={
+                    "fontFamily": "var(--font-mono, Consolas, monospace)",
+                    "fontSize": "12.5px",
+                    "lineHeight": "1.6",
+                },
+                styles={
+                    "input": {
+                        "backgroundColor": "#0a1427",
+                        "color": "#dce8ff",
+                        "fontFamily": "var(--font-mono, Consolas, monospace)",
+                    }
+                },
+                **{"aria-label": "Câu lệnh SQL"},
+            ),
+            # Analysis Status
             html.Div(
-                dmc.Alert(
-                    "Đã phân tích nguồn dữ liệu.",
-                    color="green",
-                    title="Đã phân tích",
-                )
-                if state.get("analyzed")
-                else dmc.Text(
-                    "Chưa phân tích nguồn dữ liệu.",
-                    size="sm",
-                    c="dimmed",
-                )
+                id="admin-s2-analyzed",
+                children=[
+                    (
+                        dmc.Alert(
+                            "✓ Phát hiện nguồn dữ liệu hợp lệ. SQL sẵn sàng cho bước Tham số và Cột.",
+                            color="green",
+                            variant="light",
+                        )
+                        if state.get("analyzed")
+                        else dmc.Text(
+                            "Phân tích SQL để sinh danh sách tham số và cột.",
+                            size="xs",
+                            c="dimmed",
+                        )
+                    )
+                ],
+            ),
+            html.Div(
+                dmc.NumberInput(id="admin-s2-export-max", value=int(version.get("export_max_rows") or 1000000)),
+                style={"display": "none"},
             ),
         ],
-        gap="sm",
+        gap="xs",
     )
 
 
 def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str, Any]]) -> Any:
     """Canvas hiển thị trực quan các hàng tìm kiếm (tối đa 12 cột mỗi hàng theo chuẩn Screen16 preview.html)."""
     if not params:
-        return empty_state("Chưa có tham số nào.", "Thêm tham số hoặc phân tích SQL ở Bước 2.")
+        return html.Div(
+            empty_state("Chưa có tham số nào.", "Thêm tham số hoặc phân tích SQL ở Bước 2."),
+            id="param-canvas",
+        )
 
     rows_map: dict[int, list[dict[str, Any]]] = {}
     for p in sorted(params, key=lambda x: (int(x.get("display_row") or 1), int(x.get("display_order") or 0))):
@@ -1693,8 +1868,9 @@ def render_step4(state: dict[str, Any]) -> Any:
 
 
 def render_step5(state: dict[str, Any], dry_run: dict[str, Any] | None = None) -> Any:
-    """Bước 5: xem trước + dry-run."""
+    """Bước 5: xem trước + dry-run (bám sát preview.html)."""
     ctx = get_current_ctx()
+    version = _version_detail(ctx, state.get("version_id")) if ctx else {}
     preview: dict[str, Any] = {"rows": []}
     if ctx and state.get("version_id"):
         res = preview_layout(ctx, int(state["version_id"]))
@@ -1723,19 +1899,70 @@ def render_step5(state: dict[str, Any], dry_run: dict[str, Any] | None = None) -
             ],
             gap="sm",
         )
+
+    params_count = len(version.get("params", []))
+    lov_count = sum(1 for p in version.get("params", []) if (p.get("lov") or {}).get("lov_type", "NONE") != "NONE")
+    cols_count = len([c for c in version.get("columns", []) if c.get("web_visible")])
+    if cols_count == 0 and ctx and state.get("version_id"):
+        c_res = list_columns(ctx, int(state["version_id"]))
+        if c_res.ok and isinstance(c_res.data, list):
+            cols_count = len([c for c in c_res.data if c.get("web_visible", True)])
+
+    kpi_cards = dmc.SimpleGrid(
+        cols=3,
+        spacing="sm",
+        mt="md",
+        children=[
+            dmc.Paper(
+                withBorder=True,
+                p="xs",
+                radius="sm",
+                children=[
+                    dmc.Text(str(params_count), fw=700, size="lg"),
+                    dmc.Text("tham số", size="xs", c="dimmed"),
+                ],
+            ),
+            dmc.Paper(
+                withBorder=True,
+                p="xs",
+                radius="sm",
+                children=[
+                    dmc.Text(str(lov_count), fw=700, size="lg"),
+                    dmc.Text("LOV động/tĩnh", size="xs", c="dimmed"),
+                ],
+            ),
+            dmc.Paper(
+                withBorder=True,
+                p="xs",
+                radius="sm",
+                children=[
+                    dmc.Text(str(cols_count), fw=700, size="lg"),
+                    dmc.Text("cột hiển thị", size="xs", c="dimmed"),
+                ],
+            ),
+        ],
+    )
+
     return dmc.Stack(
         [
-            dmc.Title("Xem trước", order=3),
-            dmc.Text(
-                "Nhập tham số thử rồi chạy dry-run. Lỗi thì không kích hoạt được.",
-                size="sm",
-                c="dimmed",
+            html.Div(
+                [
+                    dmc.Title("5. Xem trước", order=3, style={"fontSize": "15px", "fontWeight": 600, "margin": 0}),
+                    dmc.Alert(
+                        "Preview dùng tối đa 100 dòng. Kích hoạt chỉ khi SQL, tham số, LOV và mapping cột đều hợp lệ.",
+                        color="orange",
+                        variant="light",
+                        mt=2,
+                        mb="xs",
+                    ),
+                ]
             ),
             (
                 dmc.Alert(
                     "Đã dry-run OK — có thể qua bước Hoàn tất để kích hoạt.",
                     color="green",
                     title="Dry-run OK",
+                    variant="light",
                 )
                 if state.get("dry_run_ok")
                 else html.Div()
@@ -1747,18 +1974,21 @@ def render_step5(state: dict[str, Any], dry_run: dict[str, Any] | None = None) -
                         "Chạy dry-run",
                         id="admin-dryrun-btn",
                         variant="filled",
+                        size="sm",
+                        leftSection=DashIconify(icon="lucide:play", width=14),
                     ),
                 ],
-                mt="md",
+                mt="xs",
             ),
-            html.Div(id="admin-dryrun-result", children=result_area),
+            html.Div(id="admin-dryrun-result", children=result_area, style={"marginTop": "8px"}),
+            kpi_cards,
         ],
-        gap="sm",
+        gap="xs",
     )
 
 
 def render_step6(state: dict[str, Any]) -> Any:
-    """Bước 6: hoàn tất + kích hoạt."""
+    """Bước 6: hoàn tất + kích hoạt (chuẩn Screen16 preview.html)."""
     ctx = get_current_ctx()
     version = _version_detail(ctx, state.get("version_id")) if ctx else {}
     template: dict[str, Any] = {}
@@ -1772,9 +2002,67 @@ def render_step6(state: dict[str, Any]) -> Any:
                 report = rep_res.data
     status = str(version.get("status") or state.get("version_status") or "DRAFT")
     can_activate = state.get("dry_run_ok") or status == "DRY_RUN_OK"
+
+    if status == "ACTIVE":
+        return dmc.Stack(
+            [
+                dmc.Paper(
+                    withBorder=True,
+                    radius="sm",
+                    p="xl",
+                    style={"textAlign": "center", "backgroundColor": "var(--bg-subtle, #f8fafc)"},
+                    children=[
+                        DashIconify(icon="lucide:check-circle-2", width=48, color="var(--success, #107c10)"),
+                        dmc.Title(
+                            f"✓ Đã kích hoạt {report.get('code') or ''} / {template.get('name') or template.get('code') or ''} / v{version.get('version_no') or 1}",
+                            order=3,
+                            mt="sm",
+                        ),
+                        dmc.Text(
+                            "SQL, parameter, LOV và column metadata được snapshot theo version.",
+                            size="sm",
+                            c="dimmed",
+                            mt=4,
+                        ),
+                        dmc.Badge("ACTIVE", color="green", variant="filled", size="lg", mt="sm"),
+                        dmc.Group(
+                            [
+                                dcc.Link(
+                                    dmc.Button("Về Trung tâm báo cáo", variant="filled", size="sm"),
+                                    href="/reports",
+                                ),
+                                dcc.Link(
+                                    dmc.Button("Xem báo cáo chi tiết", variant="default", size="sm"),
+                                    href=f"/reports/{report.get('id') or state.get('report_id')}",
+                                ),
+                                dcc.Link(
+                                    dmc.Button("Quay lại danh sách", variant="subtle", size="sm"),
+                                    href="/report-admin",
+                                ),
+                            ],
+                            justify="center",
+                            mt="xl",
+                        ),
+                    ],
+                )
+            ],
+            gap="sm",
+        )
+
     return dmc.Stack(
         [
-            dmc.Title("Hoàn tất", order=3),
+            html.Div(
+                [
+                    dmc.Title("6. Hoàn tất & Kích hoạt", order=3, style={"fontSize": "15px", "fontWeight": 600, "margin": 0}),
+                    dmc.Text(
+                        "Kiểm tra lại toàn bộ cấu hình trước khi đưa template vào hoạt động.",
+                        size="xs",
+                        c="dimmed",
+                        mt=2,
+                        mb="xs",
+                    ),
+                ]
+            ),
             dmc.Text(
                 f"Báo cáo: {report.get('code') or '—'} — {report.get('name') or ''}",
                 size="sm",
@@ -1790,18 +2078,11 @@ def render_step6(state: dict[str, Any]) -> Any:
                 ],
                 gap="xs",
             ),
-            (
-                dmc.Alert(
-                    "Template đã ACTIVE. Snapshot version đã ghi — run cũ giữ version cũ.",
-                    color="green",
-                    title="Đã kích hoạt",
-                )
-                if status == "ACTIVE"
-                else dmc.Alert(
-                    "Kích hoạt đưa version này thành ACTIVE của template (version ACTIVE cũ chuyển ARCHIVED).",
-                    color="blue",
-                    title="Kích hoạt template",
-                )
+            dmc.Alert(
+                "Kích hoạt đưa version này thành ACTIVE của template (version ACTIVE cũ chuyển ARCHIVED).",
+                color="blue",
+                title="Kích hoạt template",
+                variant="light",
             ),
             dmc.Group(
                 [
@@ -1809,12 +2090,14 @@ def render_step6(state: dict[str, Any]) -> Any:
                         "Kích hoạt template",
                         id="admin-activate-btn",
                         variant="filled",
+                        size="sm",
                         disabled=not can_activate or status == "ACTIVE",
                     ),
                     dcc.Link(
                         dmc.Button(
                             "Về Trung tâm báo cáo",
                             variant="subtle",
+                            size="sm",
                         ),
                         href="/reports",
                     ),
@@ -1824,19 +2107,256 @@ def render_step6(state: dict[str, Any]) -> Any:
             (
                 dmc.Text(
                     "Chưa dry-run xong — quay lại bước 5 và chạy dry-run trước.",
-                    size="sm",
+                    size="xs",
                     c="dimmed",
                 )
                 if not can_activate and status != "ACTIVE"
                 else html.Div()
             ),
         ],
-        gap="sm",
+        gap="xs",
+    )
+
+
+def _render_step_ribbon(current_step: int, max_step: int) -> Any:
+    """Ribbon thanh bước chuẩn Fluent Ribbon Screen16 preview.html."""
+    items = []
+    for i, (label, _desc) in enumerate(STEP_LABELS):
+        step_num = i + 1
+        is_current = (step_num == current_step)
+        is_done = (step_num < current_step)
+        is_disabled = (step_num > max_step)
+
+        if is_current:
+            num_node = html.Span(
+                str(step_num),
+                style={
+                    "display": "inline-flex",
+                    "alignItems": "center",
+                    "justifyContent": "center",
+                    "width": "20px",
+                    "height": "20px",
+                    "borderRadius": "50%",
+                    "fontSize": "11px",
+                    "fontWeight": 600,
+                    "backgroundColor": "var(--primary, #0f6cbd)",
+                    "color": "#fff",
+                    "border": "1px solid var(--primary, #0f6cbd)",
+                    "flexShrink": 0,
+                },
+            )
+        elif is_done:
+            num_node = html.Span(
+                "✓",
+                style={
+                    "display": "inline-flex",
+                    "alignItems": "center",
+                    "justifyContent": "center",
+                    "width": "20px",
+                    "height": "20px",
+                    "borderRadius": "50%",
+                    "fontSize": "11px",
+                    "fontWeight": 700,
+                    "border": "1px solid var(--success, #107c10)",
+                    "color": "var(--success, #107c10)",
+                    "backgroundColor": "var(--bg-surface, #fff)",
+                    "flexShrink": 0,
+                },
+            )
+        else:
+            num_node = html.Span(
+                str(step_num),
+                style={
+                    "display": "inline-flex",
+                    "alignItems": "center",
+                    "justifyContent": "center",
+                    "width": "20px",
+                    "height": "20px",
+                    "borderRadius": "50%",
+                    "fontSize": "11px",
+                    "fontWeight": 600,
+                    "border": "1px solid var(--border, #e0e0e0)",
+                    "color": "var(--text-muted, #616161)",
+                    "backgroundColor": "var(--bg-surface, #fff)",
+                    "flexShrink": 0,
+                },
+            )
+
+        step_style: dict[str, Any] = {
+            "flex": "1 1 0",
+            "height": "34px",
+            "display": "flex",
+            "alignItems": "center",
+            "justifyContent": "center",
+            "gap": "6px",
+            "padding": "0 8px",
+            "border": "none",
+            "borderRight": "1px solid var(--border, #e0e0e0)" if i < 5 else "none",
+            "fontSize": "12px",
+            "whiteSpace": "nowrap",
+            "cursor": "pointer" if not is_disabled else "not-allowed",
+            "transition": "all 150ms ease",
+        }
+        if is_current:
+            step_style["backgroundColor"] = "var(--primary-subtle, #ebf3fc)"
+            step_style["color"] = "var(--text-primary, #242424)"
+            step_style["fontWeight"] = "600"
+            step_style["boxShadow"] = "inset 0 -2px 0 var(--primary, #0f6cbd)"
+        elif is_done:
+            step_style["backgroundColor"] = "transparent"
+            step_style["color"] = "var(--text-primary, #242424)"
+        else:
+            step_style["backgroundColor"] = "transparent"
+            step_style["color"] = "var(--text-muted, #616161)"
+            if is_disabled:
+                step_style["opacity"] = 0.5
+
+        items.append(
+            html.Button(
+                [num_node, html.Span(label, style={"overflow": "hidden", "textOverflow": "ellipsis"})],
+                id={"type": "admin-step-btn", "index": step_num},
+                style=step_style,
+                disabled=is_disabled,
+            )
+        )
+
+    return html.Div(
+        items,
+        className="steps",
+        id="admin-steps-ribbon",
+        style={
+            "display": "flex",
+            "border": "1px solid var(--border, #e0e0e0)",
+            "borderRadius": "6px",
+            "backgroundColor": "var(--bg-surface, #fff)",
+            "overflow": "hidden",
+            "marginBottom": "12px",
+            "flexWrap": "nowrap",
+            "flexShrink": 0,
+        },
+    )
+
+
+def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
+    """Footer điều hướng cố định chân trang chuẩn Screen13 /batch-runs/11 (.wfoot)."""
+    if step == 1:
+        next_btn = dmc.Button(
+            "Tiếp theo",
+            id="admin-s1-save-btn",
+            rightSection=DashIconify(icon="lucide:arrow-right", width=14),
+            color="primary",
+            size="xs",
+            radius="xl",
+            style={
+                "fontWeight": 600,
+                "height": "30px",
+                "padding": "0 16px",
+                "boxShadow": "0 1px 3px rgba(0, 120, 212, 0.25)",
+            },
+        )
+    elif step == 6:
+        next_btn = dmc.Anchor(
+            dmc.Button(
+                "Về Trung tâm báo cáo",
+                rightSection=DashIconify(icon="lucide:arrow-right", width=14),
+                color="primary",
+                size="xs",
+                radius="xl",
+                style={
+                    "fontWeight": 600,
+                    "height": "30px",
+                    "padding": "0 16px",
+                    "boxShadow": "0 1px 3px rgba(0, 120, 212, 0.25)",
+                },
+            ),
+            href="/reports",
+            underline=False,
+        )
+    else:
+        next_btn = dmc.Button(
+            "Tiếp theo",
+            id="admin-next-btn",
+            rightSection=DashIconify(icon="lucide:arrow-right", width=14),
+            color="primary",
+            size="xs",
+            radius="xl",
+            style={
+                "fontWeight": 600,
+                "height": "30px",
+                "padding": "0 16px",
+                "boxShadow": "0 1px 3px rgba(0, 120, 212, 0.25)",
+            },
+        )
+
+    prev_btn = dmc.Button(
+        "Quay lại",
+        id="admin-prev-btn",
+        leftSection=DashIconify(icon="lucide:arrow-left", width=14),
+        variant="subtle",
+        color="gray",
+        size="xs",
+        radius="xl",
+        disabled=step <= 1 or step == 6,
+        style={
+            "fontWeight": 500,
+            "height": "30px",
+            "padding": "0 14px",
+            "color": "var(--ink, #1E1E1E)",
+            "display": "none" if step == 6 else "inline-flex",
+        },
+    )
+
+    capsule = dmc.Paper(
+        dmc.Group(
+            [
+                prev_btn,
+                next_btn,
+            ],
+            gap="xs",
+            align="center",
+        ),
+        radius="xl",
+        p=3,
+        withBorder=True,
+        style={
+            "backgroundColor": "#FFFFFF",
+            "borderColor": "var(--line, #E0E0E0)",
+            "boxShadow": "0 1px 3px rgba(0, 0, 0, 0.05)",
+        },
+    )
+
+    hint_text = ""
+    if step == 2 and not state.get("analyzed"):
+        hint_text = "Cần phân tích SQL trước khi tiếp tục"
+    elif step == 5 and not state.get("dry_run_ok"):
+        hint_text = "Cần chạy dry-run thành công trước khi hoàn tất"
+
+    return dmc.Group(
+        [
+            html.Span(
+                hint_text,
+                id="admin-wmsg",
+                style={"fontSize": "11px", "color": "var(--ink-soft, #616161)", "fontWeight": 500},
+            ),
+            capsule,
+        ],
+        justify="space-between",
+        align="center",
+        className="wfoot",
+        style={
+            "flexShrink": 0,
+            "height": "48px",
+            "padding": "0 20px",
+            "borderTop": "1px solid var(--line, #E0E0E0)",
+            "backgroundColor": "#FFFFFF",
+            "display": "flex",
+            "zIndex": 10,
+        },
     )
 
 
 def render_step_content(step: int, state: dict[str, Any], dry_run: dict[str, Any] | None = None) -> Any:
-    """Nội dung bước wizard (test được, không phụ thuộc callback)."""
+    """Điều hướng hiển thị nội dung từng bước của wizard."""
     if step == 1:
         return render_step1(state)
     if step == 2:
@@ -1849,65 +2369,120 @@ def render_step_content(step: int, state: dict[str, Any], dry_run: dict[str, Any
         return render_step5(state, dry_run)
     if step == 6:
         return render_step6(state)
-    return html.Div("Bước không xác định")
+    return html.Div("Bước không hợp lệ")
 
 
 def render_wizard(state: dict[str, Any], dry_run: dict[str, Any] | None = None) -> Any:
-    """Khung wizard: Stepper + nội dung bước + điều hướng Sticky Footer."""
+    """Khung wizard chuẩn 3 phần như /batch-runs/11: Fixed Top, Scrollable Middle, Fixed Footer."""
     step = int(state.get("step") or 1)
-    return dmc.Stack(
+    max_step = int(state.get("max_step") or 1)
+
+    top_bar = dmc.Box(
         [
             dmc.Group(
                 [
-                    dmc.Title("Đăng ký báo cáo", order=2),
-                    dcc.Link(
-                        dmc.Button("← Danh sách", variant="subtle"),
+                    dmc.Breadcrumbs(
+                        [
+                            dmc.Text("ReconHub", size="xs", c="dimmed", fw=500),
+                            dmc.Anchor("Quản trị báo cáo", href="/report-admin", size="xs", c="dimmed", underline=False),
+                        ],
+                        separator="/",
+                        mb=4,
+                    ),
+                    dmc.Anchor(
+                        dmc.Button(
+                            "Đóng",
+                            variant="default",
+                            size="xs",
+                            style={"fontWeight": 600, "height": "28px"},
+                        ),
                         href="/report-admin",
+                        underline=False,
                     ),
                 ],
                 justify="space-between",
                 align="center",
             ),
-            dmc.Stepper(
-                id="admin-stepper",
-                active=step - 1,
-                children=[dmc.StepperStep(label=label, description=desc) for label, desc in STEP_LABELS],
-            ),
-            html.Div(
-                id="admin-step-content",
-                children=render_step_content(step, state, dry_run),
-                style={"flex": 1, "minHeight": 0, "overflowY": "auto", "padding": "4px 2px"},
-            ),
             dmc.Group(
                 [
-                    dmc.Button(
-                        "Quay lại",
-                        id="admin-prev-btn",
-                        variant="subtle",
-                        disabled=step <= 1,
-                    ),
-                    dmc.Button(
-                        "Tiếp",
-                        id="admin-next-btn",
-                        variant="filled",
-                        disabled=step >= 6,
+                    dmc.Title("Đăng ký Report Template", order=3, size=18, fw=600, style={"lineHeight": 1.3}),
+                    dmc.Text(
+                        "SQL, tham số, LOV và cột hiển thị đều cấu hình động.",
+                        size="xs",
+                        c="dimmed",
+                        style={"overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"},
                     ),
                 ],
-                justify="space-between",
-                className="wfoot",
-                style={
-                    "position": "sticky",
-                    "bottom": 0,
-                    "backgroundColor": "var(--surface-1, #FFFFFF)",
-                    "borderTop": "1px solid var(--line, #E0E0E0)",
-                    "padding": "12px 0 4px 0",
-                    "zIndex": 10,
-                    "marginTop": "auto",
-                },
+                gap="xs",
+                align="baseline",
+                mb="xs",
+            ),
+            _render_step_ribbon(step, max_step),
+            html.Div(
+                dmc.Stepper(
+                    id="admin-stepper",
+                    active=step - 1,
+                    children=[dmc.StepperStep(label=label, description=desc) for label, desc in STEP_LABELS],
+                ),
+                style={"display": "none"},
             ),
         ],
-        gap="md",
-        style={"height": "100%", "display": "flex", "flexDirection": "column"},
+        style={
+            "flexShrink": 0,
+            "padding": "12px 20px 10px 20px",
+            "borderBottom": "1px solid var(--line, #E0E0E0)",
+            "backgroundColor": "var(--surface, #FFFFFF)",
+        },
+    )
+
+    middle_body = html.Div(
+        [
+            dmc.Paper(
+                children=[
+                    html.Div(
+                        id="admin-step-content",
+                        children=render_step_content(step, state, dry_run),
+                        className="wbody",
+                        style={"padding": "14px 18px"},
+                    ),
+                ],
+                withBorder=True,
+                radius="sm",
+                shadow="xs",
+                style={
+                    "backgroundColor": "var(--bg-surface, #fff)",
+                    "border": "1px solid var(--line, #E0E0E0)",
+                    "maxWidth": 1250,
+                    "margin": "0 auto",
+                    "width": "100%",
+                },
+            )
+        ],
+        style={
+            "flex": "1 1 0%",
+            "minHeight": 0,
+            "overflowY": "auto",
+            "padding": "16px 20px",
+            "backgroundColor": "var(--surface-2, #F8F9FA)",
+        },
+    )
+
+    bottom_footer = _render_wizard_footer(step, state)
+
+    return html.Div(
+        [
+            top_bar,
+            middle_body,
+            bottom_footer,
+        ],
+        style={
+            "height": "100%",
+            "minHeight": 0,
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "backgroundColor": "#FFFFFF",
+        },
     )
 
 
@@ -2648,24 +3223,35 @@ def _state_or_no_update(old_state: dict[str, Any] | None, new_state: dict[str, A
     prevent_initial_call="initial_duplicate",
 )
 def handle_location(href: str | None, state: dict[str, Any] | None) -> tuple[dict[str, Any], Any]:
-    """Mở wizard từ query: ?new=1, ?template=<id>, ?clone=<version_id>."""
+    """Mở wizard từ pathname (/report-admin/new, /report-admin/<id>) hoặc query: ?new=1, ?template=<id>, ?clone=<version_id>."""
     if not href:
         raise PreventUpdate
-    qs = parse_qs(urlparse(href).query)
+    parsed = urlparse(href)
+    pathname = parsed.path.rstrip("/")
+    qs = parse_qs(parsed.query)
     ctx = get_current_ctx()
     if ctx is None:
         raise PreventUpdate
-    if qs.get("new"):
+
+    if pathname.endswith("/new") or qs.get("new"):
         return _state_or_no_update(state, _fresh_state(), None)
-    if qs.get("template"):
+
+    tpl_id_val: int | None = None
+    parts = pathname.split("/")
+    if len(parts) >= 3 and parts[-2] == "report-admin" and parts[-1].isdigit():
+        tpl_id_val = int(parts[-1])
+    elif qs.get("template"):
         try:
-            template_id = int(qs["template"][0])
+            tpl_id_val = int(qs["template"][0])
         except (TypeError, ValueError):
-            raise PreventUpdate from None
-        new_state, alert = handle_open_edit(1, template_id)
+            tpl_id_val = None
+
+    if tpl_id_val is not None:
+        new_state, alert = handle_open_edit(1, tpl_id_val)
         if new_state is None:
             return _state_or_no_update(state, {"mode": "list"}, alert)
         return _state_or_no_update(state, new_state, alert)
+
     if qs.get("clone"):
         try:
             version_id = int(qs["clone"][0])
@@ -2675,9 +3261,12 @@ def handle_location(href: str | None, state: dict[str, Any] | None) -> tuple[dic
         if new_state is None:
             return _state_or_no_update(state, {"mode": "list"}, alert)
         return _state_or_no_update(state, new_state, alert)
-    current = state or {"mode": "list"}
-    if current.get("mode") == "wizard":
-        return {"mode": "list"}, None
+
+    if pathname.endswith("/report-admin") and not (qs.get("new") or qs.get("template") or qs.get("clone")):
+        current = state or {"mode": "list"}
+        if current.get("mode") == "wizard":
+            return {"mode": "list"}, None
+
     raise PreventUpdate
 
 
@@ -2710,7 +3299,7 @@ def handle_mode_display(state: dict[str, Any] | None) -> tuple[dict[str, Any], d
             "flex": "1 1 0%",
             "minHeight": 0,
             "overflow": "hidden",
-            "padding": "8px 12px",
+            "height": "100%",
         }
     return {
         "display": "flex",
@@ -2720,6 +3309,7 @@ def handle_mode_display(state: dict[str, Any] | None) -> tuple[dict[str, Any], d
         "overflow": "hidden",
         "padding": "8px 12px",
         "gap": "6px",
+        "height": "100%",
     }, {"display": "none"}
 
 
@@ -2730,24 +3320,36 @@ def handle_mode_display(state: dict[str, Any] | None) -> tuple[dict[str, Any], d
     Input("admin-filter-search", "value"),
     Input("admin-filter-status", "value"),
     Input("admin-filter-category", "value"),
+    Input("admin-pagination", "value"),
 )
 def handle_admin_filter(
     reports: list[dict[str, Any]] | None,
     search: str | None,
     status: str | None,
     category: str | None,
+    page: int | None = 1,
 ) -> tuple[Any, str]:
-    """Lọc danh sách báo cáo theo tìm kiếm, trạng thái và nhóm."""
+    """Lọc danh sách báo cáo theo tìm kiếm, trạng thái và nhóm, kèm phân trang."""
     if reports is None:
         return render_report_list(None, loading=True), ""
     search_term = (search or "").strip()
     stat_val = "" if not status or status.upper() == "ALL" else status
     cat_val = "" if not category or category.upper() == "ALL" else category
+
+    # Nếu đổi filter -> về trang 1; nếu bấm pagination -> dùng trang được chọn
+    try:
+        triggered_id = dash.callback_context.triggered_id
+    except Exception:
+        triggered_id = None
+    current_page = 1 if triggered_id != "admin-pagination" else (page or 1)
+
     content = render_report_list(
         reports,
         search_term=search_term,
         status_filter=stat_val,
         category_filter=cat_val,
+        page=current_page,
+        page_size=10,
     )
     cnt = 0
     st = search_term.lower()
@@ -2789,12 +3391,25 @@ def handle_admin_refresh(n_clicks: int | None) -> list[dict[str, Any]]:
     Output("admin-state-store", "data", allow_duplicate=True),
     Output("admin-alert", "children", allow_duplicate=True),
     Input("admin-stepper", "active"),
+    Input({"type": "admin-step-btn", "index": dash.ALL}, "n_clicks"),
     State("admin-state-store", "data"),
     prevent_initial_call=True,
 )
-def handle_stepper_click(active: int | None, state: dict[str, Any] | None) -> tuple[dict[str, Any], Any]:
-    """Bấm Stepper để quay lại bước đã qua."""
-    if active is None or not state:
+def handle_stepper_click(
+    active: int | None,
+    ribbon_clicks: list[int | None] | None,
+    state: dict[str, Any] | None,
+) -> tuple[dict[str, Any], Any]:
+    """Bấm Stepper hoặc Ribbon để chuyển/quay lại bước đã qua."""
+    if not state:
+        raise PreventUpdate
+    ctx_trig = dash.callback_context.triggered_id
+    if isinstance(ctx_trig, dict) and "index" in ctx_trig:
+        if not ribbon_clicks or not any(ribbon_clicks):
+            raise PreventUpdate
+        target = int(ctx_trig["index"])
+        return handle_step_click(target, state, step=target)
+    if active is None:
         raise PreventUpdate
     return handle_step_click(active, state)
 
@@ -2898,6 +3513,8 @@ def handle_s1_save(
     State("admin-state-store", "data"),
     State("admin-s2-ds", "value"),
     State("admin-s2-source-type", "value"),
+    State("admin-s2-owner", "value"),
+    State("admin-s2-object", "value"),
     State("admin-s2-sql", "value"),
     State("admin-s2-timeout", "value"),
     State("admin-s2-preview-max", "value"),
@@ -2909,29 +3526,37 @@ def handle_s2_analyze_sql(
     state: dict[str, Any] | None,
     data_source_id: int | None,
     source_type: str | None,
+    source_owner: str | None,
+    source_object: str | None,
     sql_text: str | None,
     timeout_sec: int | None,
     preview_max_rows: int | None,
     export_max_rows: int | None,
 ) -> tuple[dict[str, Any], Any]:
-    """Phân tích SQL: lưu nguồn trước rồi phân tích."""
+    """Phân tích SQL / Nguồn đối tượng: lưu nguồn trước rồi phân tích."""
     if not n_clicks or not state or not state.get("version_id"):
         raise PreventUpdate
     ctx = get_current_ctx()
     if ctx is None:
         raise PreventUpdate
-    update_version_source(
-        ctx,
-        int(state["version_id"]),
-        {
-            "data_source_id": int(data_source_id) if data_source_id else None,
-            "source_type": source_type or "CUSTOM_SQL",
-            "sql_text": (sql_text or "").strip() or None,
-            "timeout_sec": int(timeout_sec or 300),
-            "preview_max_rows": int(preview_max_rows or 100),
-            "export_max_rows": int(export_max_rows or 1000000),
-        },
-    )
+    upd_payload: dict[str, Any] = {
+        "data_source_id": int(data_source_id) if data_source_id else None,
+        "source_type": source_type or "CUSTOM_SQL",
+        "sql_text": (sql_text or "").strip() or None,
+        "source_owner": (source_owner or "").strip() or None,
+        "source_object": (source_object or "").strip() or None,
+        "timeout_sec": int(timeout_sec or 300),
+        "preview_max_rows": int(preview_max_rows or 100),
+        "export_max_rows": int(export_max_rows or 1000000),
+    }
+    upd_res = update_version_source(ctx, int(state["version_id"]), upd_payload)
+    if not upd_res.ok:
+        return state, _err_alert(upd_res)
+    if source_type in ("VIEW", "TABLE") and source_object:
+        return _state_or_no_update(
+            state,
+            *handle_analyze_object(n_clicks, state, data_source_id, source_type, source_owner, source_object),
+        )
     return _state_or_no_update(state, *handle_analyze_sql(n_clicks, state, sql_text))
 
 
@@ -2963,42 +3588,74 @@ def handle_s2_analyze_object(
 
 
 @callback(
-    Output("admin-s2-object-select", "options"),
-    Output("admin-alert", "children", allow_duplicate=True),
+    Output("admin-s2-object-select", "data"),
+    Output("admin-s2-object-box", "style"),
+    Input("admin-s2-source-type", "value"),
+    Input("admin-s2-ds", "value"),
     Input("admin-s2-load-objects-btn", "n_clicks"),
-    State("admin-s2-ds", "value"),
-    State("admin-s2-source-type", "value"),
-    prevent_initial_call=True,
+    prevent_initial_call=False,
 )
-def handle_s2_load_objects(
-    n_clicks: int | None,
-    data_source_id: int | None,
+def handle_s2_source_type_and_objects(
     source_type: str | None,
-) -> tuple[list[dict[str, str]], Any]:
-    """Tải danh sách VIEW/TABLE của Data Source."""
-    if not n_clicks or not data_source_id:
-        raise PreventUpdate
+    data_source_id: str | int | None,
+    _btn_clicks: int | None,
+) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    """Tải danh sách Bảng/View tự động khi đổi loại nguồn hoặc data source."""
+    is_object = source_type in ("VIEW", "TABLE")
+    box_style = {"display": "block"} if is_object else {"display": "none"}
+    if not is_object or not data_source_id:
+        return [], box_style
     ctx = get_current_ctx()
     if ctx is None:
-        raise PreventUpdate
-    res = list_report_objects(ctx, int(data_source_id), source_type or "VIEW")
-    if not res.ok or not isinstance(res.data, list):
-        return [], _err_alert(res)
-    return [{"label": str(o.get("name")), "value": str(o.get("name"))} for o in res.data], alert_box(
-        f"Tìm thấy {len(res.data)} đối tượng.", tone="ok"
-    )
+        return [], box_style
+    try:
+        res = list_report_objects(ctx, int(data_source_id), source_type or "TABLE")
+        if res.ok and isinstance(res.data, list):
+            items = [{"label": f"{o.get('name')} ({o.get('type')})", "value": str(o.get("name"))} for o in res.data]
+            return items, box_style
+    except Exception:
+        pass
+    return [], box_style
 
 
 @callback(
     Output("admin-s2-object", "value"),
+    Output("admin-s2-sql", "value"),
     Input("admin-s2-object-select", "value"),
+    State("admin-s2-ds", "value"),
+    State("admin-s2-owner", "value"),
     prevent_initial_call=True,
 )
-def handle_s2_object_pick(object_name: str | None) -> str | None:
-    """Chọn đối tượng từ danh sách → điền vào ô object."""
+def handle_s2_object_pick(
+    object_name: str | None,
+    ds_id: str | int | None,
+    owner: str | None,
+) -> tuple[str | None, str | None]:
+    """Chọn đối tượng từ danh sách → tự sinh câu SQL tương ứng và điền vào ô SQL."""
     if not object_name:
         raise PreventUpdate
-    return object_name
+    owner_str = (owner or "").strip()
+    tbl_ref = f"{owner_str}.{object_name}" if owner_str else object_name
+
+    cols: list[dict[str, Any]] = []
+    if ds_id:
+        try:
+            cols = list_db_columns(int(ds_id), owner_str, object_name)
+        except Exception:
+            cols = []
+
+    if cols:
+        col_names = [str(c["name"]).lower() for c in cols]
+        if len(col_names) <= 4:
+            cols_str = ", ".join(col_names)
+        else:
+            chunks = [col_names[i : i + 4] for i in range(0, len(col_names), 4)]
+            cols_str = ",\n       ".join(", ".join(chunk) for chunk in chunks)
+        generated_sql = f"SELECT {cols_str}\nFROM {tbl_ref}"
+    else:
+        generated_sql = f"SELECT *\nFROM {tbl_ref}"
+
+    return object_name, generated_sql
 
 
 @callback(

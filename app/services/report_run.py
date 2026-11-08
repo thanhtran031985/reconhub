@@ -200,9 +200,11 @@ def build_count_query(sql: str) -> str:
     return f"SELECT COUNT(*) AS total FROM (\n{sql}\n)"
 
 
-def build_paged_query(sql: str, page: int, page_size: int, order_by: str) -> str:
-    """Trang dữ liệu: ORDER BY + OFFSET/FETCH (Oracle 12c+)."""
+def build_paged_query(sql: str, page: int, page_size: int, order_by: str, db_type: str = "ORACLE") -> str:
+    """Trang dữ liệu: ORDER BY + OFFSET/FETCH (Oracle 12c+) hoặc LIMIT/OFFSET (SQLite)."""
     offset = (page - 1) * page_size
+    if str(db_type).upper() == "SQLITE":
+        return f"SELECT * FROM (\n{sql}\n) ORDER BY {order_by} LIMIT {page_size} OFFSET {offset}"
     return f"SELECT * FROM (\n{sql}\n) ORDER BY {order_by} OFFSET {offset} ROWS FETCH NEXT {page_size} ROWS ONLY"
 
 
@@ -269,9 +271,11 @@ def build_run_query(detail: dict[str, Any], resolved: dict[str, Any]) -> tuple[s
                     "value": value,
                 }
             )
+        owner_val = detail.get("source_owner")
+        owner_str = str(owner_val) if owner_val and str(owner_val).upper() != "NONE" else ""
         return build_report_query(
             source_type,
-            str(detail["source_owner"]),
+            owner_str or None,
             str(detail["source_object"]),
             columns,
             selected=selected or None,
@@ -322,6 +326,12 @@ def _execute_count_page(
     ds_id = detail["data_source_id"]
     if ds_id is None:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "Version chưa gắn Data Source.")
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        ds_row = conn.execute(
+            select(recon_data_source.c.DB_TYPE).where(recon_data_source.c.ID == ds_id)
+        ).mappings().first()
+    db_type = str(ds_row.get("DB_TYPE") if ds_row else "ORACLE").upper()
     count_timeout = min(int(detail["timeout_sec"]), 30)  # Q3
     data_timeout = int(detail["timeout_sec"])
     try:
@@ -337,7 +347,7 @@ def _execute_count_page(
     try:
         with open_checked_connection(ds_id, data_timeout) as ora_conn:
             cursor = ora_conn.cursor()
-            cursor.execute(build_paged_query(sql, page, page_size, order_by), binds)
+            cursor.execute(build_paged_query(sql, page, page_size, order_by, db_type=db_type), binds)
             col_names = [str(d[0]) for d in (cursor.description or [])]
             rows = [dict(zip(col_names, tuple(r), strict=False)) for r in cursor.fetchmany(page_size)]
     except ServiceError:

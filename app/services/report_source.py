@@ -37,7 +37,6 @@ DEFAULT_DESCRIBE_TIMEOUT_SEC = 300
 # Quyền ghi khiến account không đủ điều kiện chạy báo cáo (tái dùng danh
 # sách của data_source._test_oracle_connection, spec 12 §2).
 _WRITE_PRIVILEGES = (
-    "CREATE TABLE",
     "DROP ANY TABLE",
     "ALTER ANY TABLE",
     "INSERT ANY TABLE",
@@ -113,7 +112,7 @@ def _whitelist_column(name: str, whitelist: dict[str, str]) -> str:
 
 def build_report_query(
     source_type: str,
-    owner: str,
+    owner: str | None,
     object_name: str,
     columns: list[dict[str, Any]],
     selected: list[str] | None = None,
@@ -139,7 +138,6 @@ def build_report_query(
             ErrorCode.SQL_NOT_ALLOWED,
             "Nguồn dữ liệu không có cột nào trong metadata.",
         )
-    _validate_identifier(owner, "schema")
     _validate_identifier(object_name, "đối tượng")
     whitelist = {str(c["name"]).upper(): str(c["name"]) for c in columns}
 
@@ -148,7 +146,13 @@ def build_report_query(
     else:
         select_cols = [str(c["name"]) for c in columns]
     select_clause = ", ".join(quote_identifier(c) for c in select_cols)
-    sql = f"SELECT {select_clause} FROM {quote_identifier(owner)}.{quote_identifier(object_name)}"
+    clean_owner = str(owner).strip() if owner and str(owner).strip().upper() != "NONE" else ""
+    if clean_owner:
+        _validate_identifier(clean_owner, "schema")
+        from_clause = f"{quote_identifier(clean_owner)}.{quote_identifier(object_name)}"
+    else:
+        from_clause = quote_identifier(object_name)
+    sql = f"SELECT {select_clause} FROM {from_clause}"
 
     binds: dict[str, Any] = {}
     conditions: list[str] = []
@@ -266,10 +270,24 @@ def _assert_read_only(ora_conn: Any) -> None:
 
 @contextmanager
 def open_checked_connection(data_source_id: int, timeout_sec: int) -> Iterator[Any]:
-    """Context manager: kết nối Oracle đã kiểm tra read-only, siết timeout (Q4/Q5).
+    """Context manager: kết nối Oracle hoặc SQLite đã kiểm tra read-only, siết timeout (Q4/Q5).
 
     Dùng chung cho report_source và report_param (task 23).
     """
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        ds_row = conn.execute(
+            select(recon_data_source.c.DB_TYPE).where(recon_data_source.c.ID == data_source_id)
+        ).mappings().first()
+
+    if ds_row and str(ds_row.get("DB_TYPE")).upper() == "SQLITE":
+        raw_conn = engine.raw_connection()
+        try:
+            yield raw_conn
+        finally:
+            raw_conn.close()
+        return
+
     ds_timeout = _ds_timeout_seconds(data_source_id)
     ora_conn = open_source_connection(data_source_id)
     try:
@@ -281,7 +299,7 @@ def open_checked_connection(data_source_id: int, timeout_sec: int) -> Iterator[A
 
 
 def describe_report_sql(data_source_id: int, sql_text: str, timeout_sec: int) -> dict[str, Any]:
-    """Describe SQL CUSTOM_SQL qua Oracle (0 dòng); trả {"binds", "columns"}.
+    """Describe SQL CUSTOM_SQL qua Oracle hoặc SQLite (0 dòng); trả {"binds", "columns"}.
 
     Hàm thuần dùng chung cho validate_version_sql, analyze_version_source
     và LOV SQL (task 23).
@@ -290,6 +308,38 @@ def describe_report_sql(data_source_id: int, sql_text: str, timeout_sec: int) ->
     ok, reason, binds = check_report_sql(sql_text)
     if not ok:
         raise ServiceError(ErrorCode.SQL_NOT_ALLOWED, reason or "Câu lệnh SQL không hợp lệ.")
+
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        ds_row = conn.execute(
+            select(recon_data_source.c.DB_TYPE).where(recon_data_source.c.ID == data_source_id)
+        ).mappings().first()
+
+    if ds_row and str(ds_row.get("DB_TYPE")).upper() == "SQLITE":
+        with engine.connect() as conn:
+            try:
+                desc_sql = re.sub(r":[a-zA-Z0-9_]+", "NULL", sql_text)
+                cur = conn.connection.cursor()
+                cur.execute(f"SELECT * FROM ({desc_sql}) AS _subq LIMIT 0")
+                columns = [
+                    {
+                        "name": str(col[0]).upper(),
+                        "data_type": "STRING",
+                        "oracle_data_type": "TEXT",
+                        "nullable": True,
+                        "length": None,
+                        "precision": None,
+                        "scale": None,
+                    }
+                    for col in (cur.description or [])
+                ]
+                return {"binds": binds, "columns": columns}
+            except Exception as exc:
+                raise ServiceError(
+                    ErrorCode.SQL_DESCRIBE_FAILED,
+                    f"Không thể phân tích câu lệnh SQL: {exc}",
+                ) from exc
+
     with open_checked_connection(data_source_id, timeout_sec) as conn:
         try:
             columns = describe_sql(conn, sql_text)
