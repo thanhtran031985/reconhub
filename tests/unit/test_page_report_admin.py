@@ -382,6 +382,9 @@ class TestStep3:
         assert "Tham số" in text
         assert "Thêm tham số" in text
         assert "Tự sắp xếp" in text
+        assert "param-canvas" in text
+        assert "lovside" in text
+        assert "Cấu hình LOV" in text
 
     def test_param_create_and_delete(self, run_env, admin_ctx, monkeypatch):
         import app.ui.pages.report_admin as page

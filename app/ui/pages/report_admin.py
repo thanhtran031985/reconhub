@@ -1025,8 +1025,120 @@ def render_step2(state: dict[str, Any]) -> Any:
     )
 
 
+def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str, Any]]) -> Any:
+    """Canvas hiển thị trực quan các hàng tìm kiếm (tối đa 12 cột mỗi hàng theo chuẩn Screen16 preview.html)."""
+    if not params:
+        return empty_state("Chưa có tham số nào.", "Thêm tham số hoặc phân tích SQL ở Bước 2.")
+
+    rows_map: dict[int, list[dict[str, Any]]] = {}
+    for p in sorted(params, key=lambda x: (int(x.get("display_row") or 1), int(x.get("display_order") or 0))):
+        r = int(p.get("display_row") or 1)
+        rows_map.setdefault(r, []).append(p)
+
+    violation_rows = {v.get("row") for v in violations}
+
+    row_sections = []
+    for r in sorted(rows_map.keys()):
+        p_list = rows_map[r]
+        total_span = sum(min(12, max(1, int(p.get("grid_span") or 1))) for p in p_list)
+        is_over = total_span > 12 or r in violation_rows
+
+        status_badge = (
+            dmc.Badge(
+                f"Vượt {total_span - 12} cột" if total_span > 12 else "Vượt cột",
+                color="red",
+                variant="light",
+                size="xs",
+            )
+            if is_over
+            else dmc.Badge("Hợp lệ", color="green", variant="light", size="xs")
+        )
+
+        boxes = []
+        for p in p_list:
+            span = min(12, max(1, int(p.get("grid_span") or 1)))
+            boxes.append(
+                html.Div(
+                    [
+                        dmc.Group(
+                            [
+                                dmc.Text(str(p.get("label") or p.get("code")), size="xs", fw=600, truncate="end"),
+                                dmc.Badge(f"{span}/12", size="xs", variant="outline"),
+                            ],
+                            justify="space-between",
+                            gap="xs",
+                            wrap="nowrap",
+                        ),
+                        dmc.Text(
+                            f"[{p.get('control_type', 'TEXT')}]",
+                            size="xs",
+                            c="dimmed",
+                            style={
+                                "height": "24px",
+                                "lineHeight": "24px",
+                                "backgroundColor": "var(--surface-2, #FAFAFA)",
+                                "borderRadius": "4px",
+                                "padding": "0 6px",
+                                "border": "1px solid var(--line, #E0E0E0)",
+                                "marginTop": "4px",
+                                "textAlign": "center",
+                                "fontSize": "11px",
+                            },
+                        ),
+                    ],
+                    style={
+                        "gridColumn": f"span {span}",
+                        "backgroundColor": "var(--surface-1, #FFFFFF)",
+                        "border": "1px solid var(--line, #E0E0E0)",
+                        "borderRadius": "4px",
+                        "padding": "6px 8px",
+                    },
+                )
+            )
+
+        row_sections.append(
+            dmc.Paper(
+                [
+                    dmc.Group(
+                        [
+                            dmc.Group(
+                                [
+                                    dmc.Text(f"Hàng {r}", fw=600, size="xs"),
+                                    dmc.Badge(f"{total_span}/12", size="xs", variant="light", color="red" if is_over else "blue"),
+                                ],
+                                gap="xs",
+                            ),
+                            status_badge,
+                        ],
+                        justify="space-between",
+                        mb="xs",
+                    ),
+                    html.Div(
+                        boxes,
+                        style={
+                            "display": "grid",
+                            "gridTemplateColumns": "repeat(12, 1fr)",
+                            "gap": "6px",
+                        },
+                    ),
+                ],
+                withBorder=True,
+                p="xs",
+                radius="sm",
+                style={
+                    "borderStyle": "dashed",
+                    "borderColor": "var(--crimson-7, #e03131)" if is_over else "var(--line, #E0E0E0)",
+                    "backgroundColor": "rgba(224, 49, 49, 0.04)" if is_over else "transparent",
+                    "marginBottom": "8px",
+                },
+            )
+        )
+
+    return html.Div(row_sections, id="param-canvas")
+
+
 def render_step3(state: dict[str, Any]) -> Any:
-    """Bước 3: tham số & LOV + layout 12 cột."""
+    """Bước 3: tham số & LOV + layout 12 cột chuẩn Master-Detail Screen16."""
     ctx = get_current_ctx()
     version = _version_detail(ctx, state.get("version_id")) if ctx else {}
     params = version.get("params", [])
@@ -1046,7 +1158,7 @@ def render_step3(state: dict[str, Any]) -> Any:
         rows.append(
             dmc.TableTr(
                 [
-                    dmc.TableTd(str(p["code"])),
+                    dmc.TableTd(str(p["code"]), className="rh-code", fw=600),
                     dmc.TableTd(str(p["label"])),
                     dmc.TableTd(f"{p['data_type']} / {p['control_type']}"),
                     dmc.TableTd(f"Hàng {p['display_row']} · span {p['grid_span']}"),
@@ -1055,15 +1167,17 @@ def render_step3(state: dict[str, Any]) -> Any:
                         dmc.Group(
                             [
                                 dmc.ActionIcon(
-                                    DashIconify(icon="lucide:arrow-up", width=16),
+                                    DashIconify(icon="lucide:arrow-up", width=14),
                                     id={"type": "admin-param-up", "index": p["id"]},
                                     variant="subtle",
+                                    size="xs",
                                     **{"aria-label": f"Dời tham số {p['code']} lên"},
                                 ),
                                 dmc.ActionIcon(
-                                    DashIconify(icon="lucide:arrow-down", width=16),
+                                    DashIconify(icon="lucide:arrow-down", width=14),
                                     id={"type": "admin-param-down", "index": p["id"]},
                                     variant="subtle",
+                                    size="xs",
                                     **{"aria-label": f"Dời tham số {p['code']} xuống"},
                                 ),
                                 dmc.Button(
@@ -1087,9 +1201,22 @@ def render_step3(state: dict[str, Any]) -> Any:
                 ]
             )
         )
-    return dmc.Stack(
+
+    # Master Column (Trái): Danh sách tham số, Canvas 12 cột và Form trường
+    master_content = dmc.Stack(
         [
-            dmc.Title("Tham số & LOV", order=3),
+            dmc.Group(
+                [
+                    dmc.Text("Danh sách tham số", fw=600, size="sm"),
+                    dmc.Button(
+                        "Tự sắp xếp",
+                        id="admin-p-autolayout-btn",
+                        variant="light",
+                        size="xs",
+                    ),
+                ],
+                justify="space-between",
+            ),
             (
                 dmc.Alert(
                     "Layout vượt 12 cột ở: "
@@ -1099,11 +1226,7 @@ def render_step3(state: dict[str, Any]) -> Any:
                     title="Layout chưa hợp lệ",
                 )
                 if violations
-                else dmc.Text(
-                    "Layout đang trong 12 cột.",
-                    size="sm",
-                    c="dimmed",
-                )
+                else html.Div()
             ),
             dmc.ScrollArea(
                 dmc.Table(
@@ -1124,20 +1247,15 @@ def render_step3(state: dict[str, Any]) -> Any:
                     ],
                     striped=True,
                     withTableBorder=True,
-                )
+                ),
+                h=160,
             )
             if rows
             else empty_state("Chưa có tham số nào.", "Thêm tham số bên dưới."),
-            dmc.Group(
-                [
-                    dmc.Button(
-                        "Tự sắp xếp",
-                        id="admin-p-autolayout-btn",
-                        variant="subtle",
-                    ),
-                ]
-            ),
-            dmc.Divider(label="Thêm tham số" if not editing else "Sửa tham số", labelPosition="left"),
+            dmc.Divider(my="xs"),
+            dmc.Text("Thiết kế layout tham số tìm kiếm (Canvas 12 cột)", fw=600, size="sm"),
+            _render_param_canvas(params, violations),
+            dmc.Divider(label="Thêm tham số" if not editing else f"Sửa tham số {editing.get('code')}", labelPosition="left"),
             dmc.TextInput(
                 id="admin-p-code",
                 label="Mã tham số",
@@ -1248,61 +1366,98 @@ def render_step3(state: dict[str, Any]) -> Any:
                 grow=True,
                 align="end",
             ),
-            dmc.Divider(label="LOV", labelPosition="left"),
-            dmc.Select(
-                id="admin-p-lov-type",
-                label="Loại LOV",
-                data=LOV_TYPE_OPTIONS,
-                value=str(lov.get("lov_type") or "NONE"),
-                clearable=False,
-            ),
-            dmc.Textarea(
-                id="admin-p-lov-static",
-                label="Danh sách tĩnh (mỗi dòng: value|label)",
-                value=_static_text_from_lov(lov),
-                autosize=True,
-                minRows=2,
-                placeholder="HN|Hà Nội\nHCM|TP. Hồ Chí Minh",
-            ),
-            dmc.Textarea(
-                id="admin-p-lov-sql",
-                label="SQL LOV (trả về 2 cột VALUE và LABEL)",
-                value=str(lov.get("sql_text") or ""),
-                autosize=True,
-                minRows=3,
-                placeholder="SELECT code AS value, name AS label FROM ...",
-            ),
-            dmc.Select(
-                id="admin-p-lov-lookup",
-                label="Lookup type",
-                data=lookup_opts,
-                value=str(lov.get("lookup_type") or ""),
-                placeholder="Chọn lookup type…",
-                searchable=True,
-                clearable=True,
-            ),
-            dmc.Group(
-                [
-                    dmc.Button(
-                        "Lưu tham số",
-                        id="admin-p-save-btn",
-                        variant="filled",
-                    ),
-                    (
-                        dmc.Button(
-                            "Hủy sửa",
-                            id="admin-p-cancel-edit-btn",
-                            variant="subtle",
-                        )
-                        if editing
-                        else html.Div()
-                    ),
-                ],
-                mt="sm",
-            ),
-            html.Div(id="admin-p-alert"),
         ],
         gap="sm",
+    )
+
+    # Detail Column (Phải): LOV Side Panel
+    detail_content = dmc.Paper(
+        dmc.Stack(
+            [
+                dmc.Title(
+                    f"Cấu hình LOV: {editing.get('code')}" if editing else "Cấu hình LOV",
+                    order=4,
+                    size="sm",
+                ),
+                dmc.Text(
+                    "Chọn một tham số ở danh sách bên trái để cấu hình danh sách giá trị chọn (LOV).",
+                    size="xs",
+                    c="dimmed",
+                ),
+                dmc.Select(
+                    id="admin-p-lov-type",
+                    label="Loại LOV",
+                    data=LOV_TYPE_OPTIONS,
+                    value=str(lov.get("lov_type") or "NONE"),
+                    clearable=False,
+                ),
+                dmc.Textarea(
+                    id="admin-p-lov-static",
+                    label="Danh sách tĩnh (mỗi dòng: value|label)",
+                    value=_static_text_from_lov(lov),
+                    autosize=True,
+                    minRows=2,
+                    placeholder="HN|Hà Nội\nHCM|TP. Hồ Chí Minh",
+                ),
+                dmc.Textarea(
+                    id="admin-p-lov-sql",
+                    label="SQL LOV (trả về 2 cột VALUE và LABEL)",
+                    value=str(lov.get("sql_text") or ""),
+                    autosize=True,
+                    minRows=3,
+                    placeholder="SELECT code AS value, name AS label FROM ...",
+                ),
+                dmc.Select(
+                    id="admin-p-lov-lookup",
+                    label="Lookup type",
+                    data=lookup_opts,
+                    value=str(lov.get("lookup_type") or ""),
+                    placeholder="Chọn lookup type…",
+                    searchable=True,
+                    clearable=True,
+                ),
+                dmc.Group(
+                    [
+                        dmc.Button(
+                            "Lưu tham số",
+                            id="admin-p-save-btn",
+                            variant="filled",
+                        ),
+                        (
+                            dmc.Button(
+                                "Hủy sửa",
+                                id="admin-p-cancel-edit-btn",
+                                variant="subtle",
+                            )
+                            if editing
+                            else html.Div()
+                        ),
+                    ],
+                    mt="sm",
+                ),
+                html.Div(id="admin-p-alert"),
+            ],
+            gap="sm",
+        ),
+        withBorder=True,
+        p="md",
+        radius="sm",
+        style={"backgroundColor": "var(--surface-1, #FFFFFF)"},
+        id="lovside",
+    )
+
+    return dmc.Stack(
+        [
+            dmc.Title("3. Tham số & Cấu hình LOV", order=3),
+            dmc.Grid(
+                [
+                    dmc.GridCol(master_content, span={"base": 12, "lg": 7}),
+                    dmc.GridCol(detail_content, span={"base": 12, "lg": 5}),
+                ],
+                gutter="md",
+            ),
+        ],
+        gap="md",
     )
 
 
