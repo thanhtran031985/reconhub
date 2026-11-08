@@ -109,6 +109,45 @@ class TestAdminLayout:
         assert "DRAFT" in text
         assert "Sửa" in text and "Clone" in text and "Lưu trữ" in text
 
+    def test_admin_filter_search_and_status(self, run_env, admin_ctx):
+        import app.ui.pages.report_admin as page
+
+        reports = [
+            {
+                "id": 1,
+                "code": "FIN_REV",
+                "name": "Báo cáo doanh thu",
+                "category_code": "FINANCE",
+                "templates": [{"versions": [{"status": "ACTIVE"}]}],
+            },
+            {
+                "id": 2,
+                "code": "OPS_SHIP",
+                "name": "Vận chuyển",
+                "category_code": "OPERATIONS",
+                "templates": [{"versions": [{"status": "DRAFT"}]}],
+            },
+        ]
+        # Test match search
+        body, count = page.handle_admin_filter(reports, "doanh thu", "ALL", "ALL")
+        text = _dump(body)
+        assert "FIN_REV" in text
+        assert "OPS_SHIP" not in text
+        assert "1 mục" in count
+
+        # Test filter status
+        body, count = page.handle_admin_filter(reports, None, "DRAFT", "ALL")
+        text = _dump(body)
+        assert "OPS_SHIP" in text
+        assert "FIN_REV" not in text
+        assert "1 mục" in count
+
+        # Test filter category
+        body, count = page.handle_admin_filter(reports, None, "ALL", "FINANCE")
+        text = _dump(body)
+        assert "FIN_REV" in text
+        assert "OPS_SHIP" not in text
+
 
 class TestStep1:
     def test_render_step1_fields(self):

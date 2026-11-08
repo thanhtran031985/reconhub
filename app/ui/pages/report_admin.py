@@ -58,9 +58,13 @@ from app.services.report_template import (
     update_version_source,
 )
 from app.ui.components.alert_box import alert_box
+from app.ui.components.button import button_danger, button_primary, button_subtle
+from app.ui.components.command_bar import command_bar
 from app.ui.components.empty_state import empty_state
+from app.ui.components.modal_confirm import modal_confirm
 from app.ui.components.page_header import page_header
-from app.ui.components.report_widgets import render_param_form, render_result_table
+from app.ui.components.report_widgets import _format_cell, render_param_form, render_result_table
+from app.ui.components.status_chip import STATUS_MAP, status_chip
 
 try:
     dash.register_page(__name__, path="/report-admin", title="Quản trị báo cáo – ReconHub")  # type: ignore[no-untyped-call]
@@ -73,6 +77,19 @@ CATEGORY_OPTIONS = [
     {"label": "Tài chính", "value": "FINANCE"},
     {"label": "Kế toán", "value": "ACCOUNTING"},
     {"label": "Vận hành", "value": "OPERATIONS"},
+]
+CATEGORY_LABELS: dict[str, str] = {
+    "FINANCE": "Tài chính",
+    "ACCOUNTING": "Kế toán",
+    "OPERATIONS": "Vận hành",
+}
+CATEGORY_FILTER_OPTIONS: list[dict[str, str]] = [{"label": "Tất cả nhóm", "value": "all"}] + CATEGORY_OPTIONS
+STATUS_FILTER_OPTIONS: list[dict[str, str]] = [
+    {"label": "Tất cả trạng thái", "value": ""},
+    {"label": "Hoạt động (ACTIVE)", "value": "ACTIVE"},
+    {"label": "Bản nháp (DRAFT)", "value": "DRAFT"},
+    {"label": "Sẵn sàng (DRY_RUN_OK)", "value": "DRY_RUN_OK"},
+    {"label": "Đã lưu trữ (ARCHIVED)", "value": "ARCHIVED"},
 ]
 SOURCE_TYPE_OPTIONS = [
     {"label": "SQL tùy biến (CUSTOM_SQL)", "value": "CUSTOM_SQL"},
@@ -250,131 +267,304 @@ def _lov_payload(
 # ─── Render: danh sách ───────────────────────────────────────────────────────
 
 
-def _status_badge(status: str) -> dmc.Badge:
-    color = {
-        "ACTIVE": "green",
-        "DRAFT": "gray",
-        "DRY_RUN_OK": "blue",
-        "ARCHIVED": "dark",
-    }.get(status, "gray")
-    return dmc.Badge(status, color=color, variant="light")
+def _status_badge(status: str) -> Any:
+    if status == "DRY_RUN_OK":
+        return status_chip("ACTIVE", label="Sẵn sàng", icon="lucide:check-circle")
+    if status in STATUS_MAP:
+        return status_chip(status)
+    return dmc.Badge(status, color="gray", variant="light")
 
 
-def render_report_list(reports: list[dict[str, Any]]) -> Any:
-    """Danh sách Report Master + template/version + hành động."""
-    if not reports:
-        return empty_state(
-            "Chưa có báo cáo nào.",
-            "Bấm “Báo cáo mới” để đăng ký báo cáo đầu tiên.",
+def render_report_list(
+    reports: list[dict[str, Any]] | None,
+    loading: bool = False,
+    error: str | None = None,
+    search_term: str = "",
+    status_filter: str = "",
+    category_filter: str = "",
+) -> Any:
+    """Danh sách Report Master + template/version theo phong cách Fluent Compact tương tự /batches."""
+    if loading:
+        return dmc.Stack(
+            [dmc.Skeleton(height=38, radius="sm") for _ in range(5)],
+            gap="xs",
+            p="xs",
         )
-    blocks = []
+    if error:
+        return alert_box(
+            title="Không thể tải danh sách báo cáo",
+            message=error,
+            tone="crit",
+            action=button_danger("Thử lại", id="admin-retry-btn", size="xs"),
+        )
+    if reports is None or len(reports) == 0:
+        return empty_state(
+            title="Chưa có báo cáo nào",
+            description="Bấm “Báo cáo mới” để đăng ký báo cáo và template đầu tiên.",
+            action=dcc.Link(
+                button_primary("Báo cáo mới", icon="lucide:plus", id="admin-empty-new-btn", size="xs"),
+                href="/report-admin?new=1",
+                style={"textDecoration": "none"},
+            ),
+        )
+
+    flat_rows: list[dict[str, Any]] = []
     for report in reports:
+        cat_code = str(report.get("category_code") or "")
         templates = report.get("templates") or []
-        rows = []
-        for tpl in templates:
-            for ver in tpl.get("versions", []):
-                is_active = tpl.get("active_version_id") == ver.get("id")
-                rows.append(
-                    dmc.TableTr(
-                        [
-                            dmc.TableTd(str(tpl["code"])),
-                            dmc.TableTd(str(tpl["name"])),
-                            dmc.TableTd(f"v{ver.get('version_no')}"),
-                            dmc.TableTd(_status_badge(str(ver.get("status")))),
-                            dmc.TableTd(dmc.Badge("ACTIVE", color="green", variant="filled") if is_active else ""),
-                            dmc.TableTd(
-                                dmc.Group(
-                                    [
-                                        dmc.Button(
-                                            "Sửa",
-                                            size="xs",
-                                            variant="subtle",
-                                            id={"type": "admin-edit", "index": tpl["id"]},
-                                            **{"aria-label": f"Sửa template {tpl['code']}"},
-                                        ),
-                                        dmc.Button(
-                                            "Clone",
-                                            size="xs",
-                                            variant="subtle",
-                                            id={"type": "admin-clone", "index": ver["id"]},
-                                            **{"aria-label": f"Clone version {ver['id']}"},
-                                        ),
-                                        dmc.Button(
-                                            "Lưu trữ",
-                                            size="xs",
-                                            variant="subtle",
-                                            color="red",
-                                            id={"type": "admin-archive-ver", "index": ver["id"]},
-                                            **{"aria-label": f"Lưu trữ version {ver['id']}"},
-                                        ),
-                                    ],
-                                    gap="xs",
-                                )
-                            ),
-                        ]
+        if not templates:
+            flat_rows.append(
+                {
+                    "report_id": report.get("id"),
+                    "report_code": str(report.get("code") or ""),
+                    "report_name": str(report.get("name") or ""),
+                    "description": str(report.get("description") or ""),
+                    "category_code": cat_code,
+                    "owner": str(report.get("owner") or "—"),
+                    "tpl_id": None,
+                    "tpl_code": "—",
+                    "tpl_name": "Chưa có template",
+                    "ver_id": None,
+                    "version_no": None,
+                    "status": "ACTIVE" if report.get("is_active") else "DRAFT",
+                    "is_active": False,
+                }
+            )
+        else:
+            for tpl in templates:
+                versions = tpl.get("versions") or []
+                if not versions:
+                    flat_rows.append(
+                        {
+                            "report_id": report.get("id"),
+                            "report_code": str(report.get("code") or ""),
+                            "report_name": str(report.get("name") or ""),
+                            "description": str(report.get("description") or ""),
+                            "category_code": cat_code,
+                            "owner": str(report.get("owner") or "—"),
+                            "tpl_id": tpl.get("id"),
+                            "tpl_code": str(tpl.get("code") or ""),
+                            "tpl_name": str(tpl.get("name") or ""),
+                            "ver_id": None,
+                            "version_no": None,
+                            "status": "DRAFT",
+                            "is_active": False,
+                        }
                     )
-                )
-        blocks.append(
-            dmc.Paper(
-                [
-                    dmc.Group(
-                        [
-                            dmc.Stack(
-                                [
-                                    dmc.Text(
-                                        f"{report['code']} — {report['name']}",
-                                        fw=600,
-                                    ),
-                                    dmc.Text(
-                                        f"Nhóm: {report.get('category_code') or '—'} · "
-                                        f"Chủ sở hữu: {report.get('owner') or '—'} · "
-                                        f"{'Hiển thị' if report.get('is_visible') else 'Đang ẩn'}",
-                                        size="sm",
-                                        c="dimmed",
-                                    ),
-                                ],
-                                gap=0,
-                            ),
-                            dmc.Badge(
-                                "ACTIVE" if report.get("is_active") else "Ngừng",
-                                color="green" if report.get("is_active") else "gray",
-                                variant="light",
-                            ),
-                        ],
-                        justify="space-between",
-                    ),
-                    (
-                        dmc.ScrollArea(
-                            dmc.Table(
-                                [
-                                    dmc.TableThead(
-                                        dmc.TableTr(
-                                            [
-                                                dmc.TableTh("Mã template"),
-                                                dmc.TableTh("Tên"),
-                                                dmc.TableTh("Version"),
-                                                dmc.TableTh("Trạng thái"),
-                                                dmc.TableTh(""),
-                                                dmc.TableTh(""),
-                                            ]
-                                        )
-                                    ),
-                                    dmc.TableTbody(rows),
-                                ],
-                                striped=True,
-                                withTableBorder=True,
-                            ),
+                else:
+                    for ver in versions:
+                        is_active = tpl.get("active_version_id") == ver.get("id")
+                        flat_rows.append(
+                            {
+                                "report_id": report.get("id"),
+                                "report_code": str(report.get("code") or ""),
+                                "report_name": str(report.get("name") or ""),
+                                "description": str(report.get("description") or ""),
+                                "category_code": cat_code,
+                                "owner": str(report.get("owner") or "—"),
+                                "tpl_id": tpl.get("id"),
+                                "tpl_code": str(tpl.get("code") or ""),
+                                "tpl_name": str(tpl.get("name") or ""),
+                                "ver_id": ver.get("id"),
+                                "version_no": ver.get("version_no"),
+                                "status": str(ver.get("status") or "DRAFT"),
+                                "is_active": is_active,
+                            }
                         )
-                        if rows
-                        else dmc.Text("Chưa có template nào.", size="sm", c="dimmed", mt="sm")
+
+    filtered = flat_rows
+    if search_term:
+        st = search_term.strip().lower()
+        filtered = [
+            r
+            for r in filtered
+            if st in r["report_code"].lower()
+            or st in r["report_name"].lower()
+            or st in r["tpl_code"].lower()
+            or st in r["tpl_name"].lower()
+            or st in r["description"].lower()
+        ]
+    if status_filter and status_filter.upper() != "ALL":
+        filtered = [r for r in filtered if r["status"] == status_filter]
+    if category_filter and category_filter.upper() != "ALL":
+        filtered = [r for r in filtered if r["category_code"] == category_filter]
+
+    if not filtered:
+        return empty_state(
+            title="Không có báo cáo khớp bộ lọc",
+            description="Hãy thử thay đổi từ khóa tìm kiếm hoặc bỏ bớt bộ lọc.",
+        )
+
+    th_base: dict[str, Any] = {
+        "position": "sticky",
+        "top": 0,
+        "backgroundColor": "var(--surface-2, #FAFAFA)",
+        "zIndex": 1,
+        "height": "34px",
+        "fontSize": "11px",
+        "fontWeight": 600,
+        "borderBottom": "1px solid var(--line, #E0E0E0)",
+        "whiteSpace": "nowrap",
+        "textAlign": "center",
+    }
+
+    table_rows = []
+    for it in filtered:
+        tpl_id = it.get("tpl_id")
+        ver_id = it.get("ver_id")
+        status = it.get("status") or "DRAFT"
+        is_active = it.get("is_active")
+
+        actions_list: list[Any] = []
+        if tpl_id:
+            actions_list.append(
+                dmc.Button(
+                    "Sửa",
+                    size="xs",
+                    variant="subtle",
+                    id={"type": "admin-edit", "index": tpl_id},
+                    **{"aria-label": f"Sửa template {it['tpl_code']}"},
+                )
+            )
+        if ver_id:
+            actions_list.append(
+                dmc.Button(
+                    "Clone",
+                    size="xs",
+                    variant="subtle",
+                    id={"type": "admin-clone", "index": ver_id},
+                    **{"aria-label": f"Clone version {ver_id}"},
+                )
+            )
+            actions_list.append(
+                dmc.Button(
+                    "Lưu trữ",
+                    size="xs",
+                    variant="subtle",
+                    color="red",
+                    id={"type": "admin-archive-ver", "index": ver_id},
+                    **{"aria-label": f"Lưu trữ version {ver_id}"},
+                )
+            )
+        action_cell = dmc.Group(actions_list, gap="xs", justify="center", style={"flexWrap": "nowrap"})
+
+        cat_badge = dmc.Badge(
+            CATEGORY_LABELS.get(it["category_code"], it["category_code"] or "—"),
+            variant="light",
+            size="xs",
+        )
+
+        ver_badge: Any = "—"
+        if it.get("version_no") is not None:
+            ver_badge = dmc.Badge(
+                f"v{it['version_no']}" + (" ACTIVE" if is_active else ""),
+                color="green" if is_active else "gray",
+                variant="filled" if is_active else "light",
+                size="xs",
+            )
+
+        table_rows.append(
+            dmc.TableTr(
+                [
+                    dmc.TableTd(
+                        dmc.Stack(
+                            [
+                                dmc.Anchor(
+                                    dmc.Text(
+                                        it["tpl_code"] if it["tpl_code"] != "—" else it["report_code"],
+                                        className="rh-code",
+                                        fw=700,
+                                        size="sm",
+                                    ),
+                                    href=f"/report-admin?template={tpl_id}" if tpl_id else "/report-admin?new=1",
+                                    underline=False,
+                                ),
+                                dmc.Text(it["report_code"], size="10px", c="dimmed", className="rh-code"),
+                            ],
+                            gap=0,
+                        ),
+                        style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
                     ),
-                ],
-                withBorder=True,
-                radius="lg",
-                p="md",
+                    dmc.TableTd(
+                        dmc.Stack(
+                            [
+                                dmc.Text(it["tpl_name"], fw=600, size="sm"),
+                                dmc.Text(
+                                    f"{it['report_name']} · {it['description']}".strip(" ·"),
+                                    size="xs",
+                                    c="dimmed",
+                                    lineClamp=1,
+                                ),
+                            ],
+                            gap=2,
+                        ),
+                        style={"verticalAlign": "middle"},
+                    ),
+                    dmc.TableTd(
+                        dmc.Group([cat_badge], justify="center"),
+                        style={"verticalAlign": "middle", "textAlign": "center"},
+                    ),
+                    dmc.TableTd(
+                        dmc.Group([_status_badge(status)], justify="center"),
+                        style={"verticalAlign": "middle", "textAlign": "center"},
+                    ),
+                    dmc.TableTd(
+                        dmc.Group([ver_badge], justify="center"),
+                        style={"verticalAlign": "middle", "textAlign": "center"},
+                    ),
+                    dmc.TableTd(
+                        dmc.Text(it["owner"], size="sm", ta="center"),
+                        style={"verticalAlign": "middle", "textAlign": "center"},
+                    ),
+                    dmc.TableTd(
+                        action_cell,
+                        style={"whiteSpace": "nowrap", "verticalAlign": "middle", "textAlign": "center"},
+                    ),
+                ]
             )
         )
-    return dmc.Stack(blocks, gap="md")
+
+    return dmc.Paper(
+        dmc.TableScrollContainer(
+            minWidth=880,
+            style={"flex": 1, "minHeight": 0, "overflow": "auto"},
+            children=dmc.Table(
+                [
+                    dmc.TableThead(
+                        dmc.TableTr(
+                            [
+                                dmc.TableTh("Mã", style={**th_base, "minWidth": "160px"}),
+                                dmc.TableTh(
+                                    "Tên & Mô tả", style={**th_base, "minWidth": "240px", "textAlign": "left"}
+                                ),
+                                dmc.TableTh("Nhóm", style={**th_base, "minWidth": "110px"}),
+                                dmc.TableTh("Trạng thái", style={**th_base, "minWidth": "110px"}),
+                                dmc.TableTh("Version", style={**th_base, "minWidth": "110px"}),
+                                dmc.TableTh("Chủ sở hữu", style={**th_base, "minWidth": "100px"}),
+                                dmc.TableTh("Thao tác", style={**th_base, "minWidth": "180px"}),
+                            ]
+                        )
+                    ),
+                    dmc.TableTbody(table_rows),
+                ],
+                striped=False,
+                highlightOnHover=True,
+                verticalSpacing=4,
+                style={"fontSize": "12px"},
+            ),
+        ),
+        withBorder=True,
+        radius="sm",
+        style={
+            "flex": 1,
+            "minHeight": 0,
+            "display": "flex",
+            "flexDirection": "column",
+            "overflow": "hidden",
+            "backgroundColor": "var(--surface, #FFFFFF)",
+            "border": "1px solid var(--line, #E0E0E0)",
+        },
+    )
 
 
 def _load_reports_with_templates(ctx: Ctx) -> list[dict[str, Any]]:
@@ -429,31 +619,82 @@ def layout(**kwargs: Any) -> Any:
             dcc.Store(id="admin-state-store", data={"mode": "list"}),
             dcc.Store(id="admin-dryrun-store", data=None),
             dcc.Store(id="admin-alert-store", data=None),
+            dcc.Store(id="admin-reports-store", data=reports),
             page_header(
                 title="Quản trị báo cáo",
                 subtitle="Danh sách Report Master và wizard cấu hình template báo cáo",
                 actions=[
+                    dmc.ActionIcon(
+                        DashIconify(icon="lucide:refresh-cw", width=14),
+                        id="admin-refresh-btn",
+                        variant="subtle",
+                        color="gray",
+                        size="sm",
+                        **{"aria-label": "Làm mới danh sách"},
+                    ),
                     dcc.Link(
                         dmc.Button(
                             "+ Báo cáo mới",
                             id="admin-new-btn",
-                            size="sm",
+                            size="xs",
                             variant="filled",
                             leftSection=DashIconify(icon="lucide:plus", width=14),
                         ),
                         href="/report-admin?new=1",
+                        style={"textDecoration": "none"},
                     ),
                 ],
             ),
             html.Div(id="admin-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
             html.Div(
                 id="admin-list-container",
-                children=render_report_list(reports),
+                children=[
+                    command_bar(
+                        search_id="admin-filter-search",
+                        search_placeholder="Tìm theo mã hoặc tên báo cáo...",
+                        filters=[
+                            dmc.Select(
+                                id="admin-filter-status",
+                                data=STATUS_FILTER_OPTIONS,
+                                value="",
+                                w=170,
+                                size="xs",
+                                styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+                            ),
+                            dmc.Select(
+                                id="admin-filter-category",
+                                data=CATEGORY_FILTER_OPTIONS,
+                                value="all",
+                                w=160,
+                                size="xs",
+                                styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+                            ),
+                            html.Span(
+                                id="admin-count-text",
+                                style={"fontSize": "11px", "color": "var(--ink-soft, #616161)", "marginLeft": "auto"},
+                            ),
+                        ],
+                    ),
+                    html.Div(
+                        id="admin-table-container",
+                        children=render_report_list(reports),
+                        style={
+                            "flex": 1,
+                            "minHeight": 0,
+                            "display": "flex",
+                            "flexDirection": "column",
+                            "overflow": "hidden",
+                        },
+                    ),
+                ],
                 style={
                     "flex": "1 1 0%",
                     "minHeight": 0,
-                    "overflowY": "auto",
-                    "padding": "16px 20px",
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "overflow": "hidden",
+                    "padding": "8px 12px",
+                    "gap": "6px",
                 },
             ),
             dcc.Loading(
@@ -2249,17 +2490,80 @@ def handle_mode_display(state: dict[str, Any] | None) -> tuple[dict[str, Any], d
             "flexDirection": "column",
             "flex": "1 1 0%",
             "minHeight": 0,
-            "overflowY": "auto",
-            "padding": "16px 20px",
+            "overflow": "hidden",
+            "padding": "8px 12px",
         }
     return {
         "display": "flex",
         "flexDirection": "column",
         "flex": "1 1 0%",
         "minHeight": 0,
-        "overflowY": "auto",
-        "padding": "16px 20px",
+        "overflow": "hidden",
+        "padding": "8px 12px",
+        "gap": "6px",
     }, {"display": "none"}
+
+
+@callback(
+    Output("admin-table-container", "children"),
+    Output("admin-count-text", "children"),
+    Input("admin-reports-store", "data"),
+    Input("admin-filter-search", "value"),
+    Input("admin-filter-status", "value"),
+    Input("admin-filter-category", "value"),
+)
+def handle_admin_filter(
+    reports: list[dict[str, Any]] | None,
+    search: str | None,
+    status: str | None,
+    category: str | None,
+) -> tuple[Any, str]:
+    """Lọc danh sách báo cáo theo tìm kiếm, trạng thái và nhóm."""
+    if reports is None:
+        return render_report_list(None, loading=True), ""
+    search_term = (search or "").strip()
+    stat_val = "" if not status or status.upper() == "ALL" else status
+    cat_val = "" if not category or category.upper() == "ALL" else category
+    content = render_report_list(
+        reports,
+        search_term=search_term,
+        status_filter=stat_val,
+        category_filter=cat_val,
+    )
+    cnt = 0
+    st = search_term.lower()
+    for rep in reports:
+        cat = str(rep.get("category_code") or "")
+        if cat_val and cat != cat_val:
+            continue
+        tpls = rep.get("templates") or []
+        for tpl in (tpls if tpls else [{}]):
+            vers = tpl.get("versions") or []
+            for ver in (vers if vers else [{}]):
+                v_stat = str(ver.get("status") or "DRAFT")
+                if stat_val and v_stat != stat_val:
+                    continue
+                if st:
+                    hay = f"{rep.get('code','')} {rep.get('name','')} {tpl.get('code','')} {tpl.get('name','')}".lower()
+                    if st not in hay:
+                        continue
+                cnt += 1
+    return content, f"{cnt} mục"
+
+
+@callback(
+    Output("admin-reports-store", "data"),
+    Input("admin-refresh-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def handle_admin_refresh(n_clicks: int | None) -> list[dict[str, Any]]:
+    """Làm mới danh sách từ DB."""
+    if not n_clicks:
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    return _load_reports_with_templates(ctx)
 
 
 @callback(
@@ -2836,7 +3140,7 @@ def handle_list_clone_click(
 
 @callback(
     Output("admin-alert", "children", allow_duplicate=True),
-    Output("admin-list-container", "children", allow_duplicate=True),
+    Output("admin-reports-store", "data", allow_duplicate=True),
     Input({"type": "admin-archive-ver", "index": dash.ALL}, "n_clicks"),
     prevent_initial_call=True,
 )
@@ -2858,5 +3162,5 @@ def handle_list_archive_click(
     reports = _load_reports_with_templates(ctx)
     return (
         alert_box("Đã lưu trữ version.", tone="ok"),
-        render_report_list(reports),
+        reports,
     )
