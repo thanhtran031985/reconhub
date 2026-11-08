@@ -34,6 +34,7 @@ from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.code_block import code_block
 from app.ui.components.file_drop import file_drop
 from app.ui.components.modal_confirm import modal_confirm
+from app.ui.components.notification import notify_error, notify_info, notify_success, notify_warning
 from app.ui.components.page_header import page_header
 
 
@@ -273,125 +274,284 @@ def render_file_section(
     active_templates: list[dict[str, Any]] | None = None,
 ) -> dmc.Paper:
     """Dựng Card 1: File dữ liệu (Upload, nhận diện, validate, control total)."""
-    if not file_data:
-        return dmc.Paper(
+    has_file = file_data is not None
+
+    dropzone_box = html.Div(
+        style={
+            "display": "none" if has_file else "block",
+            "width": "100%",
+        },
+        children=[
+            file_drop(
+                "new-run-upload",
+                hint=".xlsx · .xls · .csv · tối đa 50 MB",
+                max_size=50 * 1024 * 1024,
+            ),
+        ],
+    )
+
+    metadata_card = None
+    if has_file and file_data:
+        fname = file_data.get("filename", "data.xlsx")
+        size_kb = max(1, file_data.get("size_bytes", 0) // 1024)
+        v_rows = file_data.get("valid_rows", 0)
+        f_rows = file_data.get("footer_rows", 0)
+        ct_val = file_data.get("control_total_val")
+        ct_diff = file_data.get("control_total_diff")
+        ct_warn = file_data.get("control_total_warning")
+        t_code = detected_template.get("code", "TEMPLATE") if detected_template else None
+        t_ver = detected_template.get("version", 1) if detected_template else None
+
+        metadata_card = dmc.Paper(
             withBorder=True,
-            p="md",
+            p="sm",
             radius="sm",
-            h="100%",
-            style={"display": "flex", "flexDirection": "column"},
+            style={
+                "background": "var(--bg-subtle, #f8fafc)",
+                "display": "flex",
+                "flexDirection": "column",
+                "gap": "10px",
+                "minWidth": 0,
+                "width": "100%",
+                "boxSizing": "border-box",
+                "overflow": "hidden",
+            },
             children=[
-                dmc.Title("1. File dữ liệu", order=4, mb="xs"),
-                dmc.Text(
-                    "Kéo thả file vào đây hoặc chọn file để hệ thống tự động nhận diện template.",
-                    size="sm",
-                    c="dimmed",
-                    mb="md",
-                ),
-                html.Div(
-                    style={"flex": "1", "display": "flex", "flexDirection": "column", "justifyContent": "center"},
+                # Row 1: File icon + Tên file (ellipsis, mono, hover title) + Kích thước file
+                dmc.Group(
+                    wrap="nowrap",
+                    gap="xs",
+                    align="center",
+                    style={"minWidth": 0, "width": "100%", "overflow": "hidden"},
                     children=[
-                        file_drop(
-                            "new-run-upload",
-                            hint=".xlsx · .xls · .csv · tối đa 50 MB",
-                            max_size=50 * 1024 * 1024,
+                        dmc.ThemeIcon(
+                            DashIconify(icon="lucide:file-spreadsheet", width=18),
+                            color="teal",
+                            variant="light",
+                            size="md",
+                            style={"flexShrink": 0},
+                        ),
+                        html.Div(
+                            style={"minWidth": 0, "flex": "1 1 0%", "overflow": "hidden"},
+                            children=[
+                                html.Span(
+                                    fname,
+                                    title=fname,
+                                    className="mono",
+                                    style={
+                                        "fontWeight": 600,
+                                        "fontSize": "13px",
+                                        "overflow": "hidden",
+                                        "textOverflow": "ellipsis",
+                                        "whiteSpace": "nowrap",
+                                        "display": "block",
+                                        "lineHeight": 1.4,
+                                    },
+                                ),
+                            ],
+                        ),
+                        dmc.Badge(
+                            f"{size_kb} KB",
+                            size="xs",
+                            variant="light",
+                            color="gray",
+                            style={"flexShrink": 0},
                         ),
                     ],
                 ),
-                html.Div(
-                    button_subtle("Đổi file", id="new-run-change-file-btn", size="xs"),
-                    style={"display": "none"},
+                dmc.Divider(variant="dashed"),
+                # Row 2: Template áp dụng
+                dmc.Group(
+                    justify="space-between",
+                    align="center",
+                    wrap="nowrap",
+                    style={"minWidth": 0, "width": "100%"},
+                    children=[
+                        dmc.Text("Template áp dụng:", size="xs", c="dimmed", fw=500, style={"flexShrink": 0}),
+                        (
+                            dmc.Badge(
+                                f"{t_code} v{t_ver}",
+                                color="blue",
+                                variant="light",
+                                size="sm",
+                            )
+                            if detected_template
+                            else dmc.Badge(
+                                "Chưa nhận diện",
+                                color="orange",
+                                variant="light",
+                                size="sm",
+                            )
+                        ),
+                    ],
+                ),
+                # Row 3: Thống kê dòng nạp
+                dmc.Group(
+                    justify="space-between",
+                    align="center",
+                    wrap="nowrap",
+                    style={"minWidth": 0, "width": "100%"},
+                    children=[
+                        dmc.Text("Dữ liệu nạp:", size="xs", c="dimmed", fw=500, style={"flexShrink": 0}),
+                        dmc.Group(
+                            gap="4px",
+                            wrap="wrap",
+                            justify="flex-end",
+                            children=[
+                                dmc.Badge(
+                                    f"{v_rows} dòng hợp lệ",
+                                    color="teal",
+                                    variant="light",
+                                    size="xs",
+                                ),
+                                *(
+                                    [
+                                        dmc.Badge(
+                                            f"{f_rows} dòng tổng đã loại",
+                                            color="gray",
+                                            variant="outline",
+                                            size="xs",
+                                        )
+                                    ]
+                                    if f_rows > 0
+                                    else []
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                # Row 4: Control total (nếu có cấu hình)
+                *(
+                    [
+                        dmc.Group(
+                            justify="space-between",
+                            align="center",
+                            wrap="nowrap",
+                            style={"minWidth": 0, "width": "100%"},
+                            children=[
+                                dmc.Text("Control total:", size="xs", c="dimmed", fw=500, style={"flexShrink": 0}),
+                                (
+                                    dmc.Badge(
+                                        f"Control total khớp: {ct_val}",
+                                        color="teal",
+                                        variant="light",
+                                        size="xs",
+                                    )
+                                    if ct_diff == 0
+                                    else dmc.Badge(
+                                        f"Control total lệch: chênh {ct_diff:,.0f} đ",
+                                        color="orange",
+                                        variant="light",
+                                        size="xs",
+                                    )
+                                ),
+                            ],
+                        )
+                    ]
+                    if ct_val is not None
+                    else (
+                        [
+                            dmc.Group(
+                                justify="space-between",
+                                align="center",
+                                wrap="nowrap",
+                                style={"minWidth": 0, "width": "100%"},
+                                children=[
+                                    dmc.Text("Control total:", size="xs", c="dimmed", fw=500, style={"flexShrink": 0}),
+                                    dmc.Badge(
+                                        ct_warn or "Không có control total",
+                                        color="orange",
+                                        variant="light",
+                                        size="xs",
+                                    ),
+                                ],
+                            )
+                        ]
+                        if ct_warn
+                        else []
+                    )
                 ),
             ],
         )
 
-    # Khi file đã được tải lên
-    fname = file_data.get("filename", "data.xlsx")
-    size_kb = max(1, file_data.get("size_bytes", 0) // 1024)
-    v_rows = file_data.get("valid_rows", 0)
-    f_rows = file_data.get("footer_rows", 0)
-    ct_val = file_data.get("control_total_val")
-    ct_diff = file_data.get("control_total_diff")
-    ct_warn = file_data.get("control_total_warning")
-
-    alerts = [
-        # Alert 1: Tên file + Đổi file
-        dmc.Paper(
-            withBorder=True,
-            p="xs",
-            radius="sm",
-            style={"background": "var(--bg-subtle, #f8fafc)"},
-            mb="xs",
-            children=dmc.Group(
-                justify="space-between",
-                children=[
-                    dmc.Group(
-                        [
-                            dmc.ThemeIcon(
-                                DashIconify(icon="lucide:file-spreadsheet", width=18),
-                                color="teal",
-                                variant="light",
-                                size="md",
-                            ),
-                            dmc.Text(
-                                [
-                                    html.Span(fname, className="mono", style={"fontWeight": 600}),
-                                    f" · {size_kb} KB",
-                                ],
-                                size="sm",
-                            ),
-                        ],
-                        gap="xs",
-                    ),
-                    button_subtle("Đổi file", id="new-run-change-file-btn", size="xs"),
-                ],
-            ),
-        ),
-    ]
-
-    # Alert 2: Nhận diện template
-    if detected_template:
-        t_code = detected_template.get("code", "TEMPLATE")
-        t_ver = detected_template.get("version", 1)
-        alerts.append(
-            alert_box(
-                f"Nhận diện template {t_code} v{t_ver} (khớp header).",
-                tone="info",
-            )
-        )
-    else:
-        alerts.append(
-            alert_box(
-                "Chưa tự động nhận diện được template. Vui lòng chọn template ở Card 2 bên phải.",
-                tone="warn",
-            )
-        )
-
-    # Alert 3: Dòng hợp lệ & dòng tổng
-    alerts.append(
-        alert_box(
-            f"{v_rows} dòng hợp lệ · {f_rows} dòng tổng đã loại · 0 dòng lỗi",
-            tone="ok",
-        )
+    info_box = html.Div(
+        style={
+            "display": "flex" if has_file else "none",
+            "flexDirection": "column",
+            "gap": "8px",
+            "minWidth": 0,
+            "width": "100%",
+            "overflow": "hidden",
+        },
+        children=[metadata_card] if metadata_card is not None else [],
     )
 
-    # Alert 4: Control total (chỉ hiển thị khi file/template có cấu hình control total)
-    if ct_val is not None:
-        if ct_diff == 0:
-            alerts.append(alert_box(f"Control total khớp: {ct_val}", tone="ok"))
-        else:
-            alerts.append(alert_box(f"Control total lệch: chênh {ct_diff:,.0f} đ", tone="warn"))
-    elif ct_warn:
-        alerts.append(alert_box(ct_warn, tone="warn"))
+    # Nút dummy để Dash callback không bao giờ bị thiếu new-run-change-file-btn khi chưa có file
+    dummy_change_btn = html.Div(
+        button_subtle("Đổi file", id="new-run-change-file-btn", size="xs"),
+        style={"display": "none"},
+    )
 
     return dmc.Paper(
         withBorder=True,
-        p="md",
+        p="sm",
         radius="sm",
         h="100%",
+        style={
+            "display": "flex",
+            "flexDirection": "column",
+            "flex": "1 1 0%",
+            "height": "100%",
+            "minHeight": 0,
+            "overflow": "hidden",
+        },
         children=[
-            dmc.Title("1. File dữ liệu", order=4, mb="xs"),
-            dmc.Stack(alerts, gap="xs"),
+            dmc.Group(
+                justify="space-between",
+                align="center",
+                mb="xs",
+                children=[
+                    dmc.Title("1. File dữ liệu", order=4),
+                    *(
+                        [button_subtle("Đổi file", id="new-run-change-file-btn", size="xs", icon="lucide:refresh-cw")]
+                        if has_file
+                        else [dummy_change_btn]
+                    ),
+                ],
+            ),
+            dmc.Text(
+                "Kéo thả hoặc chọn file dữ liệu Excel/CSV để đối soát.",
+                size="xs",
+                c="dimmed",
+                mb="xs",
+                style={"flexShrink": 0},
+            ),
+            *(
+                [
+                    html.Div(
+                        style={
+                            "flex": "1 1 0%",
+                            "minHeight": 0,
+                            "display": "flex",
+                            "flexDirection": "column",
+                            "justifyContent": "center",
+                        },
+                        children=[dropzone_box],
+                    )
+                ]
+                if not has_file
+                else [
+                    dmc.ScrollArea(
+                        style={"flex": "1 1 0%", "minHeight": 0, "overflowX": "hidden"},
+                        type="auto",
+                        offsetScrollbars=True,
+                        children=[
+                            dropzone_box,
+                            info_box,
+                        ],
+                    )
+                ]
+            ),
         ],
     )
 
@@ -577,77 +737,106 @@ def render_params_section(
 
     return dmc.Paper(
         withBorder=True,
-        p="md",
+        p="sm",
         radius="sm",
         h="100%",
+        style={
+            "display": "flex",
+            "flexDirection": "column",
+            "flex": "1 1 0%",
+            "height": "100%",
+            "minHeight": 0,
+            "overflow": "hidden",
+        },
         children=[
-            dmc.Title("2. Profile và tham số tìm kiếm", order=4, mb="xs"),
-            # Template đối soát (Selectable & Searchable)
-            dmc.Select(
-                id="new-run-manual-template-select",
-                label="Chỉ định template đối soát *",
-                data=select_options,
-                value=selected_tmpl_id,
-                placeholder="Tìm hoặc chọn template áp dụng...",
-                searchable=True,
-                clearable=False,
-                nothingFoundMessage="Không tìm thấy template",
-                mb="sm",
+            dmc.Title("2. Profile và tham số tìm kiếm", order=4, mb=2),
+            dmc.Text(
+                "Chọn template, profile và khoảng thời gian đối soát.",
+                size="xs",
+                c="dimmed",
+                mb="xs",
+                style={"flexShrink": 0},
             ),
-            dmc.Grid(
-                gutter="md",
-                mb="md",
+            dmc.ScrollArea(
+                style={"flex": "1 1 0%", "minHeight": 0},
+                type="auto",
+                offsetScrollbars=True,
                 children=[
-                    dmc.GridCol(
-                        span=6,
-                        children=dmc.Select(
-                            id="new-run-profile-select",
-                            label="Profile",
-                            data=profiles_data,
-                            value=default_profile,
-                            searchable=True,
-                            clearable=False,
-                        ),
-                    ),
-                    dmc.GridCol(
-                        span=6,
-                        children=dmc.Select(
-                            id="new-run-datasource-select",
-                            label="Data Source",
-                            data=ds_options,
-                            value=default_ds,
-                            searchable=True,
-                            clearable=False,
-                        ),
-                    ),
-                ],
-            ),
-            # Hàng tham số: p_from, p_to, p_org
-            html.Div(
-                style={
-                    "display": "grid",
-                    "gridTemplateColumns": "1fr 1fr 130px",
-                    "gap": "12px",
-                    "alignItems": "flex-start",
-                },
-                children=[
-                    dmc.DateTimePicker(
-                        id="new-run-p-from",
-                        label="Từ ngày giờ (p_from) *",
-                        value=p_from_display,
-                        valueFormat="YYYY-MM-DD HH:mm:ss",
-                        withSeconds=True,
+                    # Template đối soát (Selectable & Searchable)
+                    dmc.Select(
+                        id="new-run-manual-template-select",
+                        label="Chỉ định template đối soát *",
+                        data=select_options,
+                        value=selected_tmpl_id,
+                        placeholder="Tìm hoặc chọn template áp dụng...",
+                        searchable=True,
                         clearable=False,
-                        w="100%",
+                        nothingFoundMessage="Không tìm thấy template",
+                        size="xs",
+                        mb="xs",
                     ),
-                    dmc.DateTimePicker(
-                        id="new-run-p-to",
-                        label="Đến ngày giờ (p_to) *",
-                        value=p_to_display,
-                        valueFormat="YYYY-MM-DD HH:mm:ss",
-                        withSeconds=True,
-                        clearable=False,
-                        w="100%",
+                    dmc.Grid(
+                        gutter="xs",
+                        mb="xs",
+                        children=[
+                            dmc.GridCol(
+                                span=6,
+                                children=dmc.Select(
+                                    id="new-run-profile-select",
+                                    label="Profile",
+                                    data=profiles_data,
+                                    value=default_profile,
+                                    searchable=True,
+                                    clearable=False,
+                                    size="xs",
+                                ),
+                            ),
+                            dmc.GridCol(
+                                span=6,
+                                children=dmc.Select(
+                                    id="new-run-datasource-select",
+                                    label="Data Source",
+                                    data=ds_options,
+                                    value=default_ds,
+                                    searchable=True,
+                                    clearable=False,
+                                    size="xs",
+                                ),
+                            ),
+                        ],
+                    ),
+                    # Hàng tham số: p_from, p_to
+                    dmc.Grid(
+                        gutter="xs",
+                        mb="xs",
+                        children=[
+                            dmc.GridCol(
+                                span=6,
+                                children=dmc.DateTimePicker(
+                                    id="new-run-p-from",
+                                    label="Từ ngày giờ (p_from) *",
+                                    value=p_from_display,
+                                    valueFormat="YYYY-MM-DD HH:mm:ss",
+                                    withSeconds=True,
+                                    clearable=False,
+                                    size="xs",
+                                    w="100%",
+                                ),
+                            ),
+                            dmc.GridCol(
+                                span=6,
+                                children=dmc.DateTimePicker(
+                                    id="new-run-p-to",
+                                    label="Đến ngày giờ (p_to) *",
+                                    value=p_to_display,
+                                    valueFormat="YYYY-MM-DD HH:mm:ss",
+                                    withSeconds=True,
+                                    clearable=False,
+                                    size="xs",
+                                    w="100%",
+                                ),
+                            ),
+                        ],
                     ),
                     dmc.TextInput(
                         id="new-run-p-org",
@@ -655,50 +844,50 @@ def render_params_section(
                         value=p_org_default,
                         placeholder="Ví dụ: BDP",
                         className="mono",
-                        w="100%",
+                        size="xs",
+                        mb="xs",
                     ),
+                    # Tham số phụ của template (đổi template thì callback riêng
+                    # dưới đây dựng lại khối này, không cần sửa layout cứng).
+                    html.Div(
+                        id="new-run-extra-params",
+                        style={
+                            "display": "grid",
+                            "gridTemplateColumns": "repeat(auto-fill, minmax(180px, 1fr))",
+                            "gap": "8px",
+                            "marginTop": "8px",
+                        },
+                        children=[render_extra_param_input(p) for p in extra_params],
+                    ),
+                    # Thông báo lỗi dưới hai ô ngày giờ
+                    html.Div(
+                        id="new-run-range-msg",
+                        children=err_msg or "",
+                        style={"color": "var(--crit, #dc2626)", "minHeight": 18, "fontSize": "12px"},
+                    ),
+                    # Chọn nhanh
+                    dmc.Group(
+                        [
+                            dmc.Text("Chọn nhanh:", size="xs", fw=500, c="dimmed"),
+                            button_subtle("Hôm qua", id="new-run-quick-yesterday", size="xs"),
+                            button_subtle("Tháng trước", id="new-run-quick-last-month", size="xs"),
+                        ],
+                        gap="xs",
+                        mt="xs",
+                        mb="xs",
+                    ),
+                    # Switch áp khoảng Excel
+                    dmc.Switch(
+                        id="new-run-apply-excel-time",
+                        label="Áp dụng cùng khoảng thời gian cho dữ liệu Excel",
+                        checked=False,
+                        size="xs",
+                        mb="xs",
+                    ),
+                    *([precheck_node] if precheck_node is not None else []),
+                    *([html.Div(dup_node, style={"marginTop": 8})] if dup_node is not None else []),
                 ],
             ),
-            # Tham số phụ của template (đổi template thì callback riêng
-            # dưới đây dựng lại khối này, không cần sửa layout cứng).
-            html.Div(
-                id="new-run-extra-params",
-                style={
-                    "display": "grid",
-                    "gridTemplateColumns": "repeat(auto-fill, minmax(200px, 1fr))",
-                    "gap": "12px",
-                    "marginTop": "12px",
-                },
-                children=[render_extra_param_input(p) for p in extra_params],
-            ),
-            # Thông báo lỗi dưới hai ô ngày giờ
-            html.Div(
-                id="new-run-range-msg",
-                children=err_msg or "",
-                style={"color": "var(--crit, #dc2626)", "minHeight": 20, "fontSize": "13px"},
-            ),
-            # Chọn nhanh
-            dmc.Group(
-                [
-                    dmc.Text("Chọn nhanh:", size="sm", fw=500, c="dimmed"),
-                    button_subtle("Hôm qua", id="new-run-quick-yesterday", size="xs"),
-                    button_subtle("Tháng trước", id="new-run-quick-last-month", size="xs"),
-                ],
-                gap="xs",
-                mt="xs",
-                mb="sm",
-            ),
-            # Switch áp khoảng Excel (giữ nguyên id và prop checked để
-            # callback tạo run không cần đổi)
-            dmc.Switch(
-                id="new-run-apply-excel-time",
-                label="Áp dụng cùng khoảng thời gian cho dữ liệu Excel",
-                checked=False,
-                size="sm",
-                mb="md",
-            ),
-            *([precheck_node] if precheck_node is not None else []),
-            *([html.Div(dup_node, style={"marginTop": 8})] if dup_node is not None else []),
         ],
     )
 
@@ -708,20 +897,29 @@ def render_sql_preview_section(
     profile_code: str | None = None,
     params: dict[str, Any] | None = None,
 ) -> dmc.Paper:
-    """Dựng khối hiển thị câu lệnh SQL hệ thống sẽ chạy để người dùng kiểm tra logic."""
+    """Dựng Card 3: Khối hiển thị câu lệnh SQL đối soát DB (sinh tự động - chỉ đọc)."""
     if not template_info:
         return dmc.Paper(
             withBorder=True,
-            p="md",
+            p="sm",
             radius="sm",
-            mt="md",
+            h="100%",
+            style={
+                "display": "flex",
+                "flexDirection": "column",
+                "flex": "1 1 0%",
+                "height": "100%",
+                "minHeight": 0,
+                "overflow": "hidden",
+            },
             children=[
-                dmc.Title("Câu lệnh SQL đối soát DB (sinh tự động - chỉ đọc)", order=4, mb="xs"),
+                dmc.Title("3. Câu lệnh SQL đối soát DB", order=4, mb=2),
                 dmc.Text(
-                    "Truy vấn Oracle sẽ được thực thi khi chạy đối soát (đã bọc GROUP BY và MEASURES theo Profile đã chọn).",
-                    size="sm",
+                    "Sinh tự động - chỉ đọc theo Profile đã chọn (GROUP BY và MEASURES).",
+                    size="xs",
                     c="dimmed",
-                    mb="sm",
+                    mb="xs",
+                    style={"flexShrink": 0},
                 ),
                 alert_box("Vui lòng tải lên file hoặc chọn template để xem trước câu lệnh SQL đối soát.", tone="info"),
             ],
@@ -749,46 +947,62 @@ def render_sql_preview_section(
                         f":{k} = {v}",
                         variant="outline",
                         color="indigo",
-                        size="sm",
+                        size="xs",
                     )
                 )
 
         return dmc.Paper(
             withBorder=True,
-            p="md",
+            p="sm",
             radius="sm",
-            mt="md",
+            h="100%",
+            style={
+                "display": "flex",
+                "flexDirection": "column",
+                "flex": "1 1 0%",
+                "height": "100%",
+                "minHeight": 0,
+                "overflow": "hidden",
+            },
             children=[
                 dmc.Group(
                     justify="space-between",
                     align="center",
-                    mb="xs",
+                    mb=2,
                     children=[
+                        dmc.Title("3. Câu lệnh SQL đối soát DB", order=4),
                         dmc.Group(
                             [
-                                dmc.Title("Câu lệnh SQL đối soát DB (sinh tự động - chỉ đọc)", order=4),
                                 dmc.Badge(
                                     "Đẩy phép gộp xuống DB" if pushdown else "Kéo chi tiết về ứng dụng",
                                     color="teal" if pushdown else "gray",
                                     variant="light",
-                                    size="sm",
+                                    size="xs",
                                 ),
-                                dmc.Badge(f"{line_cnt} dòng SQL", color="gray", variant="outline", size="sm"),
+                                dmc.Badge(f"{line_cnt} dòng", color="gray", variant="outline", size="xs"),
                             ],
                             gap="xs",
                         ),
                     ],
                 ),
                 dmc.Text(
-                    "Truy vấn Oracle sẽ được thực thi khi chạy đối soát (đã bọc GROUP BY và MEASURES theo Profile đã chọn).",
-                    size="sm",
+                    "Sinh tự động - chỉ đọc theo Profile đã chọn (GROUP BY và MEASURES).",
+                    size="xs",
                     c="dimmed",
-                    mb="sm",
+                    mb="xs",
+                    style={"flexShrink": 0},
                 ),
-                code_block(
-                    sql_text,
-                    language="sql",
-                    style={"maxHeight": "320px", "overflowY": "auto"},
+                dmc.ScrollArea(
+                    style={"flex": "1 1 0%", "minHeight": 0, "overflow": "hidden"},
+                    type="auto",
+                    offsetScrollbars=True,
+                    children=[
+                        code_block(
+                            sql_text,
+                            language="sql",
+                            style={"minHeight": 0},
+                        ),
+                    ],
                 ),
                 dmc.Group(
                     [
@@ -797,17 +1011,26 @@ def render_sql_preview_section(
                     ],
                     gap="xs",
                     mt="xs",
+                    style={"flexShrink": 0},
                 ),
             ],
         )
     except Exception as err:
         return dmc.Paper(
             withBorder=True,
-            p="md",
+            p="sm",
             radius="sm",
-            mt="md",
+            h="100%",
+            style={
+                "display": "flex",
+                "flexDirection": "column",
+                "flex": "1 1 0%",
+                "height": "100%",
+                "minHeight": 0,
+                "overflow": "hidden",
+            },
             children=[
-                dmc.Title("Câu lệnh SQL đối soát DB (sinh tự động - chỉ đọc)", order=4, mb="xs"),
+                dmc.Title("3. Câu lệnh SQL đối soát DB", order=4, mb="xs"),
                 alert_box(f"Không thể sinh câu lệnh SQL: {err}", tone="warn"),
             ],
         )
@@ -822,60 +1045,155 @@ def render_execution_section(
     progress_pct: int = 0,
     error_msg: str | None = None,
 ) -> dmc.Paper:
-    """Dựng Card 3: Thực thi đối soát & tiến độ."""
-    progress_box = None
-    if is_running:
-        progress_box = dmc.Box(
-            mt="md",
-            children=[
-                dmc.Progress(value=progress_pct, animated=True, color="teal", radius="sm", size="lg"),
-                dmc.Text(
-                    f"{current_stage}/5 {stage_desc}",
-                    id="new-run-stage-text",
-                    size="sm",
-                    c="dimmed",
-                    mt="xs",
-                ),
-            ],
-        )
-
-    err_box = None
+    """Dựng thanh Command Bar thực thi đối soát & tiến độ."""
+    err_node = None
     if error_msg:
-        err_box = alert_box(f"Đối soát thất bại: {error_msg}", tone="crit", mt="sm")
+        err_node = alert_box(f"Đối soát thất bại: {error_msg}", tone="crit")
 
-    return dmc.Paper(
-        withBorder=True,
-        p="md",
-        radius="sm",
-        mt="md",
-        children=[
-            dmc.Group(
-                justify="space-between",
-                align="center",
+    if is_running:
+        return dmc.Paper(
+            withBorder=True,
+            p="xs",
+            radius="sm",
+            style={"background": "var(--mantine-color-body)", "borderColor": "var(--mantine-color-teal-6)"},
+            children=dmc.Stack(
+                gap="xs",
                 children=[
-                    dmc.Title("3. Thực thi", order=4),
                     dmc.Group(
-                        [
-                            dmc.Text(
-                                lock_reason,
-                                id="new-run-lock-reason",
-                                size="sm",
-                                c="dimmed",
+                        justify="space-between",
+                        align="center",
+                        wrap="wrap",
+                        gap="md",
+                        children=[
+                            dmc.Group(
+                                [
+                                    dmc.ThemeIcon(
+                                        DashIconify(icon="lucide:loader-2", width=18),
+                                        color="teal",
+                                        variant="light",
+                                        size="md",
+                                    ),
+                                    dmc.Stack(
+                                        gap=1,
+                                        children=[
+                                            dmc.Text(
+                                                f"{current_stage}/5 {stage_desc}",
+                                                id="new-run-stage-text",
+                                                size="xs",
+                                                fw=600,
+                                            ),
+                                            dmc.Text(
+                                                "Đang thực thi đối soát trong hàng đợi...",
+                                                size="xs",
+                                                c="dimmed",
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                                gap="xs",
+                                align="center",
                             ),
-                            button_primary(
-                                "Chạy đối soát",
-                                id="new-run-execute-btn",
-                                icon="lucide:play",
-                                disabled=not is_ready or is_running,
+                            dmc.Box(
+                                style={"flex": "1 1 auto", "minWidth": "300px", "maxWidth": "650px"},
+                                children=dmc.Stack(
+                                    gap=3,
+                                    children=[
+                                        dmc.Group(
+                                            justify="space-between",
+                                            children=[
+                                                dmc.Text(f"Bước {current_stage}/5", size="xs", fw=600, c="teal"),
+                                                dmc.Text(f"{progress_pct}%", size="xs", fw=700, c="teal"),
+                                            ],
+                                        ),
+                                        dmc.Progress(
+                                            value=progress_pct,
+                                            animated=True,
+                                            striped=True,
+                                            color="teal",
+                                            radius="sm",
+                                            size="lg",
+                                            style={"height": 14},
+                                        ),
+                                    ],
+                                ),
+                            ),
+                            dmc.Group(
+                                [
+                                    dmc.Text("", id="new-run-lock-reason", style={"display": "none"}),
+                                    button_primary(
+                                        "Đang chạy...",
+                                        id="new-run-execute-btn",
+                                        icon="lucide:loader-2",
+                                        size="xs",
+                                        disabled=True,
+                                    ),
+                                ],
+                                gap="xs",
+                                align="center",
                             ),
                         ],
-                        gap="sm",
                     ),
+                    *([err_node] if err_node is not None else []),
                 ],
             ),
-            *([progress_box] if progress_box is not None else []),
-            *([err_box] if err_box is not None else []),
-        ],
+        )
+
+    # Trạng thái chờ / chưa chạy
+    return dmc.Paper(
+        withBorder=True,
+        p="xs",
+        radius="sm",
+        style={"background": "var(--mantine-color-body)"},
+        children=dmc.Stack(
+            gap="xs",
+            children=[
+                dmc.Group(
+                    justify="space-between",
+                    align="center",
+                    wrap="wrap",
+                    gap="sm",
+                    children=[
+                        dmc.Group(
+                            [
+                                dmc.ThemeIcon(
+                                    DashIconify(
+                                        icon="lucide:play-circle" if is_ready else "lucide:info",
+                                        width=16,
+                                    ),
+                                    color="indigo" if is_ready else "gray",
+                                    variant="light",
+                                    size="sm",
+                                ),
+                                dmc.Text("Thực thi", size="xs", fw=600),
+                                dmc.Text(
+                                    lock_reason,
+                                    id="new-run-lock-reason",
+                                    size="xs",
+                                    c="dimmed",
+                                ),
+                            ],
+                            gap="xs",
+                            align="center",
+                        ),
+                        dmc.Group(
+                            [
+                                html.Span(id="new-run-stage-text", style={"display": "none"}),
+                                button_primary(
+                                    "Chạy đối soát",
+                                    id="new-run-execute-btn",
+                                    icon="lucide:play",
+                                    size="xs",
+                                    disabled=not is_ready,
+                                ),
+                            ],
+                            gap="sm",
+                            align="center",
+                        ),
+                    ],
+                ),
+                *([err_node] if err_node is not None else []),
+            ],
+        ),
     )
 
 
@@ -983,54 +1301,80 @@ def layout() -> Any:
             dcc.Store(id="new-run-state-store", data={"is_running": False, "run_id": None, "stage": 0, "pct": 0}),
             dcc.Interval(id="new-run-progress-interval", interval=1000, n_intervals=0, disabled=True),
             dcc.Location(id="new-run-redirect-location", refresh=True),
-            # Compact Header (flexShrink: 0)
+            html.Div(id="new-run-notifications"),
+            # Header trang (đồng bộ padding 16px với card và command bar)
             page_header(
                 title="Chạy đối soát",
                 subtitle="Upload file, kiểm tra template nhận diện, nhập khoảng ngày giờ tìm kiếm rồi chạy.",
-                actions=[dmc.Badge("UAT", color="teal", variant="light", size="sm")],
+                style={"padding": "0 16px", "marginBottom": "6px"},
             ),
-            # Scrollable Body Container (flex: 1, minHeight: 0, overflowY: "auto")
+            # Command Bar Thực thi (flexShrink: 0)
             html.Div(
-                children=[
-                    # Grid 2 cột: Cột 1 File, Cột 2 Params
-                    dmc.Grid(
-                        gutter="md",
-                        align="stretch",
-                        children=[
-                            dmc.GridCol(
-                                span=6,
-                                id="new-run-file-col",
-                                style={"display": "flex", "flexDirection": "column"},
-                                children=render_file_section(None, initial_template, active_templates),
-                            ),
-                            dmc.GridCol(
-                                span=6,
-                                id="new-run-params-col",
-                                style={"display": "flex", "flexDirection": "column"},
-                                children=render_params_section(initial_template, data_sources, active_templates),
-                            ),
-                        ],
-                    ),
-                    # 3. Thực thi
-                    html.Div(
-                        id="new-run-exec-container",
-                        children=render_execution_section(is_ready=False, lock_reason="Chọn file dữ liệu để bật nút chạy."),
-                    ),
-                    # Câu lệnh SQL hệ thống sẽ chạy (chỉ đọc, xem sau khi chạy)
-                    html.Div(
-                        id="new-run-sql-container",
-                        children=render_sql_preview_section(initial_template, None, init_sql_params),
-                    ),
-                ],
+                id="new-run-exec-container",
+                style={"flexShrink": "0", "padding": "0 16px", "marginBottom": "8px"},
+                children=render_execution_section(is_ready=False, lock_reason="Chọn file dữ liệu để bật nút chạy."),
+            ),
+            # Vùng chính 3 Card (nằm gọn trong 1 page, không cuộn ngoài, 3 card bằng nhau 100%)
+            html.Div(
                 style={
                     "flex": "1 1 0%",
                     "minHeight": 0,
-                    "overflowY": "auto",
-                    "padding": "16px 20px",
+                    "padding": "0 16px 12px 16px",
                     "display": "flex",
                     "flexDirection": "column",
-                    "gap": "16px",
+                    "overflow": "hidden",
                 },
+                children=[
+                    html.Div(
+                        id="new-run-cards-grid",
+                        style={
+                            "display": "grid",
+                            "gridTemplateColumns": "repeat(3, minmax(0, 1fr))",
+                            "gap": "12px",
+                            "height": "100%",
+                            "minHeight": "0",
+                            "flex": "1 1 0%",
+                        },
+                        children=[
+                            # Card 1: File dữ liệu
+                            html.Div(
+                                id="new-run-file-col",
+                                style={
+                                    "display": "flex",
+                                    "flexDirection": "column",
+                                    "height": "100%",
+                                    "minHeight": "0",
+                                    "overflow": "hidden",
+                                },
+                                children=render_file_section(None, initial_template, active_templates),
+                            ),
+                            # Card 2: Profile & Tham số tìm kiếm
+                            html.Div(
+                                id="new-run-params-col",
+                                style={
+                                    "display": "flex",
+                                    "flexDirection": "column",
+                                    "height": "100%",
+                                    "minHeight": "0",
+                                    "overflow": "hidden",
+                                },
+                                children=render_params_section(initial_template, data_sources, active_templates),
+                            ),
+                            # Card 3: Câu lệnh SQL đối soát DB (sinh tự động - chỉ đọc)
+                            html.Div(
+                                id="new-run-sql-container",
+                                style={
+                                    "display": "flex",
+                                    "flexDirection": "column",
+                                    "height": "100%",
+                                    "minHeight": "0",
+                                    "overflow": "hidden",
+                                },
+                                children=render_sql_preview_section(initial_template, None, init_sql_params),
+                            ),
+                        ],
+                    ),
+                ],
             ),
             # Modal xác nhận PROD
             modal_confirm(
@@ -1044,10 +1388,13 @@ def layout() -> Any:
             ),
         ],
         style={
-            "height": "calc(100vh - 48px)",
+            "height": "100%",
+            "minHeight": 0,
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
+            "paddingTop": "12px",
+            "boxSizing": "border-box",
             "backgroundColor": "var(--mantine-color-body)",
         },
     )
@@ -1060,6 +1407,7 @@ def layout() -> Any:
     Output("new-run-file-store", "data"),
     Output("new-run-template-store", "data"),
     Output("new-run-manual-template-select", "value"),
+    Output("new-run-notifications", "children"),
     Input("new-run-upload", "contents"),
     Input("new-run-change-file-btn", "n_clicks"),
     State("new-run-upload", "filename"),
@@ -1071,35 +1419,56 @@ def handle_file_upload_or_change(
     change_clicks: int | None,
     filename: str | None,
     manual_tmpl_id: str | None,
-) -> tuple[Any, Any, Any]:
+) -> tuple[Any, Any, Any, Any]:
     """Xử lý sự kiện kéo thả file upload hoặc bấm Đổi file."""
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
-        return dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     trigger_id = ctx_dash.triggered[0]["prop_id"]
     if "new-run-change-file-btn" in trigger_id:
-        return None, dash.no_update, dash.no_update
+        if not change_clicks:
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        notif = notify_info("Đã xóa file dữ liệu. Vui lòng chọn file mới.", title="Đổi file")
+        return None, dash.no_update, dash.no_update, notif
 
     if contents and filename:
         ctx = get_current_ctx()
         if ctx is None:
-            return None, dash.no_update, dash.no_update
+            notif = notify_error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.")
+            return None, dash.no_update, dash.no_update, notif
 
-        # Tách header base64 data
-        if "," in contents:
-            _, content_string = contents.split(",", 1)
-        else:
-            content_string = contents
-        file_bytes = base64.b64decode(content_string)
+        try:
+            # Tách header base64 data
+            if "," in contents:
+                _, content_string = contents.split(",", 1)
+            else:
+                content_string = contents
+            file_bytes = base64.b64decode(content_string)
 
-        m_id = int(manual_tmpl_id) if manual_tmpl_id and manual_tmpl_id.isdigit() else None
-        processed = process_uploaded_file(ctx, filename=filename, content_bytes=file_bytes, manual_template_id=m_id)
-        detected = processed["detected_template"]
-        detected_id = str(detected["id"]) if detected else dash.no_update
-        return processed["file_data"], (detected if detected else dash.no_update), detected_id
+            m_id = int(manual_tmpl_id) if manual_tmpl_id and manual_tmpl_id.isdigit() else None
+            processed = process_uploaded_file(ctx, filename=filename, content_bytes=file_bytes, manual_template_id=m_id)
+            detected = processed["detected_template"]
+            detected_id = str(detected["id"]) if detected else dash.no_update
+            valid_rows = processed["valid_rows"]
+            if detected:
+                t_code = detected.get("code", "")
+                t_ver = detected.get("version", 1)
+                notif = notify_success(
+                    f"Đã nhận diện template {t_code} v{t_ver} · {valid_rows:,} dòng hợp lệ".replace(",", "."),
+                    title="Tải file thành công",
+                )
+            else:
+                notif = notify_warning(
+                    f"Đã nạp file ({valid_rows:,} dòng). Vui lòng chọn template ở Card 2 bên cạnh.".replace(",", "."),
+                    title="Chưa tự động nhận diện template",
+                )
+            return processed["file_data"], (detected if detected else dash.no_update), detected_id, notif
+        except Exception as e:
+            notif = notify_error(str(e), title="Lỗi xử lý file")
+            return None, dash.no_update, dash.no_update, notif
 
-    return dash.no_update, dash.no_update, dash.no_update
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 
 @callback(

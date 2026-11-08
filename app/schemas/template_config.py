@@ -292,7 +292,8 @@ class TemplateConfig(BaseModel):
         profile_codes: set[str] = {p.code for p in self.profiles}
         for p_idx, prof in enumerate(self.profiles):
             for g_idx, g_col in enumerate(prof.group_by):
-                if g_col not in seen_names:
+                matched_f = next((f for f in self.fields if f.db == g_col), None)
+                if g_col not in seen_names and not matched_f:
                     errors.append(
                         _make_error(
                             ("profiles", p_idx, "group_by", g_idx),
@@ -301,7 +302,8 @@ class TemplateConfig(BaseModel):
                         )
                     )
                 else:
-                    if g_col not in excel_fields:
+                    target_name = g_col if g_col in seen_names else (matched_f.name if matched_f else g_col)
+                    if target_name not in excel_fields:
                         errors.append(
                             _make_error(
                                 ("profiles", p_idx, "group_by", g_idx),
@@ -309,7 +311,7 @@ class TemplateConfig(BaseModel):
                                 g_col,
                             )
                         )
-                    if g_col not in db_fields:
+                    if target_name not in db_fields:
                         errors.append(
                             _make_error(
                                 ("profiles", p_idx, "group_by", g_idx),

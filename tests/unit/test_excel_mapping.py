@@ -131,3 +131,36 @@ def test_detect_template_no_match(tmp_path) -> None:
 
     matched = detect_template(csv_file, [template_item])
     assert matched is None
+
+
+def test_resolve_columns_no_match_raises_error() -> None:
+    """Khi file không khớp bất kỳ cột nào của template (ví dụ sai dòng header_row)."""
+    df = pl.DataFrame(
+        {
+            "_COL_1": ["Title banner"],
+            "_COL_2": ["None"],
+            "__row_no": [1],
+        }
+    )
+    fields = [
+        FieldSpec(
+            name="INVOICE_NO",
+            label="Số hóa đơn",
+            excel="Số HĐ",
+            type="text",
+            required=False,
+        ),
+        FieldSpec(
+            name="TOTAL_AMOUNT",
+            label="Tổng tiền",
+            excel="Tổng Tiền",
+            type="number",
+            required=False,
+        ),
+    ]
+
+    with pytest.raises(ServiceError) as exc:
+        resolve_columns(df, fields)
+    assert exc.value.code == ErrorCode.EXCEL_COLUMN_MISSING
+    assert "header_row" in exc.value.message
+

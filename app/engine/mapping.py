@@ -68,6 +68,12 @@ def resolve_columns(
                     f"Không tìm thấy cột bắt buộc '{f.excel or f.name}' trong file Excel",
                 )
 
+    if any(f.excel or f.excel_aliases for f in fields) and not rename_map:
+        raise ServiceError(
+            ErrorCode.EXCEL_COLUMN_MISSING,
+            "Không tìm thấy cột nào trong file Excel khớp với cấu hình template. Vui lòng kiểm tra lại 'Dòng tiêu đề (header_row)' và tên các cột trong file.",
+        )
+
     mapped_df = df.rename(rename_for_df)
     return mapped_df, rename_map
 

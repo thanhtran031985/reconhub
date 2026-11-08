@@ -189,9 +189,11 @@ def normalize(
                 }
             )
 
-    valid_df = pl.DataFrame(valid_records, strict=False) if valid_records else pl.DataFrame()
+    valid_df = (
+        pl.DataFrame(valid_records, infer_schema_length=None, strict=False) if valid_records else pl.DataFrame()
+    )
     invalid_df = (
-        pl.DataFrame(invalid_records)
+        pl.DataFrame(invalid_records, infer_schema_length=None)
         if invalid_records
         else pl.DataFrame(schema={"__row_no": pl.Int64, "__raw_data": pl.Object, "__invalid_reasons": pl.Object})
     )

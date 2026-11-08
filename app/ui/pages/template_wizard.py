@@ -155,6 +155,12 @@ def render_step_1(
                 "Chưa có file mẫu được tải lên. Kéo thả file Excel hoặc CSV vào khung bên trái để hệ thống tự động phát hiện số dòng, cột và gợi ý cấu trúc.",
                 tone="info",
             ),
+            dmc.Checkbox(
+                id="wizard-apply-suggestions",
+                label="Áp dụng các đề xuất",
+                checked=True,
+                style={"display": "none"},
+            ),
         ]
 
     file_label = uploaded_filename or "Kéo thả file Excel hoặc CSV vào đây"
@@ -166,107 +172,123 @@ def render_step_1(
 
     return html.Div(
         [
-            # Hàng trên: 2 cột
+            # Hàng trên: 3 card bằng nhau
             dmc.Grid(
-                gutter="lg",
+                gutter="md",
                 children=[
-                    # Cột 1: File mẫu & cấu trúc
+                    # Card 1: Thông tin & File mẫu
                     dmc.GridCol(
-                        span=6,
+                        span=4,
                         children=dmc.Paper(
                             withBorder=True,
                             p="md",
                             radius="sm",
+                            style={"height": "100%", "display": "flex", "flexDirection": "column"},
                             children=[
                                 dmc.Title("Thông tin & File mẫu", order=4, mb="sm"),
-                                dmc.Grid(
-                                    gutter="sm",
-                                    mb="sm",
-                                    children=[
-                                        dmc.GridCol(
-                                            span=6,
-                                            children=dmc.TextInput(
-                                                id="wizard-input-code",
-                                                label="Mã template *",
-                                                value=config.get("template_code", "NEW_TEMPLATE"),
-                                                placeholder="VD: DTP_HOA_DON_2026",
-                                                className="mono",
-                                                required=True,
-                                            ),
+                                dmc.Stack(
+                                    [
+                                        dmc.TextInput(
+                                            id="wizard-input-code",
+                                            label="Mã template *",
+                                            value=config.get("template_code", "NEW_TEMPLATE"),
+                                            placeholder="VD: DTP_HOA_DON_2026",
+                                            className="mono",
+                                            required=True,
+                                            size="xs",
                                         ),
-                                        dmc.GridCol(
-                                            span=6,
-                                            children=dmc.TextInput(
-                                                id="wizard-input-name",
-                                                label="Tên template *",
-                                                value=config.get("name", "Template mới"),
-                                                placeholder="VD: Đối soát hóa đơn DTP",
-                                                required=True,
-                                            ),
+                                        dmc.TextInput(
+                                            id="wizard-input-name",
+                                            label="Tên template *",
+                                            value=config.get("name", "Template mới"),
+                                            placeholder="VD: Đối soát hóa đơn DTP",
+                                            required=True,
+                                            size="xs",
                                         ),
-                                    ],
-                                ),
-                                file_drop(
-                                    id="wizard-file-drop",
-                                    label=file_label,
-                                    hint=file_hint,
-                                ),
-                                dmc.Grid(
-                                    gutter="sm",
-                                    mt="md",
-                                    children=[
-                                        dmc.GridCol(
-                                            span=6,
-                                            children=dmc.TextInput(
-                                                id="wizard-input-sheet",
-                                                label="Sheet",
-                                                value=sheet_val,
-                                            ),
-                                        ),
-                                        dmc.GridCol(
-                                            span=3,
-                                            children=dmc.NumberInput(
-                                                id="wizard-input-header-row",
-                                                label="Dòng header",
-                                                value=header_row_val,
-                                                min=1,
-                                            ),
-                                        ),
-                                        dmc.GridCol(
-                                            span=3,
-                                            children=dmc.NumberInput(
-                                                id="wizard-input-data-row",
-                                                label="Dữ liệu từ dòng",
-                                                value=data_start_row_val,
-                                                min=1,
-                                            ),
+                                        file_drop(
+                                            id="wizard-file-drop",
+                                            label=file_label,
+                                            hint=file_hint,
                                         ),
                                     ],
-                                ),
-                                dmc.Text("Header bắt buộc để nhận diện file", size="xs", fw=600, mt="md", mb=6),
-                                dmc.Group(
-                                    [dmc.Badge(h, variant="light", color="gray", radius="sm") for h in detect_headers]
-                                    if detect_headers
-                                    else [
-                                        dmc.Badge(
-                                            "Chưa có header nhận diện (tự động điền khi tải file)",
-                                            variant="light",
-                                            color="gray",
-                                            radius="sm",
-                                        )
-                                    ],
-                                    gap=6,
+                                    gap="xs",
                                 ),
                             ],
                         ),
                     ),
-                    # Cột 2: Hệ thống phát hiện
+                    # Card 2: Sheet & Dòng header
                     dmc.GridCol(
-                        span=6,
+                        span=4,
                         children=dmc.Paper(
                             withBorder=True,
                             p="md",
                             radius="sm",
+                            style={"height": "100%", "display": "flex", "flexDirection": "column"},
+                            children=[
+                                dmc.Title("Sheet & Dòng header", order=4, mb="sm"),
+                                dmc.Stack(
+                                    [
+                                        dmc.TextInput(
+                                            id="wizard-input-sheet",
+                                            label="Sheet",
+                                            value=sheet_val,
+                                            placeholder="Tên sheet (để trống: sheet đầu)",
+                                            size="xs",
+                                        ),
+                                        dmc.Grid(
+                                            gutter="xs",
+                                            children=[
+                                                dmc.GridCol(
+                                                    span=6,
+                                                    children=dmc.NumberInput(
+                                                        id="wizard-input-header-row",
+                                                        label="Dòng header",
+                                                        value=header_row_val,
+                                                        min=1,
+                                                        size="xs",
+                                                    ),
+                                                ),
+                                                dmc.GridCol(
+                                                    span=6,
+                                                    children=dmc.NumberInput(
+                                                        id="wizard-input-data-row",
+                                                        label="Dữ liệu từ dòng",
+                                                        value=data_start_row_val,
+                                                        min=1,
+                                                        size="xs",
+                                                    ),
+                                                ),
+                                            ],
+                                        ),
+                                        dmc.Text("Header bắt buộc để nhận diện file", size="xs", fw=600, mt="xs", mb=4),
+                                        dmc.Group(
+                                            [dmc.Badge(h, variant="light", color="gray", radius="sm", size="xs") for h in detect_headers]
+                                            if detect_headers
+                                            else [
+                                                dmc.Badge(
+                                                    "Chưa có header nhận diện (tự động điền khi tải file)",
+                                                    variant="light",
+                                                    color="gray",
+                                                    radius="sm",
+                                                    size="xs",
+                                                )
+                                            ],
+                                            gap=6,
+                                        ),
+                                    ],
+                                    gap="xs",
+                                ),
+                            ],
+                        ),
+                    ),
+                    # Card 3: Hệ thống phát hiện
+                    dmc.GridCol(
+                        span=4,
+                        children=dmc.Paper(
+                            withBorder=True,
+                            p="md",
+                            radius="sm",
+                            style={"height": "100%", "display": "flex", "flexDirection": "column"},
                             children=[
                                 dmc.Title("Hệ thống phát hiện", order=4, mb="sm"),
                                 *detection_alerts,
@@ -1029,249 +1051,284 @@ def render_step_3(
 
     return html.Div(
         [
-            # Card 1: Nguồn dữ liệu DB + Cách khai báo + Đẩy phép gộp
-            dmc.Paper(
-                withBorder=True,
-                p="md",
-                radius="sm",
+            dmc.Tabs(
+                id="wizard-step3-subtabs",
+                value="db_source",
                 mb="md",
                 children=[
-                    dmc.Title("Nguồn dữ liệu DB", order=4, mb="sm"),
-                    dmc.Group(
-                        align="flex-end",
-                        gap="lg",
+                    dmc.TabsList(
+                        [
+                            dmc.TabsTab(
+                                "Nguồn dữ liệu DB",
+                                value="db_source",
+                                leftSection=DashIconify(icon="lucide:database", width=14),
+                            ),
+                            dmc.TabsTab(
+                                "Câu SELECT sinh ra (chỉ đọc)",
+                                value="generated_sql",
+                                leftSection=DashIconify(icon="lucide:code-2", width=14),
+                            ),
+                        ],
+                        mb="md",
+                    ),
+                    # Tab con 1: Nguồn dữ liệu DB (3 card)
+                    dmc.TabsPanel(
+                        value="db_source",
                         children=[
-                            dmc.Select(
-                                id="wizard-input-ds",
-                                label="Data Source (nguồn đối soát)",
-                                data=ds_options,
-                                value=selected_ds,
-                                style={"width": 280},
-                            ),
-                            html.Div(
-                                [
-                                    dmc.Text("Cách khai báo", size="sm", fw=500, mb=4),
-                                    dmc.SegmentedControl(
-                                        id="wizard-db-mode",
-                                        value=mode_val,
-                                        data=[
-                                            {"label": "Bảng/View", "value": "table"},
-                                            {"label": "SQL tự viết", "value": "sql"},
+                            # Card 1: Data Source & Chế độ khai báo
+                            dmc.Paper(
+                                withBorder=True,
+                                p="md",
+                                radius="sm",
+                                mb="md",
+                                children=[
+                                    dmc.Title("Nguồn dữ liệu DB", order=4, mb="sm"),
+                                    dmc.Group(
+                                        align="flex-end",
+                                        gap="lg",
+                                        children=[
+                                            dmc.Select(
+                                                id="wizard-input-ds",
+                                                label="Data Source (nguồn đối soát)",
+                                                data=ds_options,
+                                                value=selected_ds,
+                                                style={"width": 280},
+                                            ),
+                                            html.Div(
+                                                [
+                                                    dmc.Text("Cách khai báo", size="sm", fw=500, mb=4),
+                                                    dmc.SegmentedControl(
+                                                        id="wizard-db-mode",
+                                                        value=mode_val,
+                                                        data=[
+                                                            {"label": "Bảng/View", "value": "table"},
+                                                            {"label": "SQL tự viết", "value": "sql"},
+                                                        ],
+                                                        radius="sm",
+                                                    ),
+                                                ]
+                                            ),
+                                            dmc.Checkbox(
+                                                id="wizard-input-pushdown",
+                                                label="Đẩy phép gộp (SUM, COUNT) xuống DB",
+                                                checked=pushdown,
+                                                mb=6,
+                                            ),
                                         ],
-                                        radius="sm",
                                     ),
-                                ]
+                                ],
                             ),
-                            dmc.Checkbox(
-                                id="wizard-input-pushdown",
-                                label="Đẩy phép gộp (SUM, COUNT) xuống DB",
-                                checked=pushdown,
-                                mb=6,
+                            # Grid 2 card còn lại: Bảng/View nguồn (Card 2) vs Điều kiện lọc theo tham số (Card 3)
+                            dmc.Grid(
+                                gutter="md",
+                                children=[
+                                    # Card 2: Bảng/View nguồn HOẶC SQL tự viết
+                                    dmc.GridCol(
+                                        span=5,
+                                        children=dmc.Paper(
+                                            withBorder=True,
+                                            p="md",
+                                            radius="sm",
+                                            children=[
+                                                # Khối chế độ Bảng/View
+                                                html.Div(
+                                                    id="wizard-table-mode-box",
+                                                    style=table_box_style,
+                                                    children=[
+                                                        dmc.Group(
+                                                            [
+                                                                dmc.Title("Bảng/View nguồn", order=4),
+                                                                button_subtle(
+                                                                    "Tải lại cột",
+                                                                    id="wizard-fetch-table-cols-btn",
+                                                                    icon="lucide:refresh-cw",
+                                                                    size="xs",
+                                                                ),
+                                                            ],
+                                                            justify="space-between",
+                                                            align="center",
+                                                            mb="xs",
+                                                        ),
+                                                        dmc.Select(
+                                                            id="wizard-input-table",
+                                                            label="Bảng/View *",
+                                                            value=table_name,
+                                                            data=table_options,
+                                                            searchable=True,
+                                                            clearable=True,
+                                                            nothingFoundMessage="Không tìm thấy bảng/view",
+                                                            className="mono",
+                                                            description=f"Chọn trong schema {default_schema} ({len(table_options)} bảng/view).",
+                                                            mb="xs",
+                                                        ),
+                                                        html.Div(id="wizard-table-alert"),
+                                                    ],
+                                                ),
+                                                # Khối chế độ SQL tự viết
+                                                html.Div(
+                                                    id="wizard-sql-mode-box",
+                                                    style=sql_box_style,
+                                                    children=[
+                                                        dmc.Title("Câu lệnh SQL nguồn", order=4, mb="xs"),
+                                                        dmc.Textarea(
+                                                            id="wizard-sql-input",
+                                                            label="Câu lệnh SQL nguồn chi tiết *",
+                                                            value=sql_val,
+                                                            minRows=7,
+                                                            autosize=True,
+                                                            className="mono",
+                                                            description="Hỗ trợ các tham số ràng buộc :p_from, :p_to, :p_org.",
+                                                            mb="sm",
+                                                        ),
+                                                        dmc.Group(
+                                                            [
+                                                                button_primary(
+                                                                    "Kiểm tra & lấy cột",
+                                                                    id="wizard-check-sql-btn",
+                                                                    icon="lucide:check-circle",
+                                                                    size="xs",
+                                                                ),
+                                                            ],
+                                                            justify="flex-end",
+                                                            mb="xs",
+                                                        ),
+                                                        html.Div(id="wizard-sql-validate-alert"),
+                                                    ],
+                                                ),
+                                                # Nhóm chip hiển thị cột chung
+                                                html.Div(
+                                                    id="wizard-db-columns-container",
+                                                    children=_render_columns_chips(db_cols_chips),
+                                                    style={"marginTop": 12},
+                                                ),
+                                            ],
+                                        ),
+                                    ),
+                                    # Card 3: Điều kiện lọc theo tham số & cố định
+                                    dmc.GridCol(
+                                        span=7,
+                                        children=dmc.Paper(
+                                            withBorder=True,
+                                            p="md",
+                                            radius="sm",
+                                            children=[
+                                                dmc.Title("Điều kiện lọc theo tham số", order=4, mb="sm"),
+                                                html.Div(
+                                                    id="wizard-db-filters-container",
+                                                    children=_render_filter_params_table(
+                                                        db_cols_chips, p_from_col, p_to_col, p_org_col, p_org_default, extra_filters
+                                                    ),
+                                                ),
+                                                button_subtle(
+                                                    "Thêm tham số lọc",
+                                                    id="wizard-add-param-btn",
+                                                    icon="lucide:plus",
+                                                    size="xs",
+                                                    mt="xs",
+                                                ),
+                                            ],
+                                        ),
+                                    ),
+                                ],
                             ),
                         ],
                     ),
-                ],
-            ),
-            # Card 2: Bảng/View nguồn vs Điều kiện lọc
-            dmc.Grid(
-                gutter="md",
-                mb="md",
-                children=[
-                    # Cột trái: Bảng/View nguồn HOẶC SQL tự viết
-                    dmc.GridCol(
-                        span=5,
-                        children=dmc.Paper(
-                            withBorder=True,
-                            p="md",
-                            radius="sm",
-                            children=[
-                                # Khối chế độ Bảng/View
-                                html.Div(
-                                    id="wizard-table-mode-box",
-                                    style=table_box_style,
+                    # Tab con 2: Câu SELECT sinh ra (chỉ đọc) (3 card)
+                    dmc.TabsPanel(
+                        value="generated_sql",
+                        children=[
+                            # Card 1: Câu SELECT sinh ra (chỉ đọc)
+                            html.Div(
+                                id="wizard-card-generated-sql",
+                                style=gen_sql_card_style,
+                                children=dmc.Paper(
+                                    withBorder=True,
+                                    p="md",
+                                    radius="sm",
+                                    mb="md",
                                     children=[
-                                        dmc.Group(
-                                            [
-                                                dmc.Title("Bảng/View nguồn", order=4),
-                                                button_subtle(
-                                                    "Tải lại cột",
-                                                    id="wizard-fetch-table-cols-btn",
-                                                    icon="lucide:refresh-cw",
-                                                    size="xs",
+                                        dmc.Title("Câu SELECT sinh ra (chỉ đọc)", order=4, mb="xs"),
+                                        html.Div(
+                                            id="wizard-generated-sql-container",
+                                            children=code_block(generated_sql, language="sql"),
+                                        ),
+                                    ],
+                                ),
+                            ),
+                            # Grid Card 2 & Card 3
+                            dmc.Grid(
+                                gutter="md",
+                                children=[
+                                    # Card 2: Cột DB -> Trường logic
+                                    dmc.GridCol(
+                                        span=7,
+                                        children=dmc.Paper(
+                                            withBorder=True,
+                                            p="md",
+                                            radius="sm",
+                                            children=[
+                                                dmc.Title("Cột DB → Trường logic", order=4, mb="sm"),
+                                                html.Div(
+                                                    id="wizard-db-mapping-container",
+                                                    children=_render_db_mapping_table(fields, db_cols_chips),
                                                 ),
                                             ],
-                                            justify="space-between",
-                                            align="center",
-                                            mb="xs",
                                         ),
-                                        dmc.Select(
-                                            id="wizard-input-table",
-                                            label="Bảng/View *",
-                                            value=table_name,
-                                            data=table_options,
-                                            searchable=True,
-                                            clearable=True,
-                                            nothingFoundMessage="Không tìm thấy bảng/view",
-                                            className="mono",
-                                            description=f"Chọn trong schema {default_schema} ({len(table_options)} bảng/view).",
-                                            mb="xs",
-                                        ),
-                                        html.Div(id="wizard-table-alert"),
-                                    ],
-                                ),
-                                # Khối chế độ SQL tự viết
-                                html.Div(
-                                    id="wizard-sql-mode-box",
-                                    style=sql_box_style,
-                                    children=[
-                                        dmc.Title("Câu lệnh SQL nguồn", order=4, mb="xs"),
-                                        dmc.Textarea(
-                                            id="wizard-sql-input",
-                                            label="Câu lệnh SQL nguồn chi tiết *",
-                                            value=sql_val,
-                                            minRows=7,
-                                            autosize=True,
-                                            className="mono",
-                                            description="Hỗ trợ các tham số ràng buộc :p_from, :p_to, :p_org.",
-                                            mb="sm",
-                                        ),
-                                        dmc.Group(
-                                            [
-                                                button_primary(
-                                                    "Kiểm tra & lấy cột",
-                                                    id="wizard-check-sql-btn",
-                                                    icon="lucide:check-circle",
-                                                    size="xs",
+                                    ),
+                                    # Card 3: Lọc dữ liệu Excel theo cùng khoảng
+                                    dmc.GridCol(
+                                        span=5,
+                                        children=dmc.Paper(
+                                            withBorder=True,
+                                            p="md",
+                                            radius="sm",
+                                            children=[
+                                                dmc.Title("Lọc dữ liệu Excel theo cùng khoảng", order=4, mb="sm"),
+                                                alert_box(
+                                                    "Từ/Đến ngày giờ do người dùng nhập khi chạy, không lấy từ file. "
+                                                    "Cùng khoảng áp cho DB (cột lọc Từ/Đến) và Excel.",
+                                                    tone="info",
+                                                ),
+                                                html.Div(style={"height": 12}),
+                                                dmc.Select(
+                                                    id="wizard-excel-time-field",
+                                                    label="Trường thời gian lọc Excel",
+                                                    data=[
+                                                        {"label": f.get("name", ""), "value": f.get("name", "")}
+                                                        for f in fields
+                                                        if f.get("type") in ("date", "datetime")
+                                                    ]
+                                                    + [{"label": "Không lọc Excel", "value": "NONE"}],
+                                                    value=(
+                                                        (config.get("time_filter") or {}).get("excel_field")
+                                                        if config.get("time_filter")
+                                                        else "NONE"
+                                                    ),
+                                                    mb="sm",
+                                                ),
+                                                dmc.Select(
+                                                    id="wizard-excel-suggest-range",
+                                                    label="Gợi ý khi chạy",
+                                                    data=[
+                                                        {"label": "Hôm qua", "value": "yesterday"},
+                                                        {"label": "Tháng trước", "value": "last_month"},
+                                                        {"label": "Để trống", "value": "none"},
+                                                    ],
+                                                    value=next(
+                                                        (
+                                                            p.get("suggest", "yesterday")
+                                                            for p in db_spec.get("params", [])
+                                                            if p.get("name") == "p_from" and p.get("suggest")
+                                                        ),
+                                                        "yesterday",
+                                                    ),
                                                 ),
                                             ],
-                                            justify="flex-end",
-                                            mb="xs",
                                         ),
-                                        html.Div(id="wizard-sql-validate-alert"),
-                                    ],
-                                ),
-                                # Nhóm chip hiển thị cột chung
-                                html.Div(
-                                    id="wizard-db-columns-container",
-                                    children=_render_columns_chips(db_cols_chips),
-                                    style={"marginTop": 12},
-                                ),
-                            ],
-                        ),
-                    ),
-                    # Cột phải: Điều kiện lọc theo tham số & cố định
-                    dmc.GridCol(
-                        span=7,
-                        children=dmc.Paper(
-                            withBorder=True,
-                            p="md",
-                            radius="sm",
-                            children=[
-                                dmc.Title("Điều kiện lọc theo tham số", order=4, mb="sm"),
-                                html.Div(
-                                    id="wizard-db-filters-container",
-                                    children=_render_filter_params_table(
-                                        db_cols_chips, p_from_col, p_to_col, p_org_col, p_org_default, extra_filters
                                     ),
-                                ),
-                                button_subtle(
-                                    "Thêm tham số lọc",
-                                    id="wizard-add-param-btn",
-                                    icon="lucide:plus",
-                                    size="xs",
-                                    mt="xs",
-                                ),
-                            ],
-                        ),
-                    ),
-                ],
-            ),
-            # Card 3: Câu SELECT sinh ra (chỉ đọc)
-            html.Div(
-                id="wizard-card-generated-sql",
-                style=gen_sql_card_style,
-                children=dmc.Paper(
-                    withBorder=True,
-                    p="md",
-                    radius="sm",
-                    mb="md",
-                    children=[
-                        dmc.Title("Câu SELECT sinh ra (chỉ đọc)", order=4, mb="xs"),
-                        html.Div(
-                            id="wizard-generated-sql-container",
-                            children=code_block(generated_sql, language="sql"),
-                        ),
-                    ],
-                ),
-            ),
-            # Card 4: Cột DB -> Trường logic & Lọc Excel theo cùng khoảng
-            dmc.Grid(
-                gutter="md",
-                children=[
-                    dmc.GridCol(
-                        span=7,
-                        children=dmc.Paper(
-                            withBorder=True,
-                            p="md",
-                            radius="sm",
-                            children=[
-                                dmc.Title("Cột DB → Trường logic", order=4, mb="sm"),
-                                html.Div(
-                                    id="wizard-db-mapping-container",
-                                    children=_render_db_mapping_table(fields, db_cols_chips),
-                                ),
-                            ],
-                        ),
-                    ),
-                    dmc.GridCol(
-                        span=5,
-                        children=dmc.Paper(
-                            withBorder=True,
-                            p="md",
-                            radius="sm",
-                            children=[
-                                dmc.Title("Lọc dữ liệu Excel theo cùng khoảng", order=4, mb="sm"),
-                                alert_box(
-                                    "Từ/Đến ngày giờ do người dùng nhập khi chạy, không lấy từ file. "
-                                    "Cùng khoảng áp cho DB (cột lọc Từ/Đến) và Excel.",
-                                    tone="info",
-                                ),
-                                html.Div(style={"height": 12}),
-                                dmc.Select(
-                                    id="wizard-excel-time-field",
-                                    label="Trường thời gian lọc Excel",
-                                    data=[
-                                        {"label": f.get("name", ""), "value": f.get("name", "")}
-                                        for f in fields
-                                        if f.get("type") in ("date", "datetime")
-                                    ]
-                                    + [{"label": "Không lọc Excel", "value": "NONE"}],
-                                    value=(
-                                        (config.get("time_filter") or {}).get("excel_field")
-                                        if config.get("time_filter")
-                                        else "NONE"
-                                    ),
-                                    mb="sm",
-                                ),
-                                dmc.Select(
-                                    id="wizard-excel-suggest-range",
-                                    label="Gợi ý khi chạy",
-                                    data=[
-                                        {"label": "Hôm qua", "value": "yesterday"},
-                                        {"label": "Tháng trước", "value": "last_month"},
-                                        {"label": "Để trống", "value": "none"},
-                                    ],
-                                    value=next(
-                                        (
-                                            p.get("suggest", "yesterday")
-                                            for p in db_spec.get("params", [])
-                                            if p.get("name") == "p_from" and p.get("suggest")
-                                        ),
-                                        "yesterday",
-                                    ),
-                                ),
-                            ],
-                        ),
+                                ],
+                            ),
+                        ],
                     ),
                 ],
             ),
@@ -1383,6 +1440,7 @@ def _build_default_profiles_from_fields(
 def _calculate_grain_info(
     group_by: list[str],
     sample_data: dict[str, Any] | None,
+    config: dict[str, Any] | None = None,
     total_rows_fallback: int = 200,
 ) -> tuple[int, int, str]:
     """Tính toán số dòng Excel và số nhóm theo group_by.
@@ -1394,15 +1452,35 @@ def _calculate_grain_info(
         return 0, 0, "Chưa có dữ liệu mẫu để tính số nhóm."
     total_rows = sample_data.get("total_rows", 0) or 0
 
+    fields_lookup: dict[str, Any] = {}
+    if config:
+        for f in config.get("fields", []) or []:
+            if isinstance(f, dict):
+                if f.get("db"):
+                    fields_lookup[str(f["db"]).upper()] = f
+                if f.get("name"):
+                    fields_lookup[str(f["name"]).upper()] = f
+
     groups_count = 0
     if "columns" in sample_data:
         cols = sample_data["columns"]
         matched_unique = []
         for g in group_by:
+            g_u = g.upper()
+            f_match = fields_lookup.get(g_u)
+            match_candidates = {g_u}
+            if f_match:
+                if f_match.get("excel"):
+                    match_candidates.add(str(f_match["excel"]).upper())
+                if f_match.get("name"):
+                    match_candidates.add(str(f_match["name"]).upper())
+                if f_match.get("db"):
+                    match_candidates.add(str(f_match["db"]).upper())
+
             for c in cols:
-                c_name = c.get("name", "")
-                c_suggest = c.get("suggested_field_name", "")
-                if g.upper() in (c_name.upper(), c_suggest.upper()):
+                c_name = (c.get("name") or "").upper()
+                c_suggest = (c.get("suggested_field_name") or "").upper()
+                if c_name in match_candidates or c_suggest in match_candidates:
                     matched_unique.append(c.get("unique_count", 0))
                     break
         if matched_unique:
@@ -1436,19 +1514,27 @@ def _render_profile_grouped_sql(
     """Sinh câu SQL truy vấn gộp cho Bước 4 dựa trên group_by và measures."""
     if not group_by:
         return "-- Chưa chọn Group by, chưa sinh được SQL gộp."
-    fields_map = {f.get("name"): f for f in config.get("fields", [])}
+    fields_map: dict[str, Any] = {}
+    for f in config.get("fields", []):
+        if isinstance(f, dict):
+            if f.get("name"):
+                fields_map[f["name"]] = f
+            if f.get("db"):
+                fields_map[f["db"]] = f
+
     unmapped = [
         g
         for g in group_by
-        if g not in {d.get("name") for d in config.get("derived", [])} and not fields_map.get(g, {}).get("db")
+        if g not in {d.get("name") for d in config.get("derived", []) if isinstance(d, dict)} and not fields_map.get(g)
     ]
     unmapped += [
         str(m.get("field"))
         for m in measures
-        if m.get("field")
+        if isinstance(m, dict)
+        and m.get("field")
         and m.get("field") != "*"
-        and m.get("field") not in {d.get("name") for d in config.get("derived", [])}
-        and not fields_map.get(m.get("field"), {}).get("db")
+        and m.get("field") not in {d.get("name") for d in config.get("derived", []) if isinstance(d, dict)}
+        and not fields_map.get(str(m.get("field")))
     ]
     warn_prefix = (
         f"-- Cảnh báo: trường {', '.join(sorted(set(unmapped)))} chưa map cột DB, SQL này chưa chạy được.\n"
@@ -1472,6 +1558,8 @@ def _render_profile_grouped_sql(
         group_by_exprs.append(expr)
 
     for m in measures:
+        if not isinstance(m, dict):
+            continue
         agg = m.get("agg", "sum")
         m_name = m.get("name", "M")
         f_name = m.get("field", "")
@@ -1723,8 +1811,10 @@ def _render_step_4_left_fields(
         f_name = f.get("name", "")
         f_label = f.get("label", f_name)
         f_type = f.get("type", "text")
-        is_key = f_name in current_group_by
-        is_measure = f_name in measure_fields
+        f_db = f.get("db")
+        key_id = f_db or f_name
+        is_key = (key_id in current_group_by) or (f_name in current_group_by)
+        is_measure = f_name in measure_fields or (bool(f_db) and f_db in measure_fields)
 
         derived_from = f.get("derived_from") or []
         if derived_from:
@@ -1761,10 +1851,10 @@ def _render_step_4_left_fields(
                                         color="violet" if derived_from else "gray",
                                     ),
                                     dmc.Tooltip(
-                                        label=f"Bật/Tắt {f_name} vào Group by",
+                                        label=f"Bật/Tắt {key_id} vào Group by",
                                         children=dmc.ActionIcon(
                                             DashIconify(icon="lucide:key", width=14),
-                                            id={"type": "wizard-field-key-btn", "index": f_name},
+                                            id={"type": "wizard-field-key-btn", "index": key_id},
                                             size="xs",
                                             variant="filled" if is_key else "subtle",
                                             color="primary" if is_key else "gray",
@@ -1815,7 +1905,38 @@ def _render_step_4_right_panel(
     sample_data: dict[str, Any] | None = None,
 ) -> Any:
     """Dựng toàn bộ nội dung cột phải Bước 4 (Thông tin Profile, Group by, Measures, SQL gộp)."""
-    group_by = active_prof.get("group_by", [])
+    avail_fields_info = _mapped_fields_info(config)
+    name_to_db = {f["name"]: f["db"] for f in avail_fields_info if f.get("db")}
+
+    raw_group_by = active_prof.get("group_by", [])
+    mapped_group_by: list[str] = []
+    for g in raw_group_by:
+        new_g = name_to_db.get(g, g)
+        if new_g not in mapped_group_by:
+            mapped_group_by.append(new_g)
+    group_by = mapped_group_by
+    active_prof["group_by"] = group_by
+
+    groupby_options = []
+    for f in avail_fields_info:
+        db_col = f.get("db")
+        f_name = f.get("name", "")
+        f_excel = f.get("excel")
+        f_label = f.get("label")
+        if db_col:
+            desc = f_excel or f_label or f_name
+            label = f"{db_col} ({desc})" if desc and desc != db_col else str(db_col)
+            val = str(db_col)
+        else:
+            label = f"{f_name} (Dẫn xuất)"
+            val = f_name
+        groupby_options.append({"label": label, "value": val})
+
+    existing_vals = {opt["value"] for opt in groupby_options}
+    for g in group_by:
+        if g not in existing_vals:
+            groupby_options.append({"label": g, "value": g})
+
     measures = active_prof.get("measures", [])
     main_m = active_prof.get("main_measure")
 
@@ -1839,7 +1960,7 @@ def _render_step_4_right_panel(
     ]
 
     # Grain info
-    tot_rows, groups_cnt, grain_desc = _calculate_grain_info(group_by, sample_data)
+    tot_rows, groups_cnt, grain_desc = _calculate_grain_info(group_by, sample_data, config=config)
     grain_desc_str = f"({', '.join(group_by)})" if group_by else "(chưa chọn khóa)"
     grain_alert = alert_box(
         f"{grain_desc}"
@@ -1939,7 +2060,7 @@ def _render_step_4_right_panel(
                     dmc.MultiSelect(
                         id="wizard-groupby-select",
                         label="Chọn các trường gộp",
-                        data=[{"label": f, "value": f} for f in avail_field_names],
+                        data=groupby_options,
                         value=group_by,
                         searchable=True,
                         clearable=False,
@@ -2683,7 +2804,11 @@ def _load_sample_file_data(file_id: int | None) -> dict[str, Any] | None:
                 inspect_res = inspect_sample(sp)
                 preview_rows: list[dict[str, Any]] = []
                 try:
-                    spec = FileSpec(sheet=inspect_res.sheet, header_row=1, data_start_row=2)
+                    spec = FileSpec(
+                        sheet=inspect_res.sheet,
+                        header_row=inspect_res.suggested_header_row,
+                        data_start_row=inspect_res.suggested_data_start_row,
+                    )
                     raw_df, _ = read_sheet(sp, spec)
                     df_head = raw_df.head(5)
                     cols = [c for c in df_head.columns if c != "__row_no"]
@@ -2841,20 +2966,23 @@ def validate_wizard_step(
         profiles = cfg.get("profiles", []) or []
         if not profiles:
             errors.append("Bước 4: chưa có profile nào.")
-        mapped = {f["name"] for f in _mapped_fields_info(cfg)}
+        mapped_info = _mapped_fields_info(cfg)
+        mapped = {f["name"] for f in mapped_info}
+        mapped_db = {f["db"] for f in mapped_info if f.get("db")}
+        valid_keys = mapped | mapped_db
         for prof in profiles:
             if not prof.get("group_by"):
                 errors.append(f"Bước 4: profile '{prof.get('code', '')}' chưa chọn Group by.")
             if not prof.get("measures"):
                 errors.append(f"Bước 4: profile '{prof.get('code', '')}' chưa có measure nào.")
             for g in prof.get("group_by", []) or []:
-                if g not in mapped:
+                if g not in valid_keys:
                     errors.append(
                         f"Bước 4: Group by '{g}' của profile '{prof.get('code', '')}' chưa map cột DB ở Bước 3."
                     )
             for m in prof.get("measures", []) or []:
                 mf = (m or {}).get("field")
-                if mf and mf != "*" and mf not in mapped:
+                if mf and mf != "*" and mf not in valid_keys:
                     errors.append(
                         f"Bước 4: measure '{(m or {}).get('name', '')}' dùng trường '{mf}' chưa map cột DB ở Bước 3."
                     )
@@ -2965,7 +3093,7 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
             dcc.Store(id="wizard-sample-file-store", data=initial_sample_data),
             dcc.Store(id="wizard-active-profile-store", data=initial_active_prof_code),
             dcc.Location(id="wizard-redirect-location", refresh=True),
-            dcc.Interval(id="wizard-autosave-interval", interval=15000, n_intervals=0),
+            dcc.Interval(id="wizard-autosave-interval", interval=15000, n_intervals=0, disabled=True),
             # Header + Stepper fixed top
             dmc.Box(
                 [
@@ -2991,15 +3119,27 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
                                     ),
                                 ]
                             ),
-                            dmc.SegmentedControl(
-                                id="wizard-view-tabs",
-                                value="config",
-                                data=[
-                                    {"label": "Cấu hình template", "value": "config"},
-                                    {"label": "Sơ đồ diễn giải", "value": "diagram"},
+                            dmc.Group(
+                                [
+                                    dmc.SegmentedControl(
+                                        id="wizard-view-tabs",
+                                        value="config",
+                                        data=[
+                                            {"label": "Cấu hình template", "value": "config"},
+                                            {"label": "Sơ đồ diễn giải", "value": "diagram"},
+                                        ],
+                                        size="xs",
+                                        radius="sm",
+                                    ),
+                                    button_subtle(
+                                        "Lưu nháp",
+                                        icon="lucide:save",
+                                        id="wizard-save-draft-btn",
+                                        size="xs",
+                                    ),
                                 ],
-                                size="xs",
-                                radius="sm",
+                                gap="sm",
+                                align="center",
                             ),
                         ],
                     ),
@@ -3030,6 +3170,7 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
             # Content container: Step content hoặc Diagram content
             html.Div(
                 children=[
+                    html.Div(id="wizard-notification-container", style={"marginBottom": "8px"}),
                     html.Div(id="wizard-step-content", children=html.Div("Đang tải dữ liệu...")),
                     html.Div(id="wizard-diagram-content", style={"display": "none"}),
                     dmc.Box(id="wizard-error-alert-container", mt="md"),
@@ -3041,32 +3182,77 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
                     "padding": "16px 20px",
                 },
             ),
-            # Footer Navigation
+            # Fixed Footer Nav: White background capsule buttons (Fluent Compact)
             dmc.Group(
                 id="wizard-footer-nav",
                 justify="space-between",
                 align="center",
                 children=[
-                    button_subtle("Quay lại", id="wizard-prev-btn", disabled=True, size="sm"),
                     dmc.Group(
                         [
-                            button_subtle("Lưu nháp", id="wizard-save-draft-btn", size="sm"),
-                            button_primary("Tiếp", id="wizard-next-btn", size="sm"),
+                            html.Span(id="wizard-footer-status", style={"fontSize": "11px", "color": "var(--ink-soft, #616161)"}),
                         ],
-                        gap="sm",
+                        gap="md",
+                        align="center",
+                    ),
+                    dmc.Paper(
+                        dmc.Group(
+                            [
+                                dmc.Button(
+                                    "Quay lại",
+                                    id="wizard-prev-btn",
+                                    leftSection=DashIconify(icon="lucide:arrow-left", width=13),
+                                    disabled=True,
+                                    variant="subtle",
+                                    color="gray",
+                                    size="xs",
+                                    radius="xl",
+                                    style={
+                                        "fontWeight": 500,
+                                        "height": "26px",
+                                        "padding": "0 10px",
+                                        "fontSize": "12px",
+                                        "color": "var(--ink, #1E1E1E)",
+                                    },
+                                ),
+                                dmc.Button(
+                                    "Tiếp tục",
+                                    id="wizard-next-btn",
+                                    rightSection=DashIconify(icon="lucide:arrow-right", width=13),
+                                    color="primary",
+                                    size="xs",
+                                    radius="xl",
+                                    style={
+                                        "fontWeight": 600,
+                                        "height": "26px",
+                                        "padding": "0 14px",
+                                        "fontSize": "12px",
+                                        "boxShadow": "0 1px 3px rgba(0, 120, 212, 0.25)",
+                                    },
+                                ),
+                            ],
+                            gap=6,
+                            align="center",
+                        ),
+                        radius="xl",
+                        p=2,
+                        withBorder=True,
+                        style={
+                            "backgroundColor": "#FFFFFF",
+                            "borderColor": "var(--line, #E0E0E0)",
+                            "boxShadow": "0 1px 3px rgba(0, 0, 0, 0.05)",
+                        },
                     ),
                 ],
                 style={
                     "flexShrink": 0,
-                    "height": "48px",
-                    "padding": "0 20px",
-                    "borderTop": "1px solid var(--mantine-color-default-border)",
-                    "backgroundColor": "var(--mantine-color-body)",
+                    "height": "36px",
+                    "padding": "0 12px",
+                    "borderTop": "1px solid var(--line, #E0E0E0)",
+                    "backgroundColor": "var(--surface, #FAFAFA)",
                     "display": "flex",
                 },
             ),
-            # Notification container
-            html.Div(id="wizard-notification-container"),
         ],
         style={
             "height": "calc(100vh - 48px)",
@@ -3162,7 +3348,11 @@ def handle_wizard_file_upload(
     # 4. Đọc 5 dòng xem trước
     preview_rows: list[dict[str, Any]] = []
     try:
-        spec = FileSpec(sheet=inspect_res.sheet, header_row=1, data_start_row=2)
+        spec = FileSpec(
+            sheet=inspect_res.sheet,
+            header_row=inspect_res.suggested_header_row,
+            data_start_row=inspect_res.suggested_data_start_row,
+        )
         raw_df, _ = read_sheet(storage_path, spec)
         df_head = raw_df.head(5)
         cols = [c for c in df_head.columns if c != "__row_no"]
@@ -3177,8 +3367,8 @@ def handle_wizard_file_upload(
     cfg = dict(current_config or build_default_config())
     cfg.setdefault("file", {})
     cfg["file"]["sheet"] = inspect_res.sheet
-    cfg["file"]["header_row"] = 1
-    cfg["file"]["data_start_row"] = 2
+    cfg["file"]["header_row"] = inspect_res.suggested_header_row
+    cfg["file"]["data_start_row"] = inspect_res.suggested_data_start_row
 
     # Lấy các cột ứng viên làm header nhận diện file
     cand_keys = [c.name for c in inspect_res.columns if c.is_candidate_key]
@@ -3922,10 +4112,10 @@ def handle_switch_tabs(
             "justifyContent": "space-between",
             "alignItems": "center",
             "flexShrink": "0",
-            "height": "48px",
-            "padding": "0 20px",
-            "borderTop": "1px solid var(--mantine-color-default-border)",
-            "backgroundColor": "var(--mantine-color-body)",
+            "height": "36px",
+            "padding": "0 12px",
+            "borderTop": "1px solid var(--line, #E0E0E0)",
+            "backgroundColor": "var(--surface, #FAFAFA)",
         },
         dash.no_update,
     )
@@ -3959,7 +4149,7 @@ def handle_step_navigation(
     """Xử lý nút Tiếp và Quay lại trên Stepper 5 bước và kích hoạt template."""
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
-        return current_active, current_active == 0, "Tiếp", meta or {}, dash.no_update, dash.no_update
+        return current_active, current_active == 0, "Tiếp tục", meta or {}, dash.no_update, dash.no_update
 
     trigger = ctx_dash.triggered[0]["prop_id"]
     if "wizard-next-btn" in trigger:
@@ -3985,7 +4175,7 @@ def handle_step_navigation(
             )
         if step_errors:
             err_box = alert_box(" · ".join(step_errors), tone="crit")
-            next_text = "Lưu & kích hoạt" if current_active == 4 else "Tiếp"
+            next_text = "Lưu & kích hoạt" if current_active == 4 else "Tiếp tục"
             return current_active, current_active == 0, next_text, meta or {}, dash.no_update, err_box
         if current_active == 4:
             # Xử lý Kích hoạt template
@@ -4050,7 +4240,7 @@ def handle_step_navigation(
     else:
         new_step = current_active
 
-    next_btn_text = "Lưu & kích hoạt" if new_step == 4 else "Tiếp"
+    next_btn_text = "Lưu & kích hoạt" if new_step == 4 else "Tiếp tục"
     updated_meta = {**(meta or {}), "current_step": new_step + 1}
     return new_step, (new_step == 0), next_btn_text, updated_meta, dash.no_update, None
 
@@ -4327,9 +4517,8 @@ def handle_save_or_autosave_draft(
     triggered_id = ctx_dash.triggered[0]["prop_id"] if ctx_dash.triggered else ""
     is_manual = "wizard-save-draft-btn" in triggered_id
 
-    # Autosave chỉ lưu khi config khác lần lưu gần nhất (so hash), không
-    # dùng cờ is_dirty nữa để tránh callback khác ghi đè meta cũ.
-    if not is_manual and (meta_data or {}).get("last_saved_config_hash") == _config_hash(config_data):
+    # Chỉ lưu khi người dùng chủ động bấm Lưu nháp, không tự động lưu nền định kỳ
+    if not is_manual:
         return dash.no_update, dash.no_update, dash.no_update
 
     template_cfg, errors = form_state_to_config(config_data)
@@ -4584,13 +4773,22 @@ def handle_step4_interaction(
             import json
 
             prop_data = json.loads(triggered_prop.split(".")[0])
-            f_name = prop_data.get("index")
+            key_id = prop_data.get("index")
             grp = list(active_prof.get("group_by", []))
-            if f_name in grp:
+
+            # Tìm xem key_id khớp với cột DB hay tên trường
+            matching = next((f for f in avail_fields_info if f.get("db") == key_id or f.get("name") == key_id), None)
+            target_key = (matching.get("db") if matching and matching.get("db") else key_id) or key_id
+            name_key = matching.get("name") if matching else None
+
+            if target_key in grp:
                 if len(grp) > 1:
-                    grp.remove(f_name)
+                    grp.remove(target_key)
+            elif name_key and name_key in grp:
+                if len(grp) > 1:
+                    grp.remove(name_key)
             else:
-                grp.append(f_name)
+                grp.append(target_key)
             active_prof["group_by"] = grp
         except Exception:
             pass

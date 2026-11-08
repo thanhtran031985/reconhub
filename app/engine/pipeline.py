@@ -148,6 +148,19 @@ def run_pipeline(
         derived_excel = apply_profile_filters(derived_excel, profile.filters)
 
     # 9. Gộp dữ liệu Excel
+    for g in profile.group_by:
+        if g not in derived_excel.columns:
+            for f in config.fields:
+                if f.db == g and f.name in derived_excel.columns:
+                    derived_excel = derived_excel.with_columns(pl.col(f.name).alias(g))
+                    break
+    for m in profile.measures:
+        if m.field and m.field != "*" and m.field not in derived_excel.columns:
+            for f in config.fields:
+                if f.db == m.field and f.name in derived_excel.columns:
+                    derived_excel = derived_excel.with_columns(pl.col(f.name).alias(m.field))
+                    break
+
     excel_agg = aggregate(derived_excel, profile)
     excel_groups = len(excel_agg)
 
@@ -222,6 +235,16 @@ def run_pipeline(
         derived_db = apply_profile_filters(derived_db, profile.filters)
 
     # Gộp dữ liệu DB (dùng đúng nhánh pushdown khi Oracle đã gộp sẵn)
+    for g in profile.group_by:
+        if g not in derived_db.columns:
+            for f in config.fields:
+                if f.db == g and f.name in derived_db.columns:
+                    derived_db = derived_db.with_columns(pl.col(f.name).alias(g))
+                    break
+                elif f.name == g and f.db and f.db in derived_db.columns:
+                    derived_db = derived_db.with_columns(pl.col(f.db).alias(g))
+                    break
+
     db_agg = aggregate(derived_db, profile, is_db_pushdown=db_pushdown_applied)
     db_groups = len(db_agg)
 

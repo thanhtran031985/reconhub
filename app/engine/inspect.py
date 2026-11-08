@@ -5,6 +5,7 @@ import unicodedata
 from pathlib import Path
 from typing import Literal
 
+import polars as pl
 from pydantic import BaseModel
 
 from app.engine.reader import list_sheets, read_sheet
@@ -195,6 +196,8 @@ class FileInspectionResult(BaseModel):
     total_cols: int
     candidate_total_rows: list[CandidateTotalRow]
     columns: list[ColumnInspection]
+    suggested_header_row: int = 1
+    suggested_data_start_row: int = 2
 
 
 _DATE_REGEX = re.compile(
@@ -225,13 +228,79 @@ def _is_date_like(s: str) -> tuple[bool, bool]:
     return False, False
 
 
-def inspect_sample(file_path: Path | str, sheet_name: str | None = None) -> FileInspectionResult:
+def detect_header_row(raw_df: pl.DataFrame) -> tuple[int, int]:
+    """Tự động phát hiện dòng header (1-based) và dòng bắt đầu dữ liệu (1-based).
+
+    Quét tối đa 15 dòng đầu tiên:
+    - Bỏ qua các dòng tiêu đề/banner có ít hơn 35% số ô có dữ liệu trên file nhiều cột (>=4 cột).
+    - Ưu tiên dòng có tỷ lệ ô văn bản cao (>70% không phải thuần số hay ngày) và có >=40% số cột có giá trị.
+    - Mặc định trả về (1, 2) nếu không tìm thấy ứng viên tốt hơn.
+    """
+    total_rows = min(raw_df.height, 15)
+    total_cols = raw_df.width
+    if total_rows == 0 or total_cols == 0:
+        return 1, 2
+
+    for r_idx in range(total_rows):
+        row_vals = [
+            str(x).strip() if x is not None and str(x).strip() != "None" else ""
+            for x in raw_df.row(r_idx)
+        ]
+        non_empty = [x for x in row_vals if x]
+        if not non_empty:
+            continue
+        non_empty_ratio = len(non_empty) / total_cols
+        if total_cols >= 4 and non_empty_ratio < 0.35:
+            continue
+        text_count = 0
+        for val in non_empty:
+            if _is_number_like(val) or _is_date_like(val)[0]:
+                continue
+            text_count += 1
+        text_ratio = text_count / len(non_empty) if non_empty else 0
+        if text_ratio >= 0.7 and non_empty_ratio >= 0.4:
+            return r_idx + 1, r_idx + 2
+
+    return 1, 2
+
+
+def inspect_sample(
+    file_path: Path | str,
+    sheet_name: str | None = None,
+    header_row: int | None = None,
+    data_start_row: int | None = None,
+) -> FileInspectionResult:
     """Phân tích cấu trúc file Excel/CSV để gợi ý cấu hình trong Wizard."""
     path = Path(file_path)
     sheets = list_sheets(path)
     selected_sheet = sheet_name or (sheets[0] if sheets else "Sheet1")
 
-    spec = FileSpec(sheet=selected_sheet, header_row=1, data_start_row=2)
+    if header_row is None:
+        if path.suffix.lower() == ".csv":
+            from app.engine.reader import _detect_csv_delimiter
+
+            delim = _detect_csv_delimiter(path)
+            raw_full = pl.read_csv(
+                path,
+                has_header=False,
+                separator=delim,
+                infer_schema_length=0,
+                truncate_ragged_lines=True,
+            )
+        else:
+            raw_full = pl.read_excel(
+                source=path,
+                sheet_name=selected_sheet,
+                engine="calamine",
+                has_header=False,
+                infer_schema_length=0,
+            )
+        h_row, d_row = detect_header_row(raw_full)
+    else:
+        h_row = header_row
+        d_row = data_start_row if data_start_row is not None else (h_row + 1)
+
+    spec = FileSpec(sheet=selected_sheet, header_row=h_row, data_start_row=d_row)
     raw_df, _ = read_sheet(path, spec)
 
     total_rows = len(raw_df)
@@ -358,4 +427,6 @@ def inspect_sample(file_path: Path | str, sheet_name: str | None = None) -> File
         total_cols=total_cols,
         candidate_total_rows=candidate_total_rows,
         columns=column_inspections,
+        suggested_header_row=h_row,
+        suggested_data_start_row=d_row,
     )

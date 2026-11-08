@@ -195,7 +195,7 @@ def test_render_params_and_execution_section(new_run_env) -> None:
     # 2. Render execution section
     exec_ui_ready = render_execution_section(is_ready=True, lock_reason="")
     s_exec = str(exec_ui_ready)
-    assert "3. Thực thi" in s_exec
+    assert "Thực thi" in s_exec
     assert "Chạy đối soát" in s_exec
 
     exec_ui_running = render_execution_section(

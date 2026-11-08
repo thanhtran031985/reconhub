@@ -139,7 +139,7 @@ def aggregate(
             out_r["__is_duplicate"] = False
             out_rows.append(out_r)
 
-        return pl.from_dicts(out_rows)
+        return pl.from_dicts(out_rows, infer_schema_length=None)
 
     # Trường hợp 2: Profile không gộp (aggregate = False)
     if not profile.aggregate:
@@ -178,7 +178,7 @@ def aggregate(
             out_r["__is_duplicate"] = key_counts[int_key] > 1
             out_rows.append(out_r)
 
-        return pl.from_dicts(out_rows)
+        return pl.from_dicts(out_rows, infer_schema_length=None)
 
     # Trường hợp 3: profile.aggregate = True (nhóm theo khóa)
     groups: dict[str, list[dict[str, Any]]] = {}
@@ -270,4 +270,4 @@ def aggregate(
         out_r["__is_duplicate"] = False
         out_rows.append(out_r)
 
-    return pl.from_dicts(out_rows)
+    return pl.from_dicts(out_rows, infer_schema_length=None)

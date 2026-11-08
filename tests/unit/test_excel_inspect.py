@@ -77,3 +77,27 @@ def test_inspect_leading_zero_and_mixed() -> None:
     finally:
         if tmp_path.exists():
             tmp_path.unlink()
+
+
+def test_inspect_title_banner_detection() -> None:
+    """Kiểm tra tự phát hiện dòng tiêu đề khi có dòng banner ở trên cùng."""
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w", encoding="utf-8") as f:
+        f.write("Báo cáo doanh thu tháng 7,,,\n")
+        f.write("Số HĐ,Ngày HĐ,Thành tiền,Ghi chú\n")
+        f.write("HD001,01/07/2026,1000000,Gốc\n")
+        f.write("HD002,02/07/2026,2000000,Gốc\n")
+        tmp_path = Path(f.name)
+
+    try:
+        res = inspect_sample(tmp_path)
+        assert res.suggested_header_row == 2
+        assert res.suggested_data_start_row == 3
+        col_names = [c.name for c in res.columns]
+        assert "Số HĐ" in col_names
+        assert "Thành tiền" in col_names
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+

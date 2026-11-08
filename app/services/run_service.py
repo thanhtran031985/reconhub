@@ -836,8 +836,10 @@ def export_run(
             row_dict.update(r["DIFF_JSON"])
         dict_list.append(row_dict)
 
-    result_df = pl.DataFrame(dict_list) if dict_list else pl.DataFrame()
-    invalid_df = pl.DataFrame([dict(ir) for ir in inv_rows]) if inv_rows else pl.DataFrame()
+    result_df = pl.DataFrame(dict_list, infer_schema_length=None) if dict_list else pl.DataFrame()
+    invalid_df = (
+        pl.DataFrame([dict(ir) for ir in inv_rows], infer_schema_length=None) if inv_rows else pl.DataFrame()
+    )
 
     from app.core.config import get_settings
 

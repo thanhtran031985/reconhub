@@ -130,3 +130,24 @@ def test_derive_trunc_day_and_concat() -> None:
     assert res_df["INV_DATE"][0] == date(2026, 2, 1)
     assert "FULL_CODE" in res_df.columns
     assert res_df["FULL_CODE"][0] == "INV-001"
+
+
+def test_normalize_deep_null_column_followed_by_string() -> None:
+    """Kiểm tra cột có nhiều hơn 100 giá trị None ở đầu, sau đó mới xuất hiện chuỗi (không bị lỗi infer_schema_length)."""
+    rows_count = 250
+    data = {
+        "SO_HD": [f"HD{i}" for i in range(rows_count)],
+        "SO_LENH": [None] * 200 + [f"BLS/2026/{i:07d}" for i in range(rows_count - 200)],
+        "__row_no": list(range(1, rows_count + 1)),
+    }
+    df = pl.DataFrame(data)
+    fields = [
+        FieldSpec(name="SO_HD", label="Số HĐ", type="text", required=True),
+        FieldSpec(name="SO_LENH", label="Số Lệnh", type="text", required=False),
+    ]
+
+    valid_df, invalid_df = normalize(df, fields)
+    assert valid_df.height == rows_count
+    assert invalid_df.height == 0
+    assert valid_df["SO_LENH"][200] == "BLS/2026/0000000"
+

@@ -10,7 +10,11 @@ from app.schemas.template_config import ProfileSpec, TemplateConfig
 
 def _render_field_db_expr(f_name: str, config: TemplateConfig) -> str:
     """Sinh biểu thức SQL Oracle cho trường logic hoặc trường phái sinh."""
-    field_map = {f.name: f for f in config.fields}
+    field_map: dict[str, Any] = {}
+    for f in config.fields:
+        field_map[f.name] = f
+        if f.db:
+            field_map[f.db] = f
     derived_map = {d.name: d for d in config.derived}
 
     if f_name in field_map:
