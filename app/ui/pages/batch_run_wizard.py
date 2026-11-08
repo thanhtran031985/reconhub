@@ -1239,82 +1239,139 @@ def render_step_content(step: int, run: dict[str, Any]) -> Any:
     return render_step5(run)
 
 
-def render_new_run_form(defs: list[dict[str, Any]], preselected_def: int | None) -> Any:
+def render_new_run_form(defs: list[dict[str, Any]], preselected_def: int | None) -> dmc.Paper:
     options = [{"label": f"{d.get('code')} — {d.get('name')}", "value": str(d["id"])} for d in defs]
     ds_options = _get_active_source_ds_options()
     current_p = current_month_period()
     return dmc.Paper(
-        dmc.Stack(
-            [
-                dmc.Title("Chọn bộ và kỳ", order=5),
-                dmc.Select(
-                    id="brw-new-def",
-                    label="Bộ đối soát *",
-                    data=options,
-                    value=str(preselected_def) if preselected_def else (options[0]["value"] if options else None),
-                    placeholder="Chọn bộ đối soát",
-                    required=True,
-                    size="xs",
-                    styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
-                ),
-                dmc.Select(
-                    id="brw-new-data-source",
-                    label="Data Source nguồn *",
-                    data=ds_options,
-                    value=ds_options[0]["value"] if ds_options else None,
-                    placeholder="Chọn Data Source",
-                    required=True,
-                    size="xs",
-                    description="Mặc định chọn Data Source đang hoạt động. Các bước sau sẽ query và so sánh ở Data Source này.",
-                    styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
-                ),
-                dmc.SimpleGrid(
-                    cols=2,
-                    spacing="xs",
-                    children=[
-                        dmc.MonthPickerInput(
-                            id="brw-new-period",
-                            label="Kỳ đối soát *",
-                            value=current_p,
-                            valueFormat="YYYY-MM",
-                            placeholder="Chọn tháng...",
-                            leftSection=DashIconify(icon="lucide:calendar", width=14),
-                            required=True,
-                            size="xs",
-                            styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
-                        ),
-                        dmc.TextInput(
-                            id="brw-new-name",
-                            label="Tên lần chạy",
-                            placeholder=f"Tháng {current_p[5:7]}/{current_p[:4]}",
-                            size="xs",
-                            styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
-                        ),
-                    ],
-                ),
-                dmc.Text(
-                    f"Mặc định mọi template: p_from = 01/{current_p[5:7]}/{current_p[:4]} 00:00:00, p_to = ngày cuối 23:59:59.",
-                    size="xs",
-                    c="dimmed",
-                ),
-                dmc.Group(
-                    [
-                        button_primary("Khởi tạo lần chạy", icon="lucide:arrow-right", id="brw-new-submit", size="xs"),
-                        dmc.Anchor(
-                            button_subtle("Về danh sách bộ", size="xs"),
-                            href="/batches",
-                            underline=False,
-                        ),
-                    ],
-                    gap="xs",
-                    mt="xs",
-                ),
-            ],
-            gap="xs",
-        ),
-        p="sm",
         withBorder=True,
+        p="md",
         radius="sm",
+        h="100%",
+        style={
+            "display": "flex",
+            "flexDirection": "column",
+            "flex": "1 1 0%",
+            "height": "100%",
+            "minHeight": 0,
+            "overflow": "hidden",
+        },
+        children=[
+            dmc.Title("1. Chọn bộ và kỳ đối soát", order=4, mb=2),
+            dmc.Text(
+                "Chọn bộ đối soát, Data Source nguồn và kỳ thực hiện.",
+                size="xs",
+                c="dimmed",
+                mb="xs",
+                style={"flexShrink": 0},
+            ),
+            dmc.ScrollArea(
+                style={"flex": "1 1 0%", "minHeight": 0},
+                type="auto",
+                offsetScrollbars=True,
+                children=[
+                    dmc.Stack(
+                        gap="sm",
+                        children=[
+                            dmc.Select(
+                                id="brw-new-def",
+                                label="Bộ đối soát *",
+                                data=options,
+                                value=str(preselected_def) if preselected_def else (options[0]["value"] if options else None),
+                                placeholder="Chọn bộ đối soát",
+                                required=True,
+                                size="xs",
+                            ),
+                            dmc.Select(
+                                id="brw-new-data-source",
+                                label="Data Source nguồn *",
+                                data=ds_options,
+                                value=ds_options[0]["value"] if ds_options else None,
+                                placeholder="Chọn Data Source",
+                                required=True,
+                                size="xs",
+                                description="Mặc định chọn Data Source đang hoạt động. Các bước sau sẽ query và so sánh ở Data Source này.",
+                            ),
+                            dmc.SimpleGrid(
+                                cols=2,
+                                spacing="xs",
+                                children=[
+                                    dmc.MonthPickerInput(
+                                        id="brw-new-period",
+                                        label="Kỳ đối soát *",
+                                        value=current_p,
+                                        valueFormat="YYYY-MM",
+                                        placeholder="Chọn tháng...",
+                                        leftSection=DashIconify(icon="lucide:calendar", width=14),
+                                        required=True,
+                                        size="xs",
+                                    ),
+                                    dmc.TextInput(
+                                        id="brw-new-name",
+                                        label="Tên lần chạy",
+                                        placeholder=f"Tháng {current_p[5:7]}/{current_p[:4]}",
+                                        size="xs",
+                                    ),
+                                ],
+                            ),
+                            dmc.Text(
+                                f"Mặc định mọi template: p_from = 01/{current_p[5:7]}/{current_p[:4]} 00:00:00, p_to = ngày cuối 23:59:59.",
+                                size="xs",
+                                c="dimmed",
+                            ),
+                            dmc.Group(
+                                [
+                                    button_primary("Khởi tạo lần chạy", icon="lucide:arrow-right", id="brw-new-submit", size="xs"),
+                                    dmc.Anchor(
+                                        button_subtle("Về danh sách bộ", size="xs"),
+                                        href="/batches",
+                                        underline=False,
+                                    ),
+                                ],
+                                gap="xs",
+                                mt="sm",
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+
+def render_recent_runs_card(runs: list[dict[str, Any]]) -> dmc.Paper:
+    """Card hiển thị 5 lần chạy gần nhất của các bộ đối soát."""
+    return dmc.Paper(
+        withBorder=True,
+        p="md",
+        radius="sm",
+        h="100%",
+        style={
+            "display": "flex",
+            "flexDirection": "column",
+            "flex": "1 1 0%",
+            "height": "100%",
+            "minHeight": 0,
+            "overflow": "hidden",
+        },
+        children=[
+            dmc.Title("2. Lần chạy gần đây của bộ", order=4, mb=2),
+            dmc.Text(
+                "Danh sách các lần chạy gần nhất của các bộ đối soát.",
+                size="xs",
+                c="dimmed",
+                mb="xs",
+                style={"flexShrink": 0},
+            ),
+            dmc.ScrollArea(
+                style={"flex": "1 1 0%", "minHeight": 0},
+                type="auto",
+                offsetScrollbars=True,
+                children=[
+                    render_recent_runs(runs),
+                ],
+            ),
+        ],
     )
 
 
@@ -1322,7 +1379,7 @@ def render_recent_runs(runs: list[dict[str, Any]]) -> Any:
     if not runs:
         return dmc.Text("Chưa có lần chạy bộ nào.", size="xs", c="dimmed")
     rows = []
-    th_rc = {"textAlign": "center", "fontSize": "11px", "fontWeight": 600}
+    th_rc = {"textAlign": "center", "fontSize": "12px", "fontWeight": 600}
     for r in runs:
         rows.append(
             dmc.TableTr(
@@ -1332,6 +1389,7 @@ def render_recent_runs(runs: list[dict[str, Any]]) -> Any:
                             f"#{r['id']} {r.get('name', '')}",
                             href=f"/batch-runs/{r['id']}",
                             size="xs",
+                            style={"fontWeight": 500},
                         )
                     ),
                     dmc.TableTd(dmc.Text(f"{r.get('def_code', '')}", className="rh-code", size="xs", ta="center")),
@@ -1346,7 +1404,7 @@ def render_recent_runs(runs: list[dict[str, Any]]) -> Any:
             dmc.TableThead(
                 dmc.TableTr(
                     [
-                        dmc.TableTh("Lần chạy", style=th_rc),
+                        dmc.TableTh("Lần chạy", style={"fontSize": "12px", "fontWeight": 600}),
                         dmc.TableTh("Bộ", style=th_rc),
                         dmc.TableTh("Kỳ", style=th_rc),
                         dmc.TableTh("Trạng thái", style=th_rc),
@@ -1357,7 +1415,8 @@ def render_recent_runs(runs: list[dict[str, Any]]) -> Any:
             dmc.TableTbody(rows),
         ],
         striped=True,
-        style={"fontSize": "11px"},
+        highlightOnHover=True,
+        style={"fontSize": "12px"},
     )
 
 
@@ -1410,48 +1469,76 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
             [
                 dcc.Location(id="brw-redirect", refresh=True),
                 html.Div(id="brw-notifications"),
-                page_header(
-                    title="Chạy bộ đối soát",
-                    subtitle="Một lần tải lên cho nhiều hệ thống. Mỗi template tạo một run riêng, lỗi ở một template không chặn các template khác.",
-                ),
+                # Fixed Top: Header & Stepper
                 dmc.Box(
-                    _stepper(1),
+                    [
+                        page_header(
+                            title="Chạy bộ đối soát",
+                            subtitle="Một lần tải lên cho nhiều hệ thống. Mỗi template tạo một run riêng, lỗi ở một template không chặn các template khác.",
+                            style={"marginBottom": "8px"},
+                        ),
+                        html.Div(
+                            _stepper(1),
+                            style={"paddingTop": "2px", "paddingBottom": "2px"},
+                        ),
+                    ],
                     style={
                         "flexShrink": 0,
-                        "padding": "8px 14px",
+                        "padding": "12px 16px 10px 16px",
                         "borderBottom": "1px solid var(--line, #E0E0E0)",
                         "backgroundColor": "var(--surface, #FFFFFF)",
                     },
                 ),
+                # 2 Card chính nằm gọn trong 1 page, bằng nhau 100%
                 html.Div(
-                    [
-                        alert_box(defs_error, tone="crit") if defs_error else dmc.Text(""),
-                        dmc.SimpleGrid(
-                            cols={"base": 1, "md": 2},
-                            spacing="sm",
+                    style={
+                        "flex": "1 1 0%",
+                        "minHeight": 0,
+                        "padding": "12px 16px 16px 16px",
+                        "display": "flex",
+                        "flexDirection": "column",
+                        "overflow": "hidden",
+                    },
+                    children=[
+                        *(
+                            [alert_box(defs_error, tone="crit", style={"marginBottom": "8px"})]
+                            if defs_error
+                            else []
+                        ),
+                        html.Div(
+                            id="brw-cards-grid",
+                            style={
+                                "display": "grid",
+                                "gridTemplateColumns": "1fr 1fr",
+                                "gap": "12px",
+                                "height": "100%",
+                                "minHeight": "0",
+                                "flex": "1 1 0%",
+                            },
                             children=[
-                                render_new_run_form(defs, preselected_id),
-                                dmc.Paper(
-                                    dmc.Stack(
-                                        [
-                                            dmc.Title("Lần chạy gần đây của bộ", order=5),
-                                            render_recent_runs(recent),
-                                        ],
-                                        gap="xs",
-                                    ),
-                                    p="sm",
-                                    withBorder=True,
-                                    radius="sm",
+                                html.Div(
+                                    style={
+                                        "display": "flex",
+                                        "flexDirection": "column",
+                                        "height": "100%",
+                                        "minHeight": "0",
+                                        "overflow": "hidden",
+                                    },
+                                    children=render_new_run_form(defs, preselected_id),
+                                ),
+                                html.Div(
+                                    style={
+                                        "display": "flex",
+                                        "flexDirection": "column",
+                                        "height": "100%",
+                                        "minHeight": "0",
+                                        "overflow": "hidden",
+                                    },
+                                    children=render_recent_runs_card(recent),
                                 ),
                             ],
                         ),
                     ],
-                    style={
-                        "flex": "1 1 0%",
-                        "minHeight": 0,
-                        "overflowY": "auto",
-                        "padding": "10px 14px",
-                    },
                 ),
             ],
             style={
@@ -1460,6 +1547,7 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
                 "display": "flex",
                 "flexDirection": "column",
                 "overflow": "hidden",
+                "backgroundColor": "var(--mantine-color-body)",
             },
         )
 
@@ -1478,11 +1566,11 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
             dmc.Box(
                 [
                     html.Div(id="brw-header"),
-                    html.Div(id="brw-stepper", style={"marginTop": "6px"}),
+                    html.Div(id="brw-stepper", style={"marginTop": "10px"}),
                 ],
                 style={
                     "flexShrink": 0,
-                    "padding": "8px 14px 6px",
+                    "padding": "12px 20px 12px 20px",
                     "borderBottom": "1px solid var(--line, #E0E0E0)",
                     "backgroundColor": "var(--surface, #FFFFFF)",
                 },
@@ -1498,7 +1586,7 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
                     "flex": "1 1 0%",
                     "minHeight": 0,
                     "overflowY": "auto",
-                    "padding": "10px 14px",
+                    "padding": "16px 20px",
                 },
             ),
 
@@ -1576,7 +1664,7 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
                 style={
                     "flexShrink": 0,
                     "height": "48px",
-                    "padding": "0 16px",
+                    "padding": "0 20px",
                     "borderTop": "1px solid var(--line, #E0E0E0)",
                     "backgroundColor": "#FFFFFF",
                     "display": "flex",
