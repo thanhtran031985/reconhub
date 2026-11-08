@@ -148,6 +148,21 @@ class TestFilter:
         assert len(page._filter_reports(reports, "", "all", True)) == 1
         assert len(page._filter_reports(reports, "", "FINANCE", True)) == 0
 
+    def test_handle_reports_filter(self, reports_env):
+        import app.ui.pages.reports as page
+
+        reports = [
+            {"id": 1, "code": "A", "name": "Báo cáo A", "description": "",
+             "category_code": "FINANCE", "is_favorite": False, "template_count": 1},
+            {"id": 2, "code": "B", "name": "Báo cáo B", "description": "",
+             "category_code": "ACCOUNTING", "is_favorite": True, "template_count": 1},
+        ]
+        body, meta = page.handle_reports_filter("Báo cáo A", "all", False, reports)
+        text = _dump(body)
+        assert "Báo cáo A" in text
+        assert "Báo cáo B" not in text
+        assert meta == "1 báo cáo"
+
 
 class TestLayout:
     def test_layout_admin_sees_all_and_create_button(

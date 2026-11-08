@@ -59,8 +59,7 @@ def _filter_reports(
 
 
 def render_report_card(report: dict[str, Any]) -> dmc.Card:
-    """Một card Report Master theo prototype (tag mã, tên, mô tả, số
-    template, sao yêu thích, nút Xem báo cáo)."""
+    """Một card Report Master (giữ tương thích)."""
     report_id = int(report["id"])
     is_fav = bool(report.get("is_favorite"))
     return dmc.Card(
@@ -120,7 +119,7 @@ def render_report_card(report: dict[str, Any]) -> dmc.Card:
 
 
 def render_reports_sections(reports: list[dict[str, Any]]) -> Any:
-    """Cards nhóm theo category (prototype); trống → empty_state."""
+    """Bảng gom nhóm theo danh mục chuẩn Screen16 preview.html (.rlist)."""
     if not reports:
         return empty_state(
             "Không có báo cáo phù hợp.",
@@ -129,22 +128,150 @@ def render_reports_sections(reports: list[dict[str, Any]]) -> Any:
     groups: dict[str, list[dict[str, Any]]] = {}
     for r in reports:
         groups.setdefault(str(r.get("category_code") or ""), []).append(r)
-    sections = []
+
+    th_base: dict[str, Any] = {
+        "position": "sticky",
+        "top": 0,
+        "backgroundColor": "var(--surface-2, #FAFAFA)",
+        "zIndex": 1,
+        "height": "32px",
+        "fontSize": "11px",
+        "fontWeight": 600,
+        "borderBottom": "1px solid var(--line, #E0E0E0)",
+        "whiteSpace": "nowrap",
+    }
+
+    tbody_children: list[Any] = []
     for code in sorted(groups):
         label = CATEGORY_LABELS.get(code, code or "Chưa phân nhóm")
-        sections.append(
-            html.Div(
-                [
-                    dmc.Title(label, order=3, size="sm", mt="sm", mb="xs", c="dimmed"),
-                    dmc.SimpleGrid(
-                        [render_report_card(r) for r in groups[code]],
-                        cols={"base": 1, "sm": 2, "lg": 3},
-                        spacing="sm",
-                    ),
-                ]
+        items = groups[code]
+        # Group header row
+        tbody_children.append(
+            dmc.TableTr(
+                dmc.TableTd(
+                    f"{label} · {len(items)} báo cáo",
+                    tableProps={"colSpan": 6},
+                    style={
+                        "height": "28px",
+                        "backgroundColor": "var(--surface-2, #FAFAFA)",
+                        "fontSize": "11px",
+                        "fontWeight": 600,
+                        "color": "var(--text-muted, #757575)",
+                        "textTransform": "uppercase",
+                        "letterSpacing": "0.04em",
+                        "padding": "0 12px",
+                    },
+                ),
+                className="grp",
             )
         )
-    return html.Div(sections, style={"paddingBottom": "16px"})
+        for r in items:
+            report_id = int(r["id"])
+            is_fav = bool(r.get("is_favorite"))
+            tbody_children.append(
+                dmc.TableTr(
+                    [
+                        # Mã
+                        dmc.TableTd(
+                            dmc.Anchor(
+                                str(r["code"]),
+                                href=f"/reports/{report_id}",
+                                className="rh-code",
+                                fw=600,
+                                size="sm",
+                                style={"textDecoration": "none"},
+                            ),
+                            style={"padding": "0 12px", "whiteSpace": "nowrap"},
+                        ),
+                        # Tên báo cáo
+                        dmc.TableTd(
+                            dmc.Text(str(r["name"]), fw=600, size="sm"),
+                            style={"padding": "0 12px", "whiteSpace": "nowrap"},
+                        ),
+                        # Mô tả
+                        dmc.TableTd(
+                            dmc.Text(
+                                str(r.get("description") or "—"),
+                                size="xs",
+                                c="dimmed",
+                                lineClamp=1,
+                                style={"maxWidth": "420px"},
+                            ),
+                            style={"padding": "0 12px"},
+                        ),
+                        # Template count
+                        dmc.TableTd(
+                            dmc.Badge(
+                                f"{int(r.get('template_count', 0))} template",
+                                color="teal",
+                                variant="light",
+                                size="xs",
+                            ),
+                            style={"padding": "0 12px", "whiteSpace": "nowrap"},
+                        ),
+                        # Yêu thích
+                        dmc.TableTd(
+                            dmc.ActionIcon(
+                                DashIconify(
+                                    icon="lucide:star",
+                                    width=16,
+                                ),
+                                id={"type": "reports-fav-btn", "index": report_id},
+                                variant="subtle",
+                                color="yellow" if is_fav else "gray",
+                                size="sm",
+                                **{"aria-label": f"Yêu thích {r['code']}"},
+                            ),
+                            style={"padding": "0 8px", "textAlign": "center", "width": "40px"},
+                        ),
+                        # Thao tác
+                        dmc.TableTd(
+                            dcc.Link(
+                                dmc.Button(
+                                    "Xem báo cáo",
+                                    variant="light",
+                                    size="xs",
+                                    id=f"reports-open-{report_id}",
+                                ),
+                                href=f"/reports/{report_id}",
+                            ),
+                            style={"padding": "0 12px", "textAlign": "right", "whiteSpace": "nowrap", "width": "1%"},
+                        ),
+                    ],
+                    className="report-row",
+                    style={"height": "40px"},
+                )
+            )
+
+    return dmc.Paper(
+        dmc.TableScrollContainer(
+            dmc.Table(
+                [
+                    dmc.TableThead(
+                        dmc.TableTr(
+                            [
+                                dmc.TableTh("Mã", style={**th_base, "width": "140px"}),
+                                dmc.TableTh("Tên báo cáo", style={**th_base, "width": "240px"}),
+                                dmc.TableTh("Mô tả", style=th_base),
+                                dmc.TableTh("Template", style={**th_base, "width": "120px"}),
+                                dmc.TableTh("", style={**th_base, "width": "50px", "textAlign": "center"}),
+                                dmc.TableTh("", style={**th_base, "width": "120px", "textAlign": "right"}),
+                            ]
+                        )
+                    ),
+                    dmc.TableTbody(tbody_children),
+                ],
+                striped=True,
+                highlightOnHover=True,
+                withTableBorder=False,
+                className="rlist",
+            ),
+            minWidth=800,
+        ),
+        withBorder=True,
+        radius="sm",
+        style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
+    )
 
 
 def layout() -> Any:
@@ -218,22 +345,27 @@ def layout() -> Any:
                         size="xs",
                     ),
                 ],
+                actions=[
+                    dmc.Text(
+                        f"{len(reports)} báo cáo",
+                        id="reports-catalog-meta",
+                        size="xs",
+                        c="dimmed",
+                        style={"whiteSpace": "nowrap"},
+                        **{"aria-live": "polite"},
+                    )
+                ],
             ),
             html.Div(
                 id="reports-error-area",
                 children=alert_box(load_error, tone="crit") if load_error else html.Div(),
                 **{"aria-live": "polite"},  # type: ignore[arg-type]
             ),
-            dcc.Loading(
-                id="reports-loading",
-                type="circle",
-                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
-                children=html.Div(
-                    id="reports-cards-container",
-                    style={"flex": 1, "minHeight": 0, "overflow": "auto", "padding": "4px 2px"},
-                    children=render_reports_sections(reports),
-                    **{"aria-live": "polite"},  # type: ignore[arg-type]
-                ),
+            html.Div(
+                id="reports-cards-container",
+                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
+                children=render_reports_sections(reports),
+                **{"aria-live": "polite"},  # type: ignore[arg-type]
             ),
         ],
         style={
@@ -249,6 +381,7 @@ def layout() -> Any:
 
 @callback(
     Output("reports-cards-container", "children"),
+    Output("reports-catalog-meta", "children"),
     Input("reports-search", "value"),
     Input("reports-category", "value"),
     Input("reports-fav-only", "checked"),
@@ -259,9 +392,10 @@ def handle_reports_filter(
     category: str | None,
     fav_only: bool | None,
     reports: list[dict[str, Any]] | None,
-) -> Any:
-    """Lọc cards theo tìm kiếm/nhóm/yêu thích (T27-01)."""
-    return render_reports_sections(_filter_reports(reports or [], query, category, bool(fav_only)))
+) -> tuple[Any, str]:
+    """Lọc danh sách báo cáo theo tìm kiếm/nhóm/yêu thích (T27-01)."""
+    filtered = _filter_reports(reports or [], query, category, bool(fav_only))
+    return render_reports_sections(filtered), f"{len(filtered)} báo cáo"
 
 
 @callback(
