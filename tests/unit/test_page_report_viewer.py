@@ -388,3 +388,21 @@ class TestViewerRun:
         executed = " ".join(str(c.args[0]) for c in cursor.execute.call_args_list)
         assert "ORDER BY" in executed and "AMOUNT" in executed
         assert "DESC" in executed
+
+    def test_result_table_renders_total_row(self):
+        from app.ui.components.report_widgets import render_result_table
+
+        layout = {
+            "columns": [
+                {"field_name": "CODE", "label": "Mã", "data_type": "STRING", "is_total": False},
+                {"field_name": "AMOUNT", "label": "Số tiền", "data_type": "NUMBER", "format_mask": "#,##0", "alignment": "RIGHT", "is_total": True},
+            ]
+        }
+        rows = [
+            {"CODE": "A", "AMOUNT": 1000000},
+            {"CODE": "B", "AMOUNT": 2500000},
+        ]
+        text = _dump(render_result_table(layout, rows))
+        assert "Tổng cộng" in text
+        assert "3.500.000" in text
+        assert "TableTfoot" in text

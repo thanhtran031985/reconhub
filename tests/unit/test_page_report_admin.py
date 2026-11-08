@@ -500,6 +500,7 @@ class TestStep4:
 
     def test_render_step4_shows_columns(self, run_env, admin_ctx, monkeypatch):
         import app.ui.pages.report_admin as page
+        from app.services.report_column import list_columns
 
         vid = self._draft_with_columns(run_env, admin_ctx, monkeypatch)
         state = _draft_state(run_env)
@@ -508,6 +509,13 @@ class TestStep4:
         assert "Cấu hình cột" in text
         assert "AMOUNT" in text
         assert "Khôi phục thứ tự" in text
+
+        # Kiểm tra preview cột có dữ liệu mẫu thực tế
+        cols = list_columns(admin_ctx, vid).data
+        preview = page._render_columns_preview(cols)
+        tbody = preview.children.children[1]
+        tbody_text = _dump(tbody)
+        assert "Dữ liệu mẫu 1" in tbody_text or "10000000" in tbody_text
 
     def test_column_save_bulk(self, run_env, admin_ctx, monkeypatch):
         import app.ui.pages.report_admin as page

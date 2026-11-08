@@ -1462,20 +1462,72 @@ def render_step3(state: dict[str, Any]) -> Any:
 
 
 def _render_columns_preview(columns: list[dict[str, Any]]) -> Any:
-    """Preview header cột (không dữ liệu) cho bước 4."""
+    """Preview header cột và dữ liệu mẫu giả lập cho bước 4 (Screen16 preview.html)."""
     visible = [c for c in columns if c.get("web_visible")]
     if not visible:
         return empty_state("Chưa có cột hiển thị.", "Bật Web ở grid cột.")
     header = [
         dmc.TableTh(
             c.get("label") or c.get("field_name"),
-            style={"textAlign": "right" if c.get("alignment") == "RIGHT" else "left"},
+            style={
+                "textAlign": "right" if c.get("alignment") == "RIGHT" or c.get("data_type") == "NUMBER" else "left",
+                "minWidth": f"{c.get('column_width') or 120}px",
+                "whiteSpace": "nowrap",
+                "fontSize": "11px",
+                "fontWeight": 600,
+            },
         )
         for c in visible
     ]
+    mock_row_1 = []
+    mock_row_2 = []
+    for c in visible:
+        dtype = c.get("data_type", "STRING")
+        field = str(c.get("field_name", "")).upper()
+        if dtype == "NUMBER":
+            val1 = 10000000
+            val2 = 8000000
+        elif dtype in ("DATE", "DATETIME"):
+            val1 = "2026-10-01T08:00:00"
+            val2 = "2026-10-02T09:30:00"
+        elif "CODE" in field or "NO" in field:
+            val1 = "HD000123"
+            val2 = "HD000124"
+        elif "NAME" in field:
+            val1 = "Công ty ABC"
+            val2 = "Công ty XYZ"
+        else:
+            val1 = "Dữ liệu mẫu 1"
+            val2 = "Dữ liệu mẫu 2"
+        mock_row_1.append(
+            dmc.TableTd(
+                _format_cell(val1, c),
+                style={
+                    "textAlign": "right" if c.get("alignment") == "RIGHT" or dtype == "NUMBER" else "left",
+                    "height": "28px",
+                    "whiteSpace": "nowrap",
+                },
+            )
+        )
+        mock_row_2.append(
+            dmc.TableTd(
+                _format_cell(val2, c),
+                style={
+                    "textAlign": "right" if c.get("alignment") == "RIGHT" or dtype == "NUMBER" else "left",
+                    "height": "28px",
+                    "whiteSpace": "nowrap",
+                },
+            )
+        )
+
     return dmc.ScrollArea(
         dmc.Table(
-            [dmc.TableThead(dmc.TableTr(header))],
+            [
+                dmc.TableThead(dmc.TableTr(header)),
+                dmc.TableTbody([dmc.TableTr(mock_row_1), dmc.TableTr(mock_row_2)]),
+            ],
+            striped=True,
+            highlightOnHover=True,
             withTableBorder=True,
         ),
         h=120,
@@ -1800,7 +1852,7 @@ def render_step_content(step: int, state: dict[str, Any], dry_run: dict[str, Any
 
 
 def render_wizard(state: dict[str, Any], dry_run: dict[str, Any] | None = None) -> Any:
-    """Khung wizard: Stepper + nội dung bước + điều hướng."""
+    """Khung wizard: Stepper + nội dung bước + điều hướng Sticky Footer."""
     step = int(state.get("step") or 1)
     return dmc.Stack(
         [
@@ -1823,6 +1875,7 @@ def render_wizard(state: dict[str, Any], dry_run: dict[str, Any] | None = None) 
             html.Div(
                 id="admin-step-content",
                 children=render_step_content(step, state, dry_run),
+                style={"flex": 1, "minHeight": 0, "overflowY": "auto", "padding": "4px 2px"},
             ),
             dmc.Group(
                 [
@@ -1840,10 +1893,20 @@ def render_wizard(state: dict[str, Any], dry_run: dict[str, Any] | None = None) 
                     ),
                 ],
                 justify="space-between",
-                mt="xl",
+                className="wfoot",
+                style={
+                    "position": "sticky",
+                    "bottom": 0,
+                    "backgroundColor": "var(--surface-1, #FFFFFF)",
+                    "borderTop": "1px solid var(--line, #E0E0E0)",
+                    "padding": "12px 0 4px 0",
+                    "zIndex": 10,
+                    "marginTop": "auto",
+                },
             ),
         ],
-        gap="lg",
+        gap="md",
+        style={"height": "100%", "display": "flex", "flexDirection": "column"},
     )
 
 

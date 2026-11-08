@@ -262,12 +262,62 @@ def render_result_table(layout: dict[str, Any], rows: list[dict[str, Any]]) -> A
                 ]
             )
         )
+
+    has_total = any(bool(c.get("is_total")) for c in columns)
+    tfoot = None
+    if has_total:
+        tfoot_cells = []
+        is_first = True
+        for c in columns:
+            if c.get("is_total") and c.get("data_type") == "NUMBER":
+                total_val = 0.0
+                for row in rows:
+                    val = row.get(c["field_name"])
+                    if val is not None:
+                        try:
+                            total_val += float(val)
+                        except (TypeError, ValueError):
+                            pass
+                formatted = _format_cell(total_val, c)
+                tfoot_cells.append(
+                    dmc.TableTd(
+                        dmc.Text(formatted, fw=700, size="xs"),
+                        style={
+                            "textAlign": "right" if c.get("alignment") == "RIGHT" else "left",
+                            "height": "34px",
+                            "fontWeight": 700,
+                            "backgroundColor": "var(--surface-2, #FAFAFA)",
+                            "borderTop": "2px solid var(--line, #E0E0E0)",
+                        },
+                    )
+                )
+            else:
+                label_text = "Tổng cộng" if is_first else ""
+                tfoot_cells.append(
+                    dmc.TableTd(
+                        dmc.Text(label_text, fw=700, size="xs") if label_text else "",
+                        style={
+                            "textAlign": "right" if c.get("alignment") == "RIGHT" else "left",
+                            "height": "34px",
+                            "fontWeight": 700,
+                            "backgroundColor": "var(--surface-2, #FAFAFA)",
+                            "borderTop": "2px solid var(--line, #E0E0E0)",
+                        },
+                    )
+                )
+            is_first = False
+        tfoot = dmc.TableTfoot(dmc.TableTr(tfoot_cells))
+
+    table_children = [dmc.TableThead(dmc.TableTr(header)), dmc.TableTbody(body)]
+    if tfoot:
+        table_children.append(tfoot)
+
     return dmc.Paper(
         dmc.TableScrollContainer(
             minWidth=800,
             style={"height": "100%", "overflow": "auto"},
             children=dmc.Table(
-                [dmc.TableThead(dmc.TableTr(header)), dmc.TableTbody(body)],
+                table_children,
                 striped=True,
                 highlightOnHover=True,
                 withTableBorder=False,
