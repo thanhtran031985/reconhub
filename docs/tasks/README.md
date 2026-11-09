@@ -34,6 +34,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 27 | [27-reporting-ui](27-reporting-ui/task.md) — UI Report Center, Viewer và Wizard | ✅ | 26 | feat/27-reporting-ui |
 | 28 | [28-reporting-integration](28-reporting-integration/task.md) — Permission, audit, Oracle migration và hồi quy | ✅ | 27 | feat/28-reporting-integration |
 | 29 | [29-reporting-fluent-ui](29-reporting-fluent-ui/task.md) — Đồng bộ giao diện Báo cáo động theo thiết kế chuẩn Screen16 preview.html | ✅ | 27, 28 | feat/29-reporting-fluent-ui |
+| 30 | [30-menu-search](30-menu-search/task.md) — Bỏ badge "Mới" ở menu thanh bên và thêm ô tìm kiếm menu ở header | ⬜ | 19, 20 | feat/30-menu-search |
 
 Thiết kế: 11 màn (designs/components/Screen01–Screen11), 13 thành phần, Gallery. Giao diện dựng bằng Dash Mantine Components.
 
