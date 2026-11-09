@@ -258,3 +258,59 @@ main > div > div,
     min-height: 320px;
   }
 }
+
+/* Data Model Explorer (task 31 bước 5): ER Canvas entity + relationship lines. */
+.dm-entity {
+  text-align: left;
+  background: var(--p, #FFFFFF);
+  border: 1px solid var(--line, #E0E0E0);
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  overflow: hidden;
+  font-family: inherit;
+}
+
+.dm-entity.selected {
+  border: 2px solid var(--primary, #0F6CBD);
+}
+
+.dm-entity.related {
+  border-color: var(--primary, #0F6CBD);
+}
+
+.dm-entity.dimmed {
+  opacity: 0.45;
+}
+
+.dm-rel-line {
+  background-color: var(--line, #E0E0E0);
+  cursor: pointer;
+}
+
+.dm-rel-line.related {
+  background-color: var(--primary, #0F6CBD);
+  height: 3px;
+}
+
+.dm-rel-line.dimmed {
+  opacity: 0.3;
+}
+
+.dm-col-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 11px;
+  min-width: 0;
+}
+
+.dm-col-row.dm-match {
+  background-color: var(--primary-soft, #EBF3FC);
+  font-weight: 600;
+}
+
+.dm-col-marker {
+  color: var(--primary, #0F6CBD);
+  min-width: 18px;
+}

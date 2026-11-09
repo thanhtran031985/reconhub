@@ -477,22 +477,28 @@ def test_handle_clear_filter(monkeypatch):
 def test_update_workspace_filters_and_counts(dm_manifest):
     import app.ui.pages.data_model as page
 
-    explorer, _canvas, _detail, count_text, _status = page.update_workspace(
+    explorer, _canvas, _detail, count_text, _status, _zoom = page.update_workspace(
         dm_manifest, "", "all", "relations", {"kind": None, "table": None}, {"expanded": {}}, 1.0
     )
     assert "43 tables" in count_text
     assert "RECON_RUN" in str(explorer)
-    explorer2, _c2, _d2, count2, _s2 = page.update_workspace(
+    # Nhãn zoom theo zoom-store (fit đổi zoom thì nhãn cũng đổi theo).
+    assert _zoom == "100%"
+    _e, _c, _d, _ct, _st, zoom_label = page.update_workspace(
+        dm_manifest, "", "all", "relations", {"kind": None, "table": None}, {"expanded": {}}, 0.55
+    )
+    assert zoom_label == "55%"
+    explorer2, _c2, _d2, count2, _s2, _z2 = page.update_workspace(
         dm_manifest, "GRID_SPAN", "all", "relations", {"kind": None, "table": None}, {"expanded": {}}, 1.0
     )
     assert "1 tables" in count2
     assert "RECON_RPT_PARAM" in str(explorer2)
-    explorer3, _c3, _d3, count3, _s3 = page.update_workspace(
+    explorer3, _c3, _d3, count3, _s3, _z3 = page.update_workspace(
         dm_manifest, "", "report", "relations", {"kind": None, "table": None}, {"expanded": {}}, 1.0
     )
     assert "11 tables" in count3
     # Không có manifest -> lỗi đọc metadata.
-    explorer4, _c4, _d4, _ct4, _s4 = page.update_workspace(
+    explorer4, _c4, _d4, _ct4, _s4, _z4 = page.update_workspace(
         None, "", "all", "relations", {"kind": None, "table": None}, {"expanded": {}}, 1.0
     )
     assert "Không thể đọc metadata database." in str(explorer4)
@@ -510,3 +516,180 @@ def test_explorer_context_menu_has_no_destructive_actions(dm_manifest):
     assert "Copy table name" in text
     for forbidden in ("Drop table", "Alter table", "Delete column", "Run SQL"):
         assert forbidden not in text
+
+
+# --- Bước 5: ER Canvas ---
+
+
+def test_layout_entities_deterministic(dm_manifest):
+    import app.ui.pages.data_model as page
+
+    tables = _manifest_tables(dm_manifest)
+    first = page.layout_entities(tables, "relations")
+    second = page.layout_entities(tables, "relations")
+    assert first == second
+    assert len(first) == 43
+    # Cột theo domain, thứ tự Core, Đối soát, Báo cáo, Quản trị.
+    assert first["RECON_USER"]["x"] == 0
+    assert first["RECON_RUN"]["x"] == 205 + 40
+    assert first["RECON_REPORT"]["x"] == 2 * (205 + 40)
+    assert first["RECON_DATA_SOURCE"]["x"] == 3 * (205 + 40)
+    # Trong domain xếp theo tên bảng alphabet: y tăng dần theo tên.
+    core_names = sorted(t["name"] for t in tables if t["domain"] == "core")
+    core_ys = [first[n]["y"] for n in core_names]
+    assert core_ys == sorted(core_ys)
+    # Chiều cao relations = 34 + 24 * số cột.
+    run_table = next(t for t in tables if t["name"] == "RECON_RUN")
+    assert first["RECON_RUN"]["h"] == 34 + 24 * len(run_table["columns"])
+    assert first["RECON_RUN"]["w"] == 205
+    # Canvas đủ chứa mọi entity.
+    w, h = page.canvas_size(first)
+    assert w == 4 * 205 + 3 * 40
+    assert h >= max(v["y"] + v["h"] for v in first.values())
+
+
+def test_layout_entities_compact_fixed_height(dm_manifest):
+    import app.ui.pages.data_model as page
+
+    layout = page.layout_entities(_manifest_tables(dm_manifest), "compact")
+    assert {v["h"] for v in layout.values()} == {40}
+    assert len(layout) == 43
+
+
+def test_relationship_lines_match_manifest_fk(dm_manifest):
+    import app.ui.pages.data_model as page
+
+    tables = _manifest_tables(dm_manifest)
+    layout = page.layout_entities(tables, "relations")
+    lines = page.relationship_lines(tables, layout)
+    total_fk = sum(len(t.get("foreign_keys", [])) for t in tables)
+    assert len(lines) == total_fk == 53
+    assert all(line["length"] > 0 for line in lines)
+    assert all(isinstance(line["angle_deg"], float) for line in lines)
+    user_role_line = next(line for line in lines if line["source"] == "RECON_USER_ROLE" and line["column"] == "USER_ID")
+    assert user_role_line["target"] == "RECON_USER"
+    assert user_role_line["references_column"] == "ID"
+
+
+def test_render_canvas_entities_and_markers(dm_manifest):
+    import app.ui.pages.data_model as page
+
+    tables = _manifest_tables(dm_manifest)
+    node = page.render_canvas(tables, {"kind": None, "table": None}, {}, 1.0, "")
+    text = str(node)
+    assert "data-model-canvas-inner" in text
+    assert "data-model-canvas-inner" in text
+    nodes = list(_walk(node))
+    entities = [n for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-entity"]
+    assert len(entities) == 43
+    lines = [n for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-rel-line"]
+    assert len(lines) == 53
+    # Marker PK/FK bằng ký tự, không chỉ bằng màu.
+    assert "◆" in text
+    assert "↗" in text
+    # Compact: chỉ header, không liệt kê cột.
+    compact = page.render_canvas(tables, {"kind": None, "table": None}, {}, 1.0, "")
+    _ = compact
+    compact_node = page.render_canvas(tables, {"kind": None, "table": None}, {}, 1.0, "")
+    assert "RECON_RUN" in str(compact_node)
+
+
+def test_render_canvas_compact_hides_columns(dm_manifest):
+    import app.ui.pages.data_model as page
+
+    tables = _manifest_tables(dm_manifest)
+    # render_canvas nhận mode qua ui-store.
+    relations = page.render_canvas(tables, {"kind": None, "table": None}, {"mode": "relations"}, 1.0, "")
+    compact = page.render_canvas(tables, {"kind": None, "table": None}, {"mode": "compact"}, 1.0, "")
+    assert "CREATED_AT" in str(relations)
+    assert "CREATED_AT" not in str(compact)
+
+
+def test_render_canvas_selection_highlight(dm_manifest):
+    import app.ui.pages.data_model as page
+
+    tables = _manifest_tables(dm_manifest)
+    node = page.render_canvas(tables, {"kind": "table", "table": "RECON_RUN"}, {"mode": "relations"}, 1.0, "")
+    nodes = list(_walk(node))
+    entities = {
+        n.id["table"]: n for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-entity"
+    }
+    assert "selected" in (entities["RECON_RUN"].className or "")
+    # Bảng liên quan (RECON_RESULT_ROW trỏ RECON_RUN) được accent, bảng không
+    # liên quan (RECON_USER) mờ đi.
+    assert "related" in (entities["RECON_RESULT_ROW"].className or "")
+    assert "dimmed" in (entities["RECON_USER"].className or "")
+
+
+def test_render_canvas_query_highlights_column(dm_manifest):
+    import app.ui.pages.data_model as page
+
+    tables = page.filter_tables(_manifest_tables(dm_manifest), "GRID_SPAN", "all")
+    node = page.render_canvas(tables, {"kind": None, "table": None}, {"mode": "relations"}, 1.0, "GRID_SPAN")
+    assert "RECON_RPT_PARAM" in str(node)
+    assert "dm-match" in str(node)
+
+
+def test_handle_zoom_clamps(monkeypatch):
+    import dash
+
+    import app.ui.pages.data_model as page
+
+    # Phóng to từ 1.0 -> 1.1; tới max 1.35 thì kẹp.
+    assert page.handle_zoom_in(1, 1.0) == 1.1
+    assert page.handle_zoom_in(1, 1.35) == 1.35
+    assert page.handle_zoom_in(1, 1.3) == 1.35
+    # Thu nhỏ từ 1.0 -> 0.9; tới min 0.55 thì kẹp.
+    assert page.handle_zoom_out(1, 1.0) == 0.9
+    assert page.handle_zoom_out(1, 0.55) == 0.55
+    assert page.handle_zoom_out(1, 0.6) == 0.55
+    with pytest.raises(dash.exceptions.PreventUpdate):
+        page.handle_zoom_in(0, 1.0)
+    with pytest.raises(dash.exceptions.PreventUpdate):
+        page.handle_zoom_out(None, 1.0)
+
+
+def test_handle_entity_click(monkeypatch):
+    import json
+
+    import app.ui.pages.data_model as page
+
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(
+            triggered=[
+                {
+                    "prop_id": json.dumps({"type": "dm-entity", "table": "RECON_RUN"}) + ".n_clicks",
+                    "value": 1,
+                }
+            ]
+        ),
+    )
+    selection, href = page.handle_entity_click(
+        [1], {"kind": None, "table": None}, {"domain": "all", "mode": "relations"}
+    )
+    assert selection == {"kind": "table", "table": "RECON_RUN"}
+    assert href == "/data-model?table=RECON_RUN&domain=all&mode=relations"
+
+
+def test_handle_rel_click_selects_relationship(dm_manifest, monkeypatch):
+    import json
+
+    import app.ui.pages.data_model as page
+
+    tables = _manifest_tables(dm_manifest)
+    layout = page.layout_entities(tables, "relations")
+    lines = page.relationship_lines(tables, layout)
+    idx = next(i for i, line in enumerate(lines) if line["source"] == "RECON_USER_ROLE" and line["column"] == "USER_ID")
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(
+            triggered=[{"prop_id": json.dumps({"type": "dm-rel-line", "index": idx}) + ".n_clicks", "value": 1}]
+        ),
+    )
+    selection = page.handle_rel_click([1] * len(lines), dm_manifest, {"kind": None, "table": None})
+    assert selection["kind"] == "relationship"
+    assert selection["source"] == "RECON_USER_ROLE"
+    assert selection["target"] == "RECON_USER"
+    assert selection["column"] == "USER_ID"
+    assert selection["references_column"] == "ID"

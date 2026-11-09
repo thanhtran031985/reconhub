@@ -391,12 +391,234 @@ def render_canvas(
     zoom: float,
     query: str,
 ) -> Any:
-    """ER Canvas — placeholder ở bước 4, thay bằng entity + lines ở bước 5."""
-    _ = (tables, selection, ui, zoom, query)
-    return empty_state(
-        title="ER Diagram chưa sẵn sàng",
-        description="Canvas sẽ hiển thị entity và relationship sau bước 5.",
+    """ER Canvas: entity card + relationship lines (div xoay) từ FK metadata.
+
+    Layout deterministic theo domain (cột) + tên bảng (hàng), không hardcode
+    tọa độ từng bảng. Pan bằng scroll native, zoom qua transform scale().
+    """
+    mode = str((ui or {}).get("mode") or "relations")
+    if not tables:
+        return empty_state(
+            title="Không tìm thấy table hoặc column phù hợp.",
+            description="Thử từ khóa khác hoặc xóa bộ lọc để xem toàn bộ schema.",
+        )
+    layout = layout_entities(tables, mode)
+    canvas_w, canvas_h = canvas_size(layout)
+    lines = relationship_lines(tables, layout)
+    selected_table = (
+        str(selection.get("table"))
+        if selection and selection.get("kind") == "table" and selection.get("table")
+        else None
     )
+    selected_rel = selection if selection and selection.get("kind") == "relationship" else None
+    related_tables: set[str] = set()
+    related_lines: set[int] = set()
+    if selected_table:
+        related_tables.add(selected_table)
+        for idx, line in enumerate(lines):
+            if line["source"] == selected_table or line["target"] == selected_table:
+                related_lines.add(idx)
+                related_tables.add(line["source"])
+                related_tables.add(line["target"])
+    if selected_rel:
+        for idx, line in enumerate(lines):
+            if (
+                line["source"] == selected_rel.get("source")
+                and line["target"] == selected_rel.get("target")
+                and line["column"] == selected_rel.get("column")
+            ):
+                related_lines.add(idx)
+                related_tables.add(line["source"])
+                related_tables.add(line["target"])
+
+    line_nodes: list[Any] = []
+    for idx, line in enumerate(lines):
+        if selected_table or selected_rel:
+            cls = "dm-rel-line related" if idx in related_lines else "dm-rel-line dimmed"
+        else:
+            cls = "dm-rel-line"
+        line_nodes.append(
+            html.Div(
+                id={"type": "dm-rel-line", "index": idx},
+                className=cls,
+                title=f"{line['source']}.{line['column']} → {line['target']}.{line['references_column']}",
+                style={
+                    "position": "absolute",
+                    "left": line["x1"],
+                    "top": line["y1"],
+                    "width": line["length"],
+                    "height": 2,
+                    "transform": f"rotate({line['angle_deg']:.2f}deg)",
+                    "transformOrigin": "left center",
+                    "zIndex": 1,
+                },
+            )
+        )
+
+    entity_nodes: list[Any] = []
+    table_by_name = {t["name"]: t for t in tables}
+    for name in sorted(layout):
+        box = layout[name]
+        table = table_by_name[name]
+        columns = table.get("columns", [])
+        if selected_table or selected_rel:
+            if name == selected_table:
+                cls = "dm-entity selected"
+            elif name in related_tables:
+                cls = "dm-entity related"
+            else:
+                cls = "dm-entity dimmed"
+        else:
+            cls = "dm-entity"
+        header = dmc.Group(
+            [
+                html.Span(className="dm-dot"),
+                dmc.Text(name, className="rh-code", size="sm", fw=600),
+                dmc.Text(f"{len(columns)} cột", size="xs", c="dimmed"),
+            ],
+            gap="xs",
+            align="center",
+            style={"minWidth": 0, "flexWrap": "nowrap"},
+        )
+        body: list[Any] = [header]
+        if mode == "relations":
+            matched = set(matching_columns(table, query))
+            for col in columns:
+                if col.get("primary_key") and col.get("foreign_key"):
+                    marker = "◆↗"
+                elif col.get("primary_key"):
+                    marker = "◆"
+                elif col.get("foreign_key"):
+                    marker = "↗"
+                elif col.get("unique"):
+                    marker = "U"
+                else:
+                    marker = ""
+                body.append(
+                    html.Div(
+                        [
+                            html.Span(marker, className="dm-col-marker"),
+                            dmc.Text(col["name"], className="rh-code", size="xs"),
+                            dmc.Text(str(col.get("type", "")), size="xs", c="dimmed"),
+                        ],
+                        className="dm-col-row dm-match" if col["name"] in matched else "dm-col-row",
+                    )
+                )
+        entity_nodes.append(
+            html.Button(
+                dmc.Stack(body, gap=2),
+                id={"type": "dm-entity", "table": name},
+                className=cls,
+                style={
+                    "position": "absolute",
+                    "left": box["x"],
+                    "top": box["y"],
+                    "width": box["w"],
+                    "height": box["h"],
+                    "zIndex": 2,
+                },
+                **{"data-table": name},  # type: ignore[arg-type]
+            )
+        )
+
+    # Div canvas trong trả trực tiếp, KHÔNG bọc thêm div scroll: khung ngoài
+    # #data-model-canvas-container (layout, overflow auto, flex 1) mới là
+    # scroller — bọc thêm một div flex:1 trong parent block sẽ cao bằng nội
+    # dung (7054px) khiến clientHeight sai, fit tính sai và center không cuộn.
+    return html.Div(
+        [*line_nodes, *entity_nodes],
+        id="data-model-canvas-inner",
+        style={
+            "position": "relative",
+            "width": canvas_w,
+            "height": canvas_h,
+            "transform": f"scale({zoom})",
+            "transformOrigin": "0 0",
+        },
+        **{  # type: ignore[arg-type]
+            "data-w": str(canvas_w),
+            "data-h": str(canvas_h),
+            "data-zoom": str(zoom),
+        },
+    )
+
+
+# --- Bước 5: ER Canvas (helper thuần) ---
+
+ENTITY_W = 205
+GAP_X = 40
+GAP_Y = 24
+
+
+def layout_entities(tables: list[dict[str, Any]], mode: str) -> dict[str, dict[str, int]]:
+    """Layout deterministic: cột theo domain, hàng theo tên bảng alphabet.
+
+    Compact cao cố định 40; relations cao 34 + 24 * số cột. Trả
+    {tên bảng: {x, y, w, h}}.
+    """
+    groups = group_tables(tables)
+    layout: dict[str, dict[str, int]] = {}
+    for col_idx, (_code, _label, group) in enumerate(groups):
+        x = col_idx * (ENTITY_W + GAP_X)
+        y = 0
+        for table in sorted(group, key=lambda t: str(t["name"])):
+            n_cols = len(table.get("columns", []))
+            h = 40 if mode == "compact" else 34 + 24 * n_cols
+            layout[str(table["name"])] = {"x": x, "y": y, "w": ENTITY_W, "h": h}
+            y += h + GAP_Y
+    return layout
+
+
+def canvas_size(layout: dict[str, dict[str, int]]) -> tuple[int, int]:
+    """Kích thước canvas vừa đủ chứa mọi entity."""
+    if not layout:
+        return (0, 0)
+    width = max(box["x"] + box["w"] for box in layout.values())
+    height = max(box["y"] + box["h"] for box in layout.values())
+    return (width, height)
+
+
+def relationship_lines(tables: list[dict[str, Any]], layout: dict[str, dict[str, int]]) -> list[dict[str, Any]]:
+    """Relationship lines từ FK metadata: div xoay từ mép phải entity nguồn
+    tới mép trái entity đích. Bỏ line khi đích bị lọc khỏi canvas."""
+    lines: list[dict[str, Any]] = []
+    for table in sorted(tables, key=lambda t: str(t["name"])):
+        source = str(table["name"])
+        if source not in layout:
+            continue
+        src = layout[source]
+        x1 = src["x"] + src["w"]
+        y1 = src["y"] + src["h"] // 2
+        for fk in sorted(table.get("foreign_keys", []), key=lambda f: str(f.get("column"))):
+            target = str(fk.get("references_table") or "")
+            if target not in layout:
+                continue
+            tgt = layout[target]
+            x2 = tgt["x"]
+            y2 = tgt["y"] + tgt["h"] // 2
+            dx = x2 - x1
+            dy = y2 - y1
+            length = (dx * dx + dy * dy) ** 0.5
+            import math
+
+            angle = math.degrees(math.atan2(dy, dx))
+            lines.append(
+                {
+                    "source": source,
+                    "target": target,
+                    "column": str(fk.get("column")),
+                    "references_column": str(fk.get("references_column")),
+                    "constraint_name": fk.get("constraint_name"),
+                    "on_delete": fk.get("on_delete"),
+                    "x1": x1,
+                    "y1": y1,
+                    "x2": x2,
+                    "y2": y2,
+                    "length": length,
+                    "angle_deg": angle,
+                }
+            )
+    return lines
 
 
 def render_detail(
@@ -486,7 +708,6 @@ def layout(**kwargs: Any) -> Any:
             dcc.Store(id="data-model-sync-result-store", data=None),
             dcc.Store(id="data-model-history-filter-store", data={"query": "", "change_type": "all", "table": None}),
             dcc.Store(id="data-model-drift-filter-store", data="all"),
-            dcc.Location(id="data-model-location", refresh=False),
             html.Div(id="data-model-notification-area"),
             html.Div(id="data-model-center-sink"),
             html.Div(id="data-model-copy-sink"),
@@ -566,6 +787,12 @@ def layout(**kwargs: Any) -> Any:
                                         dmc.Text("ER Diagram", fw=600, size="sm"),
                                         dmc.Group(
                                             [
+                                                dmc.Text(
+                                                    "100%",
+                                                    id="data-model-zoom-label",
+                                                    size="xs",
+                                                    c="dimmed",
+                                                ),
                                                 dmc.ActionIcon(
                                                     DashIconify(icon="lucide:zoom-in", width=14),
                                                     id="data-model-zoom-in-btn",
@@ -733,6 +960,7 @@ def layout(**kwargs: Any) -> Any:
     Output("data-model-detail-container", "children"),
     Output("data-model-explorer-count", "children"),
     Output("data-model-status-counts", "children"),
+    Output("data-model-zoom-label", "children"),
     Input("data-model-manifest-store", "data"),
     Input("data-model-search", "value"),
     Input("data-model-domain-filter", "value"),
@@ -749,7 +977,7 @@ def update_workspace(
     selection: dict[str, Any] | None,
     ui: dict[str, Any] | None,
     zoom: float | None,
-) -> tuple[Any, Any, Any, str, str]:
+) -> tuple[Any, Any, Any, str, str, str]:
     """Dựng lại Explorer + Canvas + Detail theo search/domain/mode/selection."""
     if not manifest_data or not manifest_data.get("manifest"):
         return (
@@ -758,6 +986,7 @@ def update_workspace(
             render_detail(selection, None, None, search or ""),
             "0 tables",
             "0 tables · 0 columns · 0 relationships",
+            _zoom_label(zoom or 1.0),
         )
     manifest = manifest_data["manifest"]
     tables = manifest.get("tables", [])
@@ -776,12 +1005,13 @@ def update_workspace(
         render_detail(selection, manifest, manifest_data.get("history") or [], search or ""),
         f"{len(filtered)} tables",
         f"{counts['tables']} tables · {counts['columns']} columns · {counts['relationships']} relationships",
+        _zoom_label(zoom or 1.0),
     )
 
 
 @callback(
     Output("data-model-selection-store", "data"),
-    Output("data-model-location", "href"),
+    Output("app-location", "href", allow_duplicate=True),
     Input({"type": "dm-table-item", "table": ALL}, "n_clicks"),
     State("data-model-selection-store", "data"),
     State("data-model-ui-store", "data"),
@@ -889,7 +1119,7 @@ def handle_context_menu(
 @callback(
     Output("data-model-selection-store", "data", allow_duplicate=True),
     Output("data-model-ui-store", "data", allow_duplicate=True),
-    Output("data-model-zoom-store", "data"),
+    Output("data-model-zoom-store", "data", allow_duplicate=True),
     Input("data-model-dblclick-store", "data"),
     State("data-model-selection-store", "data"),
     State("data-model-ui-store", "data"),
@@ -943,5 +1173,163 @@ clientside_callback(
     """,
     Output("data-model-copy-sink", "children"),
     Input("data-model-copy-store", "data"),
+    prevent_initial_call=True,
+)
+
+
+# --- Bước 5: ER Canvas callbacks ---
+
+MIN_ZOOM = 0.55
+MAX_ZOOM = 1.35
+ZOOM_STEP = 0.1
+
+
+def _zoom_label(zoom: float) -> str:
+    return f"{int(round(zoom * 100))}%"
+
+
+def _selection_href(table: str, ui: dict[str, Any] | None) -> str:
+    ui_data = ui or {}
+    domain = str(ui_data.get("domain") or "all")
+    mode = str(ui_data.get("mode") or "relations")
+    return f"/data-model?table={table}&domain={domain}&mode={mode}"
+
+
+@callback(
+    Output("data-model-zoom-store", "data", allow_duplicate=True),
+    Input("data-model-zoom-in-btn", "n_clicks"),
+    State("data-model-zoom-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_zoom_in(n_clicks: int | None, zoom: float | None) -> float:
+    """Phóng to ER Diagram một bước, kẹp ở MAX_ZOOM.
+
+    Nhãn zoom do update_workspace viết theo zoom-store (một nơi duy nhất).
+    """
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    return min(MAX_ZOOM, max(MIN_ZOOM, round((zoom or 1.0) + ZOOM_STEP, 1)))
+
+
+@callback(
+    Output("data-model-zoom-store", "data", allow_duplicate=True),
+    Input("data-model-zoom-out-btn", "n_clicks"),
+    State("data-model-zoom-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_zoom_out(n_clicks: int | None, zoom: float | None) -> float:
+    """Thu nhỏ ER Diagram một bước, kẹp ở MIN_ZOOM."""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    return min(MAX_ZOOM, max(MIN_ZOOM, round((zoom or 1.0) - ZOOM_STEP, 1)))
+
+
+@callback(
+    Output("data-model-selection-store", "data", allow_duplicate=True),
+    Output("app-location", "href", allow_duplicate=True),
+    Input({"type": "dm-entity", "table": ALL}, "n_clicks"),
+    State("data-model-selection-store", "data"),
+    State("data-model-ui-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_entity_click(
+    _n_clicks: list[int | None],
+    selection: dict[str, Any] | None,
+    ui: dict[str, Any] | None,
+) -> tuple[Any, Any]:
+    """Click entity trên canvas: chọn table + cập nhật URL (như click dòng)."""
+    ctx_dash = dash.callback_context
+    if (_triggered_clicks(ctx_dash) or 0) <= 0:
+        return selection or {"kind": None, "table": None}, dash.no_update
+    triggered = _parse_triggered_id(ctx_dash.triggered[0]["prop_id"])
+    table = triggered.get("table")
+    if not table:
+        return selection or {"kind": None, "table": None}, dash.no_update
+    return {"kind": "table", "table": str(table)}, _selection_href(str(table), ui)
+
+
+@callback(
+    Output("data-model-selection-store", "data", allow_duplicate=True),
+    Input({"type": "dm-rel-line", "index": ALL}, "n_clicks"),
+    State("data-model-manifest-store", "data"),
+    State("data-model-selection-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_rel_click(
+    _n_clicks: list[int | None],
+    manifest_data: dict[str, Any] | None,
+    selection: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Click relationship line: chọn relationship (source/target/column)."""
+    ctx_dash = dash.callback_context
+    fallback = selection or {"kind": None, "table": None}
+    if (_triggered_clicks(ctx_dash) or 0) <= 0:
+        return fallback
+    triggered = _parse_triggered_id(ctx_dash.triggered[0]["prop_id"])
+    index = triggered.get("index")
+    if index is None or not manifest_data or not manifest_data.get("manifest"):
+        return fallback
+    tables = manifest_data["manifest"].get("tables", [])
+    lines = relationship_lines(tables, layout_entities(tables, "relations"))
+    try:
+        line = lines[int(index)]
+    except (IndexError, ValueError, TypeError):
+        return fallback
+    return {
+        "kind": "relationship",
+        "source": line["source"],
+        "target": line["target"],
+        "column": line["column"],
+        "references_column": line["references_column"],
+        "constraint": line.get("constraint_name"),
+        "on_delete": line.get("on_delete"),
+    }
+
+
+# Fit-to-screen: clientside đọc kích thước viewport + canvas, tính scale rồi
+# trả về zoom store (server render lại với transform mới). Không clear
+# search/domain/selection.
+clientside_callback(
+    """
+    function(nClicks) {
+        var container = document.getElementById('data-model-canvas-container');
+        var inner = document.getElementById('data-model-canvas-inner');
+        if (!container || !inner) return window.dash_clientside.no_update;
+        var w = parseFloat(inner.dataset.w || '0');
+        var h = parseFloat(inner.dataset.h || '0');
+        if (!w || !h) return window.dash_clientside.no_update;
+        var scale = Math.min(container.clientWidth / w, container.clientHeight / h);
+        scale = Math.round(scale * 10) / 10;
+        scale = Math.max(0.55, Math.min(1.35, scale));
+        return scale;
+    }
+    """,
+    Output("data-model-zoom-store", "data", allow_duplicate=True),
+    Input("data-model-fit-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+
+# Center: clientside cuộn container tới entity khi ui-store đổi center_table.
+# Chỉ cuộn khi center_table đổi (tránh cuộn lại mỗi lần ui-store đổi khác).
+clientside_callback(
+    """
+    function(ui) {
+        if (!ui || !ui.center_table) return window.dash_clientside.no_update;
+        if (window.__dmLastCenter === ui.center_table) return window.dash_clientside.no_update;
+        window.__dmLastCenter = ui.center_table;
+        var container = document.getElementById('data-model-canvas-container');
+        var inner = document.getElementById('data-model-canvas-inner');
+        var el = document.querySelector('.dm-entity[data-table="' + ui.center_table + '"]');
+        if (!container || !inner || !el) return window.dash_clientside.no_update;
+        var zoom = parseFloat(inner.dataset.zoom || '1');
+        var left = el.offsetLeft * zoom + el.offsetWidth * zoom / 2 - container.clientWidth / 2;
+        var top = el.offsetTop * zoom + el.offsetHeight * zoom / 2 - container.clientHeight / 2;
+        container.scrollTo({left: Math.max(0, left), top: Math.max(0, top)});
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("data-model-center-sink", "children"),
+    Input("data-model-ui-store", "data"),
     prevent_initial_call=True,
 )
