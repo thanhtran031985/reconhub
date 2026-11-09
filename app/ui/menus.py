@@ -55,6 +55,7 @@ MENUS: list[MenuDef] = [
     MenuDef("report_center", "Trung tâm báo cáo", "DOI_SOAT", "/reports", 70, "lucide:bar-chart-3"),
     MenuDef("report_history", "Lịch sử báo cáo", "DOI_SOAT", "/report-runs", 80, "lucide:clipboard-list"),
     MenuDef("report_admin", "Quản trị báo cáo", "QUAN_TRI", "/report-admin", 40, "lucide:settings", "N"),
+    MenuDef("data_model", "Mô hình dữ liệu", "QUAN_TRI", "/data-model", 50, "lucide:network"),
 ]
 
 MENU_BY_CODE: dict[str, MenuDef] = {m.code: m for m in MENUS}
