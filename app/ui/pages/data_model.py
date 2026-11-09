@@ -18,7 +18,7 @@ from dash import ALL, Input, Output, State, callback, clientside_callback, dcc, 
 from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
-from app.services.data_model import get_data_model
+from app.services.data_model import get_data_model, sync_schema
 from app.services.perm import page_gate
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
@@ -58,6 +58,7 @@ HEALTH_TEXT: dict[str, str] = {
     "DRIFT": "⚠ Schema drift",
     "UNKNOWN": "? Không xác định",
     "ERROR": "✕ Lỗi metadata",
+    "CHECKING": "Đang kiểm tra schema…",
 }
 
 HEALTH_COLOR: dict[str, str] = {
@@ -65,6 +66,7 @@ HEALTH_COLOR: dict[str, str] = {
     "DRIFT": "yellow",
     "UNKNOWN": "gray",
     "ERROR": "red",
+    "CHECKING": "blue",
 }
 
 
@@ -91,6 +93,7 @@ def health_badge(status: str) -> dmc.Badge:
         "DRIFT": "lucide:alert-triangle",
         "UNKNOWN": "lucide:help-circle",
         "ERROR": "lucide:x-circle",
+        "CHECKING": "lucide:loader",
     }.get(status, "lucide:help-circle")
     return dmc.Badge(
         label,
@@ -1217,7 +1220,7 @@ def layout(**kwargs: Any) -> Any:
                     alert_box(
                         load_error,
                         tone="crit",
-                        action=button_subtle("Thử lại", id="data-model-retry-btn", size="sm"),
+                        action=button_subtle("Thử lại", id={"type": "dm-retry-btn", "index": 0}, size="sm"),
                     )
                     if load_error
                     else None
@@ -1474,7 +1477,23 @@ def update_workspace(
             _zoom_label(zoom or 1.0),
         )
     manifest = manifest_data["manifest"]
-    tables = manifest.get("tables", [])
+    tables = manifest.get("tables", []) or []
+    if not tables:
+        return (
+            empty_state(
+                title="Chưa có table nào trong mô hình.",
+                description="Manifest trống. Bấm Đồng bộ lại để quét schema từ model và migrations.",
+                action=button_subtle("Đồng bộ lại", id={"type": "dm-resync-btn", "index": 0}, icon="lucide:refresh-cw"),
+            ),
+            empty_state(
+                title="Chưa có table nào trong mô hình.",
+                description="Bấm Đồng bộ lại để quét schema từ model và migrations.",
+            ),
+            render_detail(selection, manifest, manifest_data.get("history") or [], search or ""),
+            "0 tables",
+            "0 tables · 0 columns · 0 relationships",
+            _zoom_label(zoom or 1.0),
+        )
     filtered = filter_tables(tables, search or "", domain or "all")
     counts = manifest_data.get(
         "counts",
@@ -1949,3 +1968,187 @@ def handle_rel_nav(
     if not table:
         return fallback, dash.no_update
     return {"kind": "table", "table": str(table)}, _selection_href(str(table), ui)
+
+
+# --- Bước 7: Sync state machine + loading/empty/error ---
+
+
+def sync_result_to_ui(result: dict[str, Any] | None, current_health: str = "SYNCED") -> dict[str, Any]:
+    """State machine nút Đồng bộ schema -> props UI (button, health, message, drift).
+
+    Trạng thái: NORMAL (result None) / RUNNING ({"running": True}) /
+    SUCCESS-NO-CHANGE / SUCCESS-CHANGED / DRIFT / ERROR ({"ok": False}).
+    """
+    base: dict[str, Any] = {
+        "button_loading": False,
+        "button_disabled": False,
+        "button_label": "Đồng bộ schema",
+        "health": current_health,
+        "message": None,
+        "show_drift": current_health == "DRIFT",
+    }
+    if result is None:
+        return base
+    if result.get("running"):
+        base.update(
+            {
+                "button_loading": True,
+                "button_disabled": True,
+                "button_label": "Đang đồng bộ…",
+                "health": "CHECKING",
+                "show_drift": False,
+            }
+        )
+        return base
+    if not result.get("ok", True):
+        base.update(
+            {
+                "health": "ERROR",
+                "message": ("crit", str(result.get("message") or "Không thể đọc metadata database.")),
+                "show_drift": False,
+            }
+        )
+        return base
+    changed = result.get("changed") or {}
+    n_tables = int(changed.get("tables") or 0)
+    n_columns = int(changed.get("columns") or 0)
+    if result.get("drift_status") == "DRIFT":
+        base.update(
+            {
+                "health": "DRIFT",
+                "message": ("warn", "⚠ Schema drift — bấm Xem khác biệt để xem chi tiết."),
+                "show_drift": True,
+            }
+        )
+        return base
+    if n_tables == 0 and n_columns == 0:
+        base.update({"health": "SYNCED", "message": ("ok", "✓ Schema đồng bộ")})
+    else:
+        base.update(
+            {
+                "health": "SYNCED",
+                "message": (
+                    "ok",
+                    f"✓ Đã cập nhật mô hình — {n_tables} tables, {n_columns} columns thay đổi",
+                ),
+            }
+        )
+    return base
+
+
+def _sync_ui_outputs(ui: dict[str, Any], result: dict[str, Any] | None) -> tuple[Any, Any, Any]:
+    """Chuyển state machine thành (health badge, notification, drift style)."""
+    health_node = health_badge(str(ui["health"]))
+    message = ui.get("message")
+    note = alert_box(message[1], tone=message[0]) if message else None
+    drift_style = {} if ui.get("show_drift") else {"display": "none"}
+    return health_node, note, drift_style
+
+
+def _sync_clicked(ctx_dash: Any) -> bool:
+    """Có click thật (> 0) trên sync/retry/resync không (int hoặc list pattern ALL)."""
+    triggered = getattr(ctx_dash, "triggered", None) or []
+    for entry in triggered:
+        value = entry.get("value")
+        if isinstance(value, int) and value > 0:
+            return True
+        if isinstance(value, list) and any(isinstance(v, int) and v > 0 for v in value):
+            return True
+    return False
+
+
+@callback(
+    Output("data-model-sync-btn", "loading"),
+    Output("data-model-sync-btn", "disabled"),
+    Output("data-model-sync-btn", "children"),
+    Output("data-model-sync-trigger", "data"),
+    Output("data-model-sync-result-store", "data"),
+    Output("data-model-health-container", "children"),
+    Output("data-model-notification-area", "children"),
+    Output("data-model-drift-btn", "style"),
+    Input("data-model-sync-btn", "n_clicks"),
+    Input({"type": "dm-retry-btn", "index": ALL}, "n_clicks"),
+    Input({"type": "dm-resync-btn", "index": ALL}, "n_clicks"),
+    State("data-model-sync-trigger", "data"),
+    prevent_initial_call=True,
+)
+def handle_sync_click(
+    _n_clicks: int | None,
+    _retry_clicks: list[int | None],
+    _resync_clicks: list[int | None],
+    trigger: int | None,
+) -> tuple[bool, bool, str, int, None, Any, None, dict[str, str]]:
+    """Pha 1: bấm Đồng bộ/Thử lại/Đồng bộ lại -> nút loading + health đang kiểm tra + tăng trigger."""
+    if not _sync_clicked(dash.callback_context):
+        raise dash.exceptions.PreventUpdate
+    ui = sync_result_to_ui({"running": True})
+    health_node, _note, drift_style = _sync_ui_outputs(ui, None)
+    return (
+        True,
+        True,
+        str(ui["button_label"]),
+        int(trigger or 0) + 1,
+        None,
+        health_node,
+        None,
+        drift_style,
+    )
+
+
+@callback(
+    Output("data-model-manifest-store", "data"),
+    Output("data-model-sync-result-store", "data", allow_duplicate=True),
+    Output("data-model-sync-btn", "loading", allow_duplicate=True),
+    Output("data-model-sync-btn", "disabled", allow_duplicate=True),
+    Output("data-model-sync-btn", "children", allow_duplicate=True),
+    Output("data-model-health-container", "children", allow_duplicate=True),
+    Output("data-model-notification-area", "children", allow_duplicate=True),
+    Output("data-model-drift-btn", "style", allow_duplicate=True),
+    Output("data-model-error-container", "children"),
+    Output("data-model-last-sync", "children"),
+    Input("data-model-sync-trigger", "data"),
+    prevent_initial_call=True,
+)
+def handle_sync_run(trigger: int | None) -> tuple[Any, Any, bool, bool, str, Any, Any, Any, Any, Any]:
+    """Pha 2: trigger tăng -> chạy sync_schema, reload manifest, trả trạng thái cuối."""
+    if not trigger:
+        raise dash.exceptions.PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None:
+        result: dict[str, Any] = {"ok": False, "message": "Bạn chưa đăng nhập."}
+        manifest_data: Any = dash.no_update
+        generated_at: str | None = None
+    else:
+        res = sync_schema(ctx)
+        if res.ok and res.data:
+            result = {"ok": True, **res.data}
+        else:
+            result = {"ok": False, "message": res.message or "Không thể đọc metadata database."}
+        reload = get_data_model(ctx)
+        if reload.ok and reload.data:
+            manifest_data = reload.data
+            generated_at = str(reload.data.get("manifest", {}).get("generated_at") or "")
+        else:
+            manifest_data = dash.no_update
+            generated_at = None
+    ui = sync_result_to_ui(result)
+    health_node, note, drift_style = _sync_ui_outputs(ui, result)
+    error_node: Any = None
+    if not result.get("ok", True):
+        error_node = alert_box(
+            str(result.get("message") or "Không thể đọc metadata database."),
+            tone="crit",
+            action=button_subtle("Thử lại", id={"type": "dm-retry-btn", "index": 0}, size="sm"),
+        )
+    return (
+        manifest_data,
+        result,
+        bool(ui["button_loading"]),
+        bool(ui["button_disabled"]),
+        str(ui["button_label"]),
+        health_node,
+        note,
+        drift_style,
+        error_node,
+        format_last_sync(generated_at) if generated_at else dash.no_update,
+    )

@@ -1064,3 +1064,266 @@ def test_handle_rel_nav(monkeypatch):
     selection2, href2 = page.handle_rel_nav([0], {"kind": None, "table": None}, {})
     assert selection2 == {"kind": None, "table": None}
     assert href2 is dash.no_update
+
+
+# --- Bước 7: Sync state machine + loading/empty/error ---
+
+
+def test_sync_result_to_ui_states():
+    """State machine đủ 6 trạng thái: normal/running/no-change/changed/drift/error."""
+    import app.ui.pages.data_model as page
+
+    normal = page.sync_result_to_ui(None, current_health="SYNCED")
+    assert normal["button_loading"] is False
+    assert normal["button_disabled"] is False
+    assert normal["button_label"] == "Đồng bộ schema"
+    assert normal["health"] == "SYNCED"
+    assert normal["message"] is None
+    assert normal["show_drift"] is False
+
+    normal_drift = page.sync_result_to_ui(None, current_health="DRIFT")
+    assert normal_drift["health"] == "DRIFT"
+    assert normal_drift["show_drift"] is True
+
+    running = page.sync_result_to_ui({"running": True})
+    assert running["button_loading"] is True
+    assert running["button_disabled"] is True
+    assert running["button_label"] == "Đang đồng bộ…"
+    assert running["health"] == "CHECKING"
+    assert running["message"] is None
+    assert running["show_drift"] is False
+
+    no_change = page.sync_result_to_ui({"ok": True, "changed": {"tables": 0, "columns": 0}, "drift_status": "SYNCED"})
+    assert no_change["health"] == "SYNCED"
+    assert no_change["message"] == ("ok", "✓ Schema đồng bộ")
+    assert no_change["show_drift"] is False
+
+    changed = page.sync_result_to_ui({"ok": True, "changed": {"tables": 2, "columns": 4}, "drift_status": "SYNCED"})
+    assert changed["health"] == "SYNCED"
+    assert changed["message"] == ("ok", "✓ Đã cập nhật mô hình — 2 tables, 4 columns thay đổi")
+
+    drift = page.sync_result_to_ui(
+        {"ok": True, "changed": {"tables": 0, "columns": 0}, "drift_status": "DRIFT", "drifts": [{}]}
+    )
+    assert drift["health"] == "DRIFT"
+    assert drift["message"][0] == "warn"
+    assert "Schema drift" in drift["message"][1]
+    assert drift["show_drift"] is True
+
+    error = page.sync_result_to_ui({"ok": False, "message": "Không thể đọc metadata database."})
+    assert error["health"] == "ERROR"
+    assert error["message"][0] == "crit"
+    assert "Không thể đọc metadata database." in error["message"][1]
+    assert error["button_disabled"] is False  # bấm lại được (Thử lại)
+
+
+def test_update_workspace_empty_schema(dm_manifest):
+    """Manifest 0 bảng: empty state + nút Đồng bộ lại (pattern id)."""
+    import app.ui.pages.data_model as page
+
+    empty_data = dict(dm_manifest)
+    empty_data["manifest"] = dict(dm_manifest["manifest"], tables=[])
+    empty_data["counts"] = {"tables": 0, "columns": 0, "relationships": 0}
+    explorer, canvas, detail, count_text, _status, _zoom = page.update_workspace(
+        empty_data, "", "all", "relations", {"kind": None, "table": None}, {"expanded": {}}, 1.0
+    )
+    assert "Chưa có table nào trong mô hình." in str(explorer)
+    assert "Đồng bộ lại" in str(explorer)
+    nodes = list(_walk(explorer))
+    resync_ids = [
+        n.id for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-resync-btn"
+    ]
+    assert resync_ids, "thiếu nút Đồng bộ lại (dm-resync-btn)"
+    assert "Chưa có table nào trong mô hình." in str(canvas)
+    assert count_text == "0 tables"
+
+
+def test_update_workspace_empty_search(dm_manifest):
+    """Search không khớp: explorer empty + nút Xóa bộ lọc; canvas empty."""
+    import app.ui.pages.data_model as page
+
+    explorer, canvas, _detail, count_text, _status, _zoom = page.update_workspace(
+        dm_manifest, "xyz-khong-co", "all", "relations", {"kind": None, "table": None}, {"expanded": {}}, 1.0
+    )
+    assert "Không tìm thấy table hoặc column phù hợp." in str(explorer)
+    assert "Xóa bộ lọc" in str(explorer)
+    assert "Không tìm thấy table hoặc column phù hợp." in str(canvas)
+    assert count_text == "0 tables"
+
+
+def test_layout_skeletons_and_retry(dm_env, monkeypatch):
+    """Load đầu: 3 panel có dmc.Skeleton; lỗi load: alert + nút Thử lại (pattern id)."""
+    import dash_mantine_components as dmc
+
+    import app.ui.pages.data_model as page
+
+    monkeypatch.setattr(page, "get_current_ctx", lambda: dm_env["admin_ctx"])
+    box = page.layout()
+    skeletons = [n for n in _walk(box) if isinstance(n, dmc.Skeleton)]
+    assert len(skeletons) >= 9  # 3 panel x 3 skeleton
+
+    # Giả lỗi load manifest: get_data_model trả fail.
+    from app.schemas.errors import ServiceResult
+
+    monkeypatch.setattr(
+        page,
+        "get_data_model",
+        lambda ctx: ServiceResult(ok=False, code="DM_LOAD", message="Không thể đọc metadata database."),
+    )
+    box_err = page.layout()
+    text = str(box_err)
+    assert "Không thể đọc metadata database." in text
+    nodes = list(_walk(box_err))
+    retry_ids = [n.id for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-retry-btn"]
+    assert retry_ids, "thiếu nút Thử lại (dm-retry-btn)"
+
+
+def test_handle_sync_click(monkeypatch):
+    """Bấm Đồng bộ: loading/disabled + health đang kiểm tra + trigger tăng."""
+    import dash
+
+    import app.ui.pages.data_model as page
+
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "data-model-sync-btn.n_clicks", "value": 1}]),
+    )
+    loading, disabled, label, trigger, result, health, note, drift_style = page.handle_sync_click(1, [], [], 0)
+    assert loading is True
+    assert disabled is True
+    assert label == "Đang đồng bộ…"
+    assert trigger == 1
+    assert result is None
+    assert "Đang kiểm tra schema" in str(health)
+    assert note is None
+    assert drift_style == {"display": "none"}
+
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "data-model-sync-btn.n_clicks", "value": 0}]),
+    )
+    with pytest.raises(dash.exceptions.PreventUpdate):
+        page.handle_sync_click(0, [], [], 0)
+
+
+def test_handle_sync_click_retry(monkeypatch):
+    """Bấm Thử lại (pattern id) cũng kích hoạt đồng bộ."""
+    import json
+
+    import app.ui.pages.data_model as page
+
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(
+            triggered=[
+                {
+                    "prop_id": json.dumps({"type": "dm-retry-btn", "index": 0}) + ".n_clicks",
+                    "value": [1],
+                }
+            ]
+        ),
+    )
+    _loading, _disabled, _label, trigger, _r, _h, _n, _d = page.handle_sync_click(None, [1], [], 3)
+    assert trigger == 4
+
+
+def test_handle_sync_run_success_no_change(dm_env, dm_manifest, monkeypatch):
+    """Sync xong không đổi: manifest reload, health SYNCED, thông báo đồng bộ."""
+    import dash
+
+    import app.ui.pages.data_model as page
+    from app.schemas.errors import ServiceResult
+
+    monkeypatch.setattr(page, "get_current_ctx", lambda: dm_env["admin_ctx"])
+    monkeypatch.setattr(
+        page,
+        "sync_schema",
+        lambda ctx: ServiceResult(
+            ok=True,
+            data={"changed": {"tables": 0, "columns": 0}, "drift_status": "SYNCED", "drifts": []},
+        ),
+    )
+    monkeypatch.setattr(page, "get_data_model", lambda ctx: ServiceResult(ok=True, data=dm_manifest))
+    out = page.handle_sync_run(1)
+    manifest_data, result, loading, disabled, label, health, note, drift_style, err, last_sync = out
+    assert manifest_data == dm_manifest
+    assert result["ok"] is True
+    assert loading is False and disabled is False and label == "Đồng bộ schema"
+    assert "Schema đồng bộ" in str(health)
+    assert "✓ Schema đồng bộ" in str(note)
+    assert drift_style == {"display": "none"}
+    assert err is None
+    assert "Cập nhật:" in str(last_sync)
+
+    with pytest.raises(dash.exceptions.PreventUpdate):
+        page.handle_sync_run(0)
+
+
+def test_handle_sync_run_changed(dm_env, dm_manifest, monkeypatch):
+    """Sync có thay đổi: thông báo số bảng/cột đã cập nhật."""
+    import app.ui.pages.data_model as page
+    from app.schemas.errors import ServiceResult
+
+    monkeypatch.setattr(page, "get_current_ctx", lambda: dm_env["admin_ctx"])
+    monkeypatch.setattr(
+        page,
+        "sync_schema",
+        lambda ctx: ServiceResult(
+            ok=True,
+            data={"changed": {"tables": 2, "columns": 4}, "drift_status": "SYNCED", "drifts": []},
+        ),
+    )
+    monkeypatch.setattr(page, "get_data_model", lambda ctx: ServiceResult(ok=True, data=dm_manifest))
+    _m, _r, _l, _d, _lb, _h, note, _ds, _e, _ls = page.handle_sync_run(2)
+    assert "✓ Đã cập nhật mô hình" in str(note)
+    assert "2 tables, 4 columns thay đổi" in str(note)
+
+
+def test_handle_sync_run_drift(dm_env, dm_manifest, monkeypatch):
+    """Sync xong còn drift: health DRIFT + hiện nút Xem khác biệt."""
+    import app.ui.pages.data_model as page
+    from app.schemas.errors import ServiceResult
+
+    monkeypatch.setattr(page, "get_current_ctx", lambda: dm_env["admin_ctx"])
+    drift = {
+        "type": "COLUMN_EXTRA",
+        "table": "RECON_RUN",
+        "column": "EXTRA_COL",
+        "detail": "d",
+        "db_value": "VARCHAR(10)",
+        "model_value": None,
+    }
+    monkeypatch.setattr(
+        page,
+        "sync_schema",
+        lambda ctx: ServiceResult(
+            ok=True,
+            data={"changed": {"tables": 0, "columns": 0}, "drift_status": "DRIFT", "drifts": [drift]},
+        ),
+    )
+    monkeypatch.setattr(page, "get_data_model", lambda ctx: ServiceResult(ok=True, data=dm_manifest))
+    _m, _r, _l, _d, _lb, health, note, drift_style, _e, _ls = page.handle_sync_run(1)
+    assert "Schema drift" in str(health)
+    assert "Schema drift" in str(note)
+    assert drift_style == {}
+
+
+def test_handle_sync_run_error(dm_env, dm_manifest, monkeypatch):
+    """Sync lỗi: health ERROR + alert lỗi kèm nút Thử lại, nút Đồng bộ bấm lại được."""
+    import app.ui.pages.data_model as page
+    from app.schemas.errors import ServiceResult
+
+    monkeypatch.setattr(page, "get_current_ctx", lambda: dm_env["admin_ctx"])
+    monkeypatch.setattr(
+        page,
+        "sync_schema",
+        lambda ctx: ServiceResult(ok=False, code="DM_SYNC", message="Không thể đọc metadata database."),
+    )
+    monkeypatch.setattr(page, "get_data_model", lambda ctx: ServiceResult(ok=True, data=dm_manifest))
+    manifest_data, result, loading, disabled, _lb, health, note, drift_style, err, _ls = page.handle_sync_run(1)
+    assert result["ok"] is False
+    assert loading is False and disabled is False
+    assert "Lỗi metadata" in str(health) or "ERROR" in str(health) or "Không xác định" in str(health)
+    assert "Không thể đọc metadata database." in str(err)
+    assert "Thử lại" in str(err)
+    assert manifest_data is not None  # giữ manifest cũ khi sync lỗi
