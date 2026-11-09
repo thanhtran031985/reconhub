@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
 
 import dash
@@ -212,8 +213,9 @@ def get_nav_items_for_menus(menus: set[str], engine: Any = None, is_admin: bool 
     Nhóm/menu lấy tên, thứ tự hiển thị từ DB (DISPLAY_*), không lấy từ
     code (task 20 bước 3); chưa migration thì dùng lại hằng số code.
     Menu đã gỡ không hiện với ai; menu đang ẩn chỉ hiện với ADMIN, kèm
-    nhãn "Đang ẩn" (bước 2); menu mới gắn cờ is_new để ADMIN thấy nhãn
-    "Mới" (bước 3). `menu_admin` mở từ bước 4 (trang /menus).
+    nhãn "Đang ẩn" (bước 2); cờ is_new vẫn gắn vào nav item nhưng thanh
+    bên không còn hiển thị nhãn "Mới" (task 30). `menu_admin` mở từ
+    bước 4 (trang /menus).
     """
     visible = set(menus)
     engine = engine or get_recon_engine()
@@ -328,6 +330,46 @@ def render_banners(
     return banners
 
 
+# --- Task 30: tìm kiếm menu ở header ---
+
+MAX_MENU_SEARCH_RESULTS = 8
+
+_MENU_SEARCH_RESULTS_STYLE: dict[str, Any] = {
+    "position": "absolute",
+    "top": "38px",
+    "left": 0,
+    "width": "320px",
+    "zIndex": 1000,
+    "maxHeight": "320px",
+    "overflow": "auto",
+    "display": "none",
+}
+
+
+def _strip_accents(text: str) -> str:
+    """Bỏ dấu tiếng Việt + chữ thường để so khớp tên menu không dấu."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return stripped.replace("Đ", "D").replace("đ", "d").lower()
+
+
+def _flatten_nav_items(nav_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Làm phẳng các nhóm menu thanh bên thành danh sách cho ô tìm kiếm."""
+    return [
+        {"label": item["label"], "href": item["href"], "icon": item["icon"], "group": group["title"]}
+        for group in nav_groups
+        for item in group["items"]
+    ]
+
+
+def filter_menu_items(items: list[dict[str, Any]] | None, query: str) -> list[dict[str, Any]]:
+    """Lọc menu theo tên (khớp chuỗi con, có dấu hay không dấu đều ra)."""
+    q = _strip_accents(query.strip())
+    if not q:
+        return []
+    return [item for item in items or [] if q in _strip_accents(item["label"])]
+
+
 def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool = False) -> Any:
     """Tạo thanh header 44px chuẩn Fluent Compact với nút toggle sidebar, breadcrumb, nhãn ENV và User Menu."""
     env_badge_color = {
@@ -409,6 +451,35 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool
         withArrow=True,
     )
 
+    # Task 30: ô tìm kiếm menu ở giữa header (sau breadcrumb, trước badge môi trường).
+    # Danh sách lấy từ cùng nguồn với thanh bên nên chỉ hiện menu tài khoản được thấy.
+    search_items: list[dict[str, Any]] = []
+    if ctx is not None:
+        search_items = _flatten_nav_items(get_nav_items_for_menus(effective_menus(ctx), is_admin=is_admin(ctx)))
+    menu_search = dmc.Box(
+        [
+            dcc.Store(id="app-menu-search-store", data=search_items),
+            dmc.TextInput(
+                id="app-menu-search-input",
+                placeholder="Tìm kiếm menu...",
+                leftSection=DashIconify(icon="lucide:search", width=16),
+                radius="xl",
+                size="sm",
+                style={"width": "320px"},
+            ),
+            dmc.Paper(
+                id="app-menu-search-results-paper",
+                children=[html.Div(id="app-menu-search-results")],
+                shadow="md",
+                radius="md",
+                withBorder=True,
+                style=dict(_MENU_SEARCH_RESULTS_STYLE),
+            ),
+        ],
+        style={"position": "relative", "width": "320px"},
+        visibleFrom="md",
+    )
+
     return dmc.Group(
         [
             dmc.Group(
@@ -419,6 +490,7 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool
                 gap="md",
                 align="center",
             ),
+            menu_search,
             dmc.Group(
                 [
                     dmc.Badge(
@@ -531,15 +603,8 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
             )
             for item in group["items"]:
                 is_active = item["href"] == active_href
+                # Task 30: bỏ hẳn badge "Mới" ở menu thanh bên (kể cả menu thêm sau này).
                 label_node: Any = item["label"]
-                if item.get("is_new"):
-                    label_node = dmc.Group(
-                        [
-                            dmc.Text(item["label"], size="xs", fw=500),
-                            dmc.Badge("Mới", size="xs", color="green", variant="light"),
-                        ],
-                        gap="xs",
-                    )
                 content_children.append(
                     dmc.NavLink(
                         label=label_node,
@@ -553,7 +618,9 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
                             "root": {
                                 "height": "32px",
                                 "borderRadius": "4px",
-                                "borderLeft": "3px solid var(--primary, #0F6CBD)" if is_active else "3px solid transparent",
+                                "borderLeft": "3px solid var(--primary, #0F6CBD)"
+                                if is_active
+                                else "3px solid transparent",
                                 "backgroundColor": "var(--primary-soft, #EBF3FC)" if is_active else "transparent",
                                 "margin": "1px 4px",
                             },
@@ -855,3 +922,62 @@ def sync_sidebar_ui(is_collapsed: Any, pathname: str | None) -> tuple[Any, ...]:
     )
     toggle_label = "Mở rộng menu" if is_mini else "Thu nhỏ menu"
     return navbar_config, navbar_children, toggle_icon, toggle_label
+
+
+@callback(
+    Output("app-menu-search-results", "children"),
+    Output("app-menu-search-results-paper", "style"),
+    Output("app-location", "href"),
+    Input("app-menu-search-input", "value"),
+    Input("app-menu-search-input", "n_submit"),
+    State("app-menu-search-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_menu_search(
+    value: str | None, n_submit: int | None, items: list[dict[str, Any]] | None
+) -> tuple[Any, Any, Any]:
+    """Task 30: tìm kiếm menu ở header — gõ để lọc, Enter tới kết quả đầu."""
+    ctx_dash = dash.callback_context
+    triggered = ctx_dash.triggered[0]["prop_id"] if ctx_dash.triggered else ""
+    matches = filter_menu_items(items, value or "")
+    if "n_submit" in triggered:
+        if not matches:
+            return dash.no_update, dash.no_update, dash.no_update
+        return [], dict(_MENU_SEARCH_RESULTS_STYLE), matches[0]["href"]
+    if not (value or "").strip():
+        return [], dict(_MENU_SEARCH_RESULTS_STYLE), dash.no_update
+    if not matches:
+        return (
+            [dmc.Text("Không tìm thấy menu nào", size="sm", c="dimmed", px="sm", py="xs")],
+            {**_MENU_SEARCH_RESULTS_STYLE, "display": "block"},
+            dash.no_update,
+        )
+    shown = matches[:MAX_MENU_SEARCH_RESULTS]
+    nodes: list[Any] = [
+        dmc.NavLink(
+            label=dmc.Group(
+                [
+                    dmc.Text(item["label"], size="sm", fw=500),
+                    dmc.Text(item["group"], size="xs", c="dimmed"),
+                ],
+                gap="xs",
+                justify="space-between",
+            ),
+            leftSection=DashIconify(icon=item["icon"], width=16),
+            href=item["href"],
+            variant="subtle",
+            py=4,
+        )
+        for item in shown
+    ]
+    if len(matches) > MAX_MENU_SEARCH_RESULTS:
+        nodes.append(
+            dmc.Text(
+                f"…và {len(matches) - MAX_MENU_SEARCH_RESULTS} kết quả khác",
+                size="xs",
+                c="dimmed",
+                px="sm",
+                py=4,
+            )
+        )
+    return nodes, {**_MENU_SEARCH_RESULTS_STYLE, "display": "block"}, dash.no_update

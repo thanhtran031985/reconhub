@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from app.core.context import Role
 from app.ui.layout.shell import (
+    _strip_accents,
     build_breadcrumbs,
+    create_header,
     create_navbar,
+    filter_menu_items,
     get_active_nav_href,
     get_nav_items_for_roles,
+    handle_menu_search,
     render_banners,
 )
 
@@ -224,3 +228,145 @@ def test_sidebar_toggle_callbacks() -> None:
     # 4. Khi ở trang login thì PreventUpdate
     with pytest.raises(PreventUpdate):
         sync_sidebar_ui(True, "/login")
+
+
+# --- Task 30: bỏ badge "Mới" + tìm kiếm menu ở header ---
+
+
+def test_navbar_no_new_badge(monkeypatch) -> None:
+    """Task 30 bước 1: thanh bên không còn badge "Mới" dù menu có is_new=True."""
+    from app.core.context import Ctx
+
+    groups = [
+        {
+            "title": "ĐỐI SOÁT",
+            "items": [
+                {"label": "Dashboard", "href": "/", "icon": "lucide:layout-dashboard", "is_new": True},
+                {"label": "Lịch sử", "href": "/history", "icon": "lucide:history", "is_new": True},
+            ],
+        }
+    ]
+    monkeypatch.setattr("app.ui.layout.shell.get_nav_items_for_menus", lambda *a, **k: groups)
+    monkeypatch.setattr("app.ui.layout.shell.effective_menus", lambda ctx, engine=None: {"dashboard", "history"})
+    ctx = Ctx(user_id=1, username="admin", full_name="Admin", roles=[Role.ADMIN])
+    navbar = create_navbar(ctx, pathname="/")
+    navbar_str = str(navbar)
+    assert "Mới" not in navbar_str
+    assert "Dashboard" in navbar_str
+    assert "Lịch sử" in navbar_str
+
+
+_MENU_SEARCH_ITEMS = [
+    {"label": "Dashboard", "href": "/", "icon": "lucide:layout-dashboard", "group": "ĐỐI SOÁT"},
+    {"label": "Chạy đối soát", "href": "/runs/new", "icon": "lucide:play-circle", "group": "ĐỐI SOÁT"},
+    {"label": "Lịch sử", "href": "/history", "icon": "lucide:history", "group": "ĐỐI SOÁT"},
+    {"label": "Templates", "href": "/templates", "icon": "lucide:file-spreadsheet", "group": "CẤU HÌNH"},
+]
+
+
+def test_strip_accents() -> None:
+    """Task 30 bước 2: chuẩn hoá bỏ dấu để tìm không dấu."""
+    assert _strip_accents("Đối soát") == "doi soat"
+    assert _strip_accents("ĐĂNG KÝ") == "dang ky"
+    assert _strip_accents("Lịch sử") == "lich su"
+    assert _strip_accents("Chạy bộ đối soát") == "chay bo doi soat"
+    assert _strip_accents("Dashboard") == "dashboard"
+    assert _strip_accents("Đối   Soát") == "doi   soat"
+
+
+def test_filter_menu_items() -> None:
+    """Task 30 bước 2: lọc theo tên menu, khớp có dấu và không dấu."""
+    assert [i["label"] for i in filter_menu_items(_MENU_SEARCH_ITEMS, "doi soat")] == ["Chạy đối soát"]
+    assert [i["label"] for i in filter_menu_items(_MENU_SEARCH_ITEMS, "ĐỐI SOÁT")] == ["Chạy đối soát"]
+    assert [i["label"] for i in filter_menu_items(_MENU_SEARCH_ITEMS, "lich su")] == ["Lịch sử"]
+    assert [i["label"] for i in filter_menu_items(_MENU_SEARCH_ITEMS, "dash")] == ["Dashboard"]
+    assert filter_menu_items(_MENU_SEARCH_ITEMS, "xyz") == []
+    assert filter_menu_items(_MENU_SEARCH_ITEMS, "") == []
+    assert filter_menu_items(_MENU_SEARCH_ITEMS, "   ") == []
+
+
+def test_handle_menu_search_limit_8(monkeypatch) -> None:
+    """Task 30 bước 2: dropdown tối đa 8 kết quả + dòng đếm số còn lại."""
+    import dash
+
+    _trigger(monkeypatch, "app-menu-search-input.value")
+    items = [{"label": f"Mục {i:02d}", "href": f"/m{i}", "icon": "lucide:circle", "group": "NHÓM"} for i in range(12)]
+    children, style, href = handle_menu_search("mục", None, items)
+    nav_links = [c for c in children if type(c).__name__ == "NavLink"]
+    assert len(nav_links) == 8
+    assert "…và 4 kết quả khác" in str(children)
+    assert style["display"] == "block"
+    assert href is dash.no_update
+
+
+def _trigger(monkeypatch, prop_id: str) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("dash.callback_context", SimpleNamespace(triggered=[{"prop_id": prop_id}]))
+
+
+def test_handle_menu_search_typing(monkeypatch) -> None:
+    """Task 30 bước 2: gõ chữ thì lọc + hiện dropdown, không chuyển trang."""
+    import dash
+
+    _trigger(monkeypatch, "app-menu-search-input.value")
+    children, style, href = handle_menu_search("doi soat", None, _MENU_SEARCH_ITEMS)
+    assert "Chạy đối soát" in str(children)
+    assert style["display"] == "block"
+    assert href is dash.no_update
+
+
+def test_handle_menu_search_no_match(monkeypatch) -> None:
+    """Task 30 bước 2: không khớp thì hiện dòng 'Không tìm thấy menu nào'."""
+    import dash
+
+    _trigger(monkeypatch, "app-menu-search-input.value")
+    children, style, href = handle_menu_search("xyz", None, _MENU_SEARCH_ITEMS)
+    assert "Không tìm thấy menu nào" in str(children)
+    assert style["display"] == "block"
+    assert href is dash.no_update
+
+
+def test_handle_menu_search_empty(monkeypatch) -> None:
+    """Task 30 bước 2: xoá hết chữ thì đóng dropdown."""
+    import dash
+
+    _trigger(monkeypatch, "app-menu-search-input.value")
+    children, style, href = handle_menu_search("", None, _MENU_SEARCH_ITEMS)
+    assert children == []
+    assert style["display"] == "none"
+    assert href is dash.no_update
+
+
+def test_handle_menu_search_enter(monkeypatch) -> None:
+    """Task 30 bước 2: Enter chuyển tới kết quả đầu tiên và đóng dropdown."""
+    _trigger(monkeypatch, "app-menu-search-input.n_submit")
+    children, style, href = handle_menu_search("doi soat", 1, _MENU_SEARCH_ITEMS)
+    assert children == []
+    assert style["display"] == "none"
+    assert href == "/runs/new"
+
+
+def test_handle_menu_search_enter_no_match(monkeypatch) -> None:
+    """Task 30 bước 2: Enter khi không có kết quả thì không làm gì."""
+    import dash
+
+    _trigger(monkeypatch, "app-menu-search-input.n_submit")
+    children, style, href = handle_menu_search("xyz", 1, _MENU_SEARCH_ITEMS)
+    assert children is dash.no_update
+    assert style is dash.no_update
+    assert href is dash.no_update
+
+
+def test_header_menu_search() -> None:
+    """Task 30 bước 2: header có ô tìm kiếm + store danh sách menu."""
+    from app.core.context import Ctx
+
+    ctx = Ctx(user_id=1, username="admin", full_name="Admin", roles=[Role.ADMIN])
+    header = create_header(ctx, "dev", "/", is_mini=False)
+    header_str = str(header)
+    assert "app-menu-search-input" in header_str
+    assert "app-menu-search-store" in header_str
+    assert "Tìm kiếm menu" in header_str
+    # Store chứa đúng menu mà tài khoản được thấy (fallback MENUS khi chưa có DB).
+    assert "Chạy đối soát" in header_str
