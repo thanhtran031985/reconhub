@@ -236,6 +236,23 @@ def render_result_table(layout: dict[str, Any], rows: list[dict[str, Any]]) -> A
         "fontSize": "12px",
         "fontWeight": 600,
     }
+    def _align(c_meta: dict[str, Any]) -> str:
+        a = str(c_meta.get("alignment") or "LEFT").upper()
+        if a in ("CENTER", "GIỮA", "GIUA"):
+            return "center"
+        if a in ("RIGHT", "PHẢI", "PHAI"):
+            return "right"
+        return "left"
+
+    def _val(row_dict: dict[str, Any], f_name: str) -> Any:
+        if f_name in row_dict:
+            return row_dict[f_name]
+        if f_name.upper() in row_dict:
+            return row_dict[f_name.upper()]
+        if f_name.lower() in row_dict:
+            return row_dict[f_name.lower()]
+        return None
+
     header = [
         dmc.TableTh(
             dmc.Button(
@@ -245,7 +262,7 @@ def render_result_table(layout: dict[str, Any], rows: list[dict[str, Any]]) -> A
                 id={"type": "viewer-sort", "index": c["field_name"]},
                 **{"aria-label": f"Sắp xếp theo {c['label']}"},
             ),
-            style={**th_style, "textAlign": "right" if c.get("alignment") == "RIGHT" else "left"},
+            style={**th_style, "textAlign": _align(c)},
         )
         for c in columns
     ]
@@ -255,8 +272,8 @@ def render_result_table(layout: dict[str, Any], rows: list[dict[str, Any]]) -> A
             dmc.TableTr(
                 [
                     dmc.TableTd(
-                        _format_cell(row.get(c["field_name"]), c),
-                        style={"textAlign": "right" if c.get("alignment") == "RIGHT" else "left", "height": "32px"},
+                        _format_cell(_val(row, c["field_name"]), c),
+                        style={"textAlign": _align(c), "height": "32px"},
                     )
                     for c in columns
                 ]
@@ -283,7 +300,7 @@ def render_result_table(layout: dict[str, Any], rows: list[dict[str, Any]]) -> A
                     dmc.TableTd(
                         dmc.Text(formatted, fw=700, size="xs"),
                         style={
-                            "textAlign": "right" if c.get("alignment") == "RIGHT" else "left",
+                            "textAlign": _align(c),
                             "height": "34px",
                             "fontWeight": 700,
                             "backgroundColor": "var(--surface-2, #FAFAFA)",
@@ -297,7 +314,7 @@ def render_result_table(layout: dict[str, Any], rows: list[dict[str, Any]]) -> A
                     dmc.TableTd(
                         dmc.Text(label_text, fw=700, size="xs") if label_text else "",
                         style={
-                            "textAlign": "right" if c.get("alignment") == "RIGHT" else "left",
+                            "textAlign": _align(c),
                             "height": "34px",
                             "fontWeight": 700,
                             "backgroundColor": "var(--surface-2, #FAFAFA)",

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-from sqlalchemy import Connection, select
+from sqlalchemy import Connection, delete, select
 
 from app.core.audit import write_audit_log
 from app.core.context import Ctx
@@ -565,3 +565,28 @@ def restore_column_order(ctx: Ctx, version_id: int) -> dict[str, Any]:
             new_data={"restore_db_order": True},
         )
         return {"columns": _load_columns(conn, version_id)}
+
+
+@service
+@requires_menu("report_admin")
+def delete_column(ctx: Ctx, version_id: int, column_id: int) -> dict[str, Any]:
+    """Xóa cột khỏi danh sách cột của version DRAFT."""
+    engine = get_recon_engine()
+    with engine.begin() as conn:
+        _load_version_draft(conn, version_id)
+        conn.execute(
+            delete(recon_rpt_column).where(
+                recon_rpt_column.c.VERSION_ID == version_id,
+                recon_rpt_column.c.ID == column_id,
+            )
+        )
+        write_audit_log(
+            conn,
+            "RECON_RPT_COLUMN",
+            column_id,
+            "DELETE_COLUMN",
+            ctx.username,
+            new_data={"version_id": version_id},
+        )
+        return {"columns": _load_columns(conn, version_id)}
+

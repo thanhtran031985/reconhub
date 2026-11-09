@@ -26,6 +26,7 @@ from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
 from app.services.perm import is_admin, requires_menu
 from app.services.report_run import (
+    _prepare_query_binds,
     build_run_query,
     load_version_detail,
     map_oracle_error,
@@ -440,7 +441,8 @@ def _iter_batches(
     batch_size: int = FETCH_BATCH_SIZE,
 ) -> Iterator[tuple[list[str], list[dict[str, Any]]]]:
     """Stream kết quả theo lô fetchmany — giữ connection mở trong vòng lặp."""
-    sql, binds = build_run_query(detail, resolved)
+    sql, raw_binds = build_run_query(detail, resolved)
+    binds = _prepare_query_binds(detail, raw_binds)
     order_by = stable_order_by(detail, [])
     ds_id = detail["data_source_id"]
     if ds_id is None:

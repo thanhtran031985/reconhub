@@ -313,6 +313,28 @@ def map_oracle_error(exc: Exception, timeout_sec: int) -> ServiceError:
     )
 
 
+def _prepare_query_binds(detail: dict[str, Any], binds: dict[str, Any]) -> dict[str, Any]:
+    """Chuyển đổi các tham số DATE/DATETIME sang Python datetime object cho driver Oracle Thin."""
+    params = detail.get("params", [])
+    type_map = {str(p.get("code")): str(p.get("data_type", "STRING")).upper() for p in params}
+    out = dict(binds)
+    for code, val in list(out.items()):
+        dtype = type_map.get(code)
+        if dtype == "DATE" and isinstance(val, str) and val.strip():
+            try:
+                out[code] = datetime.strptime(val.strip(), "%Y-%m-%d")
+            except ValueError:
+                pass
+        elif dtype == "DATETIME" and isinstance(val, str) and val.strip():
+            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                try:
+                    out[code] = datetime.strptime(val.strip(), fmt)
+                    break
+                except ValueError:
+                    pass
+    return out
+
+
 def _execute_count_page(
     detail: dict[str, Any],
     resolved: dict[str, Any],
@@ -321,7 +343,8 @@ def _execute_count_page(
     sorts: list[dict[str, str]],
 ) -> tuple[int, list[dict[str, Any]], list[str]]:
     """Chạy count (timeout riêng) + một trang dữ liệu; trả (total, rows, columns)."""
-    sql, binds = build_run_query(detail, resolved)
+    sql, raw_binds = build_run_query(detail, resolved)
+    binds = _prepare_query_binds(detail, raw_binds)
     order_by = stable_order_by(detail, sorts)
     ds_id = detail["data_source_id"]
     if ds_id is None:
@@ -514,10 +537,10 @@ def dry_run_version(ctx: Ctx, version_id: int, values: dict[str, Any] | None = N
     engine = get_recon_engine()
     with engine.connect() as conn:
         detail = load_version_detail(conn, version_id)
-    if detail["status"] != "DRAFT":
+    if detail["status"] not in ("DRAFT", "DRY_RUN_OK"):
         raise ServiceError(
             ErrorCode.VALIDATION_ERROR,
-            "Chỉ dry-run được version DRAFT.",
+            "Chỉ dry-run được version DRAFT hoặc chưa kích hoạt.",
         )
     resolved = _resolve_or_raise(ctx, version_id, values)
     started = time.monotonic()

@@ -46,6 +46,14 @@ def open_source_connection(ds_id: int) -> oracledb.Connection:
             dsn=dsn,
         )
         ora_conn.call_timeout = call_timeout_s * 1000
+        # Thiết lập NLS_DATE_FORMAT và NLS_TIMESTAMP_FORMAT chuẩn ISO để tránh ORA-01861
+        try:
+            cur = ora_conn.cursor()
+            cur.execute("ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD HH24:MI:SS'")
+            cur.execute("ALTER SESSION SET NLS_TIMESTAMP_FORMAT = 'YYYY-MM-DD HH24:MI:SS.FF'")
+            cur.close()
+        except Exception:
+            pass
         return ora_conn
     except Exception as exc:
         raise ServiceError(

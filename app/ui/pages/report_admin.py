@@ -7,6 +7,7 @@ Danh sách Report Master/template/version + wizard tạo/sửa template:
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -24,10 +25,12 @@ from app.services.lookup import list_lookup_types
 from app.services.perm import page_gate
 from app.services.report import create_report, get_report, list_reports, update_report
 from app.services.report_column import (
+    delete_column,
     list_columns,
     move_column,
     preview_result_layout,
     refresh_columns,
+    reorder_columns,
     restore_column_order,
     update_columns,
 )
@@ -62,8 +65,13 @@ from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary
 from app.ui.components.command_bar import command_bar
 from app.ui.components.empty_state import empty_state
+from app.ui.components.notification import (
+    notify_error,
+    notify_success,
+    notify_warning,
+)
 from app.ui.components.page_header import page_header
-from app.ui.components.report_widgets import _format_cell, render_param_form, render_result_table
+from app.ui.components.report_widgets import _format_cell, _lov_options, render_param_form, render_result_table
 from app.ui.components.status_chip import STATUS_MAP, status_chip
 
 try:
@@ -102,11 +110,12 @@ SOURCE_TYPE_OPTIONS = [
     {"label": "Bảng (TABLE)", "value": "TABLE"},
 ]
 DATA_TYPE_OPTIONS = [
-    {"label": "Chuỗi", "value": "STRING"},
-    {"label": "Số", "value": "NUMBER"},
-    {"label": "Ngày", "value": "DATE"},
-    {"label": "Ngày giờ", "value": "DATETIME"},
-    {"label": "Đúng/Sai", "value": "BOOLEAN"},
+    {"label": "DATE", "value": "DATE"},
+    {"label": "TEXT", "value": "STRING"},
+    {"label": "NUMBER", "value": "NUMBER"},
+    {"label": "SELECT", "value": "SELECT"},
+    {"label": "DATETIME", "value": "DATETIME"},
+    {"label": "BOOLEAN", "value": "BOOLEAN"},
 ]
 CONTROL_TYPE_OPTIONS = [
     {"label": "Ô nhập text", "value": "TEXT"},
@@ -117,10 +126,10 @@ CONTROL_TYPE_OPTIONS = [
     {"label": "Khoảng ngày", "value": "DATE_RANGE"},
 ]
 LOV_TYPE_OPTIONS = [
-    {"label": "Không có", "value": "NONE"},
-    {"label": "Danh sách tĩnh", "value": "STATIC"},
+    {"label": "NONE", "value": "NONE"},
+    {"label": "STATIC", "value": "STATIC"},
     {"label": "SQL", "value": "SQL"},
-    {"label": "Lookup", "value": "LOOKUP"},
+    {"label": "LOOKUP", "value": "LOOKUP"},
 ]
 FILTER_OPERATOR_OPTIONS = [
     {"label": "=", "value": "="},
@@ -202,12 +211,15 @@ def _state_from_version(ctx: Ctx, template_id: int, version_id: int) -> dict[str
 
 
 def _draft_version_of(ctx: Ctx, template_id: int) -> dict[str, Any] | None:
-    """Version DRAFT mới nhất của template (để Sửa); None nếu không có."""
+    """Version DRAFT hoặc DRY_RUN_OK mới nhất của template (để Sửa); None nếu không có."""
     res = get_template(ctx, int(template_id))
     if not res.ok or not isinstance(res.data, dict):
         return None
-    drafts: list[dict[str, Any]] = [v for v in res.data.get("versions", []) if v.get("status") == "DRAFT"]
+    versions = [dict(v) for v in res.data.get("versions", []) if isinstance(v, dict)]
+    drafts = [v for v in versions if v.get("status") in ("DRAFT", "DRY_RUN_OK")]
     if not drafts:
+        if versions:
+            return max(versions, key=lambda v: int(v.get("version_no") or 0))
         return None
     return max(drafts, key=lambda v: int(v.get("version_no") or 0))
 
@@ -731,7 +743,8 @@ def layout(action: str | None = None, **kwargs: Any) -> Any:
             dcc.Store(id="admin-dryrun-store", data=None),
             dcc.Store(id="admin-alert-store", data=None),
             dcc.Store(id="admin-reports-store", data=reports),
-            html.Div(id="admin-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
+            dcc.Store(id="admin-drag-drop-store", data=None),
+            html.Div(id="admin-alert", style={"display": "contents"}, **{"aria-live": "polite"}),  # type: ignore[arg-type]
             html.Div(
                 id="admin-list-container",
                 children=[
@@ -803,27 +816,23 @@ def layout(action: str | None = None, **kwargs: Any) -> Any:
                     "height": "100%",
                 },
             ),
-            dcc.Loading(
-                id="admin-wizard-loading",
-                type="circle",
-                children=html.Div(
-                    id="admin-wizard-container",
-                    children=render_wizard(initial_state) if initial_mode == "wizard" else [],
-                    style={
-                        "display": "flex" if initial_mode == "wizard" else "none",
-                        "flexDirection": "column",
-                        "flex": "1 1 0%",
-                        "minHeight": 0,
-                        "overflow": "hidden",
-                        "height": "100%",
-                    },
-                ),
-                style={"flex": "1 1 0%", "minHeight": 0, "display": "flex", "flexDirection": "column", "height": "100%"},
+            html.Div(
+                id="admin-wizard-container",
+                children=render_wizard(initial_state) if initial_mode == "wizard" else [],
+                style={
+                    "display": "flex" if initial_mode == "wizard" else "none",
+                    "flexDirection": "column",
+                    "flex": "1 1 0%",
+                    "minHeight": 0,
+                    "overflow": "hidden",
+                    "height": "100%",
+                },
             ),
         ],
         style={
-            "height": "calc(100vh - 48px)",
+            "height": "100%",
             "minHeight": 0,
+            "flex": "1 1 0%",
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
@@ -1225,28 +1234,48 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
                 size="xs",
             )
             if is_over
-            else dmc.Badge("Hợp lệ", color="green", variant="light", size="xs")
+            else dmc.Badge(f"{total_span}/12 Hợp lệ", color="green", variant="light", size="xs")
         )
 
         boxes = []
         for p in p_list:
             span = min(12, max(1, int(p.get("grid_span") or 1)))
+            dtype = str(p.get("data_type") or "STRING")
+            ctype = str(p.get("control_type") or "TEXT")
+            if dtype == "DATE":
+                ph = "Chọn ngày…"
+            elif ctype == "SELECT" or p.get("lov_type") in ("STATIC", "SQL", "LOOKUP"):
+                ph = "Tất cả ▾"
+            else:
+                ph = f"Nhập {str(p.get('label') or p.get('code')).lower()}…"
+
             boxes.append(
                 html.Div(
                     [
                         dmc.Group(
                             [
-                                dmc.Text(str(p.get("label") or p.get("code")), size="xs", fw=600, truncate="end"),
-                                dmc.Badge(f"{span}/12", size="xs", variant="outline"),
+                                dmc.Group(
+                                    [
+                                        html.Span("⋮⋮", className="rh-drag-handle", style={"cursor": "grab", "fontSize": "13px"}),
+                                        dmc.Text(
+                                            f"{p.get('label') or p.get('code')}{' *' if p.get('required') else ''}",
+                                            size="xs",
+                                            fw=600,
+                                            truncate="end",
+                                        ),
+                                    ],
+                                    gap=4,
+                                    wrap="nowrap",
+                                ),
+                                dmc.Badge(f"{span}/12", size="xs", variant="light", color="blue"),
                             ],
                             justify="space-between",
                             gap="xs",
                             wrap="nowrap",
+                            mb=4,
                         ),
-                        dmc.Text(
-                            f"[{p.get('control_type', 'TEXT')}]",
-                            size="xs",
-                            c="dimmed",
+                        html.Div(
+                            ph,
                             style={
                                 "height": "24px",
                                 "lineHeight": "24px",
@@ -1254,18 +1283,63 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
                                 "borderRadius": "4px",
                                 "padding": "0 6px",
                                 "border": "1px solid var(--line, #E0E0E0)",
-                                "marginTop": "4px",
-                                "textAlign": "center",
                                 "fontSize": "11px",
+                                "color": "var(--ink-soft, #616161)",
+                                "whiteSpace": "nowrap",
+                                "overflow": "hidden",
+                                "textOverflow": "ellipsis",
                             },
                         ),
+                        dmc.Group(
+                            [
+                                dmc.Group(
+                                    [
+                                        dmc.Text("Hàng", size="10px", c="dimmed"),
+                                        dmc.NumberInput(
+                                            value=int(p.get("display_row") or r),
+                                            min=1,
+                                            max=20,
+                                            w=38,
+                                            size="xs",
+                                            debounce=500,
+                                            styles={"input": {"height": "22px", "minHeight": "22px", "padding": "0 2px", "fontSize": "11px", "textAlign": "center"}},
+                                            id={"type": "admin-p-canvas-row", "index": p["id"]},
+                                        ),
+                                    ],
+                                    gap=2,
+                                ),
+                                dmc.Group(
+                                    [
+                                        dmc.Text("Cột", size="10px", c="dimmed"),
+                                        dmc.NumberInput(
+                                            value=span,
+                                            min=1,
+                                            max=12,
+                                            w=38,
+                                            size="xs",
+                                            debounce=500,
+                                            styles={"input": {"height": "22px", "minHeight": "22px", "padding": "0 2px", "fontSize": "11px", "textAlign": "center"}},
+                                            id={"type": "admin-p-canvas-span", "index": p["id"]},
+                                        ),
+                                    ],
+                                    gap=2,
+                                ),
+                            ],
+                            gap="xs",
+                            justify="flex-start",
+                            align="center",
+                            mt=4,
+                        ),
                     ],
+                    className="rh-drag-param",
+                    **{"draggable": "true", "data-param-id": str(p["id"])},  # type: ignore[arg-type]
                     style={
                         "gridColumn": f"span {span}",
                         "backgroundColor": "var(--surface-1, #FFFFFF)",
                         "border": "1px solid var(--line, #E0E0E0)",
                         "borderRadius": "4px",
                         "padding": "6px 8px",
+                        "boxShadow": "0 1px 2px rgba(0, 0, 0, 0.04)",
                     },
                 )
             )
@@ -1299,6 +1373,8 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
                 withBorder=True,
                 p="xs",
                 radius="sm",
+                className="param-row-layout",
+                **{"data-layout-row": str(r)},
                 style={
                     "borderStyle": "dashed",
                     "borderColor": "var(--crimson-7, #e03131)" if is_over else "var(--line, #E0E0E0)",
@@ -1311,8 +1387,129 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
     return html.Div(row_sections, id="param-canvas")
 
 
+def _render_lov_fields(lov_type: str, lov: dict[str, Any], lookup_opts: list[dict[str, Any]]) -> Any:
+    """Render 4 khối cấu hình LOV và toggle display theo loại LOV (chuẩn Screen16 preview.html).
+
+    Tất cả component IDs luôn tồn tại trong layout để tránh lỗi callback Dash
+    khi chuyển loại LOV.
+    """
+    t = (lov_type or "NONE").upper()
+    static_txt = _static_text_from_lov(lov)
+
+    none_box = html.Div(
+        dmc.Alert(
+            "Không dùng LOV. Control hiển thị theo kiểu dữ liệu của parameter.",
+            color="blue",
+            variant="light",
+            icon=DashIconify(icon="lucide:info", width=16),
+        ),
+        id="admin-p-lov-none-box",
+        style={"display": "block" if t == "NONE" else "none"},
+    )
+
+    static_box = html.Div(
+        dmc.Stack(
+            [
+                dmc.Text("Khai báo Value và Label. Value lưu vào parameter, Label hiển thị cho user.", size="xs", c="dimmed"),
+                dmc.Textarea(
+                    id="admin-p-lov-static",
+                    label="Danh sách tĩnh (mỗi dòng: value|label)",
+                    value=static_txt,
+                    autosize=True,
+                    minRows=3,
+                    placeholder="ALL|Tất cả\nHNJ|Hà Nội\nHCM|TP. Hồ Chí Minh",
+                    size="xs",
+                    className="rh-code",
+                ),
+                dmc.Checkbox(
+                    id="admin-p-lov-allow-all",
+                    label="Cho chọn “Tất cả” (ALL)",
+                    checked=bool(lov.get("allow_all", True)),
+                    size="xs",
+                ),
+            ],
+            gap="xs",
+        ),
+        id="admin-p-lov-static-box",
+        style={"display": "block" if t == "STATIC" else "none"},
+    )
+
+    sql_box = html.Div(
+        dmc.Stack(
+            [
+                dmc.Textarea(
+                    id="admin-p-lov-sql",
+                    label="LOV SQL *",
+                    value=str(lov.get("sql_text") or "SELECT code AS value, name AS label FROM ..."),
+                    autosize=True,
+                    minRows=3,
+                    className="rh-code",
+                    size="xs",
+                ),
+                dmc.Text("Bắt buộc trả về alias VALUE và LABEL; SELECT-only; tối đa 5.000 dòng.", size="xs", c="dimmed"),
+                dmc.Group(
+                    [
+                        dmc.NumberInput(
+                            id="admin-p-lov-cache",
+                            label="Cache (giây)",
+                            value=int(lov.get("cache_ttl_sec") or 300),
+                            min=0,
+                            size="xs",
+                            w=85,
+                        ),
+                        dmc.Select(
+                            id="admin-p-lov-ds",
+                            label="Data Source",
+                            data=[{"label": "Cùng DS báo cáo", "value": "same"}],
+                            value="same",
+                            size="xs",
+                            w=140,
+                            clearable=False,
+                        ),
+                    ],
+                    gap="xs",
+                ),
+                dmc.Button(
+                    "Kiểm tra LOV SQL",
+                    id="admin-p-lov-test-btn",
+                    variant="light",
+                    size="xs",
+                    leftSection=DashIconify(icon="lucide:play", width=14),
+                ),
+                html.Div(id="admin-p-lov-test-result"),
+            ],
+            gap="xs",
+        ),
+        id="admin-p-lov-sql-box",
+        style={"display": "block" if t == "SQL" else "none"},
+    )
+
+    lookup_box = html.Div(
+        dmc.Stack(
+            [
+                dmc.Select(
+                    id="admin-p-lov-lookup",
+                    label="Lookup Type",
+                    data=lookup_opts,
+                    value=str(lov.get("lookup_type") or ""),
+                    placeholder="Chọn lookup type…",
+                    searchable=True,
+                    clearable=True,
+                    size="xs",
+                ),
+                dmc.Text("Dùng danh mục hệ thống, chỉ lấy mã đang Active.", size="xs", c="dimmed"),
+            ],
+            gap="xs",
+        ),
+        id="admin-p-lov-lookup-box",
+        style={"display": "block" if t == "LOOKUP" else "none"},
+    )
+
+    return html.Div([none_box, static_box, sql_box, lookup_box])
+
+
 def render_step3(state: dict[str, Any]) -> Any:
-    """Bước 3: tham số & LOV + layout 12 cột chuẩn Master-Detail Screen16."""
+    """Bước 3: tham số & LOV + layout 12 cột chuẩn Master-Detail Screen16 preview.html."""
     ctx = get_current_ctx()
     version = _version_detail(ctx, state.get("version_id")) if ctx else {}
     params = version.get("params", [])
@@ -1325,72 +1522,119 @@ def render_step3(state: dict[str, Any]) -> Any:
     editing = None
     if editing_id:
         editing = next((p for p in params if int(p["id"]) == int(editing_id)), None)
+    if editing is None and params:
+        editing = params[0]
+        state["editing_param_id"] = int(editing["id"])
     lov = (editing or {}).get("lov") or {}
+    lov_type = str(lov.get("lov_type") or "NONE")
     lookup_opts = _lookup_options(ctx) if ctx else []
-    rows = []
+
+    table_rows = []
     for p in params:
-        rows.append(
+        is_selected = editing and int(p["id"]) == int(editing["id"])
+        p_lov_type = str((p.get("lov") or {}).get("lov_type") or "NONE")
+        table_rows.append(
             dmc.TableTr(
                 [
-                    dmc.TableTd(str(p["code"]), className="rh-code", fw=600),
-                    dmc.TableTd(str(p["label"])),
-                    dmc.TableTd(f"{p['data_type']} / {p['control_type']}"),
-                    dmc.TableTd(f"Hàng {p['display_row']} · span {p['grid_span']}"),
-                    dmc.TableTd(str((p.get("lov") or {}).get("lov_type", "NONE"))),
                     dmc.TableTd(
-                        dmc.Group(
-                            [
-                                dmc.ActionIcon(
-                                    DashIconify(icon="lucide:arrow-up", width=14),
-                                    id={"type": "admin-param-up", "index": p["id"]},
-                                    variant="subtle",
-                                    size="xs",
-                                    **{"aria-label": f"Dời tham số {p['code']} lên"},
-                                ),
-                                dmc.ActionIcon(
-                                    DashIconify(icon="lucide:arrow-down", width=14),
-                                    id={"type": "admin-param-down", "index": p["id"]},
-                                    variant="subtle",
-                                    size="xs",
-                                    **{"aria-label": f"Dời tham số {p['code']} xuống"},
-                                ),
-                                dmc.Button(
-                                    "Sửa",
-                                    size="xs",
-                                    variant="subtle",
-                                    id={"type": "admin-param-edit", "index": p["id"]},
-                                ),
-                                dmc.Button(
-                                    "Xóa",
-                                    size="xs",
-                                    variant="subtle",
-                                    color="red",
-                                    id={"type": "admin-param-del", "index": p["id"]},
-                                    **{"aria-label": f"Xóa tham số {p['code']}"},
-                                ),
-                            ],
-                            gap="xs",
+                        dmc.Button(
+                            str(p["code"]),
+                            variant="subtle",
+                            size="xs",
+                            className="rh-code",
+                            id={"type": "admin-param-select", "index": p["id"]},
+                            style={"padding": "0 4px", "height": "24px", "fontWeight": 700},
                         )
                     ),
-                ]
+                    dmc.TableTd(
+                        dmc.TextInput(
+                            value=str(p.get("label") or ""),
+                            id={"type": "admin-p-table-label", "index": p["id"]},
+                            size="xs",
+                            styles={"input": {"height": "24px", "minHeight": "24px", "fontSize": "11px", "padding": "0 4px", "width": "100%"}},
+                        ),
+                        style={"width": "140px", "maxWidth": "150px", "padding": "4px 4px"},
+                    ),
+                    dmc.TableTd(
+                        dmc.Select(
+                            data=DATA_TYPE_OPTIONS,
+                            value=str(p.get("data_type") or "STRING"),
+                            id={"type": "admin-p-table-type", "index": p["id"]},
+                            size="xs",
+                            w=80,
+                            styles={"input": {"height": "24px", "minHeight": "24px", "fontSize": "10px", "padding": "0 2px"}},
+                            clearable=False,
+                        )
+                    ),
+                    dmc.TableTd(
+                        dmc.Checkbox(
+                            checked=bool(p.get("is_visible", True)),
+                            id={"type": "admin-p-table-web", "index": p["id"]},
+                            size="xs",
+                        ),
+                        style={"textAlign": "center"},
+                    ),
+                    dmc.TableTd(
+                        dmc.Checkbox(
+                            checked=bool(p.get("required")),
+                            id={"type": "admin-p-table-req", "index": p["id"]},
+                            size="xs",
+                        ),
+                        style={"textAlign": "center"},
+                    ),
+                    dmc.TableTd(
+                        dmc.TextInput(
+                            value=str(p.get("default_value") or ""),
+                            id={"type": "admin-p-table-def", "index": p["id"]},
+                            size="xs",
+                            w=85,
+                            styles={"input": {"height": "24px", "minHeight": "24px", "fontSize": "10px", "padding": "0 4px"}},
+                        )
+                    ),
+                    dmc.TableTd(
+                        dmc.Select(
+                            data=LOV_TYPE_OPTIONS,
+                            value=p_lov_type,
+                            id={"type": "admin-p-table-lov", "index": p["id"]},
+                            size="xs",
+                            w=80,
+                            styles={"input": {"height": "24px", "minHeight": "24px", "fontSize": "10px", "padding": "0 2px"}},
+                            clearable=False,
+                        )
+                    ),
+                    dmc.TableTd(
+                        dmc.NumberInput(
+                            value=int(p.get("display_order") or 10),
+                            id={"type": "admin-p-table-order", "index": p["id"]},
+                            size="xs",
+                            w=46,
+                            min=1,
+                            max=999,
+                            styles={"input": {"height": "24px", "minHeight": "24px", "fontSize": "10px", "padding": "0 2px", "textAlign": "center"}},
+                        )
+                    ),
+                    dmc.TableTd(
+                        dmc.ActionIcon(
+                            DashIconify(icon="lucide:trash-2", width=14),
+                            color="red",
+                            variant="subtle",
+                            size="xs",
+                            id={"type": "admin-param-del", "index": p["id"]},
+                            **{"aria-label": f"Xóa tham số {p['code']}"},
+                        ),
+                        style={"textAlign": "center"},
+                    ),
+                ],
+                style={
+                    "backgroundColor": "rgba(0, 120, 212, 0.06)" if is_selected else "transparent",
+                    "borderLeft": "3px solid var(--mantine-color-blue-6, #0078D4)" if is_selected else "3px solid transparent",
+                },
             )
         )
 
-    # Master Column (Trái): Danh sách tham số, Canvas 12 cột và Form trường
+    # Master Column (Trái): Danh sách tham số & Canvas 12 cột
     master_content = dmc.Stack(
         [
-            dmc.Group(
-                [
-                    dmc.Text("Danh sách tham số", fw=600, size="sm"),
-                    dmc.Button(
-                        "Tự sắp xếp",
-                        id="admin-p-autolayout-btn",
-                        variant="light",
-                        size="xs",
-                    ),
-                ],
-                justify="space-between",
-            ),
             (
                 dmc.Alert(
                     "Layout vượt 12 cột ở: "
@@ -1408,206 +1652,91 @@ def render_step3(state: dict[str, Any]) -> Any:
                         dmc.TableThead(
                             dmc.TableTr(
                                 [
-                                    dmc.TableTh("Mã"),
-                                    dmc.TableTh("Nhãn"),
-                                    dmc.TableTh("Kiểu / Control"),
-                                    dmc.TableTh("Vị trí"),
-                                    dmc.TableTh("LOV"),
-                                    dmc.TableTh(""),
+                                    dmc.TableTh("Mã", style={"fontSize": "11px", "width": "110px", "padding": "6px 4px"}),
+                                    dmc.TableTh("Nhãn", style={"fontSize": "11px", "width": "140px", "maxWidth": "150px", "padding": "6px 4px"}),
+                                    dmc.TableTh("Kiểu", style={"fontSize": "11px", "width": "85px", "padding": "6px 4px"}),
+                                    dmc.TableTh("Hiện", style={"fontSize": "11px", "width": "45px", "textAlign": "center", "padding": "6px 4px"}),
+                                    dmc.TableTh("Bắt buộc", style={"fontSize": "11px", "width": "60px", "textAlign": "center", "padding": "6px 4px"}),
+                                    dmc.TableTh("Mặc định", style={"fontSize": "11px", "width": "90px", "padding": "6px 4px"}),
+                                    dmc.TableTh("LOV", style={"fontSize": "11px", "width": "85px", "padding": "6px 4px"}),
+                                    dmc.TableTh("STT", style={"fontSize": "11px", "width": "50px", "textAlign": "center", "padding": "6px 4px"}),
+                                    dmc.TableTh("", style={"fontSize": "11px", "width": "35px", "textAlign": "center", "padding": "6px 4px"}),
                                 ]
                             )
                         ),
-                        dmc.TableTbody(rows),
+                        dmc.TableTbody(table_rows),
                     ],
-                    striped=True,
+                    striped=False,
+                    highlightOnHover=True,
                     withTableBorder=True,
+                    className="rh-col-table",
+                    style={"width": "100%", "borderCollapse": "collapse"},
                 ),
-                h=160,
+                h=175,
             )
-            if rows
-            else empty_state("Chưa có tham số nào.", "Thêm tham số bên dưới."),
+            if table_rows
+            else empty_state("Chưa có tham số nào.", "Phân tích SQL ở Bước 2 để tạo danh sách tham số."),
             dmc.Divider(my="xs"),
-            dmc.Text("Thiết kế layout tham số tìm kiếm (Canvas 12 cột)", fw=600, size="sm"),
-            _render_param_canvas(params, violations),
-            dmc.Divider(label="Thêm tham số" if not editing else f"Sửa tham số {editing.get('code')}", labelPosition="left"),
-            dmc.TextInput(
-                id="admin-p-code",
-                label="Mã tham số",
-                value=str(editing.get("code") or "") if editing else "",
-                disabled=bool(editing),
-                placeholder="VD: p_org (viết thường, bắt đầu bằng p_)",
-            ),
-            dmc.TextInput(
-                id="admin-p-label",
-                label="Nhãn",
-                value=str(editing.get("label") or "") if editing else "",
-                placeholder="VD: Đơn vị",
-            ),
             dmc.Group(
                 [
-                    dmc.Select(
-                        id="admin-p-data-type",
-                        label="Kiểu dữ liệu",
-                        data=DATA_TYPE_OPTIONS,
-                        value=str(editing.get("data_type") or "STRING") if editing else "STRING",
-                        clearable=False,
-                    ),
-                    dmc.Select(
-                        id="admin-p-control-type",
-                        label="Control",
-                        data=CONTROL_TYPE_OPTIONS,
-                        value=str(editing.get("control_type") or "TEXT") if editing else "TEXT",
-                        clearable=False,
-                    ),
-                    dmc.Checkbox(
-                        id="admin-p-required",
-                        label="Bắt buộc",
-                        checked=bool(editing.get("required")) if editing else False,
-                    ),
-                ],
-                grow=True,
-                align="end",
-            ),
-            dmc.Group(
-                [
-                    dmc.Select(
-                        id="admin-p-default-type",
-                        label="Mặc định",
-                        data=[
-                            {"label": "Không có", "value": "NONE"},
-                            {"label": "Giá trị tĩnh", "value": "STATIC"},
-                            {"label": "Hôm nay", "value": "TODAY"},
-                            {"label": "Giá trị LOV đầu tiên", "value": "FIRST_LOV"},
+                    dmc.Stack(
+                        [
+                            dmc.Text("Thiết kế layout tham số tìm kiếm (Canvas 12 cột)", fw=600, size="sm"),
+                            dmc.Text("Kéo thả thẻ tham số để đổi vị trí; cấu hình Hàng và Cột (tổng mỗi hàng ≤ 12).", size="xs", c="dimmed"),
                         ],
-                        value=str(editing.get("default_type") or "NONE") if editing else "NONE",
-                        clearable=False,
+                        gap=0,
                     ),
-                    dmc.TextInput(
-                        id="admin-p-default-value",
-                        label="Giá trị mặc định",
-                        value=str(editing.get("default_value") or "") if editing else "",
+                    html.Div(
+                        [
+                            html.Button(id="admin-p-add-row-btn", style={"display": "none"}),
+                            html.Button(id="admin-p-autolayout-btn", style={"display": "none"}),
+                        ]
                     ),
                 ],
-                grow=True,
-                align="end",
+                justify="space-between",
+                align="center",
             ),
-            dmc.Group(
-                [
-                    dmc.NumberInput(
-                        id="admin-p-row",
-                        label="Hàng",
-                        value=int(editing.get("display_row") or 1) if editing else 1,
-                        min=1,
-                    ),
-                    dmc.NumberInput(
-                        id="admin-p-order",
-                        label="Thứ tự",
-                        value=int(editing.get("display_order") or 10) if editing else 10,
-                        min=0,
-                    ),
-                    dmc.NumberInput(
-                        id="admin-p-span",
-                        label="Span (1–12)",
-                        value=int(editing.get("grid_span") or 6) if editing else 6,
-                        min=1,
-                        max=12,
-                    ),
-                    dmc.Checkbox(
-                        id="admin-p-visible",
-                        label="Hiển thị",
-                        checked=bool(editing.get("is_visible", True)) if editing else True,
-                    ),
-                ],
-                grow=True,
-                align="end",
-            ),
-            dmc.Group(
-                [
-                    dmc.TextInput(
-                        id="admin-p-filter-col",
-                        label="Cột lọc (VIEW/TABLE)",
-                        value=str(editing.get("filter_column") or "") if editing else "",
-                        placeholder="VD: ORG",
-                    ),
-                    dmc.Select(
-                        id="admin-p-filter-op",
-                        label="Toán tử lọc",
-                        data=FILTER_OPERATOR_OPTIONS,
-                        value=str(editing.get("filter_operator") or "=") if editing else "=",
-                        clearable=True,
-                    ),
-                ],
-                grow=True,
-                align="end",
+            html.Div(
+                _render_param_canvas(params, violations),
+                id="admin-p-canvas-container",
             ),
         ],
-        gap="sm",
+        gap="xs",
     )
 
-    # Detail Column (Phải): LOV Side Panel
+    # Detail Column (Phải): Setup LOV Panel (giảm chiều rộng còn ~2/3)
+    sel_code = (editing or {}).get("code", "")
     detail_content = dmc.Paper(
         dmc.Stack(
             [
                 dmc.Title(
-                    f"Cấu hình LOV: {editing.get('code')}" if editing else "Cấu hình LOV",
+                    f"Setup LOV: {sel_code}" if sel_code else "Cấu hình LOV",
                     order=4,
                     size="sm",
+                    className="rh-code",
+                    id="admin-p-lov-title",
                 ),
-                dmc.Text(
-                    "Chọn một tham số ở danh sách bên trái để cấu hình danh sách giá trị chọn (LOV).",
-                    size="xs",
-                    c="dimmed",
-                ),
+                dmc.Text("Cấu hình LOV (danh sách giá trị chọn) cho tham số.", size="10px", c="dimmed"),
                 dmc.Select(
                     id="admin-p-lov-type",
                     label="Loại LOV",
                     data=LOV_TYPE_OPTIONS,
-                    value=str(lov.get("lov_type") or "NONE"),
+                    value=lov_type,
                     clearable=False,
+                    size="xs",
                 ),
-                dmc.Textarea(
-                    id="admin-p-lov-static",
-                    label="Danh sách tĩnh (mỗi dòng: value|label)",
-                    value=_static_text_from_lov(lov),
-                    autosize=True,
-                    minRows=2,
-                    placeholder="HN|Hà Nội\nHCM|TP. Hồ Chí Minh",
+                html.Div(
+                    _render_lov_fields(lov_type, lov, lookup_opts),
+                    id="admin-p-lov-body",
                 ),
-                dmc.Textarea(
-                    id="admin-p-lov-sql",
-                    label="SQL LOV (trả về 2 cột VALUE và LABEL)",
-                    value=str(lov.get("sql_text") or ""),
-                    autosize=True,
-                    minRows=3,
-                    placeholder="SELECT code AS value, name AS label FROM ...",
-                ),
-                dmc.Select(
-                    id="admin-p-lov-lookup",
-                    label="Lookup type",
-                    data=lookup_opts,
-                    value=str(lov.get("lookup_type") or ""),
-                    placeholder="Chọn lookup type…",
-                    searchable=True,
-                    clearable=True,
-                ),
-                dmc.Group(
-                    [
-                        dmc.Button(
-                            "Lưu tham số",
-                            id="admin-p-save-btn",
-                            variant="filled",
-                        ),
-                        (
-                            dmc.Button(
-                                "Hủy sửa",
-                                id="admin-p-cancel-edit-btn",
-                                variant="subtle",
-                            )
-                            if editing
-                            else html.Div()
-                        ),
-                    ],
-                    mt="sm",
+                dmc.Button(
+                    "Lưu cấu hình LOV",
+                    id="admin-p-save-btn",
+                    variant="filled",
+                    color="primary",
+                    size="xs",
+                    leftSection=DashIconify(icon="lucide:save", width=14),
+                    mt="xs",
                 ),
                 html.Div(id="admin-p-alert"),
             ],
@@ -1620,18 +1749,34 @@ def render_step3(state: dict[str, Any]) -> Any:
         id="lovside",
     )
 
+    top_head = dmc.Group(
+        [
+            dmc.Stack(
+                [
+                    dmc.Title("3. Tham số và cấu hình LOV", order=3, size=16, fw=600),
+                    dmc.Text("Chọn một dòng để cấu hình LOV ở panel bên phải.", size="xs", c="dimmed"),
+                ],
+                gap=0,
+            ),
+            html.Button(id="admin-param-add-btn", style={"display": "none"}),
+        ],
+        justify="space-between",
+        align="center",
+        mb="xs",
+    )
+
     return dmc.Stack(
         [
-            dmc.Title("3. Tham số & Cấu hình LOV", order=3),
+            top_head,
             dmc.Grid(
                 [
-                    dmc.GridCol(master_content, span={"base": 12, "lg": 7}),
-                    dmc.GridCol(detail_content, span={"base": 12, "lg": 5}),
+                    dmc.GridCol(master_content, span={"base": 12, "md": 8.8, "lg": 9}),
+                    dmc.GridCol(detail_content, span={"base": 12, "md": 3.2, "lg": 3}),
                 ],
                 gutter="md",
             ),
         ],
-        gap="md",
+        gap="xs",
     )
 
 
@@ -1696,12 +1841,35 @@ def _render_columns_preview(columns: list[dict[str, Any]]) -> Any:
             )
         )
 
+    tfoot = None
+    if any(c.get("is_total") for c in visible):
+        tfoot_cells = []
+        is_first = True
+        for c in visible:
+            if c.get("is_total") and c.get("data_type") == "NUMBER":
+                tfoot_cells.append(
+                    dmc.TableTd(
+                        _format_cell(18000000, c),
+                        style={"textAlign": "right", "fontWeight": 700, "height": "28px", "whiteSpace": "nowrap"},
+                    )
+                )
+            elif is_first:
+                tfoot_cells.append(dmc.TableTd("Tổng cộng", style={"fontWeight": 700, "height": "28px"}))
+                is_first = False
+            else:
+                tfoot_cells.append(dmc.TableTd(""))
+        tfoot = dmc.TableTfoot(dmc.TableTr(tfoot_cells))
+
+    table_children = [
+        dmc.TableThead(dmc.TableTr(header)),
+        dmc.TableTbody([dmc.TableTr(mock_row_1), dmc.TableTr(mock_row_2)]),
+    ]
+    if tfoot is not None:
+        table_children.append(tfoot)
+
     return dmc.ScrollArea(
         dmc.Table(
-            [
-                dmc.TableThead(dmc.TableTr(header)),
-                dmc.TableTbody([dmc.TableTr(mock_row_1), dmc.TableTr(mock_row_2)]),
-            ],
+            table_children,
             striped=True,
             highlightOnHover=True,
             withTableBorder=True,
@@ -1710,105 +1878,218 @@ def _render_columns_preview(columns: list[dict[str, Any]]) -> Any:
     )
 
 
+def _render_step4_rows(columns: list[dict[str, Any]]) -> list[Any]:
+    """Render danh sách các dòng tr cho bảng Cấu hình cột (siêu nhẹ, không lag DOM)."""
+    rows = []
+    for i, c in enumerate(columns):
+        masks = FORMAT_MASKS.get(str(c.get("data_type")), [])
+        rows.append(
+            html.Tr(
+                key=f"col-{c['id']}",
+                children=[
+                    html.Td(
+                        html.Div(
+                            [
+                                html.Button(
+                                    "↑",
+                                    id={"type": "admin-col-up", "index": c["id"]},
+                                    disabled=i == 0,
+                                    className="rh-btn-move-up rh-btn-arrow",
+                                    title=f"Dời cột {c['field_name']} lên",
+                                ),
+                                html.Button(
+                                    "↓",
+                                    id={"type": "admin-col-down", "index": c["id"]},
+                                    disabled=i == len(columns) - 1,
+                                    className="rh-btn-move-down rh-btn-arrow",
+                                    title=f"Dời cột {c['field_name']} xuống",
+                                ),
+                            ],
+                            style={"display": "flex", "gap": "2px", "justifyContent": "center"},
+                        ),
+                        style={"width": "54px", "minWidth": "54px", "padding": "4px 4px"},
+                    ),
+                    html.Td(
+                        html.Span("⋮⋮", className="rh-drag-handle", style={"cursor": "grab", "fontSize": "14px"}),
+                        style={"textAlign": "center", "width": "24px", "minWidth": "24px", "padding": "4px 4px"},
+                    ),
+                    html.Td(
+                        html.Span(
+                            str(c["field_name"]),
+                            className="rh-code",
+                            title=str(c["field_name"]),
+                            style={"fontSize": "11px", "fontWeight": 600},
+                        ),
+                        style={"minWidth": "160px", "maxWidth": "220px", "textAlign": "left", "padding": "4px 4px", "wordBreak": "break-word"},
+                    ),
+                    html.Td(
+                        dcc.Input(
+                            value=str(c.get("label") or c["field_name"]),
+                            id={"type": "admin-col-label", "index": c["id"]},
+                            className="rh-native-input",
+                            style={"width": "100%"},
+                        ),
+                        style={"minWidth": "160px", "maxWidth": "240px", "textAlign": "left", "padding": "4px 4px"},
+                    ),
+                    html.Td(
+                        html.Select(
+                            [
+                                html.Option("STRING", value="STRING", selected=(str(c.get("data_type")) == "STRING")),
+                                html.Option("NUMBER", value="NUMBER", selected=(str(c.get("data_type")) == "NUMBER")),
+                                html.Option("DATE", value="DATE", selected=(str(c.get("data_type")) == "DATE")),
+                                html.Option("DATETIME", value="DATETIME", selected=(str(c.get("data_type")) == "DATETIME")),
+                            ],
+                            id={"type": "admin-col-type", "index": c["id"]},
+                            className="rh-native-select",
+                            style={"width": "100%"},
+                        ),
+                        style={"width": "90px", "minWidth": "90px", "padding": "4px 4px"},
+                    ),
+                    html.Td(
+                        html.Select(
+                            [html.Option(m, value=m, selected=(str(c.get("format_mask") or "") == m)) for m in masks]
+                            + [html.Option("(không)", value="", selected=(not c.get("format_mask")))],
+                            id={"type": "admin-col-format", "index": c["id"]},
+                            className="rh-native-select",
+                            style={"width": "100%"},
+                        ),
+                        style={"width": "115px", "minWidth": "115px", "padding": "4px 4px"},
+                    ),
+                    html.Td(
+                        html.Select(
+                            [
+                                html.Option(opt["label"], value=opt["value"], selected=(str(c.get("alignment") or "LEFT") == opt["value"]))
+                                for opt in ALIGNMENT_OPTIONS
+                            ],
+                            id={"type": "admin-col-align", "index": c["id"]},
+                            className="rh-native-select",
+                            style={"width": "100%"},
+                        ),
+                        style={"width": "80px", "minWidth": "80px", "padding": "4px 4px"},
+                    ),
+                    html.Td(
+                        dcc.Input(
+                            type="number",
+                            value=c.get("column_width") or c.get("width") or 120,
+                            id={"type": "admin-col-width", "index": c["id"]},
+                            min=40,
+                            max=500,
+                            className="rh-native-input",
+                            style={"width": "100%", "textAlign": "center"},
+                        ),
+                        style={"width": "65px", "minWidth": "65px", "padding": "4px 4px"},
+                    ),
+                    html.Td(
+                        dcc.Checklist(
+                            options=[{"label": "", "value": "1"}],
+                            value=["1"] if c.get("web_visible") else [],
+                            id={"type": "admin-col-web", "index": c["id"]},
+                            className="rh-native-checklist",
+                        ),
+                        style={"width": "48px", "minWidth": "48px", "textAlign": "center", "padding": "4px 4px"},
+                    ),
+                    html.Td(
+                        dcc.Checklist(
+                            options=[{"label": "", "value": "1"}],
+                            value=["1"] if c.get("excel_visible") else [],
+                            id={"type": "admin-col-excel", "index": c["id"]},
+                            className="rh-native-checklist",
+                        ),
+                        style={"width": "48px", "minWidth": "48px", "textAlign": "center", "padding": "4px 4px"},
+                    ),
+                    html.Td(
+                        dcc.Checklist(
+                            options=[{"label": "", "value": "1"}],
+                            value=["1"] if c.get("is_total") else [],
+                            id={"type": "admin-col-total", "index": c["id"]},
+                            className="rh-native-checklist",
+                        )
+                        if str(c.get("data_type")) == "NUMBER"
+                        else html.Span("—", style={"color": "#aaa", "fontSize": "11px"}),
+                        style={"width": "48px", "minWidth": "48px", "textAlign": "center", "padding": "4px 4px"},
+                    ),
+                    html.Td(
+                        html.Button(
+                            "🗑",
+                            id={"type": "admin-col-del", "index": c["id"]},
+                            className="rh-btn-del",
+                            title=f"Xóa cột {c['field_name']}",
+                        ),
+                        style={"width": "40px", "minWidth": "40px", "textAlign": "center", "padding": "4px 4px"},
+                    ),
+                ],
+                className="rh-drag-col",
+                draggable="true",
+                **{"data-col-id": str(c["id"]), "data-field-name": str(c["field_name"]).upper()},  # type: ignore[arg-type]
+                style={"verticalAlign": "middle", "borderBottom": "1px solid var(--line, #e0e0e0)"},
+            )
+        )
+    return rows
+
+
 def render_step4(state: dict[str, Any]) -> Any:
-    """Bước 4: cấu hình cột."""
+    """Bước 4: cấu hình cột — phân 2 sub-tab (Cấu hình cột và Xem trước layout)."""
     ctx = get_current_ctx()
     columns: list[dict[str, Any]] = []
     if ctx and state.get("version_id"):
         res = list_columns(ctx, int(state["version_id"]))
         if res.ok and isinstance(res.data, list):
             columns = res.data
-    rows = []
-    for i, c in enumerate(columns):
-        masks = FORMAT_MASKS.get(str(c.get("data_type")), [])
-        rows.append(
-            dmc.TableTr(
-                [
-                    dmc.TableTd(str(c["field_name"])),
-                    dmc.TableTd(
-                        dmc.TextInput(
-                            value=str(c.get("label") or ""),
-                            id={"type": "admin-col-label", "index": c["id"]},
-                            **{"aria-label": f"Nhãn cột {c['field_name']}"},
-                        )
-                    ),
-                    dmc.TableTd(str(c.get("data_type"))),
-                    dmc.TableTd(
-                        dmc.Select(
-                            data=[{"label": m, "value": m} for m in masks] + [{"label": "(không)", "value": ""}],
-                            value=str(c.get("format_mask") or ""),
-                            id={"type": "admin-col-format", "index": c["id"]},
-                            clearable=False,
-                        )
-                        if masks
-                        else "—"
-                    ),
-                    dmc.TableTd(
-                        dmc.Select(
-                            data=ALIGNMENT_OPTIONS,
-                            value=str(c.get("alignment") or "LEFT"),
-                            id={"type": "admin-col-align", "index": c["id"]},
-                            clearable=False,
-                        )
-                    ),
-                    dmc.TableTd(
-                        dmc.NumberInput(
-                            value=c.get("width"),
-                            id={"type": "admin-col-width", "index": c["id"]},
-                            min=40,
-                            max=400,
-                            placeholder="Tự động",
-                        )
-                    ),
-                    dmc.TableTd(
-                        dmc.Checkbox(
-                            checked=bool(c.get("web_visible")),
-                            id={"type": "admin-col-web", "index": c["id"]},
-                            **{"aria-label": f"Hiện web cột {c['field_name']}"},
-                        )
-                    ),
-                    dmc.TableTd(
-                        dmc.Checkbox(
-                            checked=bool(c.get("excel_visible")),
-                            id={"type": "admin-col-excel", "index": c["id"]},
-                            **{"aria-label": f"Hiện Excel cột {c['field_name']}"},
-                        )
-                    ),
-                    dmc.TableTd(
-                        dmc.Checkbox(
-                            checked=bool(c.get("is_total")),
-                            id={"type": "admin-col-total", "index": c["id"]},
-                            disabled=str(c.get("data_type")) != "NUMBER",
-                            **{"aria-label": f"Tổng cột {c['field_name']}"},
-                        )
-                    ),
-                    dmc.TableTd(
-                        dmc.Group(
-                            [
-                                dmc.ActionIcon(
-                                    DashIconify(icon="lucide:arrow-up", width=16),
-                                    id={"type": "admin-col-up", "index": c["id"]},
-                                    variant="subtle",
-                                    disabled=i == 0,
-                                    **{"aria-label": f"Dời cột {c['field_name']} lên"},
-                                ),
-                                dmc.ActionIcon(
-                                    DashIconify(icon="lucide:arrow-down", width=16),
-                                    id={"type": "admin-col-down", "index": c["id"]},
-                                    variant="subtle",
-                                    disabled=i == len(columns) - 1,
-                                    **{"aria-label": f"Dời cột {c['field_name']} xuống"},
-                                ),
-                            ],
-                            gap="xs",
-                        )
-                    ),
-                ]
-            )
-        )
-    return dmc.Stack(
+    rows = _render_step4_rows(columns)
+
+    card_cols = dmc.Paper(
         [
-            dmc.Title("Cấu hình cột", order=3),
+            dmc.Group(
+                [
+                    dmc.Stack(
+                        [
+                            dmc.Title("Cấu hình cột", order=3, size=15, fw=600),
+                            dmc.Text("Nhập trực tiếp trên grid. Kéo biểu tượng ⋮⋮ hoặc dùng ↑↓ để đổi vị trí hiển thị.", size="xs", c="dimmed"),
+                        ],
+                        gap=0,
+                    ),
+                    dmc.Group(
+                        [
+                            dcc.Input(
+                                id="admin-col-search",
+                                type="text",
+                                placeholder="Tìm trường DB...",
+                                className="rh-native-input",
+                                style={"width": "180px", "height": "28px", "fontSize": "11px"},
+                            ),
+                            dmc.Button(
+                                "Lưu cột",
+                                id="admin-col-save-btn",
+                                variant="filled",
+                                color="primary",
+                                size="xs",
+                                leftSection=DashIconify(icon="lucide:save", width=14),
+                                style={"height": "28px", "fontWeight": 600},
+                            ),
+                            dmc.Button(
+                                "Khôi phục thứ tự DB",
+                                id="admin-col-restore-btn",
+                                variant="light",
+                                size="xs",
+                                leftSection=DashIconify(icon="lucide:rotate-ccw", width=14),
+                                style={"height": "28px", "fontWeight": 500},
+                            ),
+                            dmc.Button(
+                                "Làm mới cột",
+                                id="admin-col-refresh-btn",
+                                variant="subtle",
+                                size="xs",
+                                style={"height": "28px"},
+                            ),
+                        ],
+                        gap="xs",
+                        align="center",
+                    ),
+                ],
+                justify="space-between",
+                align="center",
+                mb="xs",
+            ),
             (
                 dmc.ScrollArea(
                     dmc.Table(
@@ -1816,24 +2097,30 @@ def render_step4(state: dict[str, Any]) -> Any:
                             dmc.TableThead(
                                 dmc.TableTr(
                                     [
-                                        dmc.TableTh("Trường DB"),
-                                        dmc.TableTh("Nhãn"),
-                                        dmc.TableTh("Kiểu"),
-                                        dmc.TableTh("Định dạng"),
-                                        dmc.TableTh("Canh"),
-                                        dmc.TableTh("Rộng"),
-                                        dmc.TableTh("Web"),
-                                        dmc.TableTh("Excel"),
-                                        dmc.TableTh("Tổng"),
-                                        dmc.TableTh(""),
+                                        dmc.TableTh("Vị trí", style={"width": "54px", "minWidth": "54px", "padding": "6px 4px"}),
+                                        dmc.TableTh("", style={"width": "24px", "minWidth": "24px", "padding": "6px 4px"}),
+                                        dmc.TableTh("Trường DB", style={"minWidth": "160px", "maxWidth": "220px", "textAlign": "left", "padding": "6px 4px"}),
+                                        dmc.TableTh("Nhãn", style={"minWidth": "160px", "maxWidth": "240px", "textAlign": "left", "padding": "6px 4px"}),
+                                        dmc.TableTh("Kiểu", style={"width": "90px", "minWidth": "90px", "padding": "6px 4px"}),
+                                        dmc.TableTh("Định dạng", style={"width": "115px", "minWidth": "115px", "padding": "6px 4px"}),
+                                        dmc.TableTh("Canh", style={"width": "80px", "minWidth": "80px", "padding": "6px 4px"}),
+                                        dmc.TableTh("Rộng", style={"width": "65px", "minWidth": "65px", "textAlign": "center", "padding": "6px 4px"}),
+                                        dmc.TableTh("Web", style={"width": "48px", "minWidth": "48px", "textAlign": "center", "padding": "6px 4px"}),
+                                        dmc.TableTh("Excel", style={"width": "48px", "minWidth": "48px", "textAlign": "center", "padding": "6px 4px"}),
+                                        dmc.TableTh("Tổng", style={"width": "48px", "minWidth": "48px", "textAlign": "center", "padding": "6px 4px"}),
+                                        dmc.TableTh("Xóa", style={"width": "40px", "minWidth": "40px", "textAlign": "center", "padding": "6px 4px"}),
                                     ]
                                 )
                             ),
-                            dmc.TableTbody(rows),
+                            html.Tbody(rows, id="admin-col-tbody"),
                         ],
-                        striped=True,
+                        striped=False,
+                        highlightOnHover=True,
                         withTableBorder=True,
-                    )
+                        className="rh-col-table",
+                        style={"width": "100%", "borderCollapse": "collapse"},
+                    ),
+                    h="calc(100vh - 310px)",
                 )
                 if rows
                 else empty_state(
@@ -1841,30 +2128,69 @@ def render_step4(state: dict[str, Any]) -> Any:
                     "Quay lại bước 2 và phân tích nguồn dữ liệu trước.",
                 )
             ),
+        ],
+        withBorder=True,
+        p="sm",
+        radius="sm",
+        style={"flex": "1 1 0%", "display": "flex", "flexDirection": "column", "minHeight": 0, "overflow": "hidden"},
+    )
+
+    card_preview = dmc.Paper(
+        [
             dmc.Group(
                 [
-                    dmc.Button(
-                        "Lưu cột",
-                        id="admin-col-save-btn",
-                        variant="filled",
-                    ),
-                    dmc.Button(
-                        "Làm mới cột",
-                        id="admin-col-refresh-btn",
-                        variant="subtle",
-                    ),
-                    dmc.Button(
-                        "Khôi phục thứ tự",
-                        id="admin-col-restore-btn",
-                        variant="subtle",
-                    ),
-                ]
+                    DashIconify(icon="lucide:table", width=15, color="var(--primary, #0f6cbd)"),
+                    dmc.Text("Xem trước layout kết quả", fw=600, size="xs"),
+                    dmc.Text("Thứ tự và định dạng hiển thị các cột khi người dùng xem báo cáo", size="10px", c="dimmed"),
+                ],
+                gap="xs",
+                mb="xs",
             ),
-            dmc.Divider(label="Xem trước layout", labelPosition="left"),
-            _render_columns_preview(columns),
+            html.Div(
+                _render_columns_preview(columns),
+                id="admin-col-preview-container",
+            ),
         ],
-        gap="sm",
+        withBorder=True,
+        p="sm",
+        radius="sm",
+        style={"flex": "1 1 0%", "display": "flex", "flexDirection": "column", "minHeight": 0, "overflow": "auto"},
     )
+
+    return dmc.Tabs(
+        id="admin-step4-subtabs",
+        value="columns",
+        color="blue",
+        children=[
+            dmc.TabsList(
+                [
+                    dmc.TabsTab(
+                        "Cấu hình cột",
+                        value="columns",
+                        leftSection=DashIconify(icon="lucide:columns-3", width=14),
+                    ),
+                    dmc.TabsTab(
+                        "Xem trước layout",
+                        value="preview",
+                        leftSection=DashIconify(icon="lucide:table", width=14),
+                    ),
+                ],
+                mb="xs",
+            ),
+            dmc.TabsPanel(
+                card_cols,
+                value="columns",
+                style={"flex": "1 1 0%", "display": "flex", "flexDirection": "column", "minHeight": 0, "overflow": "hidden"},
+            ),
+            dmc.TabsPanel(
+                card_preview,
+                value="preview",
+                style={"flex": "1 1 0%", "display": "flex", "flexDirection": "column", "minHeight": 0, "overflow": "auto"},
+            ),
+        ],
+        style={"flex": "1 1 0%", "display": "flex", "flexDirection": "column", "minHeight": 0, "overflow": "hidden", "height": "100%"},
+    )
+
 
 
 def render_step5(state: dict[str, Any], dry_run: dict[str, Any] | None = None) -> Any:
@@ -1877,10 +2203,17 @@ def render_step5(state: dict[str, Any], dry_run: dict[str, Any] | None = None) -
         if res.ok and isinstance(res.data, dict):
             preview = res.data
     options_by_code: dict[str, list[dict[str, str]]] = {}
+    version_id_int = int(state.get("version_id") or 0)
     for row in preview.get("rows", []):
         for entry in row.get("params", []):
             if entry.get("control_type") in ("SELECT", "MULTI_SELECT"):
-                options_by_code[str(entry["code"])] = []
+                if ctx and version_id_int:
+                    try:
+                        options_by_code[str(entry["code"])] = _lov_options(ctx, version_id_int, entry)
+                    except Exception:
+                        options_by_code[str(entry["code"])] = []
+                else:
+                    options_by_code[str(entry["code"])] = []
     result_area: Any = dmc.Text("Chưa chạy dry-run.", size="sm", c="dimmed")
     if dry_run:
         layout_res = preview_result_layout(ctx, int(state["version_id"])) if ctx and state.get("version_id") else None
@@ -1957,15 +2290,18 @@ def render_step5(state: dict[str, Any], dry_run: dict[str, Any] | None = None) -
                     ),
                 ]
             ),
-            (
-                dmc.Alert(
-                    "Đã dry-run OK — có thể qua bước Hoàn tất để kích hoạt.",
-                    color="green",
-                    title="Dry-run OK",
-                    variant="light",
-                )
-                if state.get("dry_run_ok")
-                else html.Div()
+            html.Div(
+                id="admin-dryrun-banner",
+                children=(
+                    dmc.Alert(
+                        "Đã dry-run OK — có thể qua bước Hoàn tất để kích hoạt.",
+                        color="green",
+                        title="Dry-run OK",
+                        variant="light",
+                    )
+                    if state.get("dry_run_ok")
+                    else html.Div()
+                ),
             ),
             render_param_form(preview, options_by_code),
             dmc.Group(
@@ -2355,21 +2691,56 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
     )
 
 
+def _step_hidden_placeholders(step: int) -> html.Div:
+    """Các input ẩn dự phòng để callback Lưu nháp toàn cục luôn tìm thấy State ID trên mọi bước."""
+    hidden_children: list[Any] = []
+    if step != 1:
+        s1_ids = [
+            "admin-s1-report-code",
+            "admin-s1-report-name",
+            "admin-s1-category",
+            "admin-s1-owner",
+            "admin-s1-description",
+            "admin-s1-tpl-code",
+            "admin-s1-tpl-name",
+            "admin-s1-display-order",
+            "admin-s1-timeout",
+            "admin-s1-preview-max",
+            "admin-s1-export-max",
+        ]
+        for sid in s1_ids:
+            hidden_children.append(dcc.Input(id=sid, type="hidden", value=""))
+        hidden_children.append(dcc.Input(id="admin-s1-visible", type="hidden", value=""))
+        hidden_children.append(dcc.Input(id="admin-s1-default-fav", type="hidden", value=""))
+    if step != 2:
+        hidden_children.append(dcc.Input(id="admin-s2-sql", type="hidden", value=""))
+    if step != 4:
+        hidden_children.append(html.Tbody(id="admin-col-tbody", style={"display": "none"}))
+        hidden_children.append(html.Div(id="admin-col-preview-container", style={"display": "none"}))
+    if step != 5:
+        hidden_children.append(html.Div(id="admin-dryrun-result", style={"display": "none"}))
+        hidden_children.append(html.Div(id="admin-dryrun-banner", style={"display": "none"}))
+    return html.Div(hidden_children, style={"display": "none"})
+
+
 def render_step_content(step: int, state: dict[str, Any], dry_run: dict[str, Any] | None = None) -> Any:
     """Điều hướng hiển thị nội dung từng bước của wizard."""
+    placeholders = _step_hidden_placeholders(step)
     if step == 1:
-        return render_step1(state)
-    if step == 2:
-        return render_step2(state)
-    if step == 3:
-        return render_step3(state)
-    if step == 4:
-        return render_step4(state)
-    if step == 5:
-        return render_step5(state, dry_run)
-    if step == 6:
-        return render_step6(state)
-    return html.Div("Bước không hợp lệ")
+        content = render_step1(state)
+    elif step == 2:
+        content = render_step2(state)
+    elif step == 3:
+        content = render_step3(state)
+    elif step == 4:
+        content = render_step4(state)
+    elif step == 5:
+        content = render_step5(state, dry_run)
+    elif step == 6:
+        content = render_step6(state)
+    else:
+        content = html.Div("Bước không hợp lệ")
+    return html.Div([content, placeholders], style={"height": "100%"})
 
 
 def render_wizard(state: dict[str, Any], dry_run: dict[str, Any] | None = None) -> Any:
@@ -2389,15 +2760,30 @@ def render_wizard(state: dict[str, Any], dry_run: dict[str, Any] | None = None) 
                         separator="/",
                         mb=4,
                     ),
-                    dmc.Anchor(
-                        dmc.Button(
-                            "Đóng",
-                            variant="default",
-                            size="xs",
-                            style={"fontWeight": 600, "height": "28px"},
-                        ),
-                        href="/report-admin",
-                        underline=False,
+                    dmc.Group(
+                        [
+                            dmc.Button(
+                                "Lưu nháp",
+                                id="admin-save-draft-btn",
+                                leftSection=DashIconify(icon="lucide:save", width=14),
+                                variant="subtle",
+                                color="blue",
+                                size="xs",
+                                style={"fontWeight": 600, "height": "28px"},
+                            ),
+                            dmc.Anchor(
+                                dmc.Button(
+                                    "Đóng",
+                                    variant="default",
+                                    size="xs",
+                                    style={"fontWeight": 600, "height": "28px"},
+                                ),
+                                href="/report-admin",
+                                underline=False,
+                            ),
+                        ],
+                        gap="xs",
+                        align="center",
                     ),
                 ],
                 justify="space-between",
@@ -2528,18 +2914,57 @@ def _field_error_text(err: dict[str, Any]) -> str:
     return f"{field}: {msg}" if msg else f"{field}: không hợp lệ."
 
 
-def _err_alert(res: Any) -> Any:
+def _err_alert(res: Any, title: str = "Lỗi") -> Any:
+    if res is None:
+        return None
     details = getattr(res, "details", None)
     errors = details.get("errors") if isinstance(details, dict) else None
-    if errors:
+    msg = getattr(res, "message", None) or "Có lỗi xảy ra."
+    if errors and isinstance(errors, list):
         lines = [_field_error_text(e) for e in errors if isinstance(e, dict)]
         if lines:
-            return alert_box(
-                res.message or "Có lỗi xảy ra.",
-                [dmc.Text(line, size="sm") for line in lines],
-                tone="crit",
-            )
-    return alert_box(res.message or "Có lỗi xảy ra.", tone="crit")
+            msg_full = f"{msg}\n" + "\n".join(f"• {line}" for line in lines)
+            return notify_error(msg_full, title=title)
+    return notify_error(msg, title=title)
+
+
+def _sync_new_bind_params(ctx: Ctx, version_id: int, new_binds: list[str]) -> int:
+    """Tự động thêm param mới khi SQL có bind variables :param mới."""
+    if not new_binds:
+        return 0
+    ver = _version_detail(ctx, version_id)
+    existing_codes = {str(p.get("code", "")).upper() for p in ver.get("params", [])}
+    added_count = 0
+    for b in new_binds:
+        code = str(b).strip()
+        if not code or code.upper() in existing_codes:
+            continue
+        data_type = "DATE" if "date" in code.lower() or "ngay" in code.lower() else "STRING"
+        control_type = "DATE" if data_type == "DATE" else "TEXT"
+        label = code.replace("_", " ").title()
+        if label.lower().startswith("p "):
+            label = label[2:].strip().title()
+        payload = {
+            "code": code.lower(),
+            "label": label,
+            "data_type": data_type,
+            "control_type": control_type,
+            "required": False,
+            "default_type": "NONE",
+            "default_value": None,
+            "display_row": 1,
+            "display_order": 90 + added_count * 5,
+            "grid_span": 3,
+            "is_visible": True,
+            "lov_type": "NONE",
+        }
+        res = create_param(ctx, version_id, payload)
+        if res.ok:
+            added_count += 1
+            existing_codes.add(code.upper())
+    if added_count > 0:
+        auto_layout(ctx, version_id)
+    return added_count
 
 
 def handle_save_step1(
@@ -2613,7 +3038,7 @@ def handle_save_step1(
                     "dry_run_ok": False,
                 }
             )
-            return state, alert_box("Đã lưu thông tin.", tone="ok")
+            return state, notify_success("Đã lưu thông tin.")
         report_id = int(state["report_id"])
         template_id = int(state["template_id"])
         rep_res = update_report(
@@ -2652,9 +3077,9 @@ def handle_save_step1(
             )
         state["step"] = 2
         state["max_step"] = max(int(state.get("max_step") or 1), 2)
-        return state, alert_box("Đã lưu thông tin.", tone="ok")
+        return state, notify_success("Đã lưu thông tin.")
     except Exception as exc:  # noqa: BLE001 - service đã bọc, phòng thủ thêm
-        return state, alert_box(f"Lưu bước 1 lỗi: {exc}", tone="crit")
+        return state, notify_error(f"Lưu bước 1 lỗi: {exc}")
 
 
 def handle_analyze_sql(
@@ -2673,14 +3098,10 @@ def handle_analyze_sql(
     detail = _version_detail(ctx, version_id)
     ds_id = detail.get("data_source_id")
     if not ds_id:
-        return state, alert_box(
-            "Chưa chọn Data Source.",
-            "Chọn Data Source ở bước 2 trước.",
-            tone="crit",
-        )
+        return state, notify_error("Chưa chọn Data Source. Vui lòng chọn Data Source ở bước 2 trước.")
     sql = (sql_text or "").strip()
     if not sql:
-        return state, alert_box("Chưa nhập câu lệnh SQL.", tone="crit")
+        return state, notify_error("Chưa nhập câu lệnh SQL.")
     val_res = validate_version_sql(ctx, sql, int(ds_id))
     if not val_res.ok:
         return state, _err_alert(val_res)
@@ -2694,14 +3115,15 @@ def handle_analyze_sql(
     if not apply_res.ok:
         return state, _err_alert(apply_res)
     diff = diff_res.data
+    new_params_count = _sync_new_bind_params(ctx, version_id, diff.get("new_binds") or [])
     state["analyzed"] = True
     state["max_step"] = max(int(state.get("max_step") or 2), 3)
-    return state, alert_box(
-        "Đã phân tích nguồn dữ liệu.",
+    extra_msg = f" · Thêm {new_params_count} tham số mới." if new_params_count > 0 else "."
+    return state, notify_success(
+        f"Đã phân tích nguồn dữ liệu. "
         f"Thêm {len(diff.get('added', []))} cột · "
         f"Mất {len(diff.get('removed', []))} cột · "
-        f"Đổi kiểu {len(diff.get('type_changed', []))} cột.",
-        tone="ok",
+        f"Đổi kiểu {len(diff.get('type_changed', []))} cột{extra_msg}"
     )
 
 
@@ -2722,7 +3144,7 @@ def handle_analyze_object(
     state = dict(state)
     version_id = int(state["version_id"])
     if not data_source_id:
-        return state, alert_box("Chưa chọn Data Source.", tone="crit")
+        return state, notify_error("Chưa chọn Data Source.")
     upd_res = update_version_source(
         ctx,
         version_id,
@@ -2744,10 +3166,8 @@ def handle_analyze_object(
     diff = diff_res.data
     state["analyzed"] = True
     state["max_step"] = max(int(state.get("max_step") or 2), 3)
-    return state, alert_box(
-        "Đã phân tích nguồn dữ liệu.",
-        f"Thêm {len(diff.get('added', []))} cột · Mất {len(diff.get('removed', []))} cột.",
-        tone="ok",
+    return state, notify_success(
+        f"Đã phân tích nguồn dữ liệu. Thêm {len(diff.get('added', []))} cột · Mất {len(diff.get('removed', []))} cột."
     )
 
 
@@ -2810,7 +3230,7 @@ def handle_param_save(
         res = create_param(ctx, version_id, payload)
     if not res.ok or not isinstance(res.data, dict):
         return None, _err_alert(res)
-    return res.data, alert_box("Đã lưu tham số.", tone="ok")
+    return res.data, notify_success("Đã lưu tham số.")
 
 
 def handle_param_delete(
@@ -2827,7 +3247,7 @@ def handle_param_delete(
     res = delete_param(ctx, int(state["version_id"]), int(param_id))
     if not res.ok:
         return False, _err_alert(res)
-    return True, alert_box("Đã xóa tham số.", tone="ok")
+    return True, notify_success("Đã xóa tham số.")
 
 
 def _layout_position(ctx: Ctx, version_id: int, param_id: int) -> tuple[int, int, list[dict[str, Any]]] | None:
@@ -2858,7 +3278,10 @@ def handle_param_move(
     version_id = int(state["version_id"])
     pos = _layout_position(ctx, version_id, int(param_id))
     if pos is None:
-        return False, alert_box("Không tìm thấy tham số.", tone="crit")
+        auto_layout(ctx, version_id)
+        pos = _layout_position(ctx, version_id, int(param_id))
+        if pos is None:
+            return False, None
     row_no, idx, params = pos
     layout_res = preview_layout(ctx, version_id)
     rows = layout_res.data.get("rows", []) if layout_res.ok and isinstance(layout_res.data, dict) else []
@@ -2868,17 +3291,17 @@ def handle_param_move(
         elif row_no > 1:
             prev = next((r for r in rows if int(r.get("row", 0)) == row_no - 1), None)
             if prev is None:
-                return False, alert_box("Đã ở đầu danh sách.", tone="warn")
+                return False, notify_warning("Đã ở đầu danh sách.")
             to_row, to_index = row_no - 1, len(prev.get("params", []))
         else:
-            return False, alert_box("Đã ở đầu danh sách.", tone="warn")
+            return False, notify_warning("Đã ở đầu danh sách.")
     else:
         if idx < len(params) - 1:
             to_row, to_index = row_no, idx + 1
         else:
             nxt = next((r for r in rows if int(r.get("row", 0)) == row_no + 1), None)
             if nxt is None:
-                return False, alert_box("Đã ở cuối danh sách.", tone="warn")
+                return False, notify_warning("Đã ở cuối danh sách.")
             to_row, to_index = row_no + 1, 0
     res = move_param(ctx, version_id, int(param_id), to_row, to_index)
     if not res.ok:
@@ -2899,7 +3322,7 @@ def handle_auto_layout(
     res = auto_layout(ctx, int(state["version_id"]))
     if not res.ok:
         return False, _err_alert(res)
-    return True, alert_box("Đã tự sắp xếp layout.", tone="ok")
+    return True, notify_success("Đã tự sắp xếp layout.")
 
 
 def handle_column_save(
@@ -2916,7 +3339,7 @@ def handle_column_save(
     res = update_columns(ctx, int(state["version_id"]), rows or [])
     if not res.ok:
         return False, _err_alert(res)
-    return True, alert_box("Đã lưu cấu hình cột.", tone="ok")
+    return True, notify_success("Đã lưu cấu hình cột.")
 
 
 def handle_column_move(
@@ -2938,19 +3361,36 @@ def handle_column_move(
     ids = [int(c["id"]) for c in res.data]
     idx = ids.index(int(column_id)) if int(column_id) in ids else -1
     if idx < 0:
-        return False, alert_box("Không tìm thấy cột.", tone="crit")
+        return False, notify_error("Không tìm thấy cột.")
     if direction == "up":
         if idx == 0:
-            return False, alert_box("Đã ở đầu danh sách.", tone="warn")
+            return False, notify_warning("Đã ở đầu danh sách.")
         to_index = idx - 1
     else:
         if idx == len(ids) - 1:
-            return False, alert_box("Đã ở cuối danh sách.", tone="warn")
+            return False, notify_warning("Đã ở cuối danh sách.")
         to_index = idx + 1
     move_res = move_column(ctx, version_id, int(column_id), to_index)
     if not move_res.ok:
         return False, _err_alert(move_res)
     return True, None
+
+
+def handle_column_delete(
+    n_clicks: int | None,
+    state: dict[str, Any],
+    column_id: int | None,
+) -> tuple[bool, Any]:
+    """Bước 4: xóa cột khỏi version."""
+    if not n_clicks:
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None or not state.get("version_id") or not column_id:
+        raise PreventUpdate
+    res = delete_column(ctx, int(state["version_id"]), int(column_id))
+    if not res.ok:
+        return False, _err_alert(res)
+    return True, notify_success("Đã xóa cột.")
 
 
 def handle_refresh_columns(
@@ -2966,7 +3406,7 @@ def handle_refresh_columns(
     res = refresh_columns(ctx, int(state["version_id"]))
     if not res.ok:
         return False, _err_alert(res)
-    return True, alert_box("Đã làm mới cột từ nguồn.", tone="ok")
+    return True, notify_success("Đã làm mới cột từ nguồn.")
 
 
 def handle_restore_order(
@@ -2982,7 +3422,7 @@ def handle_restore_order(
     res = restore_column_order(ctx, int(state["version_id"]))
     if not res.ok:
         return False, _err_alert(res)
-    return True, alert_box("Đã khôi phục thứ tự cột.", tone="ok")
+    return True, notify_success("Đã khôi phục thứ tự cột.")
 
 
 def handle_dry_run(
@@ -3021,11 +3461,7 @@ def handle_activate(
     if not state.get("dry_run_ok"):
         detail = _version_detail(ctx, int(state["version_id"]))
         if str(detail.get("status")) != "DRY_RUN_OK":
-            return state, alert_box(
-                "Chưa dry-run xong.",
-                "Quay lại bước 5 và chạy dry-run trước khi kích hoạt.",
-                tone="crit",
-            )
+            return state, notify_error("Chưa dry-run xong. Quay lại bước 5 và chạy dry-run trước khi kích hoạt.")
     res = activate_version(ctx, int(state["version_id"]))
     if not res.ok:
         return state, _err_alert(res)
@@ -3049,12 +3485,12 @@ def handle_clone(
     new_version = res.data
     tpl_res = get_template(ctx, int(new_version["template_id"]))
     if not tpl_res.ok or not isinstance(tpl_res.data, dict):
-        return None, alert_box("Không tải được template sau khi clone.", tone="crit")
+        return None, notify_error("Không tải được template sau khi clone.")
     state = _state_from_version(ctx, int(new_version["template_id"]), int(new_version["id"]))
     if state is None:
-        return None, alert_box("Không tải được version sau khi clone.", tone="crit")
+        return None, notify_error("Không tải được version sau khi clone.")
     state["report_id"] = int(tpl_res.data["report_id"])
-    return state, alert_box("Đã clone sang version DRAFT mới.", tone="ok")
+    return state, notify_success("Đã clone sang version DRAFT mới.")
 
 
 def handle_archive_version(
@@ -3070,7 +3506,7 @@ def handle_archive_version(
     res = archive_version(ctx, int(state["version_id"]))
     if not res.ok:
         return False, _err_alert(res)
-    return True, alert_box("Đã lưu trữ version.", tone="ok")
+    return True, notify_success("Đã lưu trữ version.")
 
 
 def handle_open_edit(
@@ -3085,17 +3521,13 @@ def handle_open_edit(
         raise PreventUpdate
     draft = _draft_version_of(ctx, int(template_id))
     if draft is None:
-        return None, alert_box(
-            "Template không có version DRAFT.",
-            "Hãy Clone một version để sửa.",
-            tone="crit",
-        )
+        return None, notify_error("Template không có version DRAFT. Hãy Clone một version để sửa.")
     tpl_res = get_template(ctx, int(template_id))
     if not tpl_res.ok or not isinstance(tpl_res.data, dict):
         return None, _err_alert(tpl_res)
     state = _state_from_version(ctx, int(template_id), int(draft["id"]))
     if state is None:
-        return None, alert_box("Không tải được version.", tone="crit")
+        return None, notify_error("Không tải được version.")
     state["report_id"] = int(tpl_res.data["report_id"])
     return state, None
 
@@ -3116,46 +3548,26 @@ def handle_next_step(
         return state, None
     if step == 1:
         if not (state.get("report_id") and state.get("template_id") and state.get("version_id")):
-            return state, alert_box(
-                "Lưu bước 1 trước.",
-                "Bấm “Lưu và tiếp tục” để tạo báo cáo và template.",
-                tone="crit",
-            )
+            return state, notify_error("Lưu bước 1 trước. Bấm “Tiếp theo” để tạo báo cáo và template.")
     elif step == 2:
         if not state.get("analyzed"):
-            return state, alert_box(
-                "Chưa phân tích nguồn dữ liệu.",
-                "Bấm “Phân tích SQL” (hoặc “Phân tích nguồn”) ở bước 2 trước.",
-                tone="crit",
-            )
+            return state, notify_error("Chưa phân tích nguồn dữ liệu. Bấm “Phân tích SQL” (hoặc “Phân tích nguồn”) ở bước 2 trước.")
     elif step == 3:
         if state.get("version_id"):
             val_res = validate_layout(ctx, int(state["version_id"]))
             if val_res.ok and isinstance(val_res.data, dict):
                 violations = val_res.data.get("violations", [])
                 if violations:
-                    return state, alert_box(
-                        "Layout vượt 12 cột.",
-                        "Sửa lại layout tham số trước khi qua bước sau.",
-                        tone="crit",
-                    )
+                    return state, notify_error("Layout vượt 12 cột. Sửa lại layout tham số trước khi qua bước sau.")
     elif step == 4:
         if state.get("version_id"):
             cols_res = list_columns(ctx, int(state["version_id"]))
             cols = cols_res.data if cols_res.ok and isinstance(cols_res.data, list) else []
             if not cols:
-                return state, alert_box(
-                    "Chưa có cột nào.",
-                    "Quay lại bước 2 và phân tích nguồn dữ liệu trước.",
-                    tone="crit",
-                )
+                return state, notify_error("Chưa có cột nào. Quay lại bước 2 và phân tích nguồn dữ liệu trước.")
     elif step == 5:
         if not state.get("dry_run_ok"):
-            return state, alert_box(
-                "Chưa dry-run xong.",
-                "Bấm “Chạy dry-run” ở bước 5 trước khi qua bước sau.",
-                tone="crit",
-            )
+            return state, notify_error("Chưa dry-run xong. Bấm “Chạy dry-run” ở bước 5 trước khi qua bước sau.")
     state["step"] = step + 1
     state["max_step"] = max(int(state.get("max_step") or step), step + 1)
     return state, None
@@ -3166,30 +3578,17 @@ def handle_step_click(
     state: dict[str, Any],
     step: int | None = None,
 ) -> tuple[dict[str, Any], Any]:
-    """Bấm Stepper: chỉ quay lại bước đã qua (guard n_clicks).
-
-    Callback Dash truyền `active` (0-based) làm arg đầu, step=None;
-    test truyền (n_clicks, state, step 1-based).
-    """
+    """Bấm Stepper: chỉ quay lại bước đã qua (guard n_clicks)."""
     if active_or_clicks is None:
         raise PreventUpdate
     target = int(step) if step is not None else int(active_or_clicks) + 1
     state = dict(state)
-    # Stepper bị dựng lại mỗi khi wizard render (kể cả khi step không đổi,
-    # ví dụ sau khi Lưu bước 1 lỗi): `active` phát lại đúng bước hiện tại.
-    # Không làm gì cả — PreventUpdate để không ghi đè alert vừa hiện
-    # (callback trước đó trả alert qua output admin-alert; trả (state, None)
-    # ở đây sẽ xóa alert đó và người dùng thấy như bấm không có tác dụng).
     if target == int(state.get("step") or 1):
         raise PreventUpdate
     if target <= int(state.get("max_step") or 1):
         state["step"] = target
         return state, None
-    return state, alert_box(
-        "Chưa tới được bước này.",
-        "Hoàn thành các bước trước rồi mới qua.",
-        tone="warn",
-    )
+    return state, notify_warning("Chưa tới được bước này. Hoàn thành các bước trước rồi mới qua.")
 
 
 # ─── Callbacks ─────────────────────────────────────────────────────────────
@@ -3216,11 +3615,11 @@ def _state_or_no_update(old_state: dict[str, Any] | None, new_state: dict[str, A
 
 
 @callback(
-    Output("admin-state-store", "data"),
+    Output("admin-state-store", "data", allow_duplicate=True),
     Output("admin-alert", "children", allow_duplicate=True),
     Input("admin-location", "href"),
     State("admin-state-store", "data"),
-    prevent_initial_call="initial_duplicate",
+    prevent_initial_call=True,
 )
 def handle_location(href: str | None, state: dict[str, Any] | None) -> tuple[dict[str, Any], Any]:
     """Mở wizard từ pathname (/report-admin/new, /report-admin/<id>) hoặc query: ?new=1, ?template=<id>, ?clone=<version_id>."""
@@ -3234,6 +3633,8 @@ def handle_location(href: str | None, state: dict[str, Any] | None) -> tuple[dic
         raise PreventUpdate
 
     if pathname.endswith("/new") or qs.get("new"):
+        if state and state.get("mode") == "wizard" and (int(state.get("step") or 1) > 1 or state.get("report_id")):
+            raise PreventUpdate
         return _state_or_no_update(state, _fresh_state(), None)
 
     tpl_id_val: int | None = None
@@ -3247,6 +3648,8 @@ def handle_location(href: str | None, state: dict[str, Any] | None) -> tuple[dic
             tpl_id_val = None
 
     if tpl_id_val is not None:
+        if state and state.get("mode") == "wizard" and int(state.get("template_id") or 0) == tpl_id_val:
+            raise PreventUpdate
         new_state, alert = handle_open_edit(1, tpl_id_val)
         if new_state is None:
             return _state_or_no_update(state, {"mode": "list"}, alert)
@@ -3270,6 +3673,9 @@ def handle_location(href: str | None, state: dict[str, Any] | None) -> tuple[dic
     raise PreventUpdate
 
 
+_LAST_WIZARD_RENDER: dict[str, Any] = {}
+
+
 @callback(
     Output("admin-wizard-container", "children"),
     Input("admin-state-store", "data"),
@@ -3279,9 +3685,23 @@ def handle_wizard_render(
     state: dict[str, Any] | None,
     dry_run: dict[str, Any] | None,
 ) -> Any:
-    """Render wizard từ state-store."""
+    """Render wizard từ state-store kèm memoization guard tránh render thừa khi chỉ đổi param chọn."""
+    global _LAST_WIZARD_RENDER
     if not state or state.get("mode") != "wizard":
+        _LAST_WIZARD_RENDER.clear()
         return []
+    current_key = (
+        state.get("mode"),
+        state.get("report_id"),
+        state.get("template_id"),
+        state.get("version_id"),
+        state.get("step"),
+        state.get("rev"),
+        state.get("analyzed"),
+    )
+    if _LAST_WIZARD_RENDER.get("key") == current_key:
+        raise PreventUpdate
+    _LAST_WIZARD_RENDER["key"] = current_key
     return render_wizard(state, dry_run)
 
 
@@ -3373,7 +3793,7 @@ def handle_admin_filter(
 
 
 @callback(
-    Output("admin-reports-store", "data"),
+    Output("admin-reports-store", "data", allow_duplicate=True),
     Input("admin-refresh-btn", "n_clicks"),
     prevent_initial_call=True,
 )
@@ -3660,83 +4080,6 @@ def handle_s2_object_pick(
 
 @callback(
     Output("admin-state-store", "data", allow_duplicate=True),
-    Output("admin-alert", "children", allow_duplicate=True),
-    Input("admin-p-save-btn", "n_clicks"),
-    State("admin-state-store", "data"),
-    State("admin-p-code", "value"),
-    State("admin-p-label", "value"),
-    State("admin-p-data-type", "value"),
-    State("admin-p-control-type", "value"),
-    State("admin-p-required", "checked"),
-    State("admin-p-default-type", "value"),
-    State("admin-p-default-value", "value"),
-    State("admin-p-row", "value"),
-    State("admin-p-order", "value"),
-    State("admin-p-span", "value"),
-    State("admin-p-filter-col", "value"),
-    State("admin-p-filter-op", "value"),
-    State("admin-p-visible", "checked"),
-    State("admin-p-lov-type", "value"),
-    State("admin-p-lov-sql", "value"),
-    State("admin-p-lov-lookup", "value"),
-    State("admin-p-lov-static", "value"),
-    prevent_initial_call=True,
-)
-def handle_p_save(
-    n_clicks: int | None,
-    state: dict[str, Any] | None,
-    code: str | None,
-    label: str | None,
-    data_type: str | None,
-    control_type: str | None,
-    required: bool | None,
-    default_type: str | None,
-    default_value: str | None,
-    display_row: int | None,
-    display_order: int | None,
-    grid_span: int | None,
-    filter_column: str | None,
-    filter_operator: str | None,
-    is_visible: bool | None,
-    lov_type: str | None,
-    lov_sql: str | None,
-    lov_lookup_type: str | None,
-    lov_static_text: str | None,
-) -> tuple[dict[str, Any], Any]:
-    """Lưu tham số (tạo mới hoặc sửa)."""
-    if not state:
-        raise PreventUpdate
-    param, alert = handle_param_save(
-        n_clicks,
-        state,
-        state.get("editing_param_id"),
-        code,
-        label,
-        data_type,
-        control_type,
-        required,
-        default_type,
-        default_value,
-        display_row,
-        display_order,
-        grid_span,
-        filter_column,
-        filter_operator,
-        is_visible,
-        lov_type,
-        lov_sql,
-        lov_lookup_type,
-        lov_static_text,
-    )
-    if param is None:
-        return _state_or_no_update(state, state, alert)
-    new_state = _bump(state)
-    new_state["editing_param_id"] = None
-    return new_state, alert
-
-
-@callback(
-    Output("admin-state-store", "data", allow_duplicate=True),
     Input("admin-p-cancel-edit-btn", "n_clicks"),
     State("admin-state-store", "data"),
     prevent_initial_call=True,
@@ -3765,71 +4108,11 @@ def handle_p_autolayout(n_clicks: int | None, state: dict[str, Any] | None) -> t
     return _bump(state), alert
 
 
-@callback(
-    Output("admin-state-store", "data", allow_duplicate=True),
-    Output("admin-alert", "children", allow_duplicate=True),
-    Input({"type": "admin-param-edit", "index": dash.ALL}, "n_clicks"),
-    State("admin-state-store", "data"),
-    prevent_initial_call=True,
-)
-def handle_p_edit_click(n_clicks: list[int | None] | None, state: dict[str, Any] | None) -> tuple[dict[str, Any], Any]:
-    """Bấm Sửa tham số → nạp vào form."""
-    if not n_clicks or not any(n_clicks) or not state:
-        raise PreventUpdate
-    triggered_id = dash.callback_context.triggered_id
-    if not isinstance(triggered_id, dict) or "index" not in triggered_id:
-        raise PreventUpdate
-    new_state = _bump(state)
-    new_state["editing_param_id"] = int(triggered_id["index"])
-    return new_state, None
 
 
 @callback(
-    Output("admin-state-store", "data", allow_duplicate=True),
     Output("admin-alert", "children", allow_duplicate=True),
-    Input({"type": "admin-param-del", "index": dash.ALL}, "n_clicks"),
-    State("admin-state-store", "data"),
-    prevent_initial_call=True,
-)
-def handle_p_del_click(n_clicks: list[int | None] | None, state: dict[str, Any] | None) -> tuple[dict[str, Any], Any]:
-    """Bấm Xóa tham số."""
-    if not n_clicks or not any(n_clicks) or not state:
-        raise PreventUpdate
-    triggered_id = dash.callback_context.triggered_id
-    if not isinstance(triggered_id, dict) or "index" not in triggered_id:
-        raise PreventUpdate
-    clicks = max((c or 0) for c in n_clicks) if isinstance(n_clicks, list) else n_clicks
-    ok, alert = handle_param_delete(clicks, state, int(triggered_id["index"]))
-    return _bump(state), alert
-
-
-@callback(
-    Output("admin-state-store", "data", allow_duplicate=True),
-    Output("admin-alert", "children", allow_duplicate=True),
-    Input({"type": "admin-param-up", "index": dash.ALL}, "n_clicks"),
-    Input({"type": "admin-param-down", "index": dash.ALL}, "n_clicks"),
-    State("admin-state-store", "data"),
-    prevent_initial_call=True,
-)
-def handle_p_move_click(
-    _up: list[int | None] | None,
-    _down: list[int | None] | None,
-    state: dict[str, Any] | None,
-) -> tuple[dict[str, Any], Any]:
-    """Nút ↑↓ dời tham số."""
-    if not state:
-        raise PreventUpdate
-    triggered_id = dash.callback_context.triggered_id
-    if not isinstance(triggered_id, dict) or "index" not in triggered_id:
-        raise PreventUpdate
-    direction = "up" if triggered_id.get("type") == "admin-param-up" else "down"
-    ok, alert = handle_param_move(1, state, int(triggered_id["index"]), direction)
-    return _bump(state), alert
-
-
-@callback(
-    Output("admin-state-store", "data", allow_duplicate=True),
-    Output("admin-alert", "children", allow_duplicate=True),
+    Output("admin-col-preview-container", "children", allow_duplicate=True),
     Input("admin-col-save-btn", "n_clicks"),
     State("admin-state-store", "data"),
     State({"type": "admin-col-label", "index": dash.ALL}, "value"),
@@ -3837,9 +4120,9 @@ def handle_p_move_click(
     State({"type": "admin-col-format", "index": dash.ALL}, "value"),
     State({"type": "admin-col-align", "index": dash.ALL}, "value"),
     State({"type": "admin-col-width", "index": dash.ALL}, "value"),
-    State({"type": "admin-col-web", "index": dash.ALL}, "checked"),
-    State({"type": "admin-col-excel", "index": dash.ALL}, "checked"),
-    State({"type": "admin-col-total", "index": dash.ALL}, "checked"),
+    State({"type": "admin-col-web", "index": dash.ALL}, "value"),
+    State({"type": "admin-col-excel", "index": dash.ALL}, "value"),
+    State({"type": "admin-col-total", "index": dash.ALL}, "value"),
     prevent_initial_call=True,
 )
 def handle_col_save(
@@ -3850,13 +4133,19 @@ def handle_col_save(
     formats: list[str | None] | None,
     aligns: list[str | None] | None,
     widths: list[int | None] | None,
-    webs: list[bool | None] | None,
-    excels: list[bool | None] | None,
-    totals: list[bool | None] | None,
-) -> tuple[dict[str, Any], Any]:
-    """Lưu cả grid cột một lần."""
-    if not state:
+    webs: list[Any] | None,
+    excels: list[Any] | None,
+    totals: list[Any] | None,
+) -> tuple[Any, Any]:
+    """Lưu cả grid cột một lần mà không gây treo browser."""
+    if not state or not state.get("version_id") or not n_clicks:
         raise PreventUpdate
+
+    def _is_chk(v: Any) -> bool:
+        if isinstance(v, list):
+            return "1" in v
+        return bool(v)
+
     rows: list[dict[str, Any]] = []
     for i, pid in enumerate(ids or []):
         rows.append(
@@ -3866,13 +4155,15 @@ def handle_col_save(
                 "format_mask": (formats or [None] * len(ids or []))[i] or None,
                 "alignment": (aligns or [None] * len(ids or []))[i],
                 "width": (widths or [None] * len(ids or []))[i],
-                "web_visible": bool((webs or [None] * len(ids or []))[i]),
-                "excel_visible": bool((excels or [None] * len(ids or []))[i]),
-                "is_total": bool((totals or [None] * len(ids or []))[i]),
+                "web_visible": _is_chk((webs or [None] * len(ids or []))[i]),
+                "excel_visible": _is_chk((excels or [None] * len(ids or []))[i]),
+                "is_total": _is_chk((totals or [None] * len(ids or []))[i]),
             }
         )
     ok, alert = handle_column_save(n_clicks, state, rows)
-    return _bump(state), alert
+    ctx = get_current_ctx()
+    updated_cols = list_columns(ctx, int(state["version_id"])).data or [] if ctx else []
+    return alert, _render_columns_preview(updated_cols)
 
 
 @callback(
@@ -3891,7 +4182,17 @@ def handle_col_move_click(
     """Nút ↑↓ dời cột."""
     if not state:
         raise PreventUpdate
-    triggered_id = dash.callback_context.triggered_id
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        raise PreventUpdate
+    has_click = False
+    for item in ctx_dash.triggered:
+        if item.get("value") and int(item.get("value", 0)) > 0:
+            has_click = True
+            break
+    if not has_click:
+        raise PreventUpdate
+    triggered_id = ctx_dash.triggered_id
     if not isinstance(triggered_id, dict) or "index" not in triggered_id:
         raise PreventUpdate
     direction = "up" if triggered_id.get("type") == "admin-col-up" else "down"
@@ -3900,39 +4201,45 @@ def handle_col_move_click(
 
 
 @callback(
-    Output("admin-state-store", "data", allow_duplicate=True),
     Output("admin-alert", "children", allow_duplicate=True),
+    Output("admin-col-preview-container", "children", allow_duplicate=True),
     Input("admin-col-refresh-btn", "n_clicks"),
     State("admin-state-store", "data"),
     prevent_initial_call=True,
 )
-def handle_col_refresh(n_clicks: int | None, state: dict[str, Any] | None) -> tuple[dict[str, Any], Any]:
-    """Nút Làm mới cột."""
-    if not state:
+def handle_col_refresh(n_clicks: int | None, state: dict[str, Any] | None) -> tuple[Any, Any]:
+    """Nút Làm mới cột từ nguồn DB (cập nhật DB & preview mà không làm đơ tbody)."""
+    if not state or not state.get("version_id") or not n_clicks:
         raise PreventUpdate
     ok, alert = handle_refresh_columns(n_clicks, state)
-    return _bump(state), alert
+    ctx = get_current_ctx()
+    updated_cols = list_columns(ctx, int(state["version_id"])).data or [] if ctx else []
+    return alert, _render_columns_preview(updated_cols)
 
 
 @callback(
-    Output("admin-state-store", "data", allow_duplicate=True),
     Output("admin-alert", "children", allow_duplicate=True),
+    Output("admin-col-preview-container", "children", allow_duplicate=True),
     Input("admin-col-restore-btn", "n_clicks"),
     State("admin-state-store", "data"),
     prevent_initial_call=True,
 )
-def handle_col_restore(n_clicks: int | None, state: dict[str, Any] | None) -> tuple[dict[str, Any], Any]:
-    """Nút Khôi phục thứ tự cột."""
-    if not state:
+def handle_col_restore(n_clicks: int | None, state: dict[str, Any] | None) -> tuple[Any, Any]:
+    """Nút Khôi phục thứ tự cột theo DB (DOM đã sort tức thời 0ms trong JS)."""
+    if not state or not state.get("version_id") or not n_clicks:
         raise PreventUpdate
     ok, alert = handle_restore_order(n_clicks, state)
-    return _bump(state), alert
+    ctx = get_current_ctx()
+    updated_cols = list_columns(ctx, int(state["version_id"])).data or [] if ctx else []
+    return alert, _render_columns_preview(updated_cols)
 
 
 @callback(
     Output("admin-state-store", "data", allow_duplicate=True),
     Output("admin-dryrun-store", "data"),
     Output("admin-alert", "children", allow_duplicate=True),
+    Output("admin-dryrun-result", "children", allow_duplicate=True),
+    Output("admin-dryrun-banner", "children", allow_duplicate=True),
     Input("admin-dryrun-btn", "n_clicks"),
     State("admin-state-store", "data"),
     State({"type": "viewer-param", "index": dash.ALL}, "value"),
@@ -3944,13 +4251,55 @@ def handle_dryrun_click(
     state: dict[str, Any] | None,
     param_values: list[Any] | None,
     param_ids: list[dict[str, Any]] | None,
-) -> tuple[dict[str, Any], dict[str, Any] | None, Any]:
+) -> tuple[dict[str, Any], dict[str, Any] | None, Any, Any, Any]:
     """Nút Chạy dry-run ở bước 5."""
-    if not state:
+    if not state or not n_clicks:
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None or not state.get("version_id"):
         raise PreventUpdate
     values = _param_values_from_inputs(param_values, param_ids)
-    new_state, result, alert = handle_dry_run(n_clicks, state, values)
-    return _bump(new_state), result, alert
+    new_state = dict(state)
+    res = dry_run_version(ctx, int(state["version_id"]), values or {})
+    if not res.ok or not isinstance(res.data, dict):
+        new_state["dry_run_ok"] = False
+        return (
+            new_state,
+            None,
+            _err_alert(res),
+            dmc.Text("Chưa chạy dry-run.", size="sm", c="dimmed"),
+            html.Div(),
+        )
+    new_state["dry_run_ok"] = True
+    new_state["version_status"] = "DRY_RUN_OK"
+    new_state["max_step"] = max(int(state.get("max_step") or 5), 6)
+
+    layout_res = preview_result_layout(ctx, int(state["version_id"]))
+    layout_data = (
+        layout_res.data if layout_res and layout_res.ok and isinstance(layout_res.data, dict) else {"columns": []}
+    )
+    result_area = dmc.Stack(
+        [
+            dmc.Text(
+                f"Tổng {res.data.get('total')} dòng · "
+                f"{res.data.get('query_ms')} ms · "
+                f"hiển thị tối đa {len(res.data.get('rows', []))} dòng mẫu",
+                size="sm",
+            ),
+            render_result_table(layout_data, res.data.get("rows", [])),
+        ],
+        gap="sm",
+    )
+    banner = dmc.Alert(
+        "Đã dry-run OK — có thể qua bước Hoàn tất để kích hoạt.",
+        color="green",
+        title="Dry-run OK",
+        variant="light",
+    )
+    alert = notify_success(
+        f"Chạy dry-run thành công: tổng {res.data.get('total'):,} dòng ({res.data.get('query_ms')} ms)."
+    )
+    return new_state, res.data, alert, result_area, banner
 
 
 @callback(
@@ -3966,7 +4315,7 @@ def handle_activate_click(n_clicks: int | None, state: dict[str, Any] | None) ->
         raise PreventUpdate
     new_state, alert = handle_activate(n_clicks, state)
     if alert is None:
-        return _bump(new_state), alert_box("Đã kích hoạt template.", "Version này đã ACTIVE.", tone="ok")
+        return _bump(new_state), notify_success("Đã kích hoạt template. Version này đã ACTIVE.")
     return _state_or_no_update(state, new_state, alert)
 
 
@@ -4037,6 +4386,604 @@ def handle_list_archive_click(
         return _err_alert(res), dash.no_update
     reports = _load_reports_with_templates(ctx)
     return (
-        alert_box("Đã lưu trữ version.", tone="ok"),
+        notify_success("Đã lưu trữ version."),
         reports,
     )
+
+
+@callback(
+    Output("admin-state-store", "data", allow_duplicate=True),
+    Output("admin-alert", "children", allow_duplicate=True),
+    Input("admin-save-draft-btn", "n_clicks"),
+    State("admin-state-store", "data"),
+    State("admin-s1-report-code", "value"),
+    State("admin-s1-report-name", "value"),
+    State("admin-s1-category", "value"),
+    State("admin-s1-owner", "value"),
+    State("admin-s1-description", "value"),
+    State("admin-s1-visible", "checked"),
+    State("admin-s1-default-fav", "checked"),
+    State("admin-s1-tpl-code", "value"),
+    State("admin-s1-tpl-name", "value"),
+    State("admin-s1-display-order", "value"),
+    State("admin-s1-timeout", "value"),
+    State("admin-s1-preview-max", "value"),
+    State("admin-s1-export-max", "value"),
+    State("admin-s2-sql", "value"),
+    prevent_initial_call=True,
+)
+def handle_save_draft_click(
+    n_clicks: int | None,
+    state: dict[str, Any] | None,
+    report_code: str | None,
+    report_name: str | None,
+    category_code: str | None,
+    owner: str | None,
+    description: str | None,
+    is_visible: bool | None,
+    default_favorite: bool | None,
+    tpl_code: str | None,
+    tpl_name: str | None,
+    display_order: int | None,
+    timeout_sec: int | None,
+    preview_max_rows: int | None,
+    export_max_rows: int | None,
+    s2_sql: str | None,
+) -> tuple[dict[str, Any], Any]:
+    """Bấm nút Lưu nháp trên thanh tiêu đề wizard: lưu trực tiếp dữ liệu theo bước hiện tại."""
+    if not n_clicks or not state:
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    now_str = datetime.now().strftime("%H:%M:%S")
+    current_step = int(state.get("step") or 1)
+
+    if current_step == 1:
+        editing = bool(state.get("report_id") and state.get("template_id"))
+        if not editing:
+            rep_res = create_report(
+                ctx,
+                {
+                    "code": (report_code or "").strip(),
+                    "name": (report_name or "").strip(),
+                    "category_code": category_code or "FINANCE",
+                    "owner": (owner or "").strip(),
+                    "description": (description or "").strip() or None,
+                    "default_favorite": bool(default_favorite),
+                    "is_visible": bool(is_visible) if is_visible is not None else True,
+                },
+            )
+            if not rep_res.ok or not isinstance(rep_res.data, dict):
+                return state, _err_alert(rep_res)
+            report_id = int(rep_res.data["id"])
+            tpl_res = create_template(
+                ctx,
+                report_id,
+                {
+                    "code": (tpl_code or "").strip(),
+                    "name": (tpl_name or "").strip(),
+                    "display_order": int(display_order or 10),
+                    "timeout_sec": int(timeout_sec or 300),
+                    "preview_max_rows": int(preview_max_rows or 100),
+                    "export_max_rows": int(export_max_rows or 1000000),
+                },
+            )
+            if not tpl_res.ok or not isinstance(tpl_res.data, dict):
+                return state, _err_alert(tpl_res)
+            template_id = int(tpl_res.data["id"])
+            versions = tpl_res.data.get("versions") or []
+            version_id = int(versions[0]["id"]) if versions else None
+            new_state = dict(state)
+            new_state.update(
+                {
+                    "report_id": report_id,
+                    "template_id": template_id,
+                    "version_id": version_id,
+                    "version_status": "DRAFT",
+                    "step": 1,
+                    "max_step": max(int(state.get("max_step") or 1), 2),
+                }
+            )
+            return _bump(new_state), notify_success(f"Đã tạo và lưu nháp thông tin báo cáo thành công lúc {now_str}.")
+
+        report_id = int(state["report_id"])
+        template_id = int(state["template_id"])
+        rep_res = update_report(
+            ctx,
+            report_id,
+            {
+                "name": (report_name or "").strip(),
+                "category_code": category_code or "FINANCE",
+                "owner": (owner or "").strip(),
+                "description": (description or "").strip() or None,
+                "default_favorite": bool(default_favorite),
+                "is_visible": bool(is_visible) if is_visible is not None else True,
+            },
+        )
+        if not rep_res.ok:
+            return state, _err_alert(rep_res)
+        tpl_res = update_template(
+            ctx,
+            template_id,
+            {
+                "name": (tpl_name or "").strip(),
+                "display_order": int(display_order or 10),
+            },
+        )
+        if not tpl_res.ok:
+            return state, _err_alert(tpl_res)
+        if state.get("version_id"):
+            update_version_source(
+                ctx,
+                int(state["version_id"]),
+                {
+                    "timeout_sec": int(timeout_sec or 300),
+                    "preview_max_rows": int(preview_max_rows or 100),
+                    "export_max_rows": int(export_max_rows or 1000000),
+                },
+            )
+        return _bump(state), notify_success(f"Đã lưu nháp thông tin báo cáo thành công lúc {now_str}.")
+
+    if current_step == 2 and state.get("version_id"):
+        version_id = int(state["version_id"])
+        sql = (s2_sql or "").strip()
+        if sql:
+            upd_res = update_version_source(ctx, version_id, {"sql_text": sql})
+            if not upd_res.ok:
+                return state, _err_alert(upd_res)
+            diff_res = analyze_version_source(ctx, version_id)
+            if diff_res.ok and isinstance(diff_res.data, dict):
+                apply_source_diff(ctx, version_id, diff_res.data)
+                _sync_new_bind_params(ctx, version_id, diff_res.data.get("new_binds") or [])
+        return _bump(state), notify_success(f"Đã lưu nháp nguồn dữ liệu thành công lúc {now_str}.")
+
+    return _bump(state), notify_success(f"Đã lưu nháp tiến độ báo cáo thành công lúc {now_str}.")
+
+
+@callback(
+    Output("admin-state-store", "data", allow_duplicate=True),
+    Output("admin-alert", "children", allow_duplicate=True),
+    Input("admin-param-add-btn", "n_clicks"),
+    State("admin-state-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_param_add_click(n_clicks: int | None, state: dict[str, Any] | None) -> tuple[dict[str, Any], Any]:
+    """Bấm nút + Thêm tham số."""
+    if not n_clicks or not state:
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None or not state.get("version_id"):
+        raise PreventUpdate
+    vid = int(state["version_id"])
+    ver = _version_detail(ctx, vid)
+    params = ver.get("params", [])
+    idx = len(params) + 1
+    code = f"p_param_{idx}"
+    while any(p.get("code") == code for p in params):
+        idx += 1
+        code = f"p_param_{idx}"
+    payload = {
+        "code": code,
+        "label": f"Tham số {idx}",
+        "data_type": "STRING",
+        "control_type": "TEXT",
+        "required": False,
+        "default_type": "NONE",
+        "default_value": None,
+        "display_row": 1,
+        "display_order": idx * 10,
+        "grid_span": 3,
+        "is_visible": True,
+        "lov_type": "NONE",
+    }
+    res = create_param(ctx, vid, payload)
+    if not res.ok:
+        return state, _err_alert(res)
+    new_state = _bump(state)
+    if isinstance(res.data, dict) and "id" in res.data:
+        new_state["editing_param_id"] = int(res.data["id"])
+    return new_state, notify_success(f"Đã thêm tham số {code}.")
+
+
+@callback(
+    Output("admin-state-store", "data", allow_duplicate=True),
+    Output("admin-alert", "children", allow_duplicate=True),
+    Input("admin-p-add-row-btn", "n_clicks"),
+    State("admin-state-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_param_add_row_click(n_clicks: int | None, state: dict[str, Any] | None) -> tuple[dict[str, Any], Any]:
+    """Bấm nút + Thêm hàng trong Canvas."""
+    if not n_clicks or not state:
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None or not state.get("version_id"):
+        raise PreventUpdate
+    vid = int(state["version_id"])
+    ver = _version_detail(ctx, vid)
+    params = ver.get("params", [])
+    max_row = max([int(p.get("display_row") or 1) for p in params], default=0) + 1
+    code = f"p_row_{max_row}"
+    payload = {
+        "code": code,
+        "label": f"Tham số hàng {max_row}",
+        "data_type": "STRING",
+        "control_type": "TEXT",
+        "required": False,
+        "default_type": "NONE",
+        "default_value": None,
+        "display_row": max_row,
+        "display_order": 10,
+        "grid_span": 3,
+        "is_visible": True,
+        "lov_type": "NONE",
+    }
+    res = create_param(ctx, vid, payload)
+    if not res.ok:
+        return state, _err_alert(res)
+    new_state = _bump(state)
+    if isinstance(res.data, dict) and "id" in res.data:
+        new_state["editing_param_id"] = int(res.data["id"])
+    return new_state, notify_success(f"Đã thêm Hàng {max_row}.")
+
+
+@callback(
+    Output("admin-p-lov-title", "children"),
+    Output("admin-p-lov-type", "value"),
+    Output("admin-p-lov-body", "children"),
+    Output("admin-state-store", "data", allow_duplicate=True),
+    Input({"type": "admin-param-select", "index": dash.ALL}, "n_clicks"),
+    State("admin-state-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_p_select_click(
+    n_clicks: list[int | None] | int | None, state: dict[str, Any] | None
+) -> tuple[str, str, Any, dict[str, Any]]:
+    """Click vào mã tham số trong bảng để chọn và cấu hình LOV nhanh tức thì (không reload toàn trang)."""
+    clicks_list = n_clicks if isinstance(n_clicks, list) else [n_clicks]
+    if not any(c for c in clicks_list if c) or not state or not state.get("version_id"):
+        raise PreventUpdate
+    triggered_id = dash.callback_context.triggered_id
+    if not isinstance(triggered_id, dict) or "index" not in triggered_id:
+        raise PreventUpdate
+    param_id = int(triggered_id["index"])
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    ver = _version_detail(ctx, int(state["version_id"]))
+    params = ver.get("params", [])
+    target = next((p for p in params if int(p["id"]) == param_id), None)
+    if target is None:
+        raise PreventUpdate
+    lov = target.get("lov") or {}
+    lov_type = str(lov.get("lov_type") or "NONE")
+    lookup_opts = _lookup_options(ctx)
+    title = f"Setup LOV: {target['code']}"
+    body = _render_lov_fields(lov_type, lov, lookup_opts)
+
+    new_state = dict(state)
+    new_state["editing_param_id"] = param_id
+    return title, lov_type, body, new_state
+
+
+@callback(
+    Output("admin-p-lov-none-box", "style"),
+    Output("admin-p-lov-static-box", "style"),
+    Output("admin-p-lov-sql-box", "style"),
+    Output("admin-p-lov-lookup-box", "style"),
+    Input("admin-p-lov-type", "value"),
+    prevent_initial_call=True,
+)
+def handle_p_lov_type_switch(lov_type: str | None) -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
+    """Đổi loại LOV hiển thị ngay khối tương ứng mà không re-render cây DOM."""
+    t = (lov_type or "NONE").upper()
+    return (
+        {"display": "block" if t == "NONE" else "none"},
+        {"display": "block" if t == "STATIC" else "none"},
+        {"display": "block" if t == "SQL" else "none"},
+        {"display": "block" if t == "LOOKUP" else "none"},
+    )
+
+
+@callback(
+    Output("admin-p-lov-test-result", "children"),
+    Output("admin-alert", "children", allow_duplicate=True),
+    Input("admin-p-lov-test-btn", "n_clicks"),
+    State("admin-p-lov-sql", "value"),
+    State("admin-state-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_p_lov_sql_test(n_clicks: int | None, sql: str | None, state: dict[str, Any] | None) -> tuple[Any, Any]:
+    """Nút Kiểm tra LOV SQL."""
+    if not n_clicks:
+        raise PreventUpdate
+    sql_text = (sql or "").strip()
+    if not sql_text:
+        return None, notify_error("Chưa nhập câu lệnh SQL LOV.")
+    if not sql_text.upper().startswith("SELECT"):
+        return None, notify_error("Chỉ chấp nhận câu lệnh SELECT.")
+    sql_upper = sql_text.upper()
+    if " VALUE" not in sql_upper or " LABEL" not in sql_upper:
+        return None, notify_error(
+            "SQL LOV bắt buộc phải có alias VALUE và LABEL (ví dụ: SELECT id AS value, name AS label FROM ...)."
+        )
+    return (
+        dmc.Badge("✓ Hợp lệ (VALUE, LABEL)", color="green", variant="light", size="xs"),
+        notify_success("Câu lệnh SQL LOV hợp lệ: có alias VALUE và LABEL."),
+    )
+
+
+@callback(
+    Output("admin-state-store", "data", allow_duplicate=True),
+    Output("admin-alert", "children", allow_duplicate=True),
+    Input("admin-p-save-btn", "n_clicks"),
+    State("admin-state-store", "data"),
+    State("admin-p-lov-type", "value"),
+    State("admin-p-lov-sql", "value"),
+    State("admin-p-lov-lookup", "value"),
+    State("admin-p-lov-static", "value"),
+    State("admin-p-lov-cache", "value"),
+    prevent_initial_call=True,
+)
+def handle_p_save_lov(
+    n_clicks: int | None,
+    state: dict[str, Any] | None,
+    lov_type: str | None,
+    lov_sql: str | None,
+    lov_lookup: str | None,
+    lov_static: str | None,
+    lov_cache: int | None,
+) -> tuple[dict[str, Any], Any]:
+    """Bấm nút Lưu cấu hình LOV cho tham số đang chọn."""
+    if not n_clicks or not state or not state.get("version_id"):
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    version_id = int(state["version_id"])
+    ver = _version_detail(ctx, version_id)
+    params = ver.get("params", [])
+    if not params:
+        return state, notify_error("Chưa có tham số nào để lưu LOV.")
+    editing_id = state.get("editing_param_id")
+    target_param = next((p for p in params if int(p["id"]) == int(editing_id)), None) if editing_id else None
+    if target_param is None:
+        target_param = params[0]
+    assert target_param is not None
+    param_pk = int(target_param["id"])
+
+    ds_id = ver.get("data_source_id")
+    lov_payload = _lov_payload(
+        lov_type,
+        lov_sql,
+        lov_lookup,
+        lov_static,
+        data_source_id=ds_id,
+    )
+    if lov_cache is not None:
+        lov_payload["cache_ttl_sec"] = int(lov_cache)
+
+    ctl = "SELECT" if lov_type in ("STATIC", "SQL", "LOOKUP") else target_param.get("control_type", "TEXT")
+    update_res = update_param(
+        ctx,
+        version_id,
+        param_pk,
+        {"lov": lov_payload, "control_type": ctl},
+    )
+    if not update_res.ok:
+        return state, _err_alert(update_res)
+    new_state = _bump(state)
+    new_state["editing_param_id"] = param_pk
+    code_str = str(target_param.get("code") or "")
+    return new_state, notify_success(f"Đã lưu cấu hình LOV cho tham số {code_str}.")
+
+
+@callback(
+    Output("admin-state-store", "data", allow_duplicate=True),
+    Output("admin-alert", "children", allow_duplicate=True),
+    Input({"type": "admin-param-del", "index": dash.ALL}, "n_clicks"),
+    State("admin-state-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_param_del_click(n_clicks: list[int | None] | int | None, state: dict[str, Any] | None) -> tuple[dict[str, Any], Any]:
+    """Bấm nút Xóa tham số khỏi version."""
+    if not state or not state.get("version_id"):
+        raise PreventUpdate
+    clicks_list = n_clicks if isinstance(n_clicks, list) else [n_clicks]
+    if not any(c for c in clicks_list if c):
+        raise PreventUpdate
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        raise PreventUpdate
+    has_click = False
+    for item in ctx_dash.triggered:
+        if item.get("value") and int(item.get("value", 0)) > 0:
+            has_click = True
+            break
+    if not has_click:
+        raise PreventUpdate
+    triggered_id = ctx_dash.triggered_id
+    if not isinstance(triggered_id, dict) or triggered_id.get("type") != "admin-param-del":
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    param_id = int(triggered_id["index"])
+    res = delete_param(ctx, int(state["version_id"]), param_id)
+    if not res.ok:
+        return state, _err_alert(res)
+    new_state = _bump(state)
+    if int(state.get("editing_param_id") or 0) == param_id:
+        new_state["editing_param_id"] = None
+    return new_state, notify_success("Đã xóa tham số thành công.")
+
+
+@callback(
+    Output("admin-state-store", "data", allow_duplicate=True),
+    Output("admin-alert", "children", allow_duplicate=True),
+    Input({"type": "admin-p-move-left", "index": dash.ALL}, "n_clicks"),
+    Input({"type": "admin-p-move-right", "index": dash.ALL}, "n_clicks"),
+    State("admin-state-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_p_move_direction(_left: list[Any], _right: list[Any], state: dict[str, Any] | None) -> tuple[dict[str, Any], Any]:
+    """Bấm nút ← hoặc → trên thẻ Canvas để dời thứ tự tham số."""
+    if not state or not state.get("version_id"):
+        raise PreventUpdate
+    if not any(x for x in (_left or []) if x) and not any(x for x in (_right or []) if x):
+        raise PreventUpdate
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        raise PreventUpdate
+    triggered_id = ctx_dash.triggered_id
+    if not isinstance(triggered_id, dict) or "index" not in triggered_id:
+        raise PreventUpdate
+    direction = "up" if triggered_id.get("type") == "admin-p-move-left" else "down"
+    ok, alert = handle_param_move(1, state, int(triggered_id["index"]), direction)
+    return _bump(state), alert
+
+
+@callback(
+    Output("admin-state-store", "data", allow_duplicate=True),
+    Output("admin-alert", "children", allow_duplicate=True),
+    Output("admin-col-preview-container", "children", allow_duplicate=True),
+    Input({"type": "admin-col-del", "index": dash.ALL}, "n_clicks"),
+    State("admin-state-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_col_del_click(n_clicks: list[int | None] | int | None, state: dict[str, Any] | None) -> tuple[Any, Any]:
+    """Bấm Xóa cột khỏi version."""
+    if not state or not state.get("version_id"):
+        raise PreventUpdate
+    clicks_list = n_clicks if isinstance(n_clicks, list) else [n_clicks]
+    if not any(c for c in clicks_list if c):
+        raise PreventUpdate
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        raise PreventUpdate
+    has_click = False
+    for item in ctx_dash.triggered:
+        if item.get("value") and int(item.get("value", 0)) > 0:
+            has_click = True
+            break
+    if not has_click:
+        raise PreventUpdate
+    triggered_id = ctx_dash.triggered_id
+    if not isinstance(triggered_id, dict) or triggered_id.get("type") != "admin-col-del":
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    col_id = int(triggered_id["index"])
+    res = delete_column(ctx, int(state["version_id"]), col_id)
+    if not res.ok:
+        return _err_alert(res), dash.no_update
+    # Client DOM đã xóa dòng mượt mà tức thời; cập nhật layout preview mà không rebuild 4.500 component
+    updated_cols = list_columns(ctx, int(state["version_id"])).data or []
+    return notify_success("Đã xóa cột khỏi cấu hình báo cáo."), _render_columns_preview(updated_cols)
+
+
+@callback(
+    Output("admin-p-canvas-container", "children"),
+    Input({"type": "admin-p-canvas-row", "index": dash.ALL}, "value"),
+    Input({"type": "admin-p-canvas-span", "index": dash.ALL}, "value"),
+    State("admin-state-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_p_canvas_change(_rows: list[Any], _spans: list[Any], state: dict[str, Any] | None) -> Any:
+    """Sửa Hàng hoặc Span trên Canvas — lưu DB và re-render ngay Canvas DOM mượt mà."""
+    if not state or not state.get("version_id"):
+        raise PreventUpdate
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        raise PreventUpdate
+    triggered_id = ctx_dash.triggered_id
+    if not isinstance(triggered_id, dict) or "index" not in triggered_id:
+        raise PreventUpdate
+    param_id = int(triggered_id["index"])
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    val = None
+    input_type = triggered_id.get("type")
+    for item in ctx_dash.triggered:
+        prop = item.get("prop_id", "")
+        if f"\"index\":{param_id}" in prop or f"\"type\":\"{input_type}\"" in prop:
+            val = item.get("value")
+            break
+    if val is None or val == "":
+        raise PreventUpdate
+    try:
+        val_int = int(val)
+    except (ValueError, TypeError):
+        raise PreventUpdate from None
+    payload: dict[str, Any] = {}
+    if input_type == "admin-p-canvas-row":
+        payload["display_row"] = max(1, val_int)
+    elif input_type == "admin-p-canvas-span":
+        payload["grid_span"] = min(12, max(1, val_int))
+    update_param(ctx, int(state["version_id"]), param_id, payload)
+
+    version = _version_detail(ctx, state.get("version_id"))
+    params = version.get("params", [])
+    violations = []
+    val_res = validate_layout(ctx, int(state["version_id"]))
+    if val_res.ok and isinstance(val_res.data, dict):
+        violations = val_res.data.get("violations", [])
+    return _render_param_canvas(params, violations)
+
+
+@callback(
+    Output("admin-state-store", "data", allow_duplicate=True),
+    Output("admin-alert", "children", allow_duplicate=True),
+    Output("admin-col-preview-container", "children", allow_duplicate=True),
+    Input("admin-drag-drop-store", "data"),
+    State("admin-state-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_drag_drop_reorder(
+    drag_data: dict[str, Any] | None,
+    state: dict[str, Any] | None,
+) -> tuple[Any, Any, Any]:
+    """Xử lý sự kiện kéo thả từ drag_drop_reporting.js."""
+    if not drag_data or not isinstance(drag_data, dict) or not state or not state.get("version_id"):
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    drag_type = drag_data.get("type")
+    version_id = int(state["version_id"])
+    if drag_type == "col":
+        from_id = int(drag_data.get("from_id", 0))
+        to_id = int(drag_data.get("to_id", 0))
+        if from_id == to_id or not from_id or not to_id:
+            raise PreventUpdate
+        cols_res = list_columns(ctx, version_id)
+        if not cols_res.ok or not isinstance(cols_res.data, list):
+            raise PreventUpdate
+        col_list = list(cols_res.data)
+        col_ids = [int(c["id"]) for c in col_list]
+        if from_id not in col_ids or to_id not in col_ids:
+            raise PreventUpdate
+        from_idx = col_ids.index(from_id)
+        to_idx = col_ids.index(to_id)
+        item = col_ids.pop(from_idx)
+        col_ids.insert(to_idx, item)
+        reorder_columns(ctx, version_id, col_ids)
+        # Cập nhật card Xem trước layout online ngay lập tức; không bump wizard state để tránh giật lag DOM
+        updated_cols = list_columns(ctx, version_id).data or []
+        return dash.no_update, notify_success("Đã thay đổi vị trí cột thành công."), _render_columns_preview(updated_cols)
+    if drag_type == "param":
+        from_id = int(drag_data.get("from_id", 0))
+        if not from_id:
+            raise PreventUpdate
+        to_row = max(1, int(drag_data.get("to_row") or 1))
+        to_index = max(0, int(drag_data.get("to_index") or 0))
+        move_res = move_param(ctx, version_id, from_id, to_row, to_index)
+        if not move_res.ok:
+            return dash.no_update, _err_alert(move_res), dash.no_update
+        return _bump(state), notify_success("Đã thay đổi vị trí tham số thành công."), dash.no_update
+    raise PreventUpdate
+
+

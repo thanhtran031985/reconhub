@@ -52,4 +52,126 @@ main > div > div,
   overflow: hidden !important;
 }
 
+/* Drag & Drop & Highlight styles for Dynamic Reporting */
+.rh-drag-handle {
+  cursor: grab;
+  user-select: none;
+  color: var(--ink-soft, #888);
+  display: inline-block;
+  padding: 2px 4px;
+}
+.rh-drag-handle:active {
+  cursor: grabbing;
+}
+.rh-dragging {
+  opacity: 0.45;
+  background-color: rgba(0, 120, 212, 0.05) !important;
+}
+.rh-drag-over {
+  background-color: rgba(0, 120, 212, 0.12) !important;
+  outline: 2px dashed var(--mantine-color-blue-6, #0078D4) !important;
+  outline-offset: -2px;
+}
+.param-row-selected {
+  background-color: rgba(0, 120, 212, 0.06) !important;
+  border-left: 3px solid var(--mantine-color-blue-6, #0078D4) !important;
+}
+
+/* Bảng cấu hình cột Step 4: khoảng cách giữa các cột 8px (padding mỗi cell 4px) */
+.rh-col-table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+}
+.rh-col-table th,
+.rh-col-table td {
+  padding: 4px 4px !important;
+  vertical-align: middle !important;
+  box-sizing: border-box !important;
+}
+.rh-col-table th {
+  white-space: nowrap !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: var(--ink-soft, #616161) !important;
+  background-color: var(--surface-2, #f8f9fa) !important;
+}
+
+/* Native styled inputs for high performance grids */
+.rh-native-input,
+.rh-native-select {
+  height: 26px;
+  min-height: 26px;
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--line, #dfe5ee);
+  border-radius: 4px;
+  background-color: var(--surface-1, #fff);
+  color: var(--ink, #172033);
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.rh-native-input:focus,
+.rh-native-select:focus {
+  outline: none;
+  border-color: var(--mantine-color-blue-6, #0078D4);
+  box-shadow: 0 0 0 1px var(--mantine-color-blue-6, #0078D4);
+}
+
+.rh-btn-arrow {
+  background: transparent;
+  border: 1px solid var(--line, #dfe5ee);
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0;
+  color: var(--ink, #172033);
+}
+
+.rh-btn-arrow:hover:not(:disabled) {
+  background: var(--surface-2, #f3f3f3);
+}
+
+.rh-btn-arrow:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.rh-btn-del {
+  background: transparent;
+  border: none;
+  color: #c42b1c;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.rh-btn-del:hover {
+  background: #fde8e8;
+}
+
+.rh-native-checklist {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rh-native-checklist input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--primary, #0f6cbd);
+  margin: 0;
+}
+
+
+
+
+
 

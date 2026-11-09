@@ -380,8 +380,9 @@ class TestStep3:
         state = _draft_state(run_env)
         text = _dump(page.render_step_content(3, state))
         assert "Tham số" in text
-        assert "Thêm tham số" in text
-        assert "Tự sắp xếp" in text
+        # Người dùng yêu cầu bỏ 3 nút: Thêm tham số, Thêm hàng, Tự sắp xếp (thao tác trực quan drag & drop)
+        assert "Thêm tham số" not in text
+        assert "Tự sắp xếp" not in text
         assert "param-canvas" in text
         assert "lovside" in text
         assert "Cấu hình LOV" in text
@@ -697,3 +698,83 @@ class TestWizardNav:
         # Đường test truyền step 1-based.
         with pytest.raises(PreventUpdate):
             page.handle_step_click(1, state, 1)
+
+    def test_save_draft_step1_persists_changes(self, run_env, admin_ctx, monkeypatch):
+        """Bấm Lưu nháp ở Step 1 cập nhật report_name và description vào DB."""
+        import app.ui.pages.report_admin as page
+        from app.services.report import get_report
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        state = _draft_state(run_env)
+        state["step"] = 1
+
+        new_state, notif = page.handle_save_draft_click(
+            1,
+            state,
+            report_code="FIN_REVENUE",
+            report_name="Doanh thu sửa mới",
+            category_code="FINANCE",
+            owner="FIN_LEAD",
+            description="Mô tả vừa cập nhật",
+            is_visible=True,
+            default_favorite=False,
+            tpl_code="REVENUE_DETAIL",
+            tpl_name="Chi tiết doanh thu",
+            display_order=10,
+            timeout_sec=300,
+            preview_max_rows=100,
+            export_max_rows=1000000,
+            s2_sql=None,
+        )
+        assert notif is not None
+        assert "Đã lưu nháp" in _dump(notif)
+        rep = get_report(admin_ctx, int(state["report_id"])).data
+        assert rep["name"] == "Doanh thu sửa mới"
+        assert rep["description"] == "Mô tả vừa cập nhật"
+
+    def test_analyze_sql_auto_creates_new_bind_param(self, run_env, admin_ctx, monkeypatch):
+        """Khi SQL có tham số bind :p_customer mới, phân tích SQL tự động tạo param."""
+        import app.ui.pages.report_admin as page
+        from app.services.report_template import get_version
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        _patch_describe(monkeypatch)
+        state = _draft_state(run_env)
+        sql_with_param = (
+            "SELECT org_code, customer_id, amount "
+            "FROM fin_revenue "
+            "WHERE org_code = :p_org AND customer_id = :p_customer"
+        )
+        new_state, notif = page.handle_analyze_sql(1, state, sql_with_param)
+        assert notif is not None
+        assert "Đã phân tích" in _dump(notif)
+        ver = get_version(admin_ctx, int(state["version_id"])).data
+        param_codes = [p["code"] for p in ver["params"]]
+        assert "p_customer" in param_codes
+
+    def test_save_lov_updates_param_lov(self, run_env, admin_ctx, monkeypatch):
+        """Lưu cấu hình LOV cho tham số."""
+        import app.ui.pages.report_admin as page
+        from app.services.report_template import get_version
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        state = _draft_state(run_env)
+        ver = get_version(admin_ctx, int(state["version_id"])).data
+        target_param = ver["params"][0]
+        state["editing_param_id"] = target_param["id"]
+
+        new_state, notif = page.handle_p_save_lov(
+            1,
+            state,
+            lov_type="STATIC",
+            lov_sql=None,
+            lov_lookup=None,
+            lov_static="ALL|Tất cả\nHN|Hà Nội\nHCM|TP Hồ Chí Minh",
+            lov_cache=300,
+        )
+        assert notif is not None
+        assert "Đã lưu cấu hình LOV" in _dump(notif)
+        updated_ver = get_version(admin_ctx, int(state["version_id"])).data
+        p_updated = next(p for p in updated_ver["params"] if p["id"] == target_param["id"])
+        assert p_updated["lov"]["lov_type"] == "STATIC"
+        assert len(p_updated["lov"]["static_json"]) == 3
