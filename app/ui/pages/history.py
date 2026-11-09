@@ -81,7 +81,7 @@ def render_filter_bar(
                     value=[first_day, last_day],
                     valueFormat="DD/MM/YYYY",
                     clearable=True,
-                    w=210,
+                    w=190,
                     size="xs",
                     styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
                 ),
@@ -91,7 +91,7 @@ def render_filter_bar(
                     placeholder="Tất cả",
                     data=[{"label": "Tất cả", "value": "ALL"}, *templates_options],
                     value="ALL",
-                    w=180,
+                    w=160,
                     size="xs",
                     clearable=False,
                     styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
@@ -154,7 +154,7 @@ def render_filter_bar(
                     label="Tên file",
                     placeholder="Tìm theo tên file",
                     leftSection=DashIconify(icon="lucide:search", width=14),
-                    w=180,
+                    w=150,
                     size="xs",
                     styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
                 ),
@@ -275,18 +275,25 @@ def render_runs_table(
 
     headers.extend(
         [
-            dmc.TableTh("Run", style={**th_base, "minWidth": "80px"}),
-            dmc.TableTh("Thời gian chạy", style={**th_base, "minWidth": "110px"}),
-            dmc.TableTh("Template", style={**th_base, "minWidth": "150px"}),
-            dmc.TableTh("Profile", style={**th_base, "minWidth": "110px"}),
+            # Rộng tối thiểu từng cột đã thu gọn để bảng vừa khung hình hơn
+            # (trước: tổng 1504px, cuộn ngang ~300px ở 1440). Cột Thao tác chỉ
+            # còn nút 3 chấm nên hẹp hẳn; 2 cột chip Kiểm tra/Dữ liệu tạm giữ
+            # 152px để nhãn dài ("Chưa kiểm tra", "Còn 45 ngày · 3,0 MB") không
+            # bị cắt dấu 3 chấm, bù lại bằng cách thu hẹp các cột còn lại.
+            dmc.TableTh("Run", style={**th_base, "minWidth": "60px"}),
+            dmc.TableTh("Thời gian chạy", style={**th_base, "minWidth": "100px"}),
+            dmc.TableTh("Template", style={**th_base, "minWidth": "88px"}),
+            dmc.TableTh("Profile", style={**th_base, "minWidth": "76px"}),
             dmc.TableTh("Khoảng tìm kiếm", style={**th_base, "minWidth": "160px"}),
-            dmc.TableTh("File", style={**th_base, "minWidth": "160px"}),
-            dmc.TableTh("Người chạy", style={**th_base, "minWidth": "100px"}),
-            dmc.TableTh("Trạng thái", style={**th_base, "minWidth": "120px"}),
-            dmc.TableTh("Khớp", style={**th_base, "minWidth": "80px"}),
-            dmc.TableTh("Kiểm tra", style={**th_base, "minWidth": "130px"}),
-            dmc.TableTh("Dữ liệu tạm", style={**th_base, "minWidth": "150px"}),
-            dmc.TableTh("Thao tác", style={**th_base, "minWidth": "110px"}),
+            dmc.TableTh("File", style={**th_base, "minWidth": "96px"}),
+            dmc.TableTh("Người chạy", style={**th_base, "minWidth": "64px"}),
+            dmc.TableTh("Trạng thái", style={**th_base, "minWidth": "104px"}),
+            dmc.TableTh("Khớp", style={**th_base, "minWidth": "64px"}),
+            dmc.TableTh("Kiểm tra", style={**th_base, "minWidth": "152px"}),
+            dmc.TableTh("Dữ liệu tạm", style={**th_base, "minWidth": "152px"}),
+            # Cột Thao tác chỉ còn nút 3 chấm nên không đặt tiêu đề (chữ
+            # "Thao tác" dài hơn cột 44px sẽ bị cắt thành "Tha").
+            dmc.TableTh("", style={**th_base, "minWidth": "44px"}),
         ]
     )
 
@@ -484,25 +491,44 @@ def render_runs_table(
             temp_chip = status_chip("RETAINED", label=temp_label, icon="lucide:database")
         tds.append(dmc.TableTd(temp_chip, style={"whiteSpace": "nowrap", "verticalAlign": "middle"}))
 
-        # Nút thao tác
-        actions_group = [
-            dmc.Anchor(
-                button_subtle("Xem", size="xs"),
+        # Menu thao tác 3 chấm (kiểu /report-admin): bấm mở menu, chọn Xem/Tải.
+        # Một nút icon duy nhất nên hàng chỉ còn cao ~36px thay vì 73px khi 2 nút
+        # xếp chồng, và cột Thao tác thu hẹp còn 56px.
+        menu_items: list[Any] = [
+            dmc.MenuItem(
+                "Xem",
                 href=f"/runs/{r_id}",
+                leftSection=DashIconify(icon="lucide:eye", width=14),
             )
         ]
         if not is_purged and r.get("file_id"):
-            actions_group.append(
-                dmc.Anchor(
-                    button_subtle("Tải", size="xs", icon="lucide:download"),
+            menu_items.append(
+                dmc.MenuItem(
+                    "Tải",
                     href=f"/download/file/{r['file_id']}",
+                    leftSection=DashIconify(icon="lucide:download", width=14),
                 )
             )
 
         tds.append(
             dmc.TableTd(
-                dmc.Group(actions_group, gap=4, justify="flex-end"),
-                style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                dmc.Menu(
+                    [
+                        dmc.MenuTarget(
+                            dmc.ActionIcon(
+                                DashIconify(icon="lucide:more-vertical", width=14),
+                                variant="subtle",
+                                color="gray",
+                                size="sm",
+                                **{"aria-label": f"Thao tác run #{r_id}"},
+                            )
+                        ),
+                        dmc.MenuDropdown(menu_items),
+                    ],
+                    position="bottom-end",
+                    withArrow=True,
+                ),
+                style={"whiteSpace": "nowrap", "verticalAlign": "middle", "textAlign": "center"},
             )
         )
         rows.append(dmc.TableTr(tds))
@@ -536,7 +562,7 @@ def render_runs_table(
     return dmc.Paper(
         [
             dmc.TableScrollContainer(
-                minWidth=1320,
+                minWidth=1240,
                 style={"flex": 1, "minHeight": 0, "overflow": "auto"},
                 children=dmc.Table(
                     [
@@ -548,6 +574,7 @@ def render_runs_table(
                     withTableBorder=False,
                     withColumnBorders=False,
                     verticalSpacing=4,
+                    horizontalSpacing=5,
                     style={"fontSize": "13px"},
                 ),
             ),
@@ -708,14 +735,32 @@ def layout() -> Any:
                 type="circle",
                 children=html.Div(
                     id="history-table-container",
-                    style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
+                    style={
+                        "flex": 1,
+                        "minHeight": 0,
+                        "display": "flex",
+                        "flexDirection": "column",
+                        "overflow": "hidden",
+                    },
                 ),
-                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
+                # style của Loading đi vào lớp phủ spinner; muốn khung ngoài co
+                # giãn theo Box phải dùng parent_style (nếu không khung cao
+                # bằng nội dung, phân trang bị đẩy khỏi viewport).
+                parent_style={
+                    "flex": 1,
+                    "minHeight": 0,
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "overflow": "hidden",
+                },
             ),
             render_bulk_purge_modal(),
         ],
         style={
-            "height": "100%",
+            # Cao đúng bằng viewport trừ 88px (header shell 44 + padding trên 44 của
+            # AppShellMain) để trang không cuộn: bảng cuộn trong Paper, phân trang
+            # luôn hiện ở chân trang (rule giống dashboard).
+            "height": "calc(100vh - 88px)",
             "minHeight": 0,
             "display": "flex",
             "flexDirection": "column",

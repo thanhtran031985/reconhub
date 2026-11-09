@@ -468,3 +468,111 @@ def test_toggle_bulk_purge_modal_open_and_cancel(monkeypatch):
     )
     opened, summary, val, err_st, err_msg = toggle_bulk_purge_modal(None, 1, True, [101])
     assert opened is False
+
+
+# --- Layout vừa viewport, hạn chế scroll (rule giống dashboard) ---
+
+
+def _walk(node):
+    """Duyệt cây component Dash theo chiều sâu."""
+    yield node
+    children = getattr(node, "children", None)
+    if isinstance(children, (list, tuple)):
+        for child in children:
+            yield from _walk(child)
+    elif children is not None:
+        yield from _walk(children)
+
+
+def _kebab_items():
+    """2 run mẫu: 101 chưa xóa tạm (có file), 102 đã xóa tạm (có file)."""
+    base = {
+        "template_id": 1,
+        "template_code": "DTP",
+        "template_version": 1,
+        "profile_code": "DEFAULT",
+        "status": "DONE",
+        "progress_pct": 100,
+        "created_by": "op_test",
+        "created_at": "2026-02-01T10:00:00",
+        "p_from": "2026-02-01T00:00:00",
+        "p_to": "2026-02-05T23:59:59",
+        "filename": "test.xlsx",
+        "file_size": 1024 * 1024,
+        "cnt_mismatch": 0,
+        "checked_at": None,
+        "match_pct": 100.0,
+    }
+    return [
+        {**base, "id": 101, "file_id": 7, "temp_purged_at": None},
+        {**base, "id": 102, "file_id": 8, "temp_purged_at": "2026-02-01T12:00:00"},
+    ]
+
+
+def test_history_actions_kebab_menu():
+    """Cột Thao tác chỉ còn nút 3 chấm mở menu (kiểu /report-admin)."""
+    table = render_runs_table(_kebab_items(), is_admin=True, selected_ids=set(), total=2)
+    table_str = str(table)
+    assert "more-vertical" in table_str
+    assert "Xem" in table_str
+    assert "/runs/101" in table_str
+    assert "/download/file/7" in table_str
+    # Run đã xóa dữ liệu tạm thì menu chỉ còn Xem, không có Tải.
+    assert table_str.count("Tải") == 1
+    assert "/download/file/8" not in table_str
+    nodes = list(_walk(table))
+    menus = [n for n in nodes if type(n).__name__ == "Menu"]
+    assert len(menus) == 2
+    targets = [n for n in nodes if type(n).__name__ == "MenuTarget"]
+    assert len(targets) == 2
+
+
+def test_history_filter_bar_fits_one_line():
+    """Thanh lọc vừa 1 hàng ở 1366 (nội dung rộng 1134px)."""
+    bar = render_filter_bar([], [])
+    group = bar.children
+    widths = [c.w for c in group.children]
+    assert len(widths) == 7
+    # 7 ô + 6 khoảng gap xs (8px) + padding Paper 2 bên (8px).
+    total = sum(widths) + 6 * 8 + 2 * 8
+    assert total <= 1134, f"thanh lọc rộng {total}px, sẽ gãy 2 dòng ở 1366"
+
+
+def test_history_table_compact_widths():
+    """Bảng thu gọn chiều ngang: cột hẹp, đệm ngang 8px, minWidth 1240."""
+    table = render_runs_table(_kebab_items(), is_admin=True, selected_ids=set(), total=2)
+    nodes = list(_walk(table))
+    scroller = next(n for n in nodes if type(n).__name__ == "TableScrollContainer")
+    assert scroller.minWidth <= 1240
+    tbl = next(n for n in nodes if type(n).__name__ == "Table")
+    assert tbl.horizontalSpacing == 5
+    ths = [n for n in nodes if type(n).__name__ == "TableTh"]
+    total = sum(int(n.style["minWidth"].rstrip("px")) for n in ths if n.style.get("minWidth"))
+    assert total <= 1320, f"tổng minWidth cột {total}px, bảng sẽ cuộn ngang nhiều"
+    actions_th = ths[-1]
+    assert actions_th.style["minWidth"] == "44px"
+    assert actions_th.children == ""
+
+
+def test_history_layout_fills_viewport(monkeypatch):
+    """Box ngoài cao đúng viewport trừ 88px để trang không cuộn (rule dashboard)."""
+    from app.ui.pages.history import layout
+
+    ctx = Ctx(user_id=1, username="admin", full_name="Quản trị", roles=["ADMIN"])
+    monkeypatch.setattr("app.ui.pages.history.get_current_ctx", lambda: ctx)
+    monkeypatch.setattr("app.ui.pages.history.page_gate", lambda _ctx, _code: None)
+    monkeypatch.setattr(
+        "app.ui.pages.history.list_templates",
+        lambda _c: SimpleNamespace(ok=True, data=[]),
+    )
+    monkeypatch.setattr(
+        "app.ui.pages.history.list_users",
+        lambda _c: SimpleNamespace(ok=True, data=[]),
+    )
+    box = layout()
+    assert box.style["height"] == "calc(100vh - 88px)"
+    # Khung Loading phải co giãn theo Box (parent_style, không phải style của
+    # lớp phủ spinner) thì bảng mới cuộn trong Paper và phân trang hiện ở chân.
+    loading = next(c for c in box.children if getattr(c, "id", None) == "history-loading")
+    assert loading.parent_style["flex"] == 1
+    assert loading.parent_style["minHeight"] == 0
