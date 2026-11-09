@@ -416,7 +416,7 @@ def test_handle_context_menu_actions(monkeypatch):
         )
 
     _trigger("center")
-    sel, ui, hist_filter, opened, _copy = page.handle_context_menu(
+    sel, ui, hist_filter, opened, _copy, _s, _t = page.handle_context_menu(
         [1], {"kind": None, "table": None}, {"expanded": {}}, {"query": "", "change_type": "all", "table": None}
     )
     assert sel == {"kind": "table", "table": "RECON_RUN"}
@@ -424,21 +424,22 @@ def test_handle_context_menu_actions(monkeypatch):
     assert opened is False
 
     _trigger("columns")
-    sel, ui, _hf, _o, _copy = page.handle_context_menu(
+    sel, ui, _hf, _o, _copy, _s, _t = page.handle_context_menu(
         [1], {"kind": None, "table": None}, {"expanded": {}}, {"query": "", "change_type": "all", "table": None}
     )
     assert sel == {"kind": "table", "table": "RECON_RUN"}
     assert ui["mode"] == "relations"
 
     _trigger("history")
-    _sel, _ui, hist_filter, opened, _copy = page.handle_context_menu(
+    _sel, _ui, hist_filter, opened, _copy, _s, _t = page.handle_context_menu(
         [1], {"kind": None, "table": None}, {"expanded": {}}, {"query": "", "change_type": "all", "table": None}
     )
     assert hist_filter["table"] == "RECON_RUN"
     assert opened is True
+    assert _s == "" and _t == "all"
 
     _trigger("copy")
-    _sel, _ui, _hf, opened_copy, copy_store = page.handle_context_menu(
+    _sel, _ui, _hf, opened_copy, copy_store, _s, _t = page.handle_context_menu(
         [1], {"kind": None, "table": None}, {"expanded": {}}, {"query": "", "change_type": "all", "table": None}
     )
     assert copy_store == {"text": "RECON_RUN"}
@@ -693,3 +694,373 @@ def test_handle_rel_click_selects_relationship(dm_manifest, monkeypatch):
     assert selection["target"] == "RECON_USER"
     assert selection["column"] == "USER_ID"
     assert selection["references_column"] == "ID"
+
+
+# --- Bước 6: Detail Panel + History + Drift viewer ---
+
+
+def test_render_table_detail_sections(dm_manifest):
+    """Detail table: header, KPI, badges, column list, relationships, index/constraint, recent changes."""
+    import app.ui.pages.data_model as page
+
+    tables = {t["name"]: t for t in _manifest_tables(dm_manifest)}
+    node = page.render_table_detail(tables["RECON_RUN"], dm_manifest["manifest"], dm_manifest["history"], "")
+    text = str(node)
+    assert "RECON_RUN" in text
+    assert "Lần chạy đối soát" in text
+    assert "28" in text  # KPI Columns
+    assert "5" in text  # KPI Relationships (out)
+    assert "Đối soát" in text  # badge domain
+    assert "Đồng bộ" in text  # badge schema status (không drift)
+    # Column list: PK, FK, type, nullable.
+    assert "ID" in text and "INTEGER" in text
+    assert "FILE_ID" in text and "RECON_FILE.ID" in text
+    assert "NOT NULL" in text
+    assert "Nullable" in text
+    # Relationships out + in.
+    assert "RECON_RUN.FILE_ID → RECON_FILE.ID" in text
+    assert "RECON_RESULT_ROW.RUN_ID → RECON_RUN.ID" in text
+    assert "fk_RECON_RUN_FILE_ID_RECON_FILE" in text
+    # Index/constraint (không hide PK/FK).
+    assert "Primary Key" in text
+    assert "ID" in text
+    # Recent changes theo table (TABLE_CREATED + 2 COLUMN_ADDED).
+    assert "COLUMN_ADDED" in text
+    assert "BATCH_RUN_ID" in text
+
+
+def test_render_table_detail_query_highlight(dm_manifest):
+    """Query khớp column thì highlight cột đó trong detail."""
+    import app.ui.pages.data_model as page
+
+    tables = {t["name"]: t for t in _manifest_tables(dm_manifest)}
+    node = page.render_table_detail(
+        tables["RECON_RUN"], dm_manifest["manifest"], dm_manifest["history"], "batch_run_id"
+    )
+    text = str(node)
+    assert "BATCH_RUN_ID" in text
+    assert "dm-match" in text
+
+
+def test_render_table_detail_no_changes(dm_manifest):
+    """Table không có history thì hiện 'Chưa ghi nhận thay đổi schema cho table này.'"""
+    import app.ui.pages.data_model as page
+
+    tables = {t["name"]: t for t in _manifest_tables(dm_manifest)}
+    node = page.render_table_detail(tables["RECON_RUN"], dm_manifest["manifest"], [], "")
+    assert "Chưa ghi nhận thay đổi schema cho table này." in str(node)
+
+
+def test_render_table_detail_drift_badge(dm_manifest):
+    """Table có drift thì badge schema status báo drift."""
+    import app.ui.pages.data_model as page
+
+    tables = {t["name"]: t for t in _manifest_tables(dm_manifest)}
+    drifts = [
+        {
+            "type": "COLUMN_EXTRA",
+            "table": "RECON_RUN",
+            "column": "EXTRA_COL",
+            "detail": "Cột EXTRA_COL có trong database nhưng không có trong model.",
+            "db_value": "EXTRA_COL",
+            "model_value": None,
+        }
+    ]
+    node = page.render_table_detail(
+        tables["RECON_RUN"], dm_manifest["manifest"], dm_manifest["history"], "", drifts=drifts
+    )
+    assert "Drift" in str(node)
+
+
+def test_render_relationship_detail(dm_manifest):
+    """Relationship detail: source/target/constraint/N:1/delete rule + nút Source/Target."""
+    import app.ui.pages.data_model as page
+
+    rel = {
+        "kind": "relationship",
+        "source": "RECON_USER_ROLE",
+        "target": "RECON_USER",
+        "column": "USER_ID",
+        "references_column": "ID",
+        "constraint": "fk_RECON_USER_ROLE_USER_ID_RECON_USER",
+        "on_delete": None,
+    }
+    node = page.render_relationship_detail(rel, dm_manifest["manifest"])
+    text = str(node)
+    assert "RECON_USER_ROLE.USER_ID" in text
+    assert "RECON_USER.ID" in text
+    assert "fk_RECON_USER_ROLE_USER_ID_RECON_USER" in text
+    assert "N:1" in text
+    assert "—" in text  # delete rule chưa có trong metadata
+    assert "Source table" in text
+    assert "Target table" in text
+    nodes = list(_walk(node))
+    nav_ids = [n.id for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-rel-nav"]
+    assert {"type": "dm-rel-nav", "table": "RECON_USER_ROLE"} in nav_ids
+    assert {"type": "dm-rel-nav", "table": "RECON_USER"} in nav_ids
+
+
+def test_render_detail_empty_and_dispatch(dm_manifest):
+    """Detail trống khi chưa chọn; dispatch sang relationship detail khi chọn relationship."""
+    import app.ui.pages.data_model as page
+
+    empty = page.render_detail({"kind": None, "table": None}, dm_manifest["manifest"], [], "")
+    assert "Chọn một table hoặc relationship để xem chi tiết." in str(empty)
+
+    rel = {
+        "kind": "relationship",
+        "source": "RECON_USER_ROLE",
+        "target": "RECON_USER",
+        "column": "USER_ID",
+        "references_column": "ID",
+        "constraint": "fk_RECON_USER_ROLE_USER_ID_RECON_USER",
+        "on_delete": None,
+    }
+    node = page.render_detail(rel, dm_manifest["manifest"], [], "")
+    assert "RECON_USER_ROLE.USER_ID" in str(node)
+
+
+def test_filter_history_by_type_table_query(dm_manifest):
+    """Lọc history theo type, theo table, theo query (migration/entity)."""
+    import app.ui.pages.data_model as page
+
+    history = dm_manifest["history"]
+    assert len(page.filter_history(history, "", "COLUMN_ADDED", None)) == 11
+    assert len(page.filter_history(history, "", "all", "RECON_RUN")) == 3
+    assert len(page.filter_history(history, "0006", "all", None)) == 12
+    assert len(page.filter_history(history, "menu_permission", "all", None)) == 9
+    assert len(page.filter_history(history, "xyz-khong-co", "all", None)) == 0
+    # Lọc theo table không nhầm RECON_RUN_QUEUE / RECON_RUN_SUMMARY vào RECON_RUN.
+    names = {e["entity"] for e in page.filter_history(history, "", "TABLE_CREATED", "RECON_RUN")}
+    assert names == {"RECON_RUN"}
+
+
+def test_render_history_timeline(dm_manifest):
+    """Timeline history: timestamp giờ VN, type, entity, migration, before/after."""
+    import app.ui.pages.data_model as page
+
+    events = page.filter_history(dm_manifest["history"], "", "COLUMN_ADDED", "RECON_USER_ROLE")
+    assert len(events) == 3
+    node = page.render_history_timeline(events)
+    text = str(node)
+    assert "05/11/2026 07:00" in text  # 00:00 UTC -> 07:00 giờ VN
+    assert "COLUMN_ADDED" in text
+    assert "RECON_USER_ROLE.ROLE_ID" in text
+    assert "0003_menu_permission" in text
+    assert "BIGINT, nullable=True" in text
+    assert "3 thay đổi" in text
+
+    empty = page.render_history_timeline([])
+    assert "Không có thay đổi nào phù hợp." in str(empty)
+
+
+def test_drift_group_and_filter():
+    """Map 10 drift type về 5 nhóm filter; filter theo nhóm."""
+    import app.ui.pages.data_model as page
+
+    assert page.drift_group("TABLE_MISSING") == "table"
+    assert page.drift_group("TABLE_EXTRA") == "table"
+    assert page.drift_group("COLUMN_MISSING") == "column"
+    assert page.drift_group("TYPE_CHANGED") == "column"
+    assert page.drift_group("NULLABILITY_CHANGED") == "column"
+    assert page.drift_group("FK_CHANGED") == "relationship"
+    assert page.drift_group("INDEX_CHANGED") == "index"
+    assert page.drift_group("PK_CHANGED") == "constraint"
+    assert page.drift_group("CONSTRAINT_CHANGED") == "constraint"
+
+    drifts = [
+        {"type": "TABLE_MISSING", "table": "A", "column": None, "detail": "d1", "db_value": None, "model_value": "A"},
+        {"type": "COLUMN_EXTRA", "table": "B", "column": "C", "detail": "d2", "db_value": "C", "model_value": None},
+        {"type": "FK_CHANGED", "table": "B", "column": "C", "detail": "d3", "db_value": "x", "model_value": "y"},
+    ]
+    assert len(page.filter_drifts(drifts, "all")) == 3
+    assert len(page.filter_drifts(drifts, "table")) == 1
+    assert len(page.filter_drifts(drifts, "column")) == 1
+    assert len(page.filter_drifts(drifts, "relationship")) == 1
+    assert page.filter_drifts(drifts, "index") == []
+
+
+def test_drift_report_text():
+    """Report text: từng drift kèm DB vs Model, đủ để gửi cho AI/task."""
+    import app.ui.pages.data_model as page
+
+    drifts = [
+        {
+            "type": "COLUMN_EXTRA",
+            "table": "RECON_RUN",
+            "column": "EXTRA_COL",
+            "detail": "Cột EXTRA_COL có trong database nhưng không có trong model.",
+            "db_value": "EXTRA_COL",
+            "model_value": None,
+        },
+        {
+            "type": "TYPE_CHANGED",
+            "table": "RECON_RUN",
+            "column": "ID",
+            "detail": "Kiểu dữ liệu khác.",
+            "db_value": "BIGINT",
+            "model_value": "INTEGER",
+        },
+    ]
+    text = page.drift_report_text(drifts)
+    assert "Schema drift" in text
+    assert "COLUMN_EXTRA" in text and "RECON_RUN.EXTRA_COL" in text
+    assert "DB: EXTRA_COL" in text
+    assert "Model: —" in text
+    assert "TYPE_CHANGED" in text
+    assert "DB: BIGINT" in text and "Model: INTEGER" in text
+    assert page.drift_report_text([]) == "Schema đồng bộ, không có drift."
+
+
+def test_render_drift_list():
+    """Drift list: marker theo loại, DB vs Model, empty khi đồng bộ."""
+    import app.ui.pages.data_model as page
+
+    drifts = [
+        {
+            "type": "COLUMN_EXTRA",
+            "table": "RECON_RUN",
+            "column": "EXTRA_COL",
+            "detail": "d",
+            "db_value": "EXTRA_COL",
+            "model_value": None,
+        },
+        {
+            "type": "TYPE_CHANGED",
+            "table": "RECON_RUN",
+            "column": "ID",
+            "detail": "d",
+            "db_value": "BIGINT",
+            "model_value": "INTEGER",
+        },
+        {
+            "type": "FK_CHANGED",
+            "table": "RECON_RUN",
+            "column": "FILE_ID",
+            "detail": "d",
+            "db_value": "a",
+            "model_value": "b",
+        },
+    ]
+    node = page.render_drift_list(drifts)
+    text = str(node)
+    assert "RECON_RUN.EXTRA_COL" in text
+    assert "DB: EXTRA_COL" in text
+    assert "Model: INTEGER" in text
+    assert "3 drift" in text
+    assert "Schema đồng bộ, không có drift." in str(page.render_drift_list([]))
+
+
+def test_handle_history_open(monkeypatch):
+    """Nút Lịch sử thay đổi mở drawer + reset filter về mặc định."""
+    import dash
+
+    import app.ui.pages.data_model as page
+
+    opened, search, change_type, hist = page.handle_history_open(
+        1, {"query": "x", "change_type": "COLUMN_ADDED", "table": "RECON_RUN"}
+    )
+    assert opened is True
+    assert search == ""
+    assert change_type == "all"
+    assert hist == {"query": "", "change_type": "all", "table": None}
+
+    with pytest.raises(dash.exceptions.PreventUpdate):
+        page.handle_history_open(0, None)
+
+
+def test_handle_history_timeline(dm_manifest):
+    """Timeline render theo store + search/type trong drawer."""
+    import app.ui.pages.data_model as page
+
+    node = page.handle_history_timeline(
+        dm_manifest,
+        {"query": "", "change_type": "COLUMN_ADDED", "table": "RECON_USER_ROLE"},
+        "",
+        "COLUMN_ADDED",
+    )
+    assert "RECON_USER_ROLE.ROLE_ID" in str(node)
+    node2 = page.handle_history_timeline(dm_manifest, None, "0006", "all")
+    assert "RECON_RUN.BATCH_RUN_ID" in str(node2)
+    assert page.handle_history_timeline(None, None, "", "all") is not None
+
+
+def test_handle_drift_open(monkeypatch):
+    """Nút Xem khác biệt mở drift drawer; không bấm thì PreventUpdate."""
+    import dash
+
+    import app.ui.pages.data_model as page
+
+    assert page.handle_drift_open(1) is True
+    with pytest.raises(dash.exceptions.PreventUpdate):
+        page.handle_drift_open(0)
+
+
+def test_handle_drift_list_and_copy(dm_manifest):
+    """Drift list theo filter; copy report trả đúng text theo filter."""
+    import app.ui.pages.data_model as page
+
+    manifest_data = dict(dm_manifest)
+    manifest_data["drift"] = {
+        "status": "DRIFT",
+        "drifts": [
+            {
+                "type": "COLUMN_EXTRA",
+                "table": "RECON_RUN",
+                "column": "EXTRA_COL",
+                "detail": "d",
+                "db_value": "EXTRA_COL",
+                "model_value": None,
+            },
+            {
+                "type": "TABLE_MISSING",
+                "table": "RECON_X",
+                "column": None,
+                "detail": "d",
+                "db_value": None,
+                "model_value": "RECON_X",
+            },
+        ],
+    }
+    node = page.handle_drift_list(manifest_data, "column")
+    assert "RECON_RUN.EXTRA_COL" in str(node)
+    assert "RECON_X" not in str(node)
+    assert page.handle_drift_list(None, "all") is not None
+
+    text = page.handle_drift_copy(manifest_data, "all")
+    assert "COLUMN_EXTRA" in text and "TABLE_MISSING" in text
+    text_col = page.handle_drift_copy(manifest_data, "column")
+    assert "COLUMN_EXTRA" in text_col and "TABLE_MISSING" not in text_col
+    assert page.handle_drift_copy(None, "all") == "Schema đồng bộ, không có drift."
+
+
+def test_handle_rel_nav(monkeypatch):
+    """Nút Source/Target table trong relationship detail chọn table đó + URL."""
+    import json
+
+    import dash
+
+    import app.ui.pages.data_model as page
+
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(
+            triggered=[
+                {
+                    "prop_id": json.dumps({"type": "dm-rel-nav", "table": "RECON_USER"}) + ".n_clicks",
+                    "value": 1,
+                }
+            ]
+        ),
+    )
+    selection, href = page.handle_rel_nav([1], {"kind": "relationship"}, {"mode": "relations"})
+    assert selection == {"kind": "table", "table": "RECON_USER"}
+    assert href == "/data-model?table=RECON_USER&domain=all&mode=relations"
+
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "x.n_clicks", "value": 0}]),
+    )
+    selection2, href2 = page.handle_rel_nav([0], {"kind": None, "table": None}, {})
+    assert selection2 == {"kind": None, "table": None}
+    assert href2 is dash.no_update

@@ -26,7 +26,7 @@ from app.ui.components.command_bar import command_bar
 from app.ui.components.drawer import drawer_right
 from app.ui.components.empty_state import empty_state
 from app.ui.components.page_header import page_header
-from app.ui.components.search_utils import strip_accents
+from app.ui.components.search_utils import matches_query, strip_accents
 
 try:
     dash.register_page(__name__, path="/data-model", title="Mô hình dữ liệu – ReconHub")  # type: ignore[no-untyped-call]
@@ -621,26 +621,499 @@ def relationship_lines(tables: list[dict[str, Any]], layout: dict[str, dict[str,
     return lines
 
 
+# --- Bước 6: Detail Panel + History + Drift viewer ---
+
+_DOMAIN_BADGE_COLOR: dict[str, str] = {
+    "core": "gray",
+    "recon": "blue",
+    "report": "teal",
+    "admin": "violet",
+    "other": "gray",
+}
+
+# Nhóm filter của drawer drift: PK là ràng buộc nên xếp vào Constraint.
+_DRIFT_GROUP: dict[str, str] = {
+    "TABLE_MISSING": "table",
+    "TABLE_EXTRA": "table",
+    "COLUMN_MISSING": "column",
+    "COLUMN_EXTRA": "column",
+    "TYPE_CHANGED": "column",
+    "NULLABILITY_CHANGED": "column",
+    "FK_CHANGED": "relationship",
+    "INDEX_CHANGED": "index",
+    "PK_CHANGED": "constraint",
+    "CONSTRAINT_CHANGED": "constraint",
+}
+
+_DRIFT_MARKER: dict[str, str] = {"table": "−", "column": "+", "relationship": "!", "index": "!", "constraint": "!"}
+
+
+def format_history_time(timestamp: str | None) -> str:
+    """Định dạng timestamp ISO (UTC) thành DD/MM/YYYY HH:mm giờ VN."""
+    if not timestamp:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(str(timestamp))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(_VN_TZ).strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        return str(timestamp)
+
+
+def _table_incoming(tables: list[dict[str, Any]], table_name: str) -> list[dict[str, Any]]:
+    """FK từ các bảng khác trỏ vào table (incoming relationships)."""
+    incoming: list[dict[str, Any]] = []
+    for other in tables:
+        for fk in other.get("foreign_keys", []) or []:
+            if fk.get("references_table") == table_name:
+                incoming.append(
+                    {
+                        "source": str(other.get("name")),
+                        "column": str(fk.get("column")),
+                        "references_column": str(fk.get("references_column")),
+                        "constraint_name": fk.get("constraint_name"),
+                    }
+                )
+    return sorted(incoming, key=lambda r: (r["source"], r["column"]))
+
+
+def _column_marker(col: dict[str, Any]) -> str:
+    """Marker cột: ◆ PK, ↗ FK, ◆↗ cả hai, U unique (theo canvas)."""
+    is_pk = bool(col.get("primary_key"))
+    is_fk = bool(col.get("foreign_key"))
+    if is_pk and is_fk:
+        return "◆↗"
+    if is_pk:
+        return "◆"
+    if is_fk:
+        return "↗"
+    if col.get("unique"):
+        return "U"
+    return ""
+
+
+def render_table_detail(
+    table: dict[str, Any],
+    manifest: dict[str, Any],
+    history: list[dict[str, Any]],
+    query: str,
+    drifts: list[dict[str, Any]] | None = None,
+) -> Any:
+    """Detail một table: header, KPI, badges, cột, relationships, index/constraint, recent changes."""
+    name = str(table.get("name"))
+    columns = table.get("columns", []) or []
+    outgoing = sorted(table.get("foreign_keys", []) or [], key=lambda fk: str(fk.get("column")))
+    incoming = _table_incoming(manifest.get("tables", []) or [], name)
+    table_drifts = [d for d in (drifts or []) if d.get("table") == name]
+    domain = str(table.get("domain") or "other")
+    domain_label = str(table.get("domain_label") or domain)
+
+    column_rows: list[Any] = []
+    for col in columns:
+        col_name = str(col.get("name"))
+        matched = bool(query) and matches_query(col_name, query)
+        chips: list[Any] = []
+        if col.get("primary_key"):
+            chips.append(dmc.Badge("PK", size="xs", variant="light", color="red"))
+        if col.get("foreign_key"):
+            chips.append(dmc.Badge("FK", size="xs", variant="light", color="blue"))
+        if col.get("unique"):
+            chips.append(dmc.Badge("UNIQUE", size="xs", variant="light", color="violet"))
+        nullable_text = "Nullable" if col.get("nullable") else "NOT NULL"
+        default = col.get("default")
+        default_text = f"Mặc định: {default}" if default is not None else ""
+        column_rows.append(
+            html.Div(
+                [
+                    html.Span(_column_marker(col), className="dm-col-marker"),
+                    dmc.Text(
+                        col_name,
+                        size="xs",
+                        fw=600,
+                        className="rh-code" + (" dm-match" if matched else ""),
+                    ),
+                    dmc.Text(str(col.get("type") or ""), size="xs", c="dimmed", className="rh-code"),
+                    *chips,
+                    dmc.Text(nullable_text, size="xs", c="dimmed"),
+                    dmc.Text(default_text, size="xs", c="dimmed") if default_text else None,
+                ],
+                className="dm-col-row",
+            )
+        )
+
+    def _rel_row(rel: dict[str, Any], direction: str) -> Any:
+        if direction == "out":
+            text = f"{name}.{rel['column']} → {rel['references_table']}.{rel['references_column']}"
+        else:
+            text = f"{rel['source']}.{rel['column']} → {name}.{rel['references_column']}"
+        constraint = rel.get("constraint_name")
+        return dmc.Text(
+            text + (f"  ·  {constraint}" if constraint else ""),
+            size="xs",
+            className="rh-code",
+        )
+
+    recent = filter_history(history or [], "", "all", name)[:5]
+    recent_rows: list[Any] = []
+    for event in recent:
+        before = event.get("before")
+        after = event.get("after")
+        recent_rows.append(
+            html.Div(
+                [
+                    dmc.Text(format_history_time(event.get("timestamp")), size="xs", c="dimmed"),
+                    dmc.Badge(str(event.get("change_type")), size="xs", variant="light"),
+                    dmc.Text(str(event.get("entity")), size="xs", className="rh-code"),
+                    dmc.Text(
+                        f"{before if before is not None else '—'} → {after if after is not None else '—'}",
+                        size="xs",
+                        c="dimmed",
+                    ),
+                ],
+                className="dm-history-row",
+            )
+        )
+
+    pk_cols = table.get("primary_key", []) or []
+    index_items: list[Any] = []
+    if pk_cols:
+        index_items.append(
+            dmc.AccordionItem(
+                [
+                    dmc.AccordionControl(dmc.Text("Primary Key", size="xs", fw=600)),
+                    dmc.AccordionPanel(dmc.Text(", ".join(str(c) for c in pk_cols), size="xs", className="rh-code")),
+                ],
+                value="pk",
+            )
+        )
+    for uc in table.get("unique_constraints", []) or []:
+        cols = ", ".join(str(c) for c in uc.get("columns", []) or [])
+        index_items.append(
+            dmc.AccordionItem(
+                [
+                    dmc.AccordionControl(dmc.Text(f"Unique: {uc.get('name')}", size="xs", fw=600)),
+                    dmc.AccordionPanel(dmc.Text(cols, size="xs", className="rh-code")),
+                ],
+                value=f"uc-{uc.get('name')}",
+            )
+        )
+    for fk in outgoing:
+        index_items.append(
+            dmc.AccordionItem(
+                [
+                    dmc.AccordionControl(dmc.Text(f"Foreign key: {fk.get('constraint_name')}", size="xs", fw=600)),
+                    dmc.AccordionPanel(
+                        dmc.Text(
+                            f"{name}.{fk.get('column')} → {fk.get('references_table')}.{fk.get('references_column')}",
+                            size="xs",
+                            className="rh-code",
+                        )
+                    ),
+                ],
+                value=f"fk-{fk.get('constraint_name')}",
+            )
+        )
+    for idx in table.get("indexes", []) or []:
+        cols = ", ".join(str(c) for c in idx.get("columns", []) or [])
+        index_items.append(
+            dmc.AccordionItem(
+                [
+                    dmc.AccordionControl(
+                        dmc.Text(
+                            f"Index: {idx.get('name')}" + (" (unique)" if idx.get("unique") else ""),
+                            size="xs",
+                            fw=600,
+                        )
+                    ),
+                    dmc.AccordionPanel(dmc.Text(cols, size="xs", className="rh-code")),
+                ],
+                value=f"idx-{idx.get('name')}",
+            )
+        )
+
+    return dmc.Stack(
+        [
+            dmc.Text(name, fw=700, size="sm", className="rh-code"),
+            dmc.Text(str(table.get("description") or ""), size="xs", c="dimmed"),
+            dmc.Group(
+                [
+                    dmc.Badge(domain_label, size="xs", variant="light", color=_DOMAIN_BADGE_COLOR.get(domain, "gray")),
+                    dmc.Badge(
+                        "⚠ Drift" if table_drifts else "✓ Đồng bộ",
+                        size="xs",
+                        variant="light",
+                        color="yellow" if table_drifts else "teal",
+                    ),
+                ],
+                gap="xs",
+            ),
+            dmc.Group(
+                [
+                    dmc.Text(f"Columns: {len(columns)}", size="xs", fw=600),
+                    dmc.Text(f"Relationships: {len(outgoing) + len(incoming)}", size="xs", fw=600),
+                ],
+                gap="md",
+            ),
+            dmc.Text("Cột", size="xs", fw=700),
+            dmc.Stack(column_rows, gap=2),
+            dmc.Text(f"Relationships ra ({len(outgoing)})", size="xs", fw=700),
+            dmc.Stack([_rel_row(fk, "out") for fk in outgoing], gap=2),
+            dmc.Text(f"Relationships vào ({len(incoming)})", size="xs", fw=700),
+            dmc.Stack([_rel_row(rel, "in") for rel in incoming], gap=2),
+            dmc.Text("Index / Constraint", size="xs", fw=700),
+            dmc.Accordion(index_items, chevronPosition="right")
+            if index_items
+            else dmc.Text("—", size="xs", c="dimmed"),
+            dmc.Text("Thay đổi gần đây", size="xs", fw=700),
+            (
+                dmc.Stack(recent_rows, gap=2)
+                if recent_rows
+                else dmc.Text("Chưa ghi nhận thay đổi schema cho table này.", size="xs", c="dimmed")
+            ),
+        ],
+        gap="xs",
+        p="sm",
+    )
+
+
+def render_relationship_detail(rel: dict[str, Any], manifest: dict[str, Any]) -> Any:
+    """Detail một relationship: source/target/constraint/N:1/delete rule + nút Source/Target table."""
+    _ = manifest
+    source = str(rel.get("source"))
+    target = str(rel.get("target"))
+    column = str(rel.get("column"))
+    references_column = str(rel.get("references_column"))
+    constraint = rel.get("constraint")
+    on_delete = rel.get("on_delete")
+    return dmc.Stack(
+        [
+            dmc.Text("Relationship", fw=700, size="sm"),
+            dmc.Text(f"{source}.{column} → {target}.{references_column}", size="sm", className="rh-code"),
+            dmc.Group(
+                [
+                    dmc.Text("Source:", size="xs", fw=600),
+                    dmc.Text(f"{source}.{column}", size="xs", className="rh-code"),
+                ],
+                gap="xs",
+            ),
+            dmc.Group(
+                [
+                    dmc.Text("Target:", size="xs", fw=600),
+                    dmc.Text(f"{target}.{references_column}", size="xs", className="rh-code"),
+                ],
+                gap="xs",
+            ),
+            dmc.Group(
+                [
+                    dmc.Text("Constraint:", size="xs", fw=600),
+                    dmc.Text(str(constraint or "—"), size="xs", className="rh-code"),
+                ],
+                gap="xs",
+            ),
+            dmc.Group(
+                [
+                    dmc.Text("Cardinality:", size="xs", fw=600),
+                    dmc.Text("N:1", size="xs"),
+                ],
+                gap="xs",
+            ),
+            dmc.Group(
+                [
+                    dmc.Text("Delete Rule:", size="xs", fw=600),
+                    dmc.Text(str(on_delete) if on_delete else "—", size="xs"),
+                ],
+                gap="xs",
+            ),
+            dmc.Group(
+                [
+                    button_subtle(
+                        f"Source table: {source}",
+                        id={"type": "dm-rel-nav", "table": source},
+                        icon="lucide:arrow-left",
+                        size="xs",
+                    ),
+                    button_subtle(
+                        f"Target table: {target}",
+                        id={"type": "dm-rel-nav", "table": target},
+                        icon="lucide:arrow-right",
+                        size="xs",
+                    ),
+                ],
+                gap="xs",
+            ),
+        ],
+        gap="xs",
+        p="sm",
+    )
+
+
 def render_detail(
     selection: dict[str, Any] | None,
     manifest: dict[str, Any] | None,
     history: list[dict[str, Any]] | None,
     query: str,
+    drifts: list[dict[str, Any]] | None = None,
 ) -> Any:
-    """Detail Panel — placeholder ở bước 4, thay bằng detail đầy đủ ở bước 6."""
-    _ = (manifest, history, query)
+    """Detail Panel: dispatch theo selection (table / relationship / trống)."""
+    if selection and selection.get("kind") == "relationship":
+        return render_relationship_detail(selection, manifest or {})
     if selection and selection.get("kind") == "table" and selection.get("table"):
-        return dmc.Stack(
-            [
-                dmc.Text(str(selection["table"]), className="rh-code", fw=600, size="sm"),
-                dmc.Text("Chi tiết đầy đủ sẽ hiển thị ở bước 6.", size="sm", c="dimmed"),
-            ],
-            gap="xs",
-            p="sm",
-        )
+        name = str(selection["table"])
+        tables = {t.get("name"): t for t in (manifest or {}).get("tables", []) or []}
+        table = tables.get(name)
+        if table is None:
+            return empty_state(
+                title=f"Không tìm thấy table {name} trong mô hình.",
+                description="Table có thể đã bị xóa khỏi model hoặc manifest chưa đồng bộ.",
+            )
+        return render_table_detail(table, manifest or {}, history or [], query, drifts=drifts)
     return empty_state(
         title="Chọn một table hoặc relationship để xem chi tiết.",
         description="Bấm một table ở Schema Explorer hoặc một entity trên ER Diagram.",
+    )
+
+
+def filter_history(
+    history: list[dict[str, Any]],
+    query: str,
+    change_type: str,
+    table: str | None,
+) -> list[dict[str, Any]]:
+    """Lọc history: type chính xác, table (entity == table hoặc table.column), query không dấu.
+
+    Trả mới nhất trước.
+    """
+    filtered: list[dict[str, Any]] = []
+    for event in history or []:
+        if change_type and change_type != "all" and event.get("change_type") != change_type:
+            continue
+        entity = str(event.get("entity") or "")
+        if table and not (entity == table or entity.startswith(table + ".")):
+            continue
+        if query and not (
+            matches_query(entity, query)
+            or matches_query(str(event.get("migration_id") or ""), query)
+            or matches_query(str(event.get("task_id") or ""), query)
+            or matches_query(str(event.get("change_type") or ""), query)
+        ):
+            continue
+        filtered.append(event)
+    return list(reversed(filtered))
+
+
+def render_history_timeline(events: list[dict[str, Any]]) -> Any:
+    """Timeline lịch sử thay đổi (mới nhất trước)."""
+    if not events:
+        return empty_state(
+            title="Không có thay đổi nào phù hợp.",
+            description="Thử đổi từ khóa tìm kiếm hoặc loại thay đổi.",
+        )
+    rows: list[Any] = []
+    for event in events:
+        before = event.get("before")
+        after = event.get("after")
+        task = event.get("task_id")
+        rows.append(
+            html.Div(
+                [
+                    dmc.Group(
+                        [
+                            dmc.Text(format_history_time(event.get("timestamp")), size="xs", c="dimmed"),
+                            dmc.Badge(str(event.get("change_type")), size="xs", variant="light"),
+                        ],
+                        gap="xs",
+                    ),
+                    dmc.Text(str(event.get("entity")), size="xs", fw=600, className="rh-code"),
+                    dmc.Text(
+                        f"Migration: {event.get('migration_id') or '—'}" + (f"  ·  Task: {task}" if task else ""),
+                        size="xs",
+                        c="dimmed",
+                    ),
+                    dmc.Text(
+                        f"{before if before is not None else '—'} → {after if after is not None else '—'}",
+                        size="xs",
+                        c="dimmed",
+                    ),
+                ],
+                className="dm-history-row",
+            )
+        )
+    return dmc.Stack(
+        [dmc.Text(f"{len(events)} thay đổi", size="xs", fw=600), *rows],
+        gap="xs",
+        pt="sm",
+    )
+
+
+def drift_group(drift_type: str) -> str:
+    """Nhóm filter của một drift type (table/column/relationship/index/constraint)."""
+    return _DRIFT_GROUP.get(drift_type, "column")
+
+
+def filter_drifts(drifts: list[dict[str, Any]], group: str) -> list[dict[str, Any]]:
+    """Lọc drift theo nhóm filter của drawer; 'all' giữ nguyên."""
+    if not group or group == "all":
+        return list(drifts or [])
+    return [d for d in (drifts or []) if drift_group(str(d.get("type"))) == group]
+
+
+def _drift_value(value: Any) -> str:
+    return "—" if value is None else str(value)
+
+
+def drift_report_text(drifts: list[dict[str, Any]]) -> str:
+    """Text report drift để developer gửi cho AI/task (không sửa schema)."""
+    if not drifts:
+        return "Schema đồng bộ, không có drift."
+    lines = [f"Schema drift — {len(drifts)} drift"]
+    for d in drifts:
+        column = d.get("column")
+        where = f"{d.get('table')}.{column}" if column else str(d.get("table"))
+        lines.append(f"- {d.get('type')} {where}: {d.get('detail')}")
+        lines.append(f"  DB: {_drift_value(d.get('db_value'))}")
+        lines.append(f"  Model: {_drift_value(d.get('model_value'))}")
+    return "\n".join(lines)
+
+
+def render_drift_list(drifts: list[dict[str, Any]]) -> Any:
+    """List drift kèm DB vs Model; trống khi đồng bộ."""
+    if not drifts:
+        return empty_state(
+            title="Schema đồng bộ, không có drift.",
+            description="Database khớp với model và migrations.",
+        )
+    rows: list[Any] = []
+    for d in drifts:
+        group = drift_group(str(d.get("type")))
+        marker = _DRIFT_MARKER.get(group, "!")
+        column = d.get("column")
+        where = f"{d.get('table')}.{column}" if column else str(d.get("table"))
+        rows.append(
+            html.Div(
+                [
+                    dmc.Group(
+                        [
+                            dmc.Text(marker, size="sm", fw=700),
+                            dmc.Badge(str(d.get("type")), size="xs", variant="light"),
+                            dmc.Text(where, size="xs", fw=600, className="rh-code"),
+                        ],
+                        gap="xs",
+                    ),
+                    dmc.Text(str(d.get("detail") or ""), size="xs", c="dimmed"),
+                    dmc.Text(
+                        f"DB: {_drift_value(d.get('db_value'))}  ·  Model: {_drift_value(d.get('model_value'))}",
+                        size="xs",
+                        className="rh-code",
+                    ),
+                ],
+                className="dm-drift-row",
+            )
+        )
+    return dmc.Stack(
+        [dmc.Text(f"{len(drifts)} drift", size="xs", fw=600), *rows],
+        gap="xs",
+        pt="sm",
     )
 
 
@@ -721,6 +1194,13 @@ def layout(**kwargs: Any) -> Any:
                         id="data-model-history-btn",
                         icon="lucide:history",
                         size="xs",
+                    ),
+                    button_subtle(
+                        "Xem khác biệt",
+                        id="data-model-drift-btn",
+                        icon="lucide:git-compare",
+                        size="xs",
+                        style={} if health_status == "DRIFT" else {"display": "none"},
                     ),
                     button_primary(
                         "Đồng bộ schema",
@@ -934,6 +1414,11 @@ def layout(**kwargs: Any) -> Any:
                         clearable=False,
                         **{"aria-label": "Lọc drift theo loại"},
                     ),
+                    dcc.Clipboard(
+                        id="data-model-drift-copy",
+                        title="Copy report",
+                        content="",
+                    ),
                     html.Div(id="data-model-drift-list"),
                 ],
             ),
@@ -983,7 +1468,7 @@ def update_workspace(
         return (
             alert_box("Không thể đọc metadata database.", tone="crit"),
             render_canvas([], selection, ui, zoom or 1.0, search or ""),
-            render_detail(selection, None, None, search or ""),
+            render_detail(selection, None, None, search or "", drifts=[]),
             "0 tables",
             "0 tables · 0 columns · 0 relationships",
             _zoom_label(zoom or 1.0),
@@ -1002,7 +1487,13 @@ def update_workspace(
     return (
         render_explorer(filtered, selection, ui, search or ""),
         render_canvas(filtered, selection, ui, zoom or 1.0, search or ""),
-        render_detail(selection, manifest, manifest_data.get("history") or [], search or ""),
+        render_detail(
+            selection,
+            manifest,
+            manifest_data.get("history") or [],
+            search or "",
+            drifts=manifest_data.get("drift", {}).get("drifts") or [],
+        ),
         f"{len(filtered)} tables",
         f"{counts['tables']} tables · {counts['columns']} columns · {counts['relationships']} relationships",
         _zoom_label(zoom or 1.0),
@@ -1071,6 +1562,8 @@ def handle_group_toggle(
     Output("data-model-history-filter-store", "data"),
     Output("data-model-history-drawer", "opened"),
     Output("data-model-copy-store", "data"),
+    Output("data-model-history-search", "value", allow_duplicate=True),
+    Output("data-model-history-type-filter", "value", allow_duplicate=True),
     Input({"type": "dm-table-menu", "table": ALL, "action": ALL}, "n_clicks"),
     State("data-model-selection-store", "data"),
     State("data-model-ui-store", "data"),
@@ -1082,7 +1575,7 @@ def handle_context_menu(
     selection: dict[str, Any] | None,
     ui: dict[str, Any] | None,
     history_filter: dict[str, Any] | None,
-) -> tuple[Any, Any, Any, bool, Any]:
+) -> tuple[Any, Any, Any, bool, Any, Any, Any]:
     """Context menu của dòng table: center/columns/relationships/history/copy.
 
     TUYỆT ĐỐI KHÔNG có thao tác ghi schema (Drop/Alter/Delete/Run SQL).
@@ -1091,29 +1584,33 @@ def handle_context_menu(
     ui_data = dict(ui or {})
     hist_data = dict(history_filter or {"query": "", "change_type": "all", "table": None})
     fallback_sel = selection or {"kind": None, "table": None}
+    no_filter_change = (dash.no_update, dash.no_update)
     if (_triggered_clicks(ctx_dash) or 0) <= 0:
-        return fallback_sel, ui_data, hist_data, False, dash.no_update
+        return fallback_sel, ui_data, hist_data, False, dash.no_update, *no_filter_change
     triggered = _parse_triggered_id(ctx_dash.triggered[0]["prop_id"])
     table = str(triggered.get("table") or "")
     action = str(triggered.get("action") or "")
     if not table or not action:
-        return fallback_sel, ui_data, hist_data, False, dash.no_update
+        return fallback_sel, ui_data, hist_data, False, dash.no_update, *no_filter_change
     new_selection: dict[str, Any] = {"kind": "table", "table": table}
     if action == "center":
         ui_data["center_table"] = table
-        return new_selection, ui_data, hist_data, False, dash.no_update
+        return new_selection, ui_data, hist_data, False, dash.no_update, *no_filter_change
     if action == "columns":
         ui_data["mode"] = "relations"
-        return new_selection, ui_data, hist_data, False, dash.no_update
+        return new_selection, ui_data, hist_data, False, dash.no_update, *no_filter_change
     if action == "relationships":
         ui_data["mode"] = "relations"
-        return new_selection, ui_data, hist_data, False, dash.no_update
+        return new_selection, ui_data, hist_data, False, dash.no_update, *no_filter_change
     if action == "history":
         hist_data["table"] = table
-        return new_selection, ui_data, hist_data, True, dash.no_update
+        hist_data["query"] = ""
+        hist_data["change_type"] = "all"
+        # Reset ô tìm kiếm + filter loại trong drawer cho khớp store.
+        return new_selection, ui_data, hist_data, True, dash.no_update, "", "all"
     if action == "copy":
-        return fallback_sel, ui_data, hist_data, False, {"text": table}
-    return fallback_sel, ui_data, hist_data, False, dash.no_update
+        return fallback_sel, ui_data, hist_data, False, {"text": table}, *no_filter_change
+    return fallback_sel, ui_data, hist_data, False, dash.no_update, *no_filter_change
 
 
 @callback(
@@ -1333,3 +1830,122 @@ clientside_callback(
     Input("data-model-ui-store", "data"),
     prevent_initial_call=True,
 )
+
+
+# --- Bước 6: History + Drift callbacks ---
+
+
+@callback(
+    Output("data-model-history-drawer", "opened", allow_duplicate=True),
+    Output("data-model-history-search", "value", allow_duplicate=True),
+    Output("data-model-history-type-filter", "value", allow_duplicate=True),
+    Output("data-model-history-filter-store", "data", allow_duplicate=True),
+    Input("data-model-history-btn", "n_clicks"),
+    State("data-model-history-filter-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_history_open(
+    n_clicks: int | None,
+    history_filter: dict[str, Any] | None,
+) -> tuple[bool, str, str, dict[str, Any]]:
+    """Nút Lịch sử thay đổi ở header: mở drawer + reset filter về mặc định."""
+    _ = history_filter
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    return True, "", "all", {"query": "", "change_type": "all", "table": None}
+
+
+@callback(
+    Output("data-model-history-timeline", "children"),
+    Input("data-model-manifest-store", "data"),
+    Input("data-model-history-filter-store", "data"),
+    Input("data-model-history-search", "value"),
+    Input("data-model-history-type-filter", "value"),
+)
+def handle_history_timeline(
+    manifest_data: dict[str, Any] | None,
+    history_filter: dict[str, Any] | None,
+    search: str | None,
+    change_type: str | None,
+) -> Any:
+    """Timeline history theo store (table) + ô tìm kiếm + filter loại trong drawer."""
+    if not manifest_data or not manifest_data.get("history"):
+        return render_history_timeline([])
+    hist_filter = history_filter or {}
+    table = hist_filter.get("table")
+    events = filter_history(
+        manifest_data.get("history") or [],
+        search or "",
+        change_type or "all",
+        str(table) if table else None,
+    )
+    return render_history_timeline(events)
+
+
+@callback(
+    Output("data-model-drift-drawer", "opened"),
+    Input("data-model-drift-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def handle_drift_open(n_clicks: int | None) -> bool:
+    """Nút Xem khác biệt (chỉ hiện khi health = DRIFT): mở drift drawer."""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    return True
+
+
+@callback(
+    Output("data-model-drift-list", "children"),
+    Input("data-model-manifest-store", "data"),
+    Input("data-model-drift-filter", "value"),
+)
+def handle_drift_list(
+    manifest_data: dict[str, Any] | None,
+    drift_filter: str | None,
+) -> Any:
+    """Drift list theo filter nhóm trong drawer."""
+    if not manifest_data:
+        return render_drift_list([])
+    drifts = manifest_data.get("drift", {}).get("drifts") or []
+    return render_drift_list(filter_drifts(drifts, drift_filter or "all"))
+
+
+@callback(
+    Output("data-model-drift-copy", "content"),
+    Input("data-model-manifest-store", "data"),
+    Input("data-model-drift-filter", "value"),
+)
+def handle_drift_copy(
+    manifest_data: dict[str, Any] | None,
+    drift_filter: str | None,
+) -> str:
+    """Nội dung Copy report theo đúng filter đang chọn (không sửa schema)."""
+    if not manifest_data:
+        return drift_report_text([])
+    drifts = manifest_data.get("drift", {}).get("drifts") or []
+    return drift_report_text(filter_drifts(drifts, drift_filter or "all"))
+
+
+@callback(
+    Output("data-model-selection-store", "data", allow_duplicate=True),
+    Output("app-location", "href", allow_duplicate=True),
+    Input({"type": "dm-rel-nav", "table": ALL}, "n_clicks"),
+    State("data-model-selection-store", "data"),
+    State("data-model-ui-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_rel_nav(
+    _n_clicks: list[int | None],
+    selection: dict[str, Any] | None,
+    ui: dict[str, Any] | None,
+) -> tuple[Any, Any]:
+    """Nút Source/Target table trong relationship detail: chọn table đó + URL."""
+    ctx_dash = dash.callback_context
+    fallback = selection or {"kind": None, "table": None}
+    if (_triggered_clicks(ctx_dash) or 0) <= 0:
+        return fallback, dash.no_update
+    triggered = _parse_triggered_id(ctx_dash.triggered[0]["prop_id"])
+    table = triggered.get("table")
+    if not table:
+        return fallback, dash.no_update
+    return {"kind": "table", "table": str(table)}, _selection_href(str(table), ui)
