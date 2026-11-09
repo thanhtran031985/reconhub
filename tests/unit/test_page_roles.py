@@ -436,8 +436,8 @@ class TestRolesLayoutCards:
 
         comp = roles_page.render_roles_list(_admin())
         text = _dump(comp)
-        assert "16/16 menu" in text  # ADMIN: đủ mọi menu
-        assert "8/16 menu" in text  # OPERATOR: 8 menu (thêm 2 menu report, task 21)
+        assert "17/17 menu" in text  # ADMIN: đủ mọi menu
+        assert "8/17 menu" in text  # OPERATOR: 8 menu (thêm 2 menu report, task 21; tổng 17 sau task 31)
         assert comp.children[0].h == "auto"  # nút cao theo nội dung 3 dòng, không tràn đè nhau
 
     def test_menu_checkboxes_new_badge_and_hidden_badge(self, roles_env):

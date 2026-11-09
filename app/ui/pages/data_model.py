@@ -134,6 +134,7 @@ def render_command_bar(domain: str, mode: str, health_status: str, generated_at:
                 id="data-model-health-container",
                 children=health_badge(health_status),
                 style={"display": "flex", "alignItems": "center"},
+                **{"aria-live": "polite"},  # type: ignore[arg-type]
             ),
             dmc.Text(
                 format_last_sync(generated_at),
@@ -141,9 +142,6 @@ def render_command_bar(domain: str, mode: str, health_status: str, generated_at:
                 size="xs",
                 c="dimmed",
             ),
-        ],
-        actions=[
-            html.Div(id="data-model-drift-action-container"),
         ],
         id="data-model-command-bar",
     )

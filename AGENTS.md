@@ -62,6 +62,16 @@ Trạng thái: ⬜ chưa làm · 🔄 đang làm · ❓ có code chưa rà soát
 - Chỉ sửa trong phạm vi task. Không thêm tính năng ngoài task.md.
 - Trước khi báo xong: `uv run poe typecheck`, `uv run poe lint`, `uv run poe test` xanh; task có giao diện chạy thêm `uv run poe e2e`.
 
+## Quy tắc cập nhật Data Model Explorer (task 31)
+Khi task tạo/xóa/thay đổi TABLE, COLUMN, DATATYPE, NULLABILITY, PK, FK, UNIQUE, INDEX hoặc CONSTRAINT, AI bắt buộc:
+1. Cập nhật migration/model đúng workflow (Alembic revision chạy được trên SQLite và Oracle).
+2. Chạy `uv run poe schema-introspect` để regenerate `docs/data-model/schema-manifest.json` và `schema-history.json`.
+3. Chạy kiểm tra drift (nút **Đồng bộ schema** ở page `/data-model` hoặc `check_live_drift`); drift phải = 0 hoặc được ghi rõ lý do trong decisions.md.
+4. Chạy test Data Model Explorer (`tests/unit/test_schema_inspector.py`, `tests/unit/test_schema_drift.py`, `tests/unit/test_page_data_model.py`).
+5. Mở page `/data-model` kiểm tra table/column mới xuất hiện đúng phân hệ.
+6. Commit các artifact đã regenerate cùng patch của task (manifest/history là file commit, không gitignore).
+Page `/data-model` chỉ đọc (READ ONLY): không sửa schema từ UI, không tự tạo migration, không tự sửa drift phát hiện được. CI kiểm tra manifest stale (`uv run poe schema-introspect --check`) và fail khi manifest chưa regenerate.
+
 ## Quy tắc nghiệp vụ cốt lõi
 - Đọc Excel: mọi cột dạng chuỗi trước, chuẩn hóa sau theo kiểu khai báo. Tiền/số lượng so bằng Decimal, không float.
 - `p_from`, `p_to` là ngày giờ người dùng nhập khi chạy (giờ Việt Nam, gồm cả hai đầu), áp cho cả DB và Excel. KHÔNG lấy min/max ngày trong file. Dòng Excel ngoài khoảng phải được đếm và hiển thị.

@@ -16,6 +16,7 @@ ReconHub là ứng dụng nội bộ phục vụ công tác đối soát dữ li
 9. [Bảng điều khiển Tổng quan (Dashboard)](#9-bảng-điều-khiển-tổng-quan-dashboard)
 10. [Vai trò và phân quyền (`/roles`, chỉ Admin)](#10-vai-trò-và-phân-quyền-roles-chỉ-admin)
 11. [Chạy đối soát theo bộ (Batch Run)](#11-chạy-đối-soát-theo-bộ-batch-run)
+12. [Mô hình dữ liệu (Data Model Explorer)](#12-mô-hình-dữ-liệu-data-model-explorer)
 
 ---
 
@@ -277,6 +278,28 @@ Chỉ Admin và Template Owner sửa được bộ; Operator chỉ chạy, Viewe
 - Một kỳ dùng chung cho cả bộ; nếu ngày chốt của các template lệch nhau vài ngày thì dùng công thức `{ky.tu±Nd}` trong tham số ghi đè.
 - Người tạo lần chạy và Admin thấy lần chạy đó; Operator chỉ thấy lần chạy do mình tạo; Viewer không thấy mục chạy bộ ở thanh bên.
 - Lịch sử run (`/history`) có bộ lọc **Lần chạy bộ** (Tất cả / Chỉ run bộ / Chỉ run đơn lẻ); run con thuộc bộ có chip **Bộ \<mã bộ\>** ở cột Template.
+
+## 12. Mô hình dữ liệu (Data Model Explorer)
+
+Page **Mô hình dữ liệu** (`/data-model`, nhóm **Quản trị** ở thanh bên) cho xem toàn bộ cấu trúc database của ứng dụng mà không cần đọc code: sơ đồ ER trực quan, danh sách bảng/cột/kiểu dữ liệu/khóa chính/khóa ngoại và quan hệ giữa các bảng. Page chỉ đọc metadata, không sửa database.
+
+Chỉ Admin mới thấy menu này mặc định; Admin cấp quyền cho vai trò khác trên màn **Vai trò và phân quyền** (`/roles`).
+
+### 12.1. Xem sơ đồ ER
+
+- **Schema Explorer** (panel trái): bảng nhóm theo phân hệ (Core, Đối soát, Báo cáo, Quản trị). Bấm tên bảng để chọn; bấm dấu `⋯` để mở menu (căn giữa bảng trên sơ đồ, xem cột/quan hệ/lịch sử thay đổi, sao chép tên bảng).
+- **ER Canvas** (panel giữa): mỗi bảng là một thẻ gồm tên bảng, cột, kiểu dữ liệu và dấu khóa (◆ khóa chính, ↗ khóa ngoại). Đường nối thể hiện khóa ngoại. Bấm vào đường nối để xem chi tiết quan hệ (bảng nguồn, bảng đích, ràng buộc, tỉ lệ N:1). Dùng nút phóng to/thu nhỏ/vừa màn hình ở góc canvas; bấm đúp vào thẻ để căn giữa và phóng to đủ đọc cột.
+- **Detail Panel** (panel phải): chi tiết bảng đang chọn (số cột, số quan hệ, danh sách cột kèm khóa/duy nhất/bắt buộc/giá trị mặc định, quan hệ vào/ra, index/ràng buộc, thay đổi gần nhất).
+
+### 12.2. Tìm kiếm và lọc
+
+- Ô **Tìm table hoặc column…**: gõ tên bảng, tên cột hoặc mô tả (gõ có dấu hay không dấu đều được). Ví dụ gõ `GRID_SPAN` sẽ giữ bảng `RECON_RPT_PARAM` và tô sáng đúng cột đó.
+- **Tất cả phân hệ**: lọc theo phân hệ. **Hiển thị quan hệ / Chỉ tên table**: đổi kiểu hiển thị thẻ (chọn chỉ tên bảng để xem tổng quan khi có nhiều bảng).
+
+### 12.3. Lịch sử thay đổi và đồng bộ schema
+
+- Nút **Lịch sử thay đổi**: xem schema đã thay đổi thế nào qua từng migration (bảng/cột thêm/xoá/đổi kiểu), lọc theo loại thay đổi hoặc theo bảng.
+- Nút **Đồng bộ schema**: đọc lại metadata và kiểm tra lệch (drift) giữa database và model. Trạng thái hiển thị ở command bar: **✓ Schema đồng bộ**, **⚠ Schema drift** (bấm **Xem khác biệt** để xem từng điểm lệch và sao chép báo cáo), hoặc lỗi thì bấm **Thử lại**.
 
 ---
 *ReconHub — Hệ thống Đối soát Dữ liệu Doanh nghiệp.*

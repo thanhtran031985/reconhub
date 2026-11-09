@@ -207,11 +207,11 @@ main > div > div,
 }
 
 .dm-table-item:hover {
-  background-color: var(--surface-2, #FAFAFA);
+  background-color: var(--mantine-color-default-hover, #FAFAFA);
 }
 
 .dm-table-item.active {
-  background-color: var(--primary-soft, #EBF3FC);
+  background-color: var(--mantine-color-primary-light, #EBF3FC);
 }
 
 .dm-dot {
@@ -242,10 +242,17 @@ main > div > div,
   font-family: inherit;
 }
 
-/* Data Model Explorer mobile <900px: page cuộn, 3 panel xếp dọc. */
+/* Data Model Explorer mobile <900px: page cuộn, 3 panel xếp dọc.
+   Lưu ý: height:auto một mình không đủ — Box là flex item của AppShellMain
+   nên flex-shrink kéo nó về vừa khung 756px; cần flex-shrink:0 để Box cao
+   theo nội dung. Dù vậy, nội dung mobile hiện vẫn bị AppShellMain
+   (height cố định + overflow:hidden) và navbar overlay <768px chặn lại —
+   đó là hành vi sẵn có của shell, ảnh hưởng mọi page (đã kiểm chứng trên
+   dashboard), cần task riêng cho mobile shell (burger + AppShellMain cuộn). */
 @media (max-width: 900px) {
   .dm-page {
     height: auto !important;
+    flex-shrink: 0 !important;
     overflow: visible !important;
   }
 
@@ -262,7 +269,7 @@ main > div > div,
 /* Data Model Explorer (task 31 bước 5): ER Canvas entity + relationship lines. */
 .dm-entity {
   text-align: left;
-  background: var(--p, #FFFFFF);
+  background: var(--mantine-color-body, #FFFFFF);
   border: 1px solid var(--line, #E0E0E0);
   border-radius: 6px;
   padding: 4px 6px;
@@ -306,7 +313,7 @@ main > div > div,
 }
 
 .dm-col-row.dm-match {
-  background-color: var(--primary-soft, #EBF3FC);
+  background-color: var(--mantine-color-primary-light, #EBF3FC);
   font-weight: 600;
 }
 

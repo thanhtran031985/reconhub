@@ -141,7 +141,7 @@ class TestListTree:
         assert [g["code"] for g in tree["groups"]] == ["DOI_SOAT", "CAU_HINH", "QUAN_TRI"]
         assert [g["label"] for g in tree["groups"]] == ["Đối soát", "Cấu hình", "Quản trị"]
         total = sum(len(g["menus"]) for g in tree["groups"])
-        assert total == 16  # 13 menu gốc + 3 menu report (task 21)
+        assert total == 17  # 13 menu gốc + 3 menu report (task 21) + 1 menu data model (task 31)
         dash = _menu_of(tree, "dashboard")
         assert dash["label"] == "Dashboard"
         assert dash["source_label"] == "Dashboard"
