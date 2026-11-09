@@ -5,7 +5,7 @@ from typing import Any
 
 import dash
 import dash_mantine_components as dmc
-from dash import Input, Output, callback, dcc, html
+from dash import Input, Output, State, callback, dcc, html
 
 from app.core.context import Ctx
 from app.core.session import get_current_ctx
@@ -123,7 +123,49 @@ def render_kpi_grid(stats: dict[str, Any]) -> dmc.SimpleGrid:
     )
 
 
-def render_diff_rate_by_template(diff_rates: list[dict[str, Any]]) -> dmc.Card:
+def _page_slice(items: list[dict[str, Any]], page: int, page_size: int) -> tuple[list[dict[str, Any]], int, int]:
+    """Cắt danh sách theo trang, kẹp số trang vào khoảng hợp lệ."""
+    total = len(items)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    page = min(max(1, page), total_pages)
+    start = (page - 1) * page_size
+    return items[start : start + page_size], total_pages, page
+
+
+def _pagination_footer(total: int, page: int, page_size: int, noun: str, pagination_id: str) -> dmc.Group:
+    """Thanh phân trang ở chân card: dòng 'Hiển thị x – y…' + Pagination."""
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    start_idx = (page - 1) * page_size + 1 if total > 0 else 0
+    end_idx = min(page * page_size, total)
+    return dmc.Group(
+        justify="space-between",
+        align="center",
+        px="sm",
+        py=6,
+        style={
+            "borderTop": "1px solid var(--line, #E0E0E0)",
+            "backgroundColor": "var(--p2, #FAFAFA)",
+            "flexShrink": 0,
+            "marginTop": "auto",
+        },
+        children=[
+            dmc.Text(
+                f"Hiển thị {start_idx} – {end_idx} trong tổng số {total} {noun}",
+                size="xs",
+                c="dimmed",
+                fw=500,
+            ),
+            dmc.Pagination(
+                id=pagination_id,
+                total=total_pages,
+                value=page,
+                size="xs",
+            ),
+        ],
+    )
+
+
+def render_diff_rate_by_template(diff_rates: list[dict[str, Any]], page: int = 1, page_size: int = 20) -> dmc.Card:
     """Card thống kê tỉ lệ lệch theo template (PRD C1)."""
     header_group = dmc.Group(
         [
@@ -146,118 +188,133 @@ def render_diff_rate_by_template(diff_rates: list[dict[str, Any]]) -> dmc.Card:
             ),
             p="md",
         )
-    else:
-        th_style = {
-            "position": "sticky",
-            "top": 0,
-            "backgroundColor": "var(--p2, #FAFAFA)",
-            "zIndex": 1,
-            "height": "32px",
-            "fontSize": "12px",
-            "fontWeight": 600,
-            "textAlign": "center",
-        }
-        headers = [
-            dmc.TableTh("Template", style=th_style),
-            dmc.TableTh("Số run", style=th_style),
-            dmc.TableTh("Tổng nhóm so sánh", style=th_style),
-            dmc.TableTh("Nhóm lệch", style=th_style),
-            dmc.TableTh("Tỉ lệ lệch", style={**th_style, "minWidth": "160px"}),
-        ]
-
-        rows = []
-        for item in diff_rates:
-            t_name = item.get("template_name") or item.get("template_code") or "Template"
-            t_code = item.get("template_code", "")
-            r_cnt = item.get("run_count", 0)
-            tot_comp = item.get("total_compared", 0)
-            tot_diff = item.get("total_diff", 0)
-            diff_pct = item.get("diff_pct", 0.0)
-
-            diff_str = f"{diff_pct:.1f}%".replace(".", ",")
-            progress_color = "teal" if diff_pct == 0 else ("orange" if diff_pct <= 5.0 else "red")
-
-            rows.append(
-                dmc.TableTr(
-                    [
-                        dmc.TableTd(
-                            dmc.Stack(
-                                [
-                                    dmc.Text(t_name, fw=500, size="xs"),
-                                    dmc.Text(t_code, c="dimmed", size="xs", className="rh-code"),
-                                ],
-                                gap=2,
-                            ),
-                            style={"height": "32px"},
-                        ),
-                        dmc.TableTd(
-                            dmc.Text(str(r_cnt), size="xs", style={"textAlign": "center"}),
-                            style={"height": "32px"},
-                        ),
-                        dmc.TableTd(
-                            dmc.Text(
-                                f"{tot_comp:,}".replace(",", "."),
-                                size="xs",
-                                style={"textAlign": "right"},
-                            ),
-                            style={"height": "32px"},
-                        ),
-                        dmc.TableTd(
-                            dmc.Text(
-                                f"{tot_diff:,}".replace(",", "."),
-                                size="xs",
-                                c="red" if tot_diff > 0 else "dimmed",
-                                fw=600 if tot_diff > 0 else 400,
-                                style={"textAlign": "right"},
-                            ),
-                            style={"height": "32px"},
-                        ),
-                        dmc.TableTd(
-                            dmc.Group(
-                                [
-                                    dmc.Progress(
-                                        value=min(100.0, diff_pct),
-                                        color=progress_color,
-                                        size="xs",
-                                        style={"flex": 1},
-                                    ),
-                                    dmc.Text(
-                                        diff_str,
-                                        size="xs",
-                                        fw=600,
-                                        c=progress_color,
-                                        style={"minWidth": "42px", "textAlign": "right"},
-                                    ),
-                                ],
-                                gap="xs",
-                                align="center",
-                            ),
-                            style={"height": "32px"},
-                        ),
-                    ]
-                )
-            )
-
-        content = dmc.TableScrollContainer(
-            minWidth=450,
-            style={"height": "100%", "overflow": "auto"},
-            children=dmc.Table(
-                [
-                    dmc.TableThead(dmc.TableTr(headers)),
-                    dmc.TableTbody(rows),
-                ],
-                highlightOnHover=True,
-                withTableBorder=False,
-                withColumnBorders=False,
-                style={"fontSize": "13px"},
-            ),
+        return dmc.Card(
+            [
+                header_group,
+                dmc.Divider(),
+                html.Div(
+                    content,
+                    style={
+                        "flex": 1,
+                        "minHeight": 0,
+                        "overflow": "hidden",
+                        "display": "flex",
+                        "flexDirection": "column",
+                    },
+                ),
+            ],
+            withBorder=True,
+            padding=0,
+            radius="sm",
+            style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
         )
+
+    shown, _total_pages, page = _page_slice(diff_rates, page, page_size)
+    th_style = {
+        "position": "sticky",
+        "top": 0,
+        "backgroundColor": "var(--p2, #FAFAFA)",
+        "zIndex": 1,
+        "height": "32px",
+        "fontSize": "12px",
+        "fontWeight": 600,
+        "textAlign": "center",
+    }
+    # Card hẹp (4/12): chỉ giữ 3 cột; tổng nhóm/nhóm lệch đưa xuống
+    # dòng mờ dưới tên template để không mất thông tin.
+    headers = [
+        dmc.TableTh("Template", style=th_style),
+        dmc.TableTh("Số run", style=th_style),
+        dmc.TableTh("Tỉ lệ lệch", style={**th_style, "minWidth": "160px"}),
+    ]
+
+    rows = []
+    for item in shown:
+        t_name = item.get("template_name") or item.get("template_code") or "Template"
+        t_code = item.get("template_code", "")
+        r_cnt = item.get("run_count", 0)
+        tot_comp = item.get("total_compared", 0)
+        tot_diff = item.get("total_diff", 0)
+        diff_pct = item.get("diff_pct", 0.0)
+
+        diff_str = f"{diff_pct:.1f}%".replace(".", ",")
+        progress_color = "teal" if diff_pct == 0 else ("orange" if diff_pct <= 5.0 else "red")
+        sub_text = (
+            f"{t_code} · {f'{tot_comp:,}'.replace(',', '.')} nhóm · {f'{tot_diff:,}'.replace(',', '.')} lệch"
+            if t_code
+            else f"{f'{tot_comp:,}'.replace(',', '.')} nhóm · {f'{tot_diff:,}'.replace(',', '.')} lệch"
+        )
+
+        rows.append(
+            dmc.TableTr(
+                [
+                    dmc.TableTd(
+                        dmc.Stack(
+                            [
+                                dmc.Text(t_name, fw=500, size="xs", lh=1.2),
+                                dmc.Text(sub_text, c="dimmed", size="xs", lh=1.2, className="rh-code"),
+                            ],
+                            gap=0,
+                        ),
+                        style={"height": "32px"},
+                    ),
+                    dmc.TableTd(
+                        dmc.Text(str(r_cnt), size="xs", style={"textAlign": "center"}),
+                        style={"height": "32px"},
+                    ),
+                    dmc.TableTd(
+                        dmc.Group(
+                            [
+                                dmc.Progress(
+                                    value=min(100.0, diff_pct),
+                                    color=progress_color,
+                                    size="xs",
+                                    style={"flex": 1},
+                                ),
+                                dmc.Text(
+                                    diff_str,
+                                    size="xs",
+                                    fw=600,
+                                    c=progress_color,
+                                    style={"minWidth": "42px", "textAlign": "right"},
+                                ),
+                            ],
+                            gap="xs",
+                            align="center",
+                        ),
+                        style={"height": "32px"},
+                    ),
+                ]
+            )
+        )
+
+    content = dmc.TableScrollContainer(
+        minWidth=300,
+        # 20 dòng/trang không vừa hết ở 1366x768/1440x900 nên bảng cuộn
+        # trong card; trang vẫn không cuộn, footer phân trang luôn hiện.
+        style={"height": "100%", "overflow": "auto"},
+        children=dmc.Table(
+            [
+                dmc.TableThead(dmc.TableTr(headers)),
+                dmc.TableTbody(rows),
+            ],
+            highlightOnHover=True,
+            withTableBorder=False,
+            withColumnBorders=False,
+            verticalSpacing=0,
+            style={"fontSize": "13px"},
+        ),
+    )
 
     return dmc.Card(
         [
             header_group,
             dmc.Divider(),
-            html.Div(content, style={"flex": 1, "minHeight": 0, "overflow": "hidden", "display": "flex", "flexDirection": "column"}),
+            html.Div(
+                content,
+                style={"flex": 1, "minHeight": 0, "overflow": "hidden", "display": "flex", "flexDirection": "column"},
+            ),
+            _pagination_footer(len(diff_rates), page, page_size, "template", "dashboard-diff-pagination"),
         ],
         withBorder=True,
         padding=0,
@@ -266,7 +323,7 @@ def render_diff_rate_by_template(diff_rates: list[dict[str, Any]]) -> dmc.Card:
     )
 
 
-def render_recent_runs_card(recent_items: list[dict[str, Any]]) -> dmc.Card:
+def render_recent_runs_card(recent_items: list[dict[str, Any]], page: int = 1, page_size: int = 20) -> dmc.Card:
     """Card danh sách các lần chạy gần đây nhất."""
     header_group = dmc.Group(
         [
@@ -289,112 +346,140 @@ def render_recent_runs_card(recent_items: list[dict[str, Any]]) -> dmc.Card:
             ),
             p="md",
         )
-    else:
-        th_style = {
-            "position": "sticky",
-            "top": 0,
-            "backgroundColor": "var(--p2, #FAFAFA)",
-            "zIndex": 1,
-            "height": "32px",
-            "fontSize": "12px",
-            "fontWeight": 600,
-            "textAlign": "center",
-        }
-        table_headers = [
-            dmc.TableTh("Run", style=th_style),
-            dmc.TableTh("Template", style=th_style),
-            dmc.TableTh("Profile", style=th_style),
-            dmc.TableTh("Khoảng tìm kiếm", style=th_style),
-            dmc.TableTh("Trạng thái", style=th_style),
-            dmc.TableTh("Kiểm tra", style=th_style),
-            dmc.TableTh("Khớp", style=th_style),
-        ]
-
-        table_rows = []
-        for r in recent_items:
-            r_id = r["id"]
-            # Status chip
-            status_val = r.get("status", "QUEUED")
-            has_diff = (
-                (r.get("cnt_mismatch", 0) > 0)
-                or (r.get("cnt_missing_in_db", 0) > 0)
-                or (r.get("cnt_missing_in_excel", 0) > 0)
-            )
-            if status_val == "DONE":
-                if has_diff:
-                    chip_node = status_chip("MISMATCH", label="Có lệch", icon="lucide:flag")
-                else:
-                    chip_node = status_chip("MATCHED", label="Khớp", icon="lucide:check")
-            elif status_val == "RUNNING":
-                pct = r.get("progress_pct", 0)
-                chip_node = status_chip("RUNNING", label=f"Đang chạy {pct}%", icon="lucide:loader")
-            elif status_val == "FAILED":
-                chip_node = status_chip("FAILED", label="Lỗi", icon="lucide:alert-triangle")
-            else:
-                chip_node = status_chip(status_val)
-
-            # Checked chip
-            if r.get("checked_at"):
-                chk_chip = status_chip("CHECKED", label="Đã kiểm tra", icon="lucide:check")
-            else:
-                chk_chip = status_chip("UNCHECKED", label="Chưa kiểm tra", icon="lucide:circle")
-
-            # Match pct
-            m_pct = r.get("match_pct")
-            if m_pct is not None and status_val == "DONE":
-                pct_str = f"{m_pct:.1f}%".replace(".", ",")
-                pct_text = dmc.Text(pct_str, size="xs", fw=500, style={"textAlign": "right"})
-            else:
-                pct_text = dmc.Text("—", size="xs", c="dimmed", style={"textAlign": "right"})
-
-            table_rows.append(
-                dmc.TableTr(
-                    [
-                        dmc.TableTd(
-                            dmc.Anchor(
-                                f"#{r_id}",
-                                href=f"/runs/{r_id}",
-                                className="rh-code",
-                                fw=600,
-                                underline="hover",
-                                size="xs",
-                            ),
-                            style={"height": "32px"},
-                        ),
-                        dmc.TableTd(r.get("template_name", "Template"), style={"height": "32px", "fontSize": "13px"}),
-                        dmc.TableTd(r.get("profile_code", "—"), style={"height": "32px", "fontSize": "13px"}),
-                        dmc.TableTd(
-                            format_date_range(r.get("p_from"), r.get("p_to")),
-                            className="rh-code",
-                            style={"whiteSpace": "nowrap", "height": "32px", "fontSize": "12px"},
-                        ),
-                        dmc.TableTd(chip_node, style={"height": "32px"}),
-                        dmc.TableTd(chk_chip, style={"height": "32px"}),
-                        dmc.TableTd(pct_text, style={"height": "32px"}),
-                    ]
-                )
-            )
-
-        table_content = dmc.TableScrollContainer(
-            minWidth=520,
-            style={"height": "100%", "overflow": "auto"},
-            children=dmc.Table(
-                [
-                    dmc.TableThead(dmc.TableTr(table_headers)),
-                    dmc.TableTbody(table_rows),
-                ],
-                highlightOnHover=True,
-                withTableBorder=False,
-                withColumnBorders=False,
-                style={"fontSize": "13px"},
-            ),
+        return dmc.Card(
+            [
+                header_group,
+                dmc.Divider(),
+                html.Div(
+                    table_content,
+                    style={
+                        "flex": 1,
+                        "minHeight": 0,
+                        "overflow": "hidden",
+                        "display": "flex",
+                        "flexDirection": "column",
+                    },
+                ),
+            ],
+            withBorder=True,
+            padding=0,
+            radius="sm",
+            style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
         )
+
+    shown, _total_pages, page = _page_slice(recent_items, page, page_size)
+    th_style = {
+        "position": "sticky",
+        "top": 0,
+        "backgroundColor": "var(--p2, #FAFAFA)",
+        "zIndex": 1,
+        "height": "32px",
+        "fontSize": "12px",
+        "fontWeight": 600,
+        "textAlign": "center",
+    }
+    table_headers = [
+        dmc.TableTh("Run", style=th_style),
+        dmc.TableTh("Template", style=th_style),
+        dmc.TableTh("Profile", style=th_style),
+        dmc.TableTh("Khoảng tìm kiếm", style=th_style),
+        dmc.TableTh("Trạng thái", style=th_style),
+        dmc.TableTh("Kiểm tra", style=th_style),
+        dmc.TableTh("Khớp", style=th_style),
+    ]
+
+    table_rows = []
+    for r in shown:
+        r_id = r["id"]
+        # Status chip
+        status_val = r.get("status", "QUEUED")
+        has_diff = (
+            (r.get("cnt_mismatch", 0) > 0)
+            or (r.get("cnt_missing_in_db", 0) > 0)
+            or (r.get("cnt_missing_in_excel", 0) > 0)
+        )
+        if status_val == "DONE":
+            if has_diff:
+                chip_node = status_chip("MISMATCH", label="Có lệch", icon="lucide:flag")
+            else:
+                chip_node = status_chip("MATCHED", label="Khớp", icon="lucide:check")
+        elif status_val == "RUNNING":
+            pct = r.get("progress_pct", 0)
+            chip_node = status_chip("RUNNING", label=f"Đang chạy {pct}%", icon="lucide:loader")
+        elif status_val == "FAILED":
+            chip_node = status_chip("FAILED", label="Lỗi", icon="lucide:alert-triangle")
+        else:
+            chip_node = status_chip(status_val)
+
+        # Checked chip
+        if r.get("checked_at"):
+            chk_chip = status_chip("CHECKED", label="Đã kiểm tra", icon="lucide:check")
+        else:
+            chk_chip = status_chip("UNCHECKED", label="Chưa kiểm tra", icon="lucide:circle")
+
+        # Match pct
+        m_pct = r.get("match_pct")
+        if m_pct is not None and status_val == "DONE":
+            pct_str = f"{m_pct:.1f}%".replace(".", ",")
+            pct_text = dmc.Text(pct_str, size="xs", fw=500, style={"textAlign": "right"})
+        else:
+            pct_text = dmc.Text("—", size="xs", c="dimmed", style={"textAlign": "right"})
+
+        table_rows.append(
+            dmc.TableTr(
+                [
+                    dmc.TableTd(
+                        dmc.Anchor(
+                            f"#{r_id}",
+                            href=f"/runs/{r_id}",
+                            className="rh-code",
+                            fw=600,
+                            underline="hover",
+                            size="xs",
+                        ),
+                        style={"height": "32px"},
+                    ),
+                    dmc.TableTd(r.get("template_name", "Template"), style={"height": "32px", "fontSize": "13px"}),
+                    dmc.TableTd(r.get("profile_code", "—"), style={"height": "32px", "fontSize": "13px"}),
+                    dmc.TableTd(
+                        format_date_range(r.get("p_from"), r.get("p_to")),
+                        className="rh-code",
+                        style={"whiteSpace": "nowrap", "height": "32px", "fontSize": "12px"},
+                    ),
+                    dmc.TableTd(chip_node, style={"height": "32px"}),
+                    dmc.TableTd(chk_chip, style={"height": "32px"}),
+                    dmc.TableTd(pct_text, style={"height": "32px"}),
+                ]
+            )
+        )
+
+    table_content = dmc.TableScrollContainer(
+        minWidth=520,
+        # 20 dòng/trang không vừa hết ở 1366x768/1440x900 nên bảng cuộn
+        # trong card; trang vẫn không cuộn, footer phân trang luôn hiện.
+        style={"height": "100%", "overflow": "auto"},
+        children=dmc.Table(
+            [
+                dmc.TableThead(dmc.TableTr(table_headers)),
+                dmc.TableTbody(table_rows),
+            ],
+            highlightOnHover=True,
+            withTableBorder=False,
+            withColumnBorders=False,
+            verticalSpacing=2,
+            style={"fontSize": "13px"},
+        ),
+    )
 
     return dmc.Card(
         [
             header_group,
             dmc.Divider(),
-            html.Div(table_content, style={"flex": 1, "minHeight": 0, "overflow": "hidden", "display": "flex", "flexDirection": "column"}),
+            html.Div(
+                table_content,
+                style={"flex": 1, "minHeight": 0, "overflow": "hidden", "display": "flex", "flexDirection": "column"},
+            ),
+            _pagination_footer(len(recent_items), page, page_size, "run", "dashboard-recent-pagination"),
         ],
         withBorder=True,
         padding=0,
@@ -438,7 +523,7 @@ def layout() -> Any:
                 ),
             ),
         ],
-        style={"height": "100%", "display": "flex", "flexDirection": "column", "overflow": "hidden"},
+        style={"height": "100%", "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
     )
 
 
@@ -485,22 +570,69 @@ def render_dashboard(_refresh: int) -> Any:
 
         header_node = render_header(total, unchecked, last_time)
         kpis_node = render_kpi_grid(stats)
-        recent_card = render_recent_runs_card(recent_items)
-        diff_card = render_diff_rate_by_template(diff_rates)
 
         return dmc.Box(
             [
+                dcc.Store(id="dashboard-recent-store", data=recent_items),
+                dcc.Store(id="dashboard-diff-store", data=diff_rates),
                 header_node,
                 kpis_node,
-                dmc.SimpleGrid(
-                    [recent_card, diff_card],
-                    cols={"base": 1, "lg": 2},
-                    spacing="sm",
-                    style={"flex": 1, "minHeight": 0, "overflow": "hidden"},
+                # Hàng 2 card dùng Group flex thay cho dmc.Grid: Grid của
+                # Mantine v8 có root display:block nên inner không kéo giãn
+                # theo chiều cao, card không sát đáy; Group flex thì cột
+                # stretch đúng chiều cao hàng ở mọi độ phân giải.
+                dmc.Group(
+                    [
+                        html.Div(
+                            html.Div(
+                                render_recent_runs_card(recent_items),
+                                id="dashboard-recent-card",
+                                style={"height": "100%", "display": "flex", "flexDirection": "column", "minHeight": 0},
+                            ),
+                            style={
+                                "flex": "8 1 0",
+                                "minWidth": 560,
+                                # Cột không được cao hơn hàng (Group wrap
+                                # làm line cao theo nội dung): chặn ở 100%
+                                # để 20 dòng cuộn trong card thay vì tràn.
+                                "maxHeight": "100%",
+                                "display": "flex",
+                                "flexDirection": "column",
+                                "minHeight": 0,
+                            },
+                        ),
+                        html.Div(
+                            html.Div(
+                                render_diff_rate_by_template(diff_rates),
+                                id="dashboard-diff-card",
+                                style={"height": "100%", "display": "flex", "flexDirection": "column", "minHeight": 0},
+                            ),
+                            style={
+                                "flex": "4 1 0",
+                                "minWidth": 320,
+                                # Như cột Run gần đây: chặn ở 100% chiều
+                                # cao hàng để bảng cuộn trong card.
+                                "maxHeight": "100%",
+                                "display": "flex",
+                                "flexDirection": "column",
+                                "minHeight": 0,
+                            },
+                        ),
+                    ],
+                    gap="sm",
+                    wrap="wrap",
+                    align="stretch",
+                    # auto thay vì hidden: ở cỡ chuẩn nội dung vừa khít
+                    # nên không cuộn; màn hẹp xếp dọc thì cuộn trong Group.
+                    style={"flex": 1, "minHeight": 0, "overflow": "auto"},
                 ),
             ],
             style={
-                "height": "100%",
+                # Cao bằng đúng vùng nội dung của shell (100vh - header 44px
+                # - padding trên 44px của AppShellMain) để hàng card kéo
+                # sát đáy ở mọi độ phân giải; đo kiểm chứng 1366x768/1440x900.
+                "height": "calc(100vh - 88px)",
+                "minHeight": 0,
                 "display": "flex",
                 "flexDirection": "column",
                 "overflow": "hidden",
@@ -515,3 +647,25 @@ def render_dashboard(_refresh: int) -> Any:
             tone="crit",
             action=button_subtle("Thử lại", id="dashboard-retry-btn", size="sm"),
         )
+
+
+@callback(
+    Output("dashboard-recent-card", "children"),
+    Input("dashboard-recent-pagination", "value"),
+    State("dashboard-recent-store", "data"),
+    prevent_initial_call=True,
+)
+def _update_recent_card(page: int | None, items: list[dict[str, Any]] | None) -> Any:
+    """Chuyển trang card Run gần đây (cắt 20 dòng/trang phía client)."""
+    return render_recent_runs_card(items or [], page=page or 1)
+
+
+@callback(
+    Output("dashboard-diff-card", "children"),
+    Input("dashboard-diff-pagination", "value"),
+    State("dashboard-diff-store", "data"),
+    prevent_initial_call=True,
+)
+def _update_diff_card(page: int | None, rates: list[dict[str, Any]] | None) -> Any:
+    """Chuyển trang card Tỉ lệ lệch theo template (cắt 20 dòng/trang phía client)."""
+    return render_diff_rate_by_template(rates or [], page=page or 1)

@@ -101,7 +101,7 @@ def get_dashboard_summary(ctx: Ctx, month: str | None = None) -> dict[str, Any]:
             if tot_compared > 0:
                 avg_match_pct = round((tot_matched / tot_compared) * 100, 1)
 
-        # 3. 10 run gần đây nhất
+        # 3. 50 run gần đây nhất (phân trang 20 dòng/trang ở dashboard)
         recent_stmt = (
             select(
                 recon_run.c.ID,
@@ -126,7 +126,7 @@ def get_dashboard_summary(ctx: Ctx, month: str | None = None) -> dict[str, Any]:
                 )
             )
             .order_by(desc(recon_run.c.CREATED_AT))
-            .limit(10)
+            .limit(50)
         )
         if owner_cond:
             recent_stmt = recent_stmt.where(*owner_cond)

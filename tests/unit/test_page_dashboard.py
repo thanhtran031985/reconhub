@@ -288,3 +288,153 @@ def test_render_diff_rate_by_template():
     assert "DTP Hóa Đơn" in card_str
     assert "DTP" in card_str
     assert "2,5%" in card_str
+
+
+def _recent_item(i: int) -> dict:
+    return {
+        "id": 300 + i,
+        "template_name": f"DTP {i:02d}",
+        "profile_code": "DEFAULT",
+        "status": "DONE",
+        "progress_pct": 100,
+        "created_at": "2026-10-31T18:20:00",
+        "checked_at": None,
+        "p_from": "2026-10-01T00:00:00",
+        "p_to": "2026-10-05T23:59:59",
+        "cnt_mismatch": 0,
+        "cnt_missing_in_db": 0,
+        "cnt_missing_in_excel": 0,
+        "match_pct": 100.0,
+    }
+
+
+def _diff_item(i: int) -> dict:
+    return {
+        "template_id": i,
+        "template_code": f"TPL{i:02d}",
+        "template_name": f"Template {i:02d}",
+        "run_count": i,
+        "total_compared": 1000 + i,
+        "total_diff": 25,
+        "diff_pct": 2.5,
+    }
+
+
+def _find_all(comp, typ) -> list:
+    found = []
+    if isinstance(comp, typ):
+        found.append(comp)
+    children = getattr(comp, "children", None)
+    if isinstance(children, (list, tuple)):
+        for c in children:
+            found.extend(_find_all(c, typ))
+    elif children is not None:
+        found.extend(_find_all(children, typ))
+    return found
+
+
+def test_recent_runs_card_pagination():
+    import dash_mantine_components as dmc
+
+    items = [_recent_item(i) for i in range(1, 13)]
+
+    page1 = render_recent_runs_card(items, page=1, page_size=10)
+    s1 = str(page1)
+    assert "#301" in s1 and "#310" in s1
+    assert "#311" not in s1 and "#312" not in s1
+    assert "Hiển thị 1 – 10 trong tổng số 12 run" in s1
+    pagers = _find_all(page1, dmc.Pagination)
+    assert len(pagers) == 1 and pagers[0].total == 2 and pagers[0].value == 1
+
+    page2 = render_recent_runs_card(items, page=2, page_size=10)
+    s2 = str(page2)
+    assert "#311" in s2 and "#312" in s2
+    assert "#301" not in s2
+    assert "Hiển thị 11 – 12 trong tổng số 12 run" in s2
+    pagers2 = _find_all(page2, dmc.Pagination)
+    assert len(pagers2) == 1 and pagers2[0].total == 2 and pagers2[0].value == 2
+
+
+def test_diff_rate_card_pagination_and_compact_columns():
+    import dash_mantine_components as dmc
+
+    items = [_diff_item(i) for i in range(1, 13)]
+
+    page1 = render_diff_rate_by_template(items, page=1, page_size=10)
+    s1 = str(page1)
+    assert "Template 01" in s1 and "Template 10" in s1
+    assert "Template 11" not in s1 and "Template 12" not in s1
+    # Card hẹp (4/12): chỉ còn 3 cột Template / Số run / Tỉ lệ lệch.
+    assert "Tổng nhóm so sánh" not in s1
+    assert "Nhóm lệch" not in s1
+    assert "1.001 nhóm" in s1 and "25 lệch" in s1
+    assert "Hiển thị 1 – 10 trong tổng số 12 template" in s1
+    pagers = _find_all(page1, dmc.Pagination)
+    assert len(pagers) == 1 and pagers[0].total == 2 and pagers[0].value == 1
+
+    page2 = render_diff_rate_by_template(items, page=2, page_size=10)
+    s2 = str(page2)
+    assert "Template 11" in s2 and "Template 12" in s2
+    assert "Template 01" not in s2
+    assert "Hiển thị 11 – 12 trong tổng số 12 template" in s2
+
+
+def test_dashboard_grid_split_8_4(dashboard_env, monkeypatch):
+    from dash import html
+
+    monkeypatch.setattr("app.ui.pages.dashboard.get_current_ctx", lambda: dashboard_env["ctx"])
+    res = render_dashboard(0)
+    divs = _find_all(res, html.Div)
+    flexes = [(getattr(d, "style", None) or {}).get("flex") for d in divs]
+    max_heights = [(getattr(d, "style", None) or {}).get("maxHeight") for d in divs]
+    # Hàng 2 card: cột Run gần đây flex 8, cột Tỉ lệ lệch flex 4 (tỉ lệ 2:1),
+    # cả 2 cột đều bị chặn ở 100% chiều cao hàng để bảng cuộn trong card.
+    assert "8 1 0" in flexes
+    assert "4 1 0" in flexes
+    assert max_heights.count("100%") >= 2
+
+
+def test_dashboard_tables_compact_vertical_spacing():
+    """Hàng bảng gọn (verticalSpacing nhỏ) để 10 dòng/trang vừa 1366x768."""
+    import dash_mantine_components as dmc
+
+    recent = render_recent_runs_card([_recent_item(1)])
+    recent_tables = _find_all(recent, dmc.Table)
+    assert len(recent_tables) == 1 and recent_tables[0].verticalSpacing == 2
+
+    diff = render_diff_rate_by_template([_diff_item(1)])
+    diff_tables = _find_all(diff, dmc.Table)
+    assert len(diff_tables) == 1 and diff_tables[0].verticalSpacing == 0
+
+
+def test_dashboard_box_fills_viewport_height(dashboard_env, monkeypatch):
+    """Box dashboard cao bằng vùng nội dung shell để card kéo sát đáy."""
+    import dash_mantine_components as dmc
+
+    monkeypatch.setattr("app.ui.pages.dashboard.get_current_ctx", lambda: dashboard_env["ctx"])
+    res = render_dashboard(0)
+    boxes = _find_all(res, dmc.Box)
+    assert any(getattr(b, "style", {}).get("height") == "calc(100vh - 88px)" for b in boxes)
+
+
+def test_cards_default_page_size_20():
+    """Mặc định phân trang 20 dòng/trang (người dùng chốt 09/11/2026)."""
+    import dash_mantine_components as dmc
+
+    items = [_recent_item(i) for i in range(1, 26)]
+    card = render_recent_runs_card(items)
+    s = str(card)
+    assert "#301" in s and "#320" in s
+    assert "#321" not in s
+    assert "Hiển thị 1 – 20 trong tổng số 25 run" in s
+    pagers = _find_all(card, dmc.Pagination)
+    assert len(pagers) == 1 and pagers[0].total == 2 and pagers[0].value == 1
+
+    diffs = [_diff_item(i) for i in range(1, 26)]
+    dcard = render_diff_rate_by_template(diffs)
+    ds = str(dcard)
+    assert "Template 20" in ds
+    assert "Template 21" not in ds
+    assert "Hiển thị 1 – 20 trong tổng số 25 template" in ds
+    dpagers = _find_all(dcard, dmc.Pagination)
+    assert len(dpagers) == 1 and dpagers[0].total == 2 and dpagers[0].value == 1
