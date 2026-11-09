@@ -1,6 +1,6 @@
 # Kế hoạch — 31-data-model-explorer (DATA-MODEL-01)
 
-> **ĐỀ XUẤT — CHƯA DUYỆT.** Plan này được generate cùng task (theo prompt DATA-MODEL-01 §82: chỉ generate task, STOP, không implement). Chỉ khi người dùng yêu cầu chính xác "Làm DATA-MODEL-01" thì plan mới được duyệt và implement. Khi duyệt, plan này (kèm câu trả lời Q0–Q3) được coi là plan đã duyệt.
+> **ĐỀ XUẤT — CHƯA DUYỆT.** Plan này được generate cùng task (theo prompt DATA-MODEL-01 §82: chỉ generate task, STOP, không implement). Q0–Q3 đã chốt hết lúc review task ngày 09/11/2026 (menu hiện luôn; manifest commit; inspector chỉ đọc SQLite; domain mapping cách "lai"). Chỉ khi người dùng yêu cầu chính xác "Làm DATA-MODEL-01" thì plan mới được duyệt và implement. Khi duyệt, plan này được coi là plan đã duyệt.
 
 ## Bối cảnh
 

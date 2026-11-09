@@ -14,7 +14,8 @@
 | 2026-11-09 | Manifest/history commit vào repo | Người dùng chốt lúc review task | CI freshness diff với manifest đã commit (bước 2); inspector không tự git add/commit/push |
 | 2026-11-09 | Inspector chỉ đọc database của app (SQLite, `RECON_DB_URL`), không đọc các Oracle data source nghiệp vụ | Người dùng chốt "chỉ ER database SQLite" lúc review task | Phạm vi bước 1 là SQLite; kiểm chứng trên SQLite; Q3 coi như xong (không cần kiểm chứng Oracle cho task này) |
 
-| 2026-11-09 | Domain mapping cho 43 bảng đã kiểm chứng từ code + hồ sơ task (Core 10, Đối soát 19, Báo cáo 11, Quản trị 3, không bảng nào rơi vào Khác) | Đối chiếu `app/db/metadata.py` + migrations 0001–0006 + hồ sơ task (task 01, 02, 04, 07, 13, 17, 18, 19/20, 21–28); người dùng yêu cầu đọc task cho bảng chưa chắc | Quy tắc "lai" đề xuất trong task.md mục Domain Mapping; chờ người dùng chốt cách Q1 |
+| 2026-11-09 | Domain mapping: cách "lai" — quy tắc tiền tố làm mặc định + danh sách ngoại lệ nhỏ trong inspector + bảng không khớp quy tắc nào → Khác + inspector cảnh báo | Người dùng chốt (chọn option "Lai: tiền tố + ngoại lệ (đề xuất)"); mapping 43 bảng đã kiểm chứng, quy tắc bao phủ đúng hết 43 bảng | Quy tắc cụ thể trong task.md mục Domain Mapping; phân hệ ghi vào manifest, page chỉ đọc `table.domain` |
 
 ## Câu hỏi còn mở
-- Q1: Domain mapping lấy từ đâu (tiền tố tên bảng / file cấu hình riêng / lai)? — mapping đã kiểm chứng xong (xem task.md mục Domain Mapping); đang chờ người dùng chọn cách triển khai.
+
+(Không còn — Q0–Q3 đã chốt hết.)

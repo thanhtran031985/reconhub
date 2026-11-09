@@ -250,7 +250,7 @@ Mapping phân hệ cho toàn bộ 43 bảng thật, đối chiếu 3 nguồn: `a
 - **Báo cáo (11)** — `RECON_REPORT`, `RECON_REPORT_TEMPLATE`, `RECON_RPT_TPL_VER`, `RECON_RPT_PARAM`, `RECON_RPT_PARAM_LOV`, `RECON_RPT_COLUMN`, `RECON_REPORT_RUN`, `RECON_RPT_EXPORT`, `RECON_RPT_FAVORITE`, `RECON_RPT_PRESET`, `RECON_RPT_LOV_CACHE` (task 21–28, migration 0004/0005).
 - **Quản trị (3)** — `RECON_DATA_SOURCE` (task 02, Admin khai báo kết nối; prototype cũng xếp vào admin), `RECON_LOOKUP_TYPE`, `RECON_LOOKUP_CODE` (task 17, migration 0002).
 
-Quy tắc suy ra từ mapping này (đề xuất cho cách "lai", chờ người dùng chốt): `RECON_RPT_*` hoặc `RECON_REPORT*` → Báo cáo; `RECON_BATCH_*` → Đối soát; `RECON_LOOKUP_*` hoặc `RECON_DATA_SOURCE` → Quản trị; `RECON_USER*`, `RECON_ROLE*`, `RECON_MENU*`, `RECON_LOGIN_LOG`, `RECON_AUDIT_LOG`, `RECON_APP_SETTING`, `RECON_METADATA_MIGRATION` → Core; mặc định `RECON_*` còn lại → Đối soát; bảng nào không khớp quy tắc nào → Khác + inspector cảnh báo. Phân hệ được ghi vào manifest; page chỉ đọc `table.domain` từ manifest.
+Quy tắc suy ra từ mapping này (đã chốt — cách "lai", người dùng chọn option đề xuất lúc review task, 09/11/2026): `RECON_RPT_*` hoặc `RECON_REPORT*` → Báo cáo; `RECON_BATCH_*` → Đối soát; `RECON_LOOKUP_*` hoặc `RECON_DATA_SOURCE` → Quản trị; `RECON_USER*`, `RECON_ROLE*`, `RECON_MENU*`, `RECON_LOGIN_LOG`, `RECON_AUDIT_LOG`, `RECON_APP_SETTING`, `RECON_METADATA_MIGRATION` → Core; mặc định `RECON_*` còn lại → Đối soát; bảng nào không khớp quy tắc nào → Khác + inspector cảnh báo. Phân hệ được ghi vào manifest; page chỉ đọc `table.domain` từ manifest.
 
 ## URL State
 
@@ -414,6 +414,6 @@ Sau khi DATA-MODEL-01 hoàn thành: STOP. Không tự bắt đầu task khác. K
 ## Câu hỏi mở
 
 - Q0: ✅ Đã chốt — menu `data_model` hiện luôn sau khi ADMIN cấp quyền (người dùng chốt lúc review task, 09/11/2026).
-- Q1: Domain mapping lấy từ đâu — mapping 43 bảng đã kiểm chứng xong từ code + hồ sơ task (xem task.md mục Domain Mapping); đang chờ người dùng chọn cách triển khai (tiền tố / file cấu hình / lai).
+- Q1: ✅ Đã chốt — domain mapping theo cách "lai": quy tắc tiền tố làm mặc định + danh sách ngoại lệ nhỏ trong inspector + bảng không khớp → Khác + inspector cảnh báo (người dùng chọn option đề xuất lúc review task, 09/11/2026).
 - Q2: ✅ Đã chốt — manifest/history commit vào repo (người dùng chốt lúc review task, 09/11/2026).
 - Q3: ✅ Đã chốt — inspector chỉ đọc database của app (SQLite), không đọc Oracle data source nghiệp vụ, nên không cần kiểm chứng Oracle cho task này (người dùng chốt "chỉ ER database SQLite", 09/11/2026).
