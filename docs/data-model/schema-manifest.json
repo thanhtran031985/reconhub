@@ -1,0 +1,6066 @@
+{
+  "database": "sqlite",
+  "generated": true,
+  "generated_at": "2026-11-09T15:35:27.626843+00:00",
+  "generator": "schema-introspect",
+  "schema": "main",
+  "tables": [
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "KEY",
+          "nullable": false,
+          "primary_key": true,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "VALUE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(400)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Cài đặt ứng dụng",
+      "domain": "core",
+      "domain_label": "Core",
+      "foreign_keys": [],
+      "indexes": [],
+      "name": "RECON_APP_SETTING",
+      "primary_key": [
+        "KEY"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ENTITY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(40)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ENTITY_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ACTION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(40)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "OLD_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "NEW_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ACTOR",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Nhật ký kiểm tra (audit)",
+      "domain": "core",
+      "domain_label": "Core",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "ENTITY",
+            "ENTITY_ID",
+            "CREATED_AT"
+          ],
+          "name": "ix_recon_audit_log_entity_id_created_at",
+          "unique": false
+        }
+      ],
+      "name": "RECON_AUDIT_LOG",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": true
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DESCRIPTION",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(1000)",
+          "unique": false
+        },
+        {
+          "default": "DRAFT",
+          "foreign_key": null,
+          "name": "STATUS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(10)",
+          "unique": false
+        },
+        {
+          "default": "2",
+          "foreign_key": null,
+          "name": "MAX_PARALLEL_PER_DS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_USER.ID",
+          "name": "OWNER_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Bộ đối soát (định nghĩa)",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "OWNER_ID",
+          "constraint_name": "fk_RECON_BATCH_DEF_OWNER_ID_RECON_USER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_USER"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "STATUS"
+          ],
+          "name": "ix_recon_batch_def_status",
+          "unique": false
+        }
+      ],
+      "name": "RECON_BATCH_DEF",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0006_batch_run",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "CODE"
+          ],
+          "name": "uq_RECON_BATCH_DEF_CODE"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_BATCH_DEF.ID",
+          "name": "BATCH_DEF_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_TEMPLATE.ID",
+          "name": "TEMPLATE_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SEQ_NO",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "100",
+          "foreign_key": null,
+          "name": "PRIORITY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PROFILE_CODE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_DATA_SOURCE.ID",
+          "name": "DATA_SOURCE_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FILE_PATTERN",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(400)",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "MULTI_FILE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_REQUIRED",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PARAMS_OVERRIDE_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_ACTIVE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Mục trong bộ đối soát",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "BATCH_DEF_ID",
+          "constraint_name": "fk_RECON_BATCH_DEF_ITEM_BATCH_DEF_ID_RECON_BATCH_DEF",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_BATCH_DEF"
+        },
+        {
+          "column": "TEMPLATE_ID",
+          "constraint_name": "fk_RECON_BATCH_DEF_ITEM_TEMPLATE_ID_RECON_TEMPLATE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_TEMPLATE"
+        },
+        {
+          "column": "DATA_SOURCE_ID",
+          "constraint_name": "fk_RECON_BATCH_DEF_ITEM_DATA_SOURCE_ID_RECON_DATA_SOURCE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_DATA_SOURCE"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "BATCH_DEF_ID",
+            "IS_ACTIVE",
+            "SEQ_NO"
+          ],
+          "name": "ix_recon_batch_def_item_def",
+          "unique": false
+        }
+      ],
+      "name": "RECON_BATCH_DEF_ITEM",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0006_batch_run",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "BATCH_DEF_ID",
+            "TEMPLATE_ID"
+          ],
+          "name": "uq_recon_batch_def_item_def_tpl"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_BATCH_DEF.ID",
+          "name": "BATCH_DEF_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PERIOD",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(7)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PERIOD_FROM",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PERIOD_TO",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "DRAFT",
+          "foreign_key": null,
+          "name": "STATUS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(12)",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "INCLUDE_WARN",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PROD_CONFIRMED_BY",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "CNT_ITEMS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "CNT_DONE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "CNT_FAILED",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "CNT_SKIPPED",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "CNT_NOT_RUN",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ZIP_PATH",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(400)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ZIP_RUN_SET_HASH",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(64)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "STARTED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FINISHED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Lần chạy bộ đối soát",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "BATCH_DEF_ID",
+          "constraint_name": "fk_RECON_BATCH_RUN_BATCH_DEF_ID_RECON_BATCH_DEF",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_BATCH_DEF"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "BATCH_DEF_ID",
+            "PERIOD",
+            "CREATED_AT"
+          ],
+          "name": "ix_recon_batch_run_def_period",
+          "unique": false
+        },
+        {
+          "columns": [
+            "STATUS",
+            "CREATED_AT"
+          ],
+          "name": "ix_recon_batch_run_status",
+          "unique": false
+        }
+      ],
+      "name": "RECON_BATCH_RUN",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0006_batch_run",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_BATCH_RUN.ID",
+          "name": "BATCH_RUN_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_FILE.ID",
+          "name": "FILE_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ORIGINAL_NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(400)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "NORMALIZED_NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(400)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_FILE.ID",
+          "name": "FROM_ZIP_FILE_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_BATCH_RUN_ITEM.ID",
+          "name": "BATCH_RUN_ITEM_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "UNMATCHED",
+          "foreign_key": null,
+          "name": "MATCH_STATE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(12)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "MATCH_BY",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(10)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CANDIDATE_ITEM_IDS",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SHEET_NAME",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SEQ_IN_ITEM",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "File của lần chạy bộ",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "BATCH_RUN_ID",
+          "constraint_name": "fk_RECON_BATCH_RUN_FILE_BATCH_RUN_ID_RECON_BATCH_RUN",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_BATCH_RUN"
+        },
+        {
+          "column": "FILE_ID",
+          "constraint_name": "fk_RECON_BATCH_RUN_FILE_FILE_ID_RECON_FILE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_FILE"
+        },
+        {
+          "column": "FROM_ZIP_FILE_ID",
+          "constraint_name": "fk_RECON_BATCH_RUN_FILE_FROM_ZIP_FILE_ID_RECON_FILE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_FILE"
+        },
+        {
+          "column": "BATCH_RUN_ITEM_ID",
+          "constraint_name": "fk_RECON_BATCH_RUN_FILE_BATCH_RUN_ITEM_ID_RECON_BATCH_RUN_ITEM",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_BATCH_RUN_ITEM"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "BATCH_RUN_ITEM_ID",
+            "MATCH_STATE"
+          ],
+          "name": "ix_recon_batch_run_file_item",
+          "unique": false
+        },
+        {
+          "columns": [
+            "BATCH_RUN_ID",
+            "FILE_ID"
+          ],
+          "name": "ix_recon_batch_run_file_hash",
+          "unique": false
+        }
+      ],
+      "name": "RECON_BATCH_RUN_FILE",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0006_batch_run",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "BATCH_RUN_ID",
+            "ORIGINAL_NAME"
+          ],
+          "name": "uq_recon_batch_run_file_run_name"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_BATCH_RUN.ID",
+          "name": "BATCH_RUN_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_BATCH_DEF_ITEM.ID",
+          "name": "BATCH_DEF_ITEM_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TEMPLATE_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TEMPLATE_VERSION",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PROFILE_CODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_DATA_SOURCE.ID",
+          "name": "DATA_SOURCE_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SEQ_NO",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PRIORITY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "MULTI_FILE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "IS_REQUIRED",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "PENDING",
+          "foreign_key": null,
+          "name": "STATUS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(12)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SKIP_REASON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(30)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SKIPPED_BY",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PARAMS_RUN_OVERRIDE_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PARAMS_RESOLVED_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PRECHECK_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PRECHECK_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CURRENT_RUN_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "ATTEMPT_NO",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ERROR_CODE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ERROR_MSG",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(2000)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Mục của lần chạy bộ",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "BATCH_RUN_ID",
+          "constraint_name": "fk_RECON_BATCH_RUN_ITEM_BATCH_RUN_ID_RECON_BATCH_RUN",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_BATCH_RUN"
+        },
+        {
+          "column": "BATCH_DEF_ITEM_ID",
+          "constraint_name": "fk_RECON_BATCH_RUN_ITEM_BATCH_DEF_ITEM_ID_RECON_BATCH_DEF_ITEM",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_BATCH_DEF_ITEM"
+        },
+        {
+          "column": "DATA_SOURCE_ID",
+          "constraint_name": "fk_RECON_BATCH_RUN_ITEM_DATA_SOURCE_ID_RECON_DATA_SOURCE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_DATA_SOURCE"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "BATCH_RUN_ID",
+            "STATUS",
+            "SEQ_NO"
+          ],
+          "name": "ix_recon_batch_run_item_run",
+          "unique": false
+        }
+      ],
+      "name": "RECON_BATCH_RUN_ITEM",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0006_batch_run",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "BATCH_RUN_ID",
+            "BATCH_DEF_ITEM_ID"
+          ],
+          "name": "uq_recon_batch_run_item_run_defitem"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ENV",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(10)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PURPOSE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(10)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DB_TYPE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(10)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "HOST",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PORT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SERVICE_NAME",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(100)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FILE_PATH",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(400)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "USERNAME",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PASSWORD_ENC",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(1000)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DEFAULT_SCHEMA",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": "600",
+          "foreign_key": null,
+          "name": "CALL_TIMEOUT_S",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "1000000",
+          "foreign_key": null,
+          "name": "MAX_ROWS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_ACTIVE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "IS_CURRENT_METADATA",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LAST_TEST_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LAST_TEST_OK",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LAST_TEST_MSG",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(400)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LAST_TEST_MS",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Nguồn dữ liệu (Data Source)",
+      "domain": "admin",
+      "domain_label": "Quản trị",
+      "foreign_keys": [],
+      "indexes": [],
+      "name": "RECON_DATA_SOURCE",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "NAME",
+            "ENV"
+          ],
+          "name": "uq_recon_data_source_name_env"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_FILE.ID",
+          "name": "FILE_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SHEET_NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TEMPLATE_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TEMPLATE_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ROWS_READ",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "ROWS_INVALID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "BYTES_EST",
+          "nullable": false,
+          "primary_key": false,
+          "type": "BIGINT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CONTROL_TOTAL_FILE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CONTROL_TOTAL_CALC",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LOADED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PURGED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FILE_SET_HASH",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(64)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SOURCE_FILES_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        }
+      ],
+      "description": "Lần nạp dữ liệu Excel",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "FILE_ID",
+          "constraint_name": "fk_RECON_EXCEL_LOAD_FILE_ID_RECON_FILE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_FILE"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_EXCEL_LOAD",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "FILE_SET_HASH",
+            "SHEET_NAME",
+            "TEMPLATE_ID",
+            "TEMPLATE_VERSION"
+          ],
+          "name": "uq_recon_excel_load_fileset_sheet_tmpl_ver"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": "RECON_EXCEL_LOAD.ID",
+          "name": "LOAD_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_FILE.ID",
+          "name": "SOURCE_FILE_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "EXCEL_ROW_NO",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DATA_JSON",
+          "nullable": false,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_VALID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        }
+      ],
+      "description": "Dòng dữ liệu Excel đã nạp",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "LOAD_ID",
+          "constraint_name": "fk_RECON_EXCEL_ROW_LOAD_ID_RECON_EXCEL_LOAD",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_EXCEL_LOAD"
+        },
+        {
+          "column": "SOURCE_FILE_ID",
+          "constraint_name": "fk_RECON_EXCEL_ROW_SOURCE_FILE_ID_RECON_FILE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_FILE"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_EXCEL_ROW",
+      "primary_key": [
+        "LOAD_ID",
+        "SOURCE_FILE_ID",
+        "EXCEL_ROW_NO"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SHA256",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(64)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ORIGINAL_NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(400)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SIZE_BYTES",
+          "nullable": false,
+          "primary_key": false,
+          "type": "BIGINT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "STORAGE_PATH",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(400)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SHEETS_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPLOADED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPLOADED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PURGED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "File đã upload",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "SHA256"
+          ],
+          "name": "ix_recon_file_sha256",
+          "unique": false
+        }
+      ],
+      "name": "RECON_FILE",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": "RECON_RUN.ID",
+          "name": "RUN_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "EXCEL_ROW_NO",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FIELD",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "RAW_VALUE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(1000)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "REASON_CODE",
+          "nullable": false,
+          "primary_key": true,
+          "type": "VARCHAR(40)",
+          "unique": false
+        }
+      ],
+      "description": "Dòng Excel không hợp lệ",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "RUN_ID",
+          "constraint_name": "fk_RECON_INVALID_ROW_RUN_ID_RECON_RUN",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_RUN"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_INVALID_ROW",
+      "primary_key": [
+        "RUN_ID",
+        "EXCEL_ROW_NO",
+        "REASON_CODE"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TEMPLATE_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PROFILE_CODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "KEY_TEXT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1000)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "KEY_HASH",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(64)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FIRST_RUN_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LAST_RUN_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "OPEN",
+          "foreign_key": null,
+          "name": "STATUS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_ISSUE_REASON.CODE",
+          "name": "REASON_CODE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(40)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_USER.ID",
+          "name": "ASSIGNEE_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "NOTE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(2000)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Chênh lệch cần xử lý (issue)",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "REASON_CODE",
+          "constraint_name": "fk_RECON_ISSUE_REASON_CODE_RECON_ISSUE_REASON",
+          "on_delete": null,
+          "references_column": "CODE",
+          "references_table": "RECON_ISSUE_REASON"
+        },
+        {
+          "column": "ASSIGNEE_ID",
+          "constraint_name": "fk_RECON_ISSUE_ASSIGNEE_ID_RECON_USER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_USER"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_ISSUE",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "TEMPLATE_ID",
+            "PROFILE_CODE",
+            "KEY_HASH"
+          ],
+          "name": "uq_recon_issue_tmpl_profile_key"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CODE",
+          "nullable": false,
+          "primary_key": true,
+          "type": "VARCHAR(40)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LABEL",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_ACTIVE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        }
+      ],
+      "description": "Lý do chênh lệch",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [],
+      "indexes": [],
+      "name": "RECON_ISSUE_REASON",
+      "primary_key": [
+        "CODE"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "USERNAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "USER_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SUCCESS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "REASON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(40)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "IP",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Lịch sử đăng nhập",
+      "domain": "core",
+      "domain_label": "Core",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "USERNAME",
+            "CREATED_AT"
+          ],
+          "name": "ix_recon_login_log_username_created_at",
+          "unique": false
+        }
+      ],
+      "name": "RECON_LOGIN_LOG",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": "RECON_LOOKUP_TYPE.LOOKUP_TYPE",
+          "name": "LOOKUP_TYPE",
+          "nullable": false,
+          "primary_key": true,
+          "type": "VARCHAR(50)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LOOKUP_CODE",
+          "nullable": false,
+          "primary_key": true,
+          "type": "VARCHAR(50)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "MEANING",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DESCRIPTION",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(500)",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "DISPLAY_ORDER",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "COLOR_BADGE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(30)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ICON_NAME",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "IS_DEFAULT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "IS_SYSTEM",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_ACTIVE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        }
+      ],
+      "description": "Mã danh mục dùng chung",
+      "domain": "admin",
+      "domain_label": "Quản trị",
+      "foreign_keys": [
+        {
+          "column": "LOOKUP_TYPE",
+          "constraint_name": "fk_RECON_LOOKUP_CODE_LOOKUP_TYPE_RECON_LOOKUP_TYPE",
+          "on_delete": null,
+          "references_column": "LOOKUP_TYPE",
+          "references_table": "RECON_LOOKUP_TYPE"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_LOOKUP_CODE",
+      "primary_key": [
+        "LOOKUP_TYPE",
+        "LOOKUP_CODE"
+      ],
+      "source": {
+        "migration": "0002_add_lookup_tables",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LOOKUP_TYPE",
+          "nullable": false,
+          "primary_key": true,
+          "type": "VARCHAR(50)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TYPE_NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DESCRIPTION",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(500)",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "IS_SYSTEM",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_ACTIVE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        }
+      ],
+      "description": "Loại danh mục dùng chung",
+      "domain": "admin",
+      "domain_label": "Quản trị",
+      "foreign_keys": [],
+      "indexes": [],
+      "name": "RECON_LOOKUP_TYPE",
+      "primary_key": [
+        "LOOKUP_TYPE"
+      ],
+      "source": {
+        "migration": "0002_add_lookup_tables",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CODE",
+          "nullable": false,
+          "primary_key": true,
+          "type": "VARCHAR(40)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PATH",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ICON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SOURCE_LABEL",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(100)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_MENU_GROUP.CODE",
+          "name": "SOURCE_GROUP",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(40)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SOURCE_ORDER",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DISPLAY_LABEL",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(100)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_MENU_GROUP.CODE",
+          "name": "DISPLAY_GROUP",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(40)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DISPLAY_ORDER",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_HIDEABLE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "IS_HIDDEN",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "HIDDEN_REASON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(300)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "HIDDEN_BY",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "HIDDEN_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_NEW",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "IS_REMOVED",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SYNCED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Menu của ứng dụng",
+      "domain": "core",
+      "domain_label": "Core",
+      "foreign_keys": [
+        {
+          "column": "SOURCE_GROUP",
+          "constraint_name": "fk_RECON_MENU_SOURCE_GROUP_RECON_MENU_GROUP",
+          "on_delete": null,
+          "references_column": "CODE",
+          "references_table": "RECON_MENU_GROUP"
+        },
+        {
+          "column": "DISPLAY_GROUP",
+          "constraint_name": "fk_RECON_MENU_DISPLAY_GROUP_RECON_MENU_GROUP",
+          "on_delete": null,
+          "references_column": "CODE",
+          "references_table": "RECON_MENU_GROUP"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_MENU",
+      "primary_key": [
+        "CODE"
+      ],
+      "source": {
+        "migration": "0003_menu_permission",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CODE",
+          "nullable": false,
+          "primary_key": true,
+          "type": "VARCHAR(40)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SOURCE_LABEL",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(100)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SOURCE_ORDER",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DISPLAY_LABEL",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(100)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DISPLAY_ORDER",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "IS_REMOVED",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SYNCED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Nhóm menu",
+      "domain": "core",
+      "domain_label": "Core",
+      "foreign_keys": [],
+      "indexes": [],
+      "name": "RECON_MENU_GROUP",
+      "primary_key": [
+        "CODE"
+      ],
+      "source": {
+        "migration": "0003_menu_permission",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SOURCE_DS_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TARGET_DS_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "QUEUED",
+          "foreign_key": null,
+          "name": "STATUS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": "NO_TEMP",
+          "foreign_key": null,
+          "name": "MODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "STAGE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(30)",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "PROGRESS_PCT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "REPORT_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "OLD_SQLITE_PATH",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(400)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "OLD_SQLITE_DELETED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ERROR_MSG",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FINISHED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Lần chuyển metadata",
+      "domain": "core",
+      "domain_label": "Core",
+      "foreign_keys": [],
+      "indexes": [],
+      "name": "RECON_METADATA_MIGRATION",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SCOPE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FILTER_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "RUN_COUNT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ROWS_DELETED",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "BYTES_FREED",
+          "nullable": false,
+          "primary_key": false,
+          "type": "BIGINT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ACTOR",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Lịch sử xóa dữ liệu tạm",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [],
+      "indexes": [],
+      "name": "RECON_PURGE_LOG",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": true
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CATEGORY_CODE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "OWNER",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DESCRIPTION",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(500)",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "DEFAULT_FAVORITE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_VISIBLE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_ACTIVE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Báo cáo",
+      "domain": "report",
+      "domain_label": "Báo cáo",
+      "foreign_keys": [],
+      "indexes": [],
+      "name": "RECON_REPORT",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0004_reporting_core",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "CODE"
+          ],
+          "name": "uq_RECON_REPORT_CODE"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_REPORT.ID",
+          "name": "REPORT_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_REPORT_TEMPLATE.ID",
+          "name": "TEMPLATE_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_RPT_TPL_VER.ID",
+          "name": "VERSION_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PARAMS_JSON",
+          "nullable": false,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": "QUEUED",
+          "foreign_key": null,
+          "name": "STATUS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(30)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ROW_COUNT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "QUERY_MS",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ERROR_CODE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ERROR_MESSAGE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(500)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FINISHED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Lần chạy báo cáo",
+      "domain": "report",
+      "domain_label": "Báo cáo",
+      "foreign_keys": [
+        {
+          "column": "REPORT_ID",
+          "constraint_name": "fk_RECON_REPORT_RUN_REPORT_ID_RECON_REPORT",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_REPORT"
+        },
+        {
+          "column": "TEMPLATE_ID",
+          "constraint_name": "fk_RECON_REPORT_RUN_TEMPLATE_ID_RECON_REPORT_TEMPLATE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_REPORT_TEMPLATE"
+        },
+        {
+          "column": "VERSION_ID",
+          "constraint_name": "fk_RECON_REPORT_RUN_VERSION_ID_RECON_RPT_TPL_VER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_RPT_TPL_VER"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_REPORT_RUN",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0004_reporting_core",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_REPORT.ID",
+          "name": "REPORT_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": "10",
+          "foreign_key": null,
+          "name": "DISPLAY_ORDER",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_RPT_TPL_VER.ID",
+          "name": "ACTIVE_VERSION_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Template báo cáo",
+      "domain": "report",
+      "domain_label": "Báo cáo",
+      "foreign_keys": [
+        {
+          "column": "REPORT_ID",
+          "constraint_name": "fk_RECON_REPORT_TEMPLATE_REPORT_ID_RECON_REPORT",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_REPORT"
+        },
+        {
+          "column": "ACTIVE_VERSION_ID",
+          "constraint_name": "fk_RECON_REPORT_TEMPLATE_ACTIVE_VERSION_ID_RECON_RPT_TPL_VER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_RPT_TPL_VER"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_REPORT_TEMPLATE",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0004_reporting_core",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "REPORT_ID",
+            "CODE"
+          ],
+          "name": "uq_recon_report_template_report_code"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": "RECON_RUN.ID",
+          "name": "RUN_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ROW_NO",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "MEASURE",
+          "nullable": false,
+          "primary_key": true,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "EXCEL_VAL",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(400)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DB_VAL",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(400)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DIFF_ABS",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DIFF_PCT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        }
+      ],
+      "description": "Chênh lệch theo chỉ số",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "RUN_ID",
+          "constraint_name": "fk_RECON_RESULT_DIFF_RUN_ID_RECON_RUN",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_RUN"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_RESULT_DIFF",
+      "primary_key": [
+        "RUN_ID",
+        "ROW_NO",
+        "MEASURE"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": "RECON_RUN.ID",
+          "name": "RUN_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ROW_NO",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "KEY_TEXT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1000)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "KEY_HASH",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(64)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "STATUS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "KEY_JSON",
+          "nullable": false,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "EXCEL_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DB_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DIFF_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "EXCEL_ROW_NOS",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ABS_DIFF_MAIN",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ABS_DIFF_SORT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "FLOAT",
+          "unique": false
+        }
+      ],
+      "description": "Dòng kết quả đối soát",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "RUN_ID",
+          "constraint_name": "fk_RECON_RESULT_ROW_RUN_ID_RECON_RUN",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_RUN"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "RUN_ID",
+            "STATUS",
+            "ROW_NO"
+          ],
+          "name": "ix_recon_result_row_run_status_row",
+          "unique": false
+        },
+        {
+          "columns": [
+            "RUN_ID",
+            "KEY_HASH"
+          ],
+          "name": "ix_recon_result_row_run_key_hash",
+          "unique": false
+        }
+      ],
+      "name": "RECON_RESULT_ROW",
+      "primary_key": [
+        "RUN_ID",
+        "ROW_NO"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(30)",
+          "unique": true
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(100)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DESCRIPTION",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(300)",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "IS_SYSTEM",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_ACTIVE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Vai trò",
+      "domain": "core",
+      "domain_label": "Core",
+      "foreign_keys": [],
+      "indexes": [],
+      "name": "RECON_ROLE",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0003_menu_permission",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "CODE"
+          ],
+          "name": "uq_RECON_ROLE_CODE"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": "RECON_ROLE.ID",
+          "name": "ROLE_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_MENU.CODE",
+          "name": "MENU_CODE",
+          "nullable": false,
+          "primary_key": true,
+          "type": "VARCHAR(40)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "GRANTED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "GRANTED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Quyền menu của vai trò",
+      "domain": "core",
+      "domain_label": "Core",
+      "foreign_keys": [
+        {
+          "column": "ROLE_ID",
+          "constraint_name": "fk_RECON_ROLE_MENU_ROLE_ID_RECON_ROLE",
+          "on_delete": "CASCADE",
+          "references_column": "ID",
+          "references_table": "RECON_ROLE"
+        },
+        {
+          "column": "MENU_CODE",
+          "constraint_name": "fk_RECON_ROLE_MENU_MENU_CODE_RECON_MENU",
+          "on_delete": null,
+          "references_column": "CODE",
+          "references_table": "RECON_MENU"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_ROLE_MENU",
+      "primary_key": [
+        "ROLE_ID",
+        "MENU_CODE"
+      ],
+      "source": {
+        "migration": "0003_menu_permission",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_RPT_TPL_VER.ID",
+          "name": "VERSION_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FIELD_NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(128)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LABEL",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DATA_TYPE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(30)",
+          "unique": false
+        },
+        {
+          "default": "10",
+          "foreign_key": null,
+          "name": "DISPLAY_ORDER",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "WEB_VISIBLE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "EXCEL_VISIBLE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FORMAT_MASK",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(100)",
+          "unique": false
+        },
+        {
+          "default": "LEFT",
+          "foreign_key": null,
+          "name": "ALIGNMENT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(10)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "WIDTH",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "IS_TOTAL",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        }
+      ],
+      "description": "Cột báo cáo",
+      "domain": "report",
+      "domain_label": "Báo cáo",
+      "foreign_keys": [
+        {
+          "column": "VERSION_ID",
+          "constraint_name": "fk_RECON_RPT_COLUMN_VERSION_ID_RECON_RPT_TPL_VER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_RPT_TPL_VER"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_RPT_COLUMN",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0004_reporting_core",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "VERSION_ID",
+            "FIELD_NAME"
+          ],
+          "name": "uq_recon_rpt_column_version_field"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_REPORT_RUN.ID",
+          "name": "RUN_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FORMAT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(10)",
+          "unique": false
+        },
+        {
+          "default": "QUEUED",
+          "foreign_key": null,
+          "name": "STATUS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(30)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FILE_PATH",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(500)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FILE_SIZE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "BIGINT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FILE_HASH",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(128)",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "PART_COUNT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ROW_COUNT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FINISHED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ERROR_MESSAGE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(500)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LOCKED_BY",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LOCKED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "HEARTBEAT_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Lần xuất báo cáo",
+      "domain": "report",
+      "domain_label": "Báo cáo",
+      "foreign_keys": [
+        {
+          "column": "RUN_ID",
+          "constraint_name": "fk_RECON_RPT_EXPORT_RUN_ID_RECON_REPORT_RUN",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_REPORT_RUN"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_RPT_EXPORT",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0004_reporting_core",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": "RECON_USER.ID",
+          "name": "USER_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_REPORT.ID",
+          "name": "REPORT_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Báo cáo yêu thích",
+      "domain": "report",
+      "domain_label": "Báo cáo",
+      "foreign_keys": [
+        {
+          "column": "USER_ID",
+          "constraint_name": "fk_RECON_RPT_FAVORITE_USER_ID_RECON_USER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_USER"
+        },
+        {
+          "column": "REPORT_ID",
+          "constraint_name": "fk_RECON_RPT_FAVORITE_REPORT_ID_RECON_REPORT",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_REPORT"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_RPT_FAVORITE",
+      "primary_key": [
+        "USER_ID",
+        "REPORT_ID"
+      ],
+      "source": {
+        "migration": "0004_reporting_core",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CACHE_KEY",
+          "nullable": false,
+          "primary_key": true,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PAYLOAD_JSON",
+          "nullable": false,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "ROW_COUNT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "EXPIRES_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Cache danh sách giá trị",
+      "domain": "report",
+      "domain_label": "Báo cáo",
+      "foreign_keys": [],
+      "indexes": [],
+      "name": "RECON_RPT_LOV_CACHE",
+      "primary_key": [
+        "CACHE_KEY"
+      ],
+      "source": {
+        "migration": "0004_reporting_core",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_RPT_TPL_VER.ID",
+          "name": "VERSION_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LABEL",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DATA_TYPE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(30)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CONTROL_TYPE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(30)",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "REQUIRED",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DEFAULT_TYPE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DEFAULT_VALUE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(500)",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "DISPLAY_ROW",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "10",
+          "foreign_key": null,
+          "name": "DISPLAY_ORDER",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "6",
+          "foreign_key": null,
+          "name": "GRID_SPAN",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FILTER_COLUMN",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(128)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FILTER_OPERATOR",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_VISIBLE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        }
+      ],
+      "description": "Tham số báo cáo",
+      "domain": "report",
+      "domain_label": "Báo cáo",
+      "foreign_keys": [
+        {
+          "column": "VERSION_ID",
+          "constraint_name": "fk_RECON_RPT_PARAM_VERSION_ID_RECON_RPT_TPL_VER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_RPT_TPL_VER"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_RPT_PARAM",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0004_reporting_core",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "VERSION_ID",
+            "CODE"
+          ],
+          "name": "uq_recon_rpt_param_version_code"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": "RECON_RPT_PARAM.ID",
+          "name": "PARAM_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "NONE",
+          "foreign_key": null,
+          "name": "LOV_TYPE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_DATA_SOURCE.ID",
+          "name": "DATA_SOURCE_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SQL_TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LOOKUP_TYPE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "STATIC_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": "300",
+          "foreign_key": null,
+          "name": "CACHE_SECONDS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "5000",
+          "foreign_key": null,
+          "name": "MAX_ROWS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Danh sách giá trị tham số",
+      "domain": "report",
+      "domain_label": "Báo cáo",
+      "foreign_keys": [
+        {
+          "column": "PARAM_ID",
+          "constraint_name": "fk_RECON_RPT_PARAM_LOV_PARAM_ID_RECON_RPT_PARAM",
+          "on_delete": "CASCADE",
+          "references_column": "ID",
+          "references_table": "RECON_RPT_PARAM"
+        },
+        {
+          "column": "DATA_SOURCE_ID",
+          "constraint_name": "fk_RECON_RPT_PARAM_LOV_DATA_SOURCE_ID_RECON_DATA_SOURCE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_DATA_SOURCE"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_RPT_PARAM_LOV",
+      "primary_key": [
+        "PARAM_ID"
+      ],
+      "source": {
+        "migration": "0004_reporting_core",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_USER.ID",
+          "name": "USER_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_REPORT.ID",
+          "name": "REPORT_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_REPORT_TEMPLATE.ID",
+          "name": "TEMPLATE_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PARAMS_JSON",
+          "nullable": false,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "IS_DEFAULT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Preset tham số báo cáo",
+      "domain": "report",
+      "domain_label": "Báo cáo",
+      "foreign_keys": [
+        {
+          "column": "USER_ID",
+          "constraint_name": "fk_RECON_RPT_PRESET_USER_ID_RECON_USER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_USER"
+        },
+        {
+          "column": "REPORT_ID",
+          "constraint_name": "fk_RECON_RPT_PRESET_REPORT_ID_RECON_REPORT",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_REPORT"
+        },
+        {
+          "column": "TEMPLATE_ID",
+          "constraint_name": "fk_RECON_RPT_PRESET_TEMPLATE_ID_RECON_REPORT_TEMPLATE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_REPORT_TEMPLATE"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_RPT_PRESET",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0004_reporting_core",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_REPORT_TEMPLATE.ID",
+          "name": "TEMPLATE_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "VERSION_NO",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "DRAFT",
+          "foreign_key": null,
+          "name": "STATUS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_DATA_SOURCE.ID",
+          "name": "DATA_SOURCE_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SOURCE_TYPE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SQL_TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SOURCE_OWNER",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SOURCE_OBJECT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(128)",
+          "unique": false
+        },
+        {
+          "default": "300",
+          "foreign_key": null,
+          "name": "TIMEOUT_SEC",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "100",
+          "foreign_key": null,
+          "name": "PREVIEW_MAX_ROWS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "1000000",
+          "foreign_key": null,
+          "name": "EXPORT_MAX_ROWS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SQL_HASH",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(64)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ACTIVATED_BY",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ACTIVATED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Phiên bản template báo cáo",
+      "domain": "report",
+      "domain_label": "Báo cáo",
+      "foreign_keys": [
+        {
+          "column": "TEMPLATE_ID",
+          "constraint_name": "fk_RECON_RPT_TPL_VER_TEMPLATE_ID_RECON_REPORT_TEMPLATE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_REPORT_TEMPLATE"
+        },
+        {
+          "column": "DATA_SOURCE_ID",
+          "constraint_name": "fk_RECON_RPT_TPL_VER_DATA_SOURCE_ID_RECON_DATA_SOURCE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_DATA_SOURCE"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_RPT_TPL_VER",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0004_reporting_core",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "TEMPLATE_ID",
+            "VERSION_NO"
+          ],
+          "name": "uq_recon_rpt_tpl_ver_template_version"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TEMPLATE_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TEMPLATE_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PROFILE_CODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PROFILE_OVERRIDE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_FILE.ID",
+          "name": "FILE_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_EXCEL_LOAD.ID",
+          "name": "EXCEL_LOAD_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SHEET_NAME",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_DATA_SOURCE.ID",
+          "name": "DATA_SOURCE_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "P_FROM",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "P_TO",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PARAMS_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "APPLY_RANGE_EXCEL",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "QUEUED",
+          "foreign_key": null,
+          "name": "STATUS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(10)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "STAGE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(30)",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "PROGRESS_PCT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ERROR_CODE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ERROR_MSG",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(2000)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CHECKED_BY",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CHECKED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TEMP_PURGED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TEMP_PURGED_BY",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_BATCH_RUN.ID",
+          "name": "BATCH_RUN_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_BATCH_RUN_ITEM.ID",
+          "name": "BATCH_RUN_ITEM_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "STARTED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FINISHED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Lần chạy đối soát",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "FILE_ID",
+          "constraint_name": "fk_RECON_RUN_FILE_ID_RECON_FILE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_FILE"
+        },
+        {
+          "column": "EXCEL_LOAD_ID",
+          "constraint_name": "fk_RECON_RUN_EXCEL_LOAD_ID_RECON_EXCEL_LOAD",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_EXCEL_LOAD"
+        },
+        {
+          "column": "DATA_SOURCE_ID",
+          "constraint_name": "fk_RECON_RUN_DATA_SOURCE_ID_RECON_DATA_SOURCE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_DATA_SOURCE"
+        },
+        {
+          "column": "BATCH_RUN_ID",
+          "constraint_name": "fk_RECON_RUN_BATCH_RUN_ID_RECON_BATCH_RUN",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_BATCH_RUN"
+        },
+        {
+          "column": "BATCH_RUN_ITEM_ID",
+          "constraint_name": "fk_RECON_RUN_BATCH_RUN_ITEM_ID_RECON_BATCH_RUN_ITEM",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_BATCH_RUN_ITEM"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "BATCH_RUN_ID",
+            "STATUS"
+          ],
+          "name": "ix_recon_run_batch",
+          "unique": false
+        }
+      ],
+      "name": "RECON_RUN",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": "RECON_RUN.ID",
+          "name": "RUN_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "READY",
+          "foreign_key": null,
+          "name": "STATUS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(12)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LOCKED_BY",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(100)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LOCKED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "HEARTBEAT_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "RETRY_COUNT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ENQUEUED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Hàng đợi chạy",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "RUN_ID",
+          "constraint_name": "fk_RECON_RUN_QUEUE_RUN_ID_RECON_RUN",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_RUN"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_RUN_QUEUE",
+      "primary_key": [
+        "RUN_ID"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": "RECON_RUN.ID",
+          "name": "RUN_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "EXCEL_ROWS_READ",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "EXCEL_ROWS_OUT_OF_RANGE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "EXCEL_ROWS_INVALID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "EXCEL_GROUPS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "DB_ROWS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "DB_GROUPS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "CNT_MATCHED",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "CNT_MISMATCH",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "CNT_MISSING_IN_DB",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "CNT_MISSING_IN_EXCEL",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "CNT_INCONSISTENT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "CNT_DUPLICATE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CONTROL_TOTAL_FILE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CONTROL_TOTAL_CALC",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CONTROL_TOTAL_OK",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "MEASURE_TOTALS_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "STATUS_AMOUNTS_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "COLUMNS_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SOURCE_SQL",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "DURATION_MS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Tóm tắt kết quả lần chạy",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "RUN_ID",
+          "constraint_name": "fk_RECON_RUN_SUMMARY_RUN_ID_RECON_RUN",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_RUN"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_RUN_SUMMARY",
+      "primary_key": [
+        "RUN_ID"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": true
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DESCRIPTION",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(1000)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "OWNER",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": "DRAFT",
+          "foreign_key": null,
+          "name": "STATUS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(10)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CURRENT_VERSION",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Template đối soát",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [],
+      "indexes": [],
+      "name": "RECON_TEMPLATE",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "CODE"
+          ],
+          "name": "uq_RECON_TEMPLATE_CODE"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": "RECON_TEMPLATE.ID",
+          "name": "TEMPLATE_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "VERSION",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "DRAFT",
+          "foreign_key": null,
+          "name": "STATUS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(10)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CONFIG_JSON",
+          "nullable": false,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_DATA_SOURCE.ID",
+          "name": "DATA_SOURCE_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SAMPLE_FILE_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DRY_RUN_OK",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DRY_RUN_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ACTIVATED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Phiên bản template",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "TEMPLATE_ID",
+          "constraint_name": "fk_RECON_TEMPLATE_VERSION_TEMPLATE_ID_RECON_TEMPLATE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_TEMPLATE"
+        },
+        {
+          "column": "DATA_SOURCE_ID",
+          "constraint_name": "fk_RECON_TEMPLATE_VERSION_DATA_SOURCE_ID_RECON_DATA_SOURCE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_DATA_SOURCE"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_TEMPLATE_VERSION",
+      "primary_key": [
+        "TEMPLATE_ID",
+        "VERSION"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "USERNAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": true
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FULL_NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "EMAIL",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PASSWORD_HASH",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(255)",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_ACTIVE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "MUST_CHANGE_PW",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": "0",
+          "foreign_key": null,
+          "name": "FAILED_COUNT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LOCKED_UNTIL",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "SESSION_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LAST_LOGIN_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PW_CHANGED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Người dùng đăng nhập",
+      "domain": "core",
+      "domain_label": "Core",
+      "foreign_keys": [],
+      "indexes": [],
+      "name": "RECON_USER",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "USERNAME"
+          ],
+          "name": "uq_RECON_USER_USERNAME"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": "RECON_USER.ID",
+          "name": "USER_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_ROLE.ID",
+          "name": "ROLE_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ASSIGNED_BY",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ASSIGNED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Vai trò của người dùng",
+      "domain": "core",
+      "domain_label": "Core",
+      "foreign_keys": [
+        {
+          "column": "USER_ID",
+          "constraint_name": "fk_RECON_USER_ROLE_USER_ID_RECON_USER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_USER"
+        },
+        {
+          "column": "ROLE_ID",
+          "constraint_name": "fk_RECON_USER_ROLE_ROLE_ID_RECON_ROLE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_ROLE"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_USER_ROLE",
+      "primary_key": [
+        "USER_ID",
+        "ROLE_ID"
+      ],
+      "source": {
+        "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    }
+  ],
+  "version": "0006_batch_run",
+  "warnings": []
+}

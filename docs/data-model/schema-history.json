@@ -1,0 +1,524 @@
+[
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_APP_SETTING",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_AUDIT_LOG",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_DATA_SOURCE",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_FILE",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_ISSUE_REASON",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_LOGIN_LOG",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_METADATA_MIGRATION",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_PURGE_LOG",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_TEMPLATE",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_USER",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_EXCEL_LOAD",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_ISSUE",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_TEMPLATE_VERSION",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_USER_ROLE",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_EXCEL_ROW",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RUN",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_INVALID_ROW",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RESULT_DIFF",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RESULT_ROW",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RUN_QUEUE",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RUN_SUMMARY",
+    "migration_id": "0001_init",
+    "task_id": null,
+    "timestamp": "2026-10-31T22:14:18.646143+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_LOOKUP_TYPE",
+    "migration_id": "0002_add_lookup_tables",
+    "task_id": null,
+    "timestamp": "2026-11-02T22:40:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_LOOKUP_CODE",
+    "migration_id": "0002_add_lookup_tables",
+    "task_id": null,
+    "timestamp": "2026-11-02T22:40:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_MENU_GROUP",
+    "migration_id": "0003_menu_permission",
+    "task_id": null,
+    "timestamp": "2026-11-05T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_MENU",
+    "migration_id": "0003_menu_permission",
+    "task_id": null,
+    "timestamp": "2026-11-05T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_ROLE",
+    "migration_id": "0003_menu_permission",
+    "task_id": null,
+    "timestamp": "2026-11-05T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_ROLE_MENU",
+    "migration_id": "0003_menu_permission",
+    "task_id": null,
+    "timestamp": "2026-11-05T00:00:00+00:00"
+  },
+  {
+    "after": "BIGINT, nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_USER_ROLE.ROLE_ID",
+    "migration_id": "0003_menu_permission",
+    "task_id": null,
+    "timestamp": "2026-11-05T00:00:00+00:00"
+  },
+  {
+    "after": "VARCHAR(60), nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_USER_ROLE.ASSIGNED_BY",
+    "migration_id": "0003_menu_permission",
+    "task_id": null,
+    "timestamp": "2026-11-05T00:00:00+00:00"
+  },
+  {
+    "after": "DATETIME, nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_USER_ROLE.ASSIGNED_AT",
+    "migration_id": "0003_menu_permission",
+    "task_id": null,
+    "timestamp": "2026-11-05T00:00:00+00:00"
+  },
+  {
+    "after": null,
+    "before": "ROLE",
+    "change_type": "COLUMN_REMOVED",
+    "entity": "RECON_USER_ROLE.ROLE",
+    "migration_id": "0003_menu_permission",
+    "task_id": null,
+    "timestamp": "2026-11-05T00:00:00+00:00"
+  },
+  {
+    "after": null,
+    "before": "ORG_SCOPE",
+    "change_type": "COLUMN_REMOVED",
+    "entity": "RECON_USER_ROLE.ORG_SCOPE",
+    "migration_id": "0003_menu_permission",
+    "task_id": null,
+    "timestamp": "2026-11-05T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_REPORT",
+    "migration_id": "0004_reporting_core",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_REPORT_TEMPLATE",
+    "migration_id": "0004_reporting_core",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_TPL_VER",
+    "migration_id": "0004_reporting_core",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_PARAM",
+    "migration_id": "0004_reporting_core",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_PARAM_LOV",
+    "migration_id": "0004_reporting_core",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_COLUMN",
+    "migration_id": "0004_reporting_core",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_REPORT_RUN",
+    "migration_id": "0004_reporting_core",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_EXPORT",
+    "migration_id": "0004_reporting_core",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_FAVORITE",
+    "migration_id": "0004_reporting_core",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_PRESET",
+    "migration_id": "0004_reporting_core",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_LOV_CACHE",
+    "migration_id": "0004_reporting_core",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "VARCHAR(60), nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_RPT_EXPORT.LOCKED_BY",
+    "migration_id": "0005_export_claim",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "DATETIME, nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_RPT_EXPORT.LOCKED_AT",
+    "migration_id": "0005_export_claim",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "DATETIME, nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_RPT_EXPORT.HEARTBEAT_AT",
+    "migration_id": "0005_export_claim",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_BATCH_DEF",
+    "migration_id": "0006_batch_run",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_BATCH_DEF_ITEM",
+    "migration_id": "0006_batch_run",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_BATCH_RUN",
+    "migration_id": "0006_batch_run",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_BATCH_RUN_ITEM",
+    "migration_id": "0006_batch_run",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_BATCH_RUN_FILE",
+    "migration_id": "0006_batch_run",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "INTEGER, nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_RUN.BATCH_RUN_ID",
+    "migration_id": "0006_batch_run",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "INTEGER, nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_RUN.BATCH_RUN_ITEM_ID",
+    "migration_id": "0006_batch_run",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "VARCHAR(64), nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_EXCEL_LOAD.FILE_SET_HASH",
+    "migration_id": "0006_batch_run",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "TEXT, nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_EXCEL_LOAD.SOURCE_FILES_JSON",
+    "migration_id": "0006_batch_run",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "nullable=False",
+    "before": null,
+    "change_type": "COLUMN_CHANGED",
+    "entity": "RECON_EXCEL_LOAD.FILE_SET_HASH",
+    "migration_id": "0006_batch_run",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "INTEGER, nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_EXCEL_ROW.SOURCE_FILE_ID",
+    "migration_id": "0006_batch_run",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "nullable=False",
+    "before": null,
+    "change_type": "COLUMN_CHANGED",
+    "entity": "RECON_EXCEL_ROW.SOURCE_FILE_ID",
+    "migration_id": "0006_batch_run",
+    "task_id": null,
+    "timestamp": "2026-11-06T00:00:00+00:00"
+  }
+]
