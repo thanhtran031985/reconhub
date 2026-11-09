@@ -8,12 +8,13 @@ drift live); page chỉ đọc metadata, không đọc dữ liệu dòng.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import dash
 import dash_mantine_components as dmc
-from dash import dcc, html
+from dash import ALL, Input, Output, State, callback, clientside_callback, dcc, html
 from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
@@ -22,7 +23,10 @@ from app.services.perm import page_gate
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.command_bar import command_bar
+from app.ui.components.drawer import drawer_right
+from app.ui.components.empty_state import empty_state
 from app.ui.components.page_header import page_header
+from app.ui.components.search_utils import strip_accents
 
 try:
     dash.register_page(__name__, path="/data-model", title="Mô hình dữ liệu – ReconHub")  # type: ignore[no-untyped-call]
@@ -151,6 +155,273 @@ def render_panel_skeleton() -> Any:
     )
 
 
+# --- Bước 4: Schema Explorer + command bar (helper thuần) ---
+
+DOMAIN_ORDER: list[str] = ["core", "recon", "report", "admin", "other"]
+
+DOMAIN_LABELS: dict[str, str] = {
+    "core": "Core",
+    "recon": "Đối soát",
+    "report": "Báo cáo",
+    "admin": "Quản trị",
+    "other": "Khác",
+}
+
+HISTORY_TYPE_OPTIONS: list[dict[str, str]] = [
+    {"label": "Tất cả", "value": "all"},
+    {"label": "TABLE_CREATED", "value": "TABLE_CREATED"},
+    {"label": "TABLE_DROPPED", "value": "TABLE_DROPPED"},
+    {"label": "COLUMN_ADDED", "value": "COLUMN_ADDED"},
+    {"label": "COLUMN_REMOVED", "value": "COLUMN_REMOVED"},
+    {"label": "COLUMN_CHANGED", "value": "COLUMN_CHANGED"},
+    {"label": "PK_CHANGED", "value": "PK_CHANGED"},
+    {"label": "FK_CHANGED", "value": "FK_CHANGED"},
+    {"label": "INDEX_CHANGED", "value": "INDEX_CHANGED"},
+    {"label": "CONSTRAINT_CHANGED", "value": "CONSTRAINT_CHANGED"},
+]
+
+
+def filter_tables(tables: list[dict[str, Any]], query: str, domain: str) -> list[dict[str, Any]]:
+    """Lọc bảng theo query (tên bảng/cột/mô tả/index/constraint, không dấu được)
+    và theo phân hệ. Query rỗng + domain all trả toàn bộ."""
+    q = strip_accents((query or "").strip())
+    result: list[dict[str, Any]] = []
+    for table in tables:
+        if domain and domain != "all" and table.get("domain") != domain:
+            continue
+        if not q:
+            result.append(table)
+            continue
+        haystacks = [table.get("name", ""), table.get("description", "")]
+        haystacks.extend(c.get("name", "") for c in table.get("columns", []))
+        haystacks.extend(fk.get("constraint_name") or "" for fk in table.get("foreign_keys", []))
+        haystacks.extend(ix.get("name") or "" for ix in table.get("indexes", []))
+        haystacks.extend(uc.get("name") or "" for uc in table.get("unique_constraints", []))
+        if any(q in strip_accents(h) for h in haystacks):
+            result.append(table)
+    return result
+
+
+def group_tables(
+    tables: list[dict[str, Any]],
+) -> list[tuple[str, str, list[dict[str, Any]]]]:
+    """Nhóm bảng theo phân hệ, thứ tự Core, Đối soát, Báo cáo, Quản trị, Khác."""
+    grouped: dict[str, list[dict[str, Any]]] = {code: [] for code in DOMAIN_ORDER}
+    for table in tables:
+        grouped.setdefault(str(table.get("domain") or "other"), []).append(table)
+    return [(code, DOMAIN_LABELS.get(code, code), grouped[code]) for code in DOMAIN_ORDER if grouped.get(code)]
+
+
+def matching_columns(table: dict[str, Any], query: str) -> list[str]:
+    """Tên các cột của bảng khớp query (không dấu được)."""
+    q = strip_accents((query or "").strip())
+    if not q:
+        return []
+    return [c["name"] for c in table.get("columns", []) if q in strip_accents(c.get("name", ""))]
+
+
+def _parse_triggered_id(prop_id: str) -> dict[str, Any]:
+    """Tách id pattern-matching (dạng JSON + '.n_clicks') từ prop_id."""
+    try:
+        raw = prop_id.rsplit(".n_clicks", 1)[0]
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def _triggered_clicks(ctx_dash: Any) -> int | None:
+    """Giá trị kích hoạt (n_clicks) của trigger hiện tại.
+
+    Dash phát lại callback pattern-matching lúc load với n_clicks = 0/None;
+    chỉ xử lý khi > 0 (quy tắc dash_callback_safety, tránh tạo side effect
+    giả như vụ run trùng ở /runs/new).
+    """
+    triggered = getattr(ctx_dash, "triggered", None) or []
+    if not triggered:
+        return None
+    value = triggered[0].get("value")
+    return value if isinstance(value, int) else None
+
+
+def _group_expanded(ui: dict[str, Any] | None, domain: str, has_match: bool, query: str) -> bool:
+    """Group mở khi: đang search và có match, hoặc state đã lưu là mở.
+    Mặc định (chưa bấm gì) group mở."""
+    if query.strip() and has_match:
+        return True
+    expanded = (ui or {}).get("expanded") or {}
+    if domain in expanded:
+        return bool(expanded[domain])
+    return True
+
+
+def _render_table_row(
+    table: dict[str, Any],
+    selection: dict[str, Any] | None,
+    query: str,
+) -> Any:
+    """Một dòng table compact: dot trạng thái + tên mono + số cột + menu 3 chấm."""
+    name = str(table["name"])
+    is_selected = selection is not None and selection.get("kind") == "table" and selection.get("table") == name
+    matched = matching_columns(table, query)
+    label_children: list[Any] = [
+        html.Span(className="dm-dot"),
+        dmc.Text(name, className="rh-code", size="sm", fw=600 if is_selected else 500),
+        dmc.Text(f"{len(table.get('columns', []))} cột", size="xs", c="dimmed"),
+    ]
+    if matched:
+        label_children.append(
+            dmc.Text(
+                " · ".join(matched[:3]),
+                size="xs",
+                className="dm-match",
+            )
+        )
+    row_button = html.Button(
+        dmc.Group(label_children, gap="xs", align="center", style={"minWidth": 0, "flexWrap": "nowrap"}),
+        id={"type": "dm-table-item", "table": name},
+        className="dm-table-item active" if is_selected else "dm-table-item",
+        **{"aria-selected": "true" if is_selected else "false"},  # type: ignore[arg-type]
+    )
+    menu_items: list[Any] = [
+        dmc.MenuItem(
+            "Center trong ER Diagram",
+            id={"type": "dm-table-menu", "table": name, "action": "center"},
+            leftSection=DashIconify(icon="lucide:crosshair", width=14),
+        ),
+        dmc.MenuItem(
+            "Xem columns",
+            id={"type": "dm-table-menu", "table": name, "action": "columns"},
+            leftSection=DashIconify(icon="lucide:columns-3", width=14),
+        ),
+        dmc.MenuItem(
+            "Xem relationships",
+            id={"type": "dm-table-menu", "table": name, "action": "relationships"},
+            leftSection=DashIconify(icon="lucide:share-2", width=14),
+        ),
+        dmc.MenuItem(
+            "Xem lịch sử thay đổi",
+            id={"type": "dm-table-menu", "table": name, "action": "history"},
+            leftSection=DashIconify(icon="lucide:history", width=14),
+        ),
+        dmc.MenuItem(
+            "Copy table name",
+            id={"type": "dm-table-menu", "table": name, "action": "copy"},
+            leftSection=DashIconify(icon="lucide:copy", width=14),
+        ),
+    ]
+    row_menu = dmc.Menu(
+        [
+            dmc.MenuTarget(
+                dmc.ActionIcon(
+                    DashIconify(icon="lucide:more-vertical", width=14),
+                    variant="subtle",
+                    color="gray",
+                    size="sm",
+                    **{"aria-label": f"Thao tác {name}"},
+                )
+            ),
+            dmc.MenuDropdown(menu_items),
+        ],
+        position="bottom-end",
+        withArrow=True,
+    )
+    description = str(table.get("description") or name)
+    return html.Div(
+        [
+            dmc.Tooltip(label=description, children=row_button, multiline=True, withArrow=True),
+            row_menu,
+        ],
+        className="dm-table-row",
+    )
+
+
+def render_explorer(
+    tables: list[dict[str, Any]],
+    selection: dict[str, Any] | None,
+    ui: dict[str, Any] | None,
+    query: str,
+) -> Any:
+    """Explorer: group theo domain (chevron + tên + count), click collapse/expand.
+
+    Khi search, group có match tự expand. Hết kết quả -> empty state + nút
+    Xóa bộ lọc.
+    """
+    if not tables:
+        return dmc.Stack(
+            [
+                empty_state(
+                    title="Không tìm thấy table hoặc column phù hợp.",
+                    description="Thử từ khóa khác hoặc xóa bộ lọc để xem toàn bộ schema.",
+                    action=button_subtle("Xóa bộ lọc", id="data-model-clear-filter-btn", icon="lucide:x"),
+                )
+            ],
+            p="sm",
+        )
+    groups = group_tables(tables)
+    children: list[Any] = []
+    for code, label, group_tables_list in groups:
+        expanded = _group_expanded(ui, code, has_match=True, query=query)
+        chevron = "lucide:chevron-down" if expanded else "lucide:chevron-right"
+        children.append(
+            html.Button(
+                dmc.Group(
+                    [
+                        DashIconify(icon=chevron, width=14),
+                        dmc.Text(f"{label} ({len(group_tables_list)})", fw=600, size="sm"),
+                    ],
+                    gap="xs",
+                    align="center",
+                ),
+                id={"type": "dm-group-toggle", "domain": code},
+                className="dm-group-header",
+                **{"aria-expanded": "true" if expanded else "false"},  # type: ignore[arg-type]
+            )
+        )
+        if expanded:
+            for table in group_tables_list:
+                children.append(_render_table_row(table, selection, query))
+    return dmc.Stack(children, gap=0, p="xs")
+
+
+def render_canvas(
+    tables: list[dict[str, Any]],
+    selection: dict[str, Any] | None,
+    ui: dict[str, Any] | None,
+    zoom: float,
+    query: str,
+) -> Any:
+    """ER Canvas — placeholder ở bước 4, thay bằng entity + lines ở bước 5."""
+    _ = (tables, selection, ui, zoom, query)
+    return empty_state(
+        title="ER Diagram chưa sẵn sàng",
+        description="Canvas sẽ hiển thị entity và relationship sau bước 5.",
+    )
+
+
+def render_detail(
+    selection: dict[str, Any] | None,
+    manifest: dict[str, Any] | None,
+    history: list[dict[str, Any]] | None,
+    query: str,
+) -> Any:
+    """Detail Panel — placeholder ở bước 4, thay bằng detail đầy đủ ở bước 6."""
+    _ = (manifest, history, query)
+    if selection and selection.get("kind") == "table" and selection.get("table"):
+        return dmc.Stack(
+            [
+                dmc.Text(str(selection["table"]), className="rh-code", fw=600, size="sm"),
+                dmc.Text("Chi tiết đầy đủ sẽ hiển thị ở bước 6.", size="sm", c="dimmed"),
+            ],
+            gap="xs",
+            p="sm",
+        )
+    return empty_state(
+        title="Chọn một table hoặc relationship để xem chi tiết.",
+        description="Bấm một table ở Schema Explorer hoặc một entity trên ER Diagram.",
+    )
+
+
 def layout(**kwargs: Any) -> Any:
     """Giao diện chính màn hình Mô hình dữ liệu. Query ?table=&domain=&mode=."""
     ctx = get_current_ctx()
@@ -218,6 +489,8 @@ def layout(**kwargs: Any) -> Any:
             dcc.Location(id="data-model-location", refresh=False),
             html.Div(id="data-model-notification-area"),
             html.Div(id="data-model-center-sink"),
+            html.Div(id="data-model-copy-sink"),
+            dcc.Store(id="data-model-copy-store", data=None),
             page_header(
                 title="Mô hình dữ liệu",
                 subtitle="ER Diagram được sinh tự động từ metadata database, migrations và model của ứng dụng.",
@@ -394,6 +667,49 @@ def layout(**kwargs: Any) -> Any:
                 id="data-model-status-bar",
                 style={"flexShrink": 0},
             ),
+            drawer_right(
+                id="data-model-history-drawer",
+                title="Lịch sử thay đổi",
+                children=[
+                    dmc.TextInput(
+                        id="data-model-history-search",
+                        placeholder="Tìm entity, migration…",
+                        leftSection=DashIconify(icon="lucide:search", width=14),
+                        size="xs",
+                    ),
+                    dmc.Select(
+                        id="data-model-history-type-filter",
+                        data=HISTORY_TYPE_OPTIONS,
+                        value="all",
+                        size="xs",
+                        clearable=False,
+                        **{"aria-label": "Lọc theo loại thay đổi"},
+                    ),
+                    html.Div(id="data-model-history-timeline"),
+                ],
+            ),
+            drawer_right(
+                id="data-model-drift-drawer",
+                title="Schema Drift",
+                children=[
+                    dmc.Select(
+                        id="data-model-drift-filter",
+                        data=[
+                            {"label": "Tất cả", "value": "all"},
+                            {"label": "Table", "value": "table"},
+                            {"label": "Column", "value": "column"},
+                            {"label": "Relationship", "value": "relationship"},
+                            {"label": "Index", "value": "index"},
+                            {"label": "Constraint", "value": "constraint"},
+                        ],
+                        value="all",
+                        size="xs",
+                        clearable=False,
+                        **{"aria-label": "Lọc drift theo loại"},
+                    ),
+                    html.Div(id="data-model-drift-list"),
+                ],
+            ),
         ],
         style={
             "height": "calc(100vh - 88px)",
@@ -406,3 +722,226 @@ def layout(**kwargs: Any) -> Any:
         },
         className="dm-page",
     )
+
+
+# --- Callbacks ---
+
+
+@callback(
+    Output("data-model-explorer-container", "children"),
+    Output("data-model-canvas-container", "children"),
+    Output("data-model-detail-container", "children"),
+    Output("data-model-explorer-count", "children"),
+    Output("data-model-status-counts", "children"),
+    Input("data-model-manifest-store", "data"),
+    Input("data-model-search", "value"),
+    Input("data-model-domain-filter", "value"),
+    Input("data-model-mode-select", "value"),
+    Input("data-model-selection-store", "data"),
+    Input("data-model-ui-store", "data"),
+    Input("data-model-zoom-store", "data"),
+)
+def update_workspace(
+    manifest_data: dict[str, Any] | None,
+    search: str | None,
+    domain: str | None,
+    mode: str | None,
+    selection: dict[str, Any] | None,
+    ui: dict[str, Any] | None,
+    zoom: float | None,
+) -> tuple[Any, Any, Any, str, str]:
+    """Dựng lại Explorer + Canvas + Detail theo search/domain/mode/selection."""
+    if not manifest_data or not manifest_data.get("manifest"):
+        return (
+            alert_box("Không thể đọc metadata database.", tone="crit"),
+            render_canvas([], selection, ui, zoom or 1.0, search or ""),
+            render_detail(selection, None, None, search or ""),
+            "0 tables",
+            "0 tables · 0 columns · 0 relationships",
+        )
+    manifest = manifest_data["manifest"]
+    tables = manifest.get("tables", [])
+    filtered = filter_tables(tables, search or "", domain or "all")
+    counts = manifest_data.get(
+        "counts",
+        {
+            "tables": len(tables),
+            "columns": sum(len(t.get("columns", [])) for t in tables),
+            "relationships": sum(len(t.get("foreign_keys", [])) for t in tables),
+        },
+    )
+    return (
+        render_explorer(filtered, selection, ui, search or ""),
+        render_canvas(filtered, selection, ui, zoom or 1.0, search or ""),
+        render_detail(selection, manifest, manifest_data.get("history") or [], search or ""),
+        f"{len(filtered)} tables",
+        f"{counts['tables']} tables · {counts['columns']} columns · {counts['relationships']} relationships",
+    )
+
+
+@callback(
+    Output("data-model-selection-store", "data"),
+    Output("data-model-location", "href"),
+    Input({"type": "dm-table-item", "table": ALL}, "n_clicks"),
+    State("data-model-selection-store", "data"),
+    State("data-model-ui-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_table_click(
+    _n_clicks: list[int | None],
+    selection: dict[str, Any] | None,
+    ui: dict[str, Any] | None,
+) -> tuple[Any, Any]:
+    """Click dòng table: cập nhật selection + URL (?table=&domain=&mode=)."""
+    ctx_dash = dash.callback_context
+    if (_triggered_clicks(ctx_dash) or 0) <= 0:
+        return selection or {"kind": None, "table": None}, dash.no_update
+    triggered = _parse_triggered_id(ctx_dash.triggered[0]["prop_id"])
+    table = triggered.get("table")
+    if not table:
+        return selection or {"kind": None, "table": None}, dash.no_update
+    ui_data = ui or {}
+    domain = str(ui_data.get("domain") or "all")
+    mode = str(ui_data.get("mode") or "relations")
+    return (
+        {"kind": "table", "table": str(table)},
+        f"/data-model?table={table}&domain={domain}&mode={mode}",
+    )
+
+
+@callback(
+    Output("data-model-ui-store", "data"),
+    Input({"type": "dm-group-toggle", "domain": ALL}, "n_clicks"),
+    State("data-model-ui-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_group_toggle(
+    _n_clicks: list[int | None],
+    ui: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Bấm header group: đảo trạng thái collapse/expand của group đó."""
+    ctx_dash = dash.callback_context
+    ui_data = dict(ui or {})
+    expanded = dict(ui_data.get("expanded") or {})
+    if (_triggered_clicks(ctx_dash) or 0) <= 0:
+        return ui_data
+    triggered = _parse_triggered_id(ctx_dash.triggered[0]["prop_id"])
+    domain = triggered.get("domain")
+    if not domain:
+        return ui_data
+    current = expanded.get(str(domain))
+    expanded[str(domain)] = not current if current is not None else False
+    ui_data["expanded"] = expanded
+    return ui_data
+
+
+@callback(
+    Output("data-model-selection-store", "data", allow_duplicate=True),
+    Output("data-model-ui-store", "data", allow_duplicate=True),
+    Output("data-model-history-filter-store", "data"),
+    Output("data-model-history-drawer", "opened"),
+    Output("data-model-copy-store", "data"),
+    Input({"type": "dm-table-menu", "table": ALL, "action": ALL}, "n_clicks"),
+    State("data-model-selection-store", "data"),
+    State("data-model-ui-store", "data"),
+    State("data-model-history-filter-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_context_menu(
+    _n_clicks: list[int | None],
+    selection: dict[str, Any] | None,
+    ui: dict[str, Any] | None,
+    history_filter: dict[str, Any] | None,
+) -> tuple[Any, Any, Any, bool, Any]:
+    """Context menu của dòng table: center/columns/relationships/history/copy.
+
+    TUYỆT ĐỐI KHÔNG có thao tác ghi schema (Drop/Alter/Delete/Run SQL).
+    """
+    ctx_dash = dash.callback_context
+    ui_data = dict(ui or {})
+    hist_data = dict(history_filter or {"query": "", "change_type": "all", "table": None})
+    fallback_sel = selection or {"kind": None, "table": None}
+    if (_triggered_clicks(ctx_dash) or 0) <= 0:
+        return fallback_sel, ui_data, hist_data, False, dash.no_update
+    triggered = _parse_triggered_id(ctx_dash.triggered[0]["prop_id"])
+    table = str(triggered.get("table") or "")
+    action = str(triggered.get("action") or "")
+    if not table or not action:
+        return fallback_sel, ui_data, hist_data, False, dash.no_update
+    new_selection: dict[str, Any] = {"kind": "table", "table": table}
+    if action == "center":
+        ui_data["center_table"] = table
+        return new_selection, ui_data, hist_data, False, dash.no_update
+    if action == "columns":
+        ui_data["mode"] = "relations"
+        return new_selection, ui_data, hist_data, False, dash.no_update
+    if action == "relationships":
+        ui_data["mode"] = "relations"
+        return new_selection, ui_data, hist_data, False, dash.no_update
+    if action == "history":
+        hist_data["table"] = table
+        return new_selection, ui_data, hist_data, True, dash.no_update
+    if action == "copy":
+        return fallback_sel, ui_data, hist_data, False, {"text": table}
+    return fallback_sel, ui_data, hist_data, False, dash.no_update
+
+
+@callback(
+    Output("data-model-selection-store", "data", allow_duplicate=True),
+    Output("data-model-ui-store", "data", allow_duplicate=True),
+    Output("data-model-zoom-store", "data"),
+    Input("data-model-dblclick-store", "data"),
+    State("data-model-selection-store", "data"),
+    State("data-model-ui-store", "data"),
+    State("data-model-zoom-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_dblclick(
+    dblclick_data: dict[str, Any] | None,
+    selection: dict[str, Any] | None,
+    ui: dict[str, Any] | None,
+    zoom: float | None,
+) -> tuple[Any, Any, Any]:
+    """Double-click entity (từ JS asset): chọn table, center, zoom đủ đọc cột."""
+    if not dblclick_data or not dblclick_data.get("table"):
+        raise dash.exceptions.PreventUpdate
+    _ = (selection, zoom)
+    ui_data = dict(ui or {})
+    ui_data["center_table"] = str(dblclick_data["table"])
+    ui_data["mode"] = "relations"
+    return (
+        {"kind": "table", "table": str(dblclick_data["table"])},
+        ui_data,
+        1.0,
+    )
+
+
+@callback(
+    Output("data-model-search", "value"),
+    Output("data-model-domain-filter", "value"),
+    Input("data-model-clear-filter-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def handle_clear_filter(n_clicks: int | None) -> tuple[str, str]:
+    """Nút Xóa bộ lọc ở empty search: xóa search + domain về Tất cả."""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    return "", "all"
+
+
+# Copy tên bảng: clientside ghi clipboard khi copy-store đổi (theo mẫu
+# drag_drop_reporting.js dùng window.dash_clientside.set_props; chiều ngược
+# lại ở đây là đọc store rồi gọi navigator.clipboard).
+clientside_callback(
+    """
+    function(copyData) {
+        if (copyData && copyData.text && navigator.clipboard) {
+            navigator.clipboard.writeText(copyData.text).catch(function() {});
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("data-model-copy-sink", "children"),
+    Input("data-model-copy-store", "data"),
+    prevent_initial_call=True,
+)

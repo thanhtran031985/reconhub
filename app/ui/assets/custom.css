@@ -179,3 +179,82 @@ main > div > div,
 #app-menu-search-results a.menu-search-highlight {
   background-color: var(--primary-soft, #ebf3fc);
 }
+
+/* Data Model Explorer (task 31): dòng table, group header, match highlight. */
+.dm-table-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dm-table-row .mantine-Tooltip-root {
+  flex: 1;
+  min-width: 0;
+}
+
+.dm-table-item {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 6px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.dm-table-item:hover {
+  background-color: var(--surface-2, #FAFAFA);
+}
+
+.dm-table-item.active {
+  background-color: var(--primary-soft, #EBF3FC);
+}
+
+.dm-dot {
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
+  border-radius: 50%;
+  background-color: var(--primary, #0F6CBD);
+  display: inline-block;
+}
+
+.dm-match {
+  color: var(--primary, #0F6CBD);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dm-group-header {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 6px 6px 2px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* Data Model Explorer mobile <900px: page cuộn, 3 panel xếp dọc. */
+@media (max-width: 900px) {
+  .dm-page {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .dm-workspace {
+    flex-direction: column !important;
+  }
+
+  .dm-workspace > * {
+    flex: none !important;
+    min-height: 320px;
+  }
+}
