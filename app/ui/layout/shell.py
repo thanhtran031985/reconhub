@@ -465,6 +465,7 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool
                 leftSection=DashIconify(icon="lucide:search", width=16),
                 radius="xl",
                 size="sm",
+                value="",
                 style={"width": "320px"},
             ),
             dmc.Paper(
@@ -928,28 +929,34 @@ def sync_sidebar_ui(is_collapsed: Any, pathname: str | None) -> tuple[Any, ...]:
     Output("app-menu-search-results", "children"),
     Output("app-menu-search-results-paper", "style"),
     Output("app-location", "href"),
+    Output("app-menu-search-input", "value"),
     Input("app-menu-search-input", "value"),
     Input("app-menu-search-input", "n_submit"),
+    Input("app-location", "pathname"),
     State("app-menu-search-store", "data"),
     prevent_initial_call=True,
 )
 def handle_menu_search(
-    value: str | None, n_submit: int | None, items: list[dict[str, Any]] | None
-) -> tuple[Any, Any, Any]:
+    value: str | None, n_submit: int | None, pathname: str | None, items: list[dict[str, Any]] | None
+) -> tuple[Any, Any, Any, Any]:
     """Task 30: tìm kiếm menu ở header — gõ để lọc, Enter tới kết quả đầu."""
     ctx_dash = dash.callback_context
     triggered = ctx_dash.triggered[0]["prop_id"] if ctx_dash.triggered else ""
+    if "app-location.pathname" in triggered:
+        # Đổi trang (kể cả bấm vào kết quả): xoá ô tìm kiếm, đóng dropdown.
+        return [], dict(_MENU_SEARCH_RESULTS_STYLE), dash.no_update, ""
     matches = filter_menu_items(items, value or "")
     if "n_submit" in triggered:
         if not matches:
-            return dash.no_update, dash.no_update, dash.no_update
-        return [], dict(_MENU_SEARCH_RESULTS_STYLE), matches[0]["href"]
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return [], dict(_MENU_SEARCH_RESULTS_STYLE), matches[0]["href"], ""
     if not (value or "").strip():
-        return [], dict(_MENU_SEARCH_RESULTS_STYLE), dash.no_update
+        return [], dict(_MENU_SEARCH_RESULTS_STYLE), dash.no_update, dash.no_update
     if not matches:
         return (
             [dmc.Text("Không tìm thấy menu nào", size="sm", c="dimmed", px="sm", py="xs")],
             {**_MENU_SEARCH_RESULTS_STYLE, "display": "block"},
+            dash.no_update,
             dash.no_update,
         )
     shown = matches[:MAX_MENU_SEARCH_RESULTS]
@@ -980,4 +987,4 @@ def handle_menu_search(
                 py=4,
             )
         )
-    return nodes, {**_MENU_SEARCH_RESULTS_STYLE, "display": "block"}, dash.no_update
+    return nodes, {**_MENU_SEARCH_RESULTS_STYLE, "display": "block"}, dash.no_update, dash.no_update

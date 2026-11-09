@@ -291,12 +291,13 @@ def test_handle_menu_search_limit_8(monkeypatch) -> None:
 
     _trigger(monkeypatch, "app-menu-search-input.value")
     items = [{"label": f"Mục {i:02d}", "href": f"/m{i}", "icon": "lucide:circle", "group": "NHÓM"} for i in range(12)]
-    children, style, href = handle_menu_search("mục", None, items)
+    children, style, href, cleared = handle_menu_search("mục", None, "/", items)
     nav_links = [c for c in children if type(c).__name__ == "NavLink"]
     assert len(nav_links) == 8
     assert "…và 4 kết quả khác" in str(children)
     assert style["display"] == "block"
     assert href is dash.no_update
+    assert cleared is dash.no_update
 
 
 def _trigger(monkeypatch, prop_id: str) -> None:
@@ -310,10 +311,11 @@ def test_handle_menu_search_typing(monkeypatch) -> None:
     import dash
 
     _trigger(monkeypatch, "app-menu-search-input.value")
-    children, style, href = handle_menu_search("doi soat", None, _MENU_SEARCH_ITEMS)
+    children, style, href, cleared = handle_menu_search("doi soat", None, "/", _MENU_SEARCH_ITEMS)
     assert "Chạy đối soát" in str(children)
     assert style["display"] == "block"
     assert href is dash.no_update
+    assert cleared is dash.no_update
 
 
 def test_handle_menu_search_no_match(monkeypatch) -> None:
@@ -321,10 +323,11 @@ def test_handle_menu_search_no_match(monkeypatch) -> None:
     import dash
 
     _trigger(monkeypatch, "app-menu-search-input.value")
-    children, style, href = handle_menu_search("xyz", None, _MENU_SEARCH_ITEMS)
+    children, style, href, cleared = handle_menu_search("xyz", None, "/", _MENU_SEARCH_ITEMS)
     assert "Không tìm thấy menu nào" in str(children)
     assert style["display"] == "block"
     assert href is dash.no_update
+    assert cleared is dash.no_update
 
 
 def test_handle_menu_search_empty(monkeypatch) -> None:
@@ -332,19 +335,21 @@ def test_handle_menu_search_empty(monkeypatch) -> None:
     import dash
 
     _trigger(monkeypatch, "app-menu-search-input.value")
-    children, style, href = handle_menu_search("", None, _MENU_SEARCH_ITEMS)
+    children, style, href, cleared = handle_menu_search("", None, "/", _MENU_SEARCH_ITEMS)
     assert children == []
     assert style["display"] == "none"
     assert href is dash.no_update
+    assert cleared is dash.no_update
 
 
 def test_handle_menu_search_enter(monkeypatch) -> None:
-    """Task 30 bước 2: Enter chuyển tới kết quả đầu tiên và đóng dropdown."""
+    """Task 30 bước 2: Enter chuyển tới kết quả đầu tiên, đóng dropdown, xoá ô tìm kiếm."""
     _trigger(monkeypatch, "app-menu-search-input.n_submit")
-    children, style, href = handle_menu_search("doi soat", 1, _MENU_SEARCH_ITEMS)
+    children, style, href, cleared = handle_menu_search("doi soat", 1, "/", _MENU_SEARCH_ITEMS)
     assert children == []
     assert style["display"] == "none"
     assert href == "/runs/new"
+    assert cleared == ""
 
 
 def test_handle_menu_search_enter_no_match(monkeypatch) -> None:
@@ -352,10 +357,23 @@ def test_handle_menu_search_enter_no_match(monkeypatch) -> None:
     import dash
 
     _trigger(monkeypatch, "app-menu-search-input.n_submit")
-    children, style, href = handle_menu_search("xyz", 1, _MENU_SEARCH_ITEMS)
+    children, style, href, cleared = handle_menu_search("xyz", 1, "/", _MENU_SEARCH_ITEMS)
     assert children is dash.no_update
     assert style is dash.no_update
     assert href is dash.no_update
+    assert cleared is dash.no_update
+
+
+def test_handle_menu_search_navigation_clears(monkeypatch) -> None:
+    """Task 30 bước 2: đổi trang thì xoá ô tìm kiếm và đóng dropdown."""
+    import dash
+
+    _trigger(monkeypatch, "app-location.pathname")
+    children, style, href, cleared = handle_menu_search("doi soat", None, "/history", _MENU_SEARCH_ITEMS)
+    assert children == []
+    assert style["display"] == "none"
+    assert href is dash.no_update
+    assert cleared == ""
 
 
 def test_header_menu_search() -> None:
