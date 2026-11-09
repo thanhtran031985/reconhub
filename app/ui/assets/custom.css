@@ -175,3 +175,7 @@ main > div > div,
 
 
 
+/* Task 30 bước 3: mục menu đang được chọn bằng phím mũi tên trong ô tìm kiếm header. */
+#app-menu-search-results a.menu-search-highlight {
+  background-color: var(--primary-soft, #ebf3fc);
+}

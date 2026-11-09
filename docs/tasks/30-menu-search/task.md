@@ -44,13 +44,19 @@
 - Kiểm tra: `uv run poe test -- tests/unit/test_menu_display.py -q` xanh; chụp màn hình thanh bên không còn badge.
 
 ### Bước 2 — Ô tìm kiếm menu ở header
-- Làm: trong `create_header` (`app/ui/layout/shell.py`), thêm ô tìm kiếm (`dmc.Popover` + `dmc.TextInput` bo tròn) vào giữa breadcrumb và badge môi trường; `dcc.Store` chứa danh sách menu đã làm phẳng; helper `_strip_accents`; callback `handle_menu_search` (gõ → lọc + mở dropdown; Enter → tới kết quả đầu; đổi trang → xoá + đóng).
+- Làm: trong `create_header` (`app/ui/layout/shell.py`), thêm ô tìm kiếm (`dmc.TextInput` bo tròn + `dmc.Paper` kết quả định vị tuyệt đối) vào giữa breadcrumb và badge môi trường; `dcc.Store` chứa danh sách menu đã làm phẳng; helper `_strip_accents`; callback `handle_menu_search` (gõ → lọc + mở dropdown; Enter → tới kết quả đầu; đổi trang → xoá + đóng).
 - Test viết trước: unit test cho `_strip_accents` (có dấu/không dấu/Đ-đ) và cho hàm lọc (khớp không dấu, không khớp, giới hạn 8 kết quả); test callback đổi trang xoá ô tìm kiếm; kiểm chứng Playwright (gõ "doi soat" → thấy "Chạy đối soát", bấm → chuyển trang).
 - Kiểm tra: `uv run poe test` xanh, `ruff check` + `ruff format` sạch, `mypy` sạch; chụp màn hình 1440×900 và 1366×768.
+
+### Bước 3 — Chọn menu bằng phím mũi tên lên/xuống trong ô tìm kiếm
+- Làm: thêm `app/ui/assets/menu_search_keys.js` (listener `keydown` ở tầng document, capture phase): phím ↓/↑ tô sáng kết quả đang chọn (lần đầu: kết quả đầu tiên, kẹp ở 2 đầu, không cuộn vòng); Enter khi đã tô sáng thì bấm vào kết quả đó và chặn `n_submit` của Dash; Enter khi chưa tô sáng thì để Dash xử lý như cũ (tới kết quả đầu). Thêm rule CSS `#app-menu-search-results a.menu-search-highlight` vào `app/ui/assets/custom.css` (nền `var(--primary-soft)`). Không đổi code Python.
+- Test viết trước: kiểm chứng Playwright (gõ "doi soat", ↓ 2 lần, Enter → /batches; ↓ 1 lần, Enter → /batch-runs; Enter không bấm mũi tên → /runs/new; ↑ ở đầu danh sách vẫn ở kết quả đầu).
+- Kiểm tra: `uv run poe test` xanh; chụp màn hình 1440×900 và 1366×768.
 
 ## Chấp nhận khi
 - [ ] Thanh bên không còn badge "Mới" với mọi vai trò, kể cả ADMIN; menu thêm sau này cũng không hiện "Mới".
 - [ ] Gõ "doi soat" và "đối soát" đều tìm được "Chạy đối soát"; bấm kết quả chuyển đúng trang; Enter tới kết quả đầu; chuyển trang xong ô tìm kiếm trống và dropdown đóng.
+- [ ] Phím ↓/↑ di chuyển tô sáng trong dropdown kết quả (kẹp ở 2 đầu); Enter tới kết quả đang tô sáng; Enter khi chưa bấm mũi tên vẫn tới kết quả đầu.
 - [ ] Chỉ hiện menu mà tài khoản được thấy theo phân quyền.
 - [ ] `uv run poe typecheck`, `uv run poe lint`, `uv run poe test` xanh.
 
