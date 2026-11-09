@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 
 from sqlalchemy import create_engine
 
@@ -177,6 +178,33 @@ def test_manifest_deterministic():
     # normalize bỏ generated_at (volatile).
     assert "generated_at" not in si.normalize_manifest(si.build_manifest())
     assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
+def test_manifest_deterministic_across_processes(tmp_path):
+    """Set iteration (indexes) làm thứ tự manifest đổi theo process nếu không sắp xếp."""
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "import json; from app.services import schema_inspector as si; "
+        "print(json.dumps(si.normalize_manifest(si.build_manifest()), sort_keys=True))"
+    )
+    outputs = []
+    for seed in ("1", "2"):
+        env = dict(os.environ)
+        env["PYTHONHASHSEED"] = seed
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=Path(__file__).resolve().parent.parent.parent,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=env,
+        )
+        assert proc.returncode == 0, proc.stderr
+        outputs.append(proc.stdout)
+    assert outputs[0] == outputs[1]
 
 
 def test_inspect_live_db_matches_model(tmp_path):

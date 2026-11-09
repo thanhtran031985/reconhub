@@ -168,16 +168,24 @@ def _model_table(table: Any) -> dict[str, Any]:
         "name": table.name,
         "columns": columns,
         "primary_key": pk_columns,
-        "foreign_keys": foreign_keys,
-        "unique_constraints": [
-            {"name": uc.name, "columns": [c.name for c in uc.columns]}
-            for uc in table.constraints
-            if isinstance(uc, UniqueConstraint)
-        ],
-        "indexes": [
-            {"name": ix.name, "columns": [c.name for c in ix.columns], "unique": bool(ix.unique)}
-            for ix in table.indexes
-        ],
+        # Sắp xếp để manifest deterministic giữa các process (table.indexes
+        # là set, thứ tự lặp không ổn định theo PYTHONHASHSEED).
+        "foreign_keys": sorted(foreign_keys, key=lambda fk: fk["column"]),
+        "unique_constraints": sorted(
+            [
+                {"name": uc.name, "columns": [c.name for c in uc.columns]}
+                for uc in table.constraints
+                if isinstance(uc, UniqueConstraint)
+            ],
+            key=lambda uc: str(uc["name"]),
+        ),
+        "indexes": sorted(
+            [
+                {"name": ix.name, "columns": [c.name for c in ix.columns], "unique": bool(ix.unique)}
+                for ix in table.indexes
+            ],
+            key=lambda ix: str(ix["name"]),
+        ),
     }
 
 
@@ -234,15 +242,21 @@ def inspect_live_db(engine: Engine) -> list[dict[str, Any]]:
                 "name": name,
                 "columns": columns,
                 "primary_key": pk_columns,
-                "foreign_keys": foreign_keys,
-                "unique_constraints": [
-                    {"name": uq.get("name"), "columns": list(uq["column_names"])}
-                    for uq in insp.get_unique_constraints(name)
-                ],
-                "indexes": [
-                    {"name": ix["name"], "columns": list(ix["column_names"]), "unique": bool(ix["unique"])}
-                    for ix in insp.get_indexes(name)
-                ],
+                "foreign_keys": sorted(foreign_keys, key=lambda fk: fk["column"]),
+                "unique_constraints": sorted(
+                    [
+                        {"name": uq.get("name"), "columns": list(uq["column_names"])}
+                        for uq in insp.get_unique_constraints(name)
+                    ],
+                    key=lambda uc: str(uc["name"]),
+                ),
+                "indexes": sorted(
+                    [
+                        {"name": ix["name"], "columns": list(ix["column_names"]), "unique": bool(ix["unique"])}
+                        for ix in insp.get_indexes(name)
+                    ],
+                    key=lambda ix: str(ix["name"]),
+                ),
             }
         )
     return tables
@@ -537,9 +551,18 @@ def build_manifest(migrations_dir: Path | None = None) -> dict[str, Any]:
 
 
 def normalize_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
-    """Bỏ trường volatile (generated_at) để so sánh manifest 2 lần chạy."""
+    """Bỏ trường volatile (generated_at) để so sánh manifest 2 lần chạy.
+
+    Đồng thời sắp xếp các list không có thứ tự khai báo (index, unique
+    constraint, FK) để so sánh ổn định giữa các process.
+    """
     normalized = copy.deepcopy(manifest)
     normalized.pop("generated_at", None)
+    for table in normalized.get("tables", []):
+        table["foreign_keys"] = sorted(table.get("foreign_keys", []), key=lambda fk: fk["column"])
+        table["unique_constraints"] = sorted(table.get("unique_constraints", []), key=lambda uc: str(uc.get("name")))
+        table["indexes"] = sorted(table.get("indexes", []), key=lambda ix: str(ix.get("name")))
+    normalized["tables"] = sorted(normalized.get("tables", []), key=lambda t: t["name"])
     return normalized
 
 

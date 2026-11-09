@@ -43,6 +43,9 @@ jobs:
       - name: Run database migration
         run: uv run poe db-migrate
 
+      - name: Check schema manifest freshness
+        run: uv run poe schema-introspect --check
+
       - name: Run tests (không Oracle)
         run: uv run poe test-engine
 

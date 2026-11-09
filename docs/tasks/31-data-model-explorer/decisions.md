@@ -15,6 +15,8 @@
 | 2026-11-09 | Inspector chỉ đọc database của app (SQLite, `RECON_DB_URL`), không đọc các Oracle data source nghiệp vụ | Người dùng chốt "chỉ ER database SQLite" lúc review task | Phạm vi bước 1 là SQLite; kiểm chứng trên SQLite; Q3 coi như xong (không cần kiểm chứng Oracle cho task này) |
 
 | 2026-11-09 | Domain mapping: cách "lai" — quy tắc tiền tố làm mặc định + danh sách ngoại lệ nhỏ trong inspector + bảng không khớp quy tắc nào → Khác + inspector cảnh báo | Người dùng chốt (chọn option "Lai: tiền tố + ngoại lệ (đề xuất)"); mapping 43 bảng đã kiểm chứng, quy tắc bao phủ đúng hết 43 bảng | Quy tắc cụ thể trong task.md mục Domain Mapping; phân hệ ghi vào manifest, page chỉ đọc `table.domain` |
+| 2026-11-09 | Manifest deterministic: FK/index/unique sắp xếp theo tên/cột ngay lúc extract và trong `normalize_manifest` | `table.indexes` là set, thứ tự lặp đổi theo process (PYTHONHASHSEED) — test freshness xuyên process rớt vì index của RECON_BATCH_RUN_FILE/RECON_RESULT_ROW đổi thứ tự; nếu không sắp xếp thì CI `--check` fail giả ngẫu nhiên | `schema_inspector._model_table`/`inspect_live_db` sort FK/index/unique; `normalize_manifest` sort lại để file cũ vẫn so được |
+| 2026-11-09 | `check_live_drift` bỏ qua bảng `alembic_version` | Bảng hạ tầng Alembic có trong DB thật nhưng không thuộc model; không bỏ qua sẽ báo TABLE_EXTRA giả trên mọi DB đã migrate | Chỉ áp dụng ở `check_live_drift`, `compare_schemas` thuần vẫn báo TABLE_EXTRA cho mọi bảng lạ |
 
 ## Câu hỏi còn mở
 

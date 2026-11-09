@@ -1,7 +1,7 @@
 {
   "database": "sqlite",
   "generated": true,
-  "generated_at": "2026-11-09T15:35:27.626843+00:00",
+  "generated_at": "2026-11-09T15:38:12.273686+00:00",
   "generator": "schema-introspect",
   "schema": "main",
   "tables": [
@@ -476,18 +476,18 @@
           "references_table": "RECON_BATCH_DEF"
         },
         {
-          "column": "TEMPLATE_ID",
-          "constraint_name": "fk_RECON_BATCH_DEF_ITEM_TEMPLATE_ID_RECON_TEMPLATE",
-          "on_delete": null,
-          "references_column": "ID",
-          "references_table": "RECON_TEMPLATE"
-        },
-        {
           "column": "DATA_SOURCE_ID",
           "constraint_name": "fk_RECON_BATCH_DEF_ITEM_DATA_SOURCE_ID_RECON_DATA_SOURCE",
           "on_delete": null,
           "references_column": "ID",
           "references_table": "RECON_DATA_SOURCE"
+        },
+        {
+          "column": "TEMPLATE_ID",
+          "constraint_name": "fk_RECON_BATCH_DEF_ITEM_TEMPLATE_ID_RECON_TEMPLATE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_TEMPLATE"
         }
       ],
       "indexes": [
@@ -929,6 +929,13 @@
           "references_table": "RECON_BATCH_RUN"
         },
         {
+          "column": "BATCH_RUN_ITEM_ID",
+          "constraint_name": "fk_RECON_BATCH_RUN_FILE_BATCH_RUN_ITEM_ID_RECON_BATCH_RUN_ITEM",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_BATCH_RUN_ITEM"
+        },
+        {
           "column": "FILE_ID",
           "constraint_name": "fk_RECON_BATCH_RUN_FILE_FILE_ID_RECON_FILE",
           "on_delete": null,
@@ -941,30 +948,23 @@
           "on_delete": null,
           "references_column": "ID",
           "references_table": "RECON_FILE"
-        },
-        {
-          "column": "BATCH_RUN_ITEM_ID",
-          "constraint_name": "fk_RECON_BATCH_RUN_FILE_BATCH_RUN_ITEM_ID_RECON_BATCH_RUN_ITEM",
-          "on_delete": null,
-          "references_column": "ID",
-          "references_table": "RECON_BATCH_RUN_ITEM"
         }
       ],
       "indexes": [
-        {
-          "columns": [
-            "BATCH_RUN_ITEM_ID",
-            "MATCH_STATE"
-          ],
-          "name": "ix_recon_batch_run_file_item",
-          "unique": false
-        },
         {
           "columns": [
             "BATCH_RUN_ID",
             "FILE_ID"
           ],
           "name": "ix_recon_batch_run_file_hash",
+          "unique": false
+        },
+        {
+          "columns": [
+            "BATCH_RUN_ITEM_ID",
+            "MATCH_STATE"
+          ],
+          "name": "ix_recon_batch_run_file_item",
           "unique": false
         }
       ],
@@ -1237,18 +1237,18 @@
       "domain_label": "Đối soát",
       "foreign_keys": [
         {
-          "column": "BATCH_RUN_ID",
-          "constraint_name": "fk_RECON_BATCH_RUN_ITEM_BATCH_RUN_ID_RECON_BATCH_RUN",
-          "on_delete": null,
-          "references_column": "ID",
-          "references_table": "RECON_BATCH_RUN"
-        },
-        {
           "column": "BATCH_DEF_ITEM_ID",
           "constraint_name": "fk_RECON_BATCH_RUN_ITEM_BATCH_DEF_ITEM_ID_RECON_BATCH_DEF_ITEM",
           "on_delete": null,
           "references_column": "ID",
           "references_table": "RECON_BATCH_DEF_ITEM"
+        },
+        {
+          "column": "BATCH_RUN_ID",
+          "constraint_name": "fk_RECON_BATCH_RUN_ITEM_BATCH_RUN_ID_RECON_BATCH_RUN",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_BATCH_RUN"
         },
         {
           "column": "DATA_SOURCE_ID",
@@ -2076,18 +2076,18 @@
       "domain_label": "Đối soát",
       "foreign_keys": [
         {
-          "column": "REASON_CODE",
-          "constraint_name": "fk_RECON_ISSUE_REASON_CODE_RECON_ISSUE_REASON",
-          "on_delete": null,
-          "references_column": "CODE",
-          "references_table": "RECON_ISSUE_REASON"
-        },
-        {
           "column": "ASSIGNEE_ID",
           "constraint_name": "fk_RECON_ISSUE_ASSIGNEE_ID_RECON_USER",
           "on_delete": null,
           "references_column": "ID",
           "references_table": "RECON_USER"
+        },
+        {
+          "column": "REASON_CODE",
+          "constraint_name": "fk_RECON_ISSUE_REASON_CODE_RECON_ISSUE_REASON",
+          "on_delete": null,
+          "references_column": "CODE",
+          "references_table": "RECON_ISSUE_REASON"
         }
       ],
       "indexes": [],
@@ -2613,15 +2613,15 @@
       "domain_label": "Core",
       "foreign_keys": [
         {
-          "column": "SOURCE_GROUP",
-          "constraint_name": "fk_RECON_MENU_SOURCE_GROUP_RECON_MENU_GROUP",
+          "column": "DISPLAY_GROUP",
+          "constraint_name": "fk_RECON_MENU_DISPLAY_GROUP_RECON_MENU_GROUP",
           "on_delete": null,
           "references_column": "CODE",
           "references_table": "RECON_MENU_GROUP"
         },
         {
-          "column": "DISPLAY_GROUP",
-          "constraint_name": "fk_RECON_MENU_DISPLAY_GROUP_RECON_MENU_GROUP",
+          "column": "SOURCE_GROUP",
+          "constraint_name": "fk_RECON_MENU_SOURCE_GROUP_RECON_MENU_GROUP",
           "on_delete": null,
           "references_column": "CODE",
           "references_table": "RECON_MENU_GROUP"
@@ -3395,18 +3395,18 @@
       "domain_label": "Báo cáo",
       "foreign_keys": [
         {
-          "column": "REPORT_ID",
-          "constraint_name": "fk_RECON_REPORT_TEMPLATE_REPORT_ID_RECON_REPORT",
-          "on_delete": null,
-          "references_column": "ID",
-          "references_table": "RECON_REPORT"
-        },
-        {
           "column": "ACTIVE_VERSION_ID",
           "constraint_name": "fk_RECON_REPORT_TEMPLATE_ACTIVE_VERSION_ID_RECON_RPT_TPL_VER",
           "on_delete": null,
           "references_column": "ID",
           "references_table": "RECON_RPT_TPL_VER"
+        },
+        {
+          "column": "REPORT_ID",
+          "constraint_name": "fk_RECON_REPORT_TEMPLATE_REPORT_ID_RECON_REPORT",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_REPORT"
         }
       ],
       "indexes": [],
@@ -3646,18 +3646,18 @@
         {
           "columns": [
             "RUN_ID",
-            "STATUS",
-            "ROW_NO"
+            "KEY_HASH"
           ],
-          "name": "ix_recon_result_row_run_status_row",
+          "name": "ix_recon_result_row_run_key_hash",
           "unique": false
         },
         {
           "columns": [
             "RUN_ID",
-            "KEY_HASH"
+            "STATUS",
+            "ROW_NO"
           ],
-          "name": "ix_recon_result_row_run_key_hash",
+          "name": "ix_recon_result_row_run_status_row",
           "unique": false
         }
       ],
@@ -3840,18 +3840,18 @@
       "domain_label": "Core",
       "foreign_keys": [
         {
-          "column": "ROLE_ID",
-          "constraint_name": "fk_RECON_ROLE_MENU_ROLE_ID_RECON_ROLE",
-          "on_delete": "CASCADE",
-          "references_column": "ID",
-          "references_table": "RECON_ROLE"
-        },
-        {
           "column": "MENU_CODE",
           "constraint_name": "fk_RECON_ROLE_MENU_MENU_CODE_RECON_MENU",
           "on_delete": null,
           "references_column": "CODE",
           "references_table": "RECON_MENU"
+        },
+        {
+          "column": "ROLE_ID",
+          "constraint_name": "fk_RECON_ROLE_MENU_ROLE_ID_RECON_ROLE",
+          "on_delete": "CASCADE",
+          "references_column": "ID",
+          "references_table": "RECON_ROLE"
         }
       ],
       "indexes": [],
@@ -4213,18 +4213,18 @@
       "domain_label": "Báo cáo",
       "foreign_keys": [
         {
-          "column": "USER_ID",
-          "constraint_name": "fk_RECON_RPT_FAVORITE_USER_ID_RECON_USER",
-          "on_delete": null,
-          "references_column": "ID",
-          "references_table": "RECON_USER"
-        },
-        {
           "column": "REPORT_ID",
           "constraint_name": "fk_RECON_RPT_FAVORITE_REPORT_ID_RECON_REPORT",
           "on_delete": null,
           "references_column": "ID",
           "references_table": "RECON_REPORT"
+        },
+        {
+          "column": "USER_ID",
+          "constraint_name": "fk_RECON_RPT_FAVORITE_USER_ID_RECON_USER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_USER"
         }
       ],
       "indexes": [],
@@ -4551,18 +4551,18 @@
       "domain_label": "Báo cáo",
       "foreign_keys": [
         {
-          "column": "PARAM_ID",
-          "constraint_name": "fk_RECON_RPT_PARAM_LOV_PARAM_ID_RECON_RPT_PARAM",
-          "on_delete": "CASCADE",
-          "references_column": "ID",
-          "references_table": "RECON_RPT_PARAM"
-        },
-        {
           "column": "DATA_SOURCE_ID",
           "constraint_name": "fk_RECON_RPT_PARAM_LOV_DATA_SOURCE_ID_RECON_DATA_SOURCE",
           "on_delete": null,
           "references_column": "ID",
           "references_table": "RECON_DATA_SOURCE"
+        },
+        {
+          "column": "PARAM_ID",
+          "constraint_name": "fk_RECON_RPT_PARAM_LOV_PARAM_ID_RECON_RPT_PARAM",
+          "on_delete": "CASCADE",
+          "references_column": "ID",
+          "references_table": "RECON_RPT_PARAM"
         }
       ],
       "indexes": [],
@@ -4692,13 +4692,6 @@
       "domain_label": "Báo cáo",
       "foreign_keys": [
         {
-          "column": "USER_ID",
-          "constraint_name": "fk_RECON_RPT_PRESET_USER_ID_RECON_USER",
-          "on_delete": null,
-          "references_column": "ID",
-          "references_table": "RECON_USER"
-        },
-        {
           "column": "REPORT_ID",
           "constraint_name": "fk_RECON_RPT_PRESET_REPORT_ID_RECON_REPORT",
           "on_delete": null,
@@ -4711,6 +4704,13 @@
           "on_delete": null,
           "references_column": "ID",
           "references_table": "RECON_REPORT_TEMPLATE"
+        },
+        {
+          "column": "USER_ID",
+          "constraint_name": "fk_RECON_RPT_PRESET_USER_ID_RECON_USER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_USER"
         }
       ],
       "indexes": [],
@@ -4912,18 +4912,18 @@
       "domain_label": "Báo cáo",
       "foreign_keys": [
         {
-          "column": "TEMPLATE_ID",
-          "constraint_name": "fk_RECON_RPT_TPL_VER_TEMPLATE_ID_RECON_REPORT_TEMPLATE",
-          "on_delete": null,
-          "references_column": "ID",
-          "references_table": "RECON_REPORT_TEMPLATE"
-        },
-        {
           "column": "DATA_SOURCE_ID",
           "constraint_name": "fk_RECON_RPT_TPL_VER_DATA_SOURCE_ID_RECON_DATA_SOURCE",
           "on_delete": null,
           "references_column": "ID",
           "references_table": "RECON_DATA_SOURCE"
+        },
+        {
+          "column": "TEMPLATE_ID",
+          "constraint_name": "fk_RECON_RPT_TPL_VER_TEMPLATE_ID_RECON_REPORT_TEMPLATE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_REPORT_TEMPLATE"
         }
       ],
       "indexes": [],
@@ -5205,27 +5205,6 @@
       "domain_label": "Đối soát",
       "foreign_keys": [
         {
-          "column": "FILE_ID",
-          "constraint_name": "fk_RECON_RUN_FILE_ID_RECON_FILE",
-          "on_delete": null,
-          "references_column": "ID",
-          "references_table": "RECON_FILE"
-        },
-        {
-          "column": "EXCEL_LOAD_ID",
-          "constraint_name": "fk_RECON_RUN_EXCEL_LOAD_ID_RECON_EXCEL_LOAD",
-          "on_delete": null,
-          "references_column": "ID",
-          "references_table": "RECON_EXCEL_LOAD"
-        },
-        {
-          "column": "DATA_SOURCE_ID",
-          "constraint_name": "fk_RECON_RUN_DATA_SOURCE_ID_RECON_DATA_SOURCE",
-          "on_delete": null,
-          "references_column": "ID",
-          "references_table": "RECON_DATA_SOURCE"
-        },
-        {
           "column": "BATCH_RUN_ID",
           "constraint_name": "fk_RECON_RUN_BATCH_RUN_ID_RECON_BATCH_RUN",
           "on_delete": null,
@@ -5238,6 +5217,27 @@
           "on_delete": null,
           "references_column": "ID",
           "references_table": "RECON_BATCH_RUN_ITEM"
+        },
+        {
+          "column": "DATA_SOURCE_ID",
+          "constraint_name": "fk_RECON_RUN_DATA_SOURCE_ID_RECON_DATA_SOURCE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_DATA_SOURCE"
+        },
+        {
+          "column": "EXCEL_LOAD_ID",
+          "constraint_name": "fk_RECON_RUN_EXCEL_LOAD_ID_RECON_EXCEL_LOAD",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_EXCEL_LOAD"
+        },
+        {
+          "column": "FILE_ID",
+          "constraint_name": "fk_RECON_RUN_FILE_ID_RECON_FILE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_FILE"
         }
       ],
       "indexes": [
@@ -5786,18 +5786,18 @@
       "domain_label": "Đối soát",
       "foreign_keys": [
         {
-          "column": "TEMPLATE_ID",
-          "constraint_name": "fk_RECON_TEMPLATE_VERSION_TEMPLATE_ID_RECON_TEMPLATE",
-          "on_delete": null,
-          "references_column": "ID",
-          "references_table": "RECON_TEMPLATE"
-        },
-        {
           "column": "DATA_SOURCE_ID",
           "constraint_name": "fk_RECON_TEMPLATE_VERSION_DATA_SOURCE_ID_RECON_DATA_SOURCE",
           "on_delete": null,
           "references_column": "ID",
           "references_table": "RECON_DATA_SOURCE"
+        },
+        {
+          "column": "TEMPLATE_ID",
+          "constraint_name": "fk_RECON_TEMPLATE_VERSION_TEMPLATE_ID_RECON_TEMPLATE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_TEMPLATE"
         }
       ],
       "indexes": [],
@@ -6034,18 +6034,18 @@
       "domain_label": "Core",
       "foreign_keys": [
         {
-          "column": "USER_ID",
-          "constraint_name": "fk_RECON_USER_ROLE_USER_ID_RECON_USER",
-          "on_delete": null,
-          "references_column": "ID",
-          "references_table": "RECON_USER"
-        },
-        {
           "column": "ROLE_ID",
           "constraint_name": "fk_RECON_USER_ROLE_ROLE_ID_RECON_ROLE",
           "on_delete": null,
           "references_column": "ID",
           "references_table": "RECON_ROLE"
+        },
+        {
+          "column": "USER_ID",
+          "constraint_name": "fk_RECON_USER_ROLE_USER_ID_RECON_USER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_USER"
         }
       ],
       "indexes": [],
