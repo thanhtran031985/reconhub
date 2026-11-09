@@ -12,7 +12,7 @@
 ## Cách làm (8 bước, test viết trước rồi code, mỗi bước cập nhật progress.md)
 
 ### Bước 1 — Schema Inspector + manifest/history
-- Module inspector đọc metadata qua SQLAlchemy inspector (cả SQLite và Oracle) + model `app/db/metadata.py` + Alembic migrations; normalize; validate PK/FK/index/constraint. CLI entry + poe task `schema-introspect`. Sinh `docs/data-model/schema-manifest.json` và `docs/data-model/schema-history.json` (deterministic, header GENERATED, không fake diff khi chạy lại). Khác biệt dialect qua `app/db/dialect.py`.
+- Module inspector đọc metadata qua SQLAlchemy inspector (chỉ database SQLite của app; không đọc Oracle data source nghiệp vụ) + model `app/db/metadata.py` + Alembic migrations; normalize; validate PK/FK/index/constraint. CLI entry + poe task `schema-introspect`. Sinh `docs/data-model/schema-manifest.json` và `docs/data-model/schema-history.json` (deterministic, header GENERATED, không fake diff khi chạy lại). Khác biệt dialect qua `app/db/dialect.py`.
 - Test viết trước: extraction table/column/datatype/nullable/default/PK/FK/unique/index/constraint; deterministic (chạy 2 lần giống hệt); schema diff.
 - Kiểm tra: `uv run poe schema-introspect` chạy được trên SQLite; manifest khớp 43 bảng thật; test inspector xanh.
 
@@ -71,7 +71,7 @@
 ## Rủi ro
 
 - **Prototype lệch schema thật (14 vs 43 bảng):** prototype chỉ là tham chiếu visual; inspector phải tự phát hiện schema thật. Nếu implementer lấy danh sách bảng từ prototype thì sai — test bước 1 bắt đủ 43 bảng.
-- **Oracle chưa kiểm chứng:** inspector phải chạy được cả SQLite và Oracle; kiểm chứng Oracle cần VPN — ghi rõ ca nào chưa kiểm chứng, không chặn implement (như các task trước).
+- **Oracle chưa kiểm chứng:** inspector chỉ đọc database SQLite của app nên không cần kiểm chứng Oracle cho task này. (Nếu sau này RECON_APP chuyển sang Oracle theo spec 08 thì mới cần rà lại inspector.)
 - **Auto-layout:** ER canvas với 43 bảng dễ overlap; layout phải deterministic và test được (2 lần render cùng vị trí).
 - **Canvas render:** nếu dùng SVG/DOM thuần thì đơn giản nhưng cần đo hiệu năng ở > 50 bảng; nếu cần thư viện graph thì phải hỏi trước khi cài (repo quy tắc: không cài package ngoài Stack khi chưa hỏi).
 - **CI freshness:** manifest commit vào repo hay gitignore vẫn là câu hỏi mở (Q2) — quyết định này ảnh hưởng bước 2, cần chốt trước khi làm bước 2.

@@ -10,8 +10,9 @@
 | 2026-11-09 | CI freshness thêm bước vào `.github/workflows/ci.yml` hiện có | Repo đã có CI (task 00); không tạo hệ CI mới | Bước CI generate manifest vào temp và diff |
 | 2026-11-09 | Page là Dash page `/data-model` trong `app/ui/pages/data_model.py`, menu nhóm QUẢN TRỊ | Theo convention page (`dash.register_page`) và menu (`MenuDef` trong `app/ui/menus.py`); prompt §11/§13 | Route `/data-model`, menu code `data_model` |
 
+| 2026-11-09 | Menu `data_model` hiện luôn sau khi ADMIN cấp quyền (không ẩn khỏi sidebar tới task sau) | Người dùng chốt lúc review task | Bước 3 khai báo menu và hiện ngay; khác cách `/menus` ở task 19 |
+| 2026-11-09 | Manifest/history commit vào repo | Người dùng chốt lúc review task | CI freshness diff với manifest đã commit (bước 2); inspector không tự git add/commit/push |
+| 2026-11-09 | Inspector chỉ đọc database của app (SQLite, `RECON_DB_URL`), không đọc các Oracle data source nghiệp vụ | Người dùng chốt "chỉ ER database SQLite" lúc review task | Phạm vi bước 1 là SQLite; kiểm chứng trên SQLite; Q3 coi như xong (không cần kiểm chứng Oracle cho task này) |
+
 ## Câu hỏi còn mở
-- Q0: Menu `data_model` hiện ngay sau khi ADMIN cấp quyền, hay khai báo nhưng ẩn khỏi sidebar tới task sau (như `/menus` ở task 19)?
-- Q1: Domain mapping lấy từ đâu (tiền tố tên bảng hay mapping config riêng)?
-- Q2: Schema manifest/history commit vào repo hay gitignore?
-- Q3: Kiểm chứng Oracle để sau (cần VPN) hay chặn implement tới khi có VPN?
+- Q1: Domain mapping lấy từ đâu (tiền tố tên bảng / file cấu hình riêng / lai)? — đang chờ người dùng chọn sau khi nghe diễn giải thêm.

@@ -95,7 +95,7 @@ uv run poe schema-introspect
 
 Command phải:
 
-1. đọc database metadata (qua SQLAlchemy inspector, chạy được cả SQLite và Oracle);
+1. đọc database metadata của app (qua SQLAlchemy inspector, chỉ database SQLite của app — `RECON_DB_URL`; không đọc các Oracle data source nghiệp vụ);
 2. đọc model metadata nếu cần (`app/db/metadata.py`);
 3. đọc migration metadata nếu cần (Alembic);
 4. normalize schema;
@@ -304,7 +304,7 @@ Repo do nhiều AI cùng code. Trước khi implement: `git status --short`, `gi
 ## Implementation Steps
 
 ### Bước 1 — Schema Inspector + manifest/history
-- Làm: module inspector (đọc metadata qua SQLAlchemy inspector cả SQLite và Oracle + model `app/db/metadata.py` + Alembic migrations; normalize; validate PK/FK/index/constraint); CLI entry + poe task `schema-introspect`; sinh `docs/data-model/schema-manifest.json` và `docs/data-model/schema-history.json` (deterministic, có header GENERATED, không fake diff khi chạy lại); xử lý khác biệt dialect qua `app/db/dialect.py`.
+- Làm: module inspector (đọc metadata qua SQLAlchemy inspector, chỉ database SQLite của app, không đọc Oracle data source nghiệp vụ + model `app/db/metadata.py` + Alembic migrations; normalize; validate PK/FK/index/constraint); CLI entry + poe task `schema-introspect`; sinh `docs/data-model/schema-manifest.json` và `docs/data-model/schema-history.json` (deterministic, có header GENERATED, không fake diff khi chạy lại); xử lý khác biệt dialect qua `app/db/dialect.py`.
 - Test viết trước: table/column extraction, datatype, nullable, default, PK, FK, unique, index, constraint; deterministic output (chạy 2 lần ra cùng manifest); schema diff; drift cơ bản.
 - Kiểm tra: `uv run poe schema-introspect` chạy được trên SQLite; manifest khớp 43 bảng thật; `uv run poe test -- tests/unit/test_schema_inspector.py -q` xanh.
 
@@ -402,7 +402,7 @@ Sau khi DATA-MODEL-01 hoàn thành: STOP. Không tự bắt đầu task khác. K
 
 ## Câu hỏi mở
 
-- Q0: Menu `data_model` có khai báo nhưng ẩn khỏi sidebar tới khi nào (như task 19 đã làm với `/menus` tới task 20), hay hiện ngay sau khi ADMIN cấp quyền?
-- Q1: Domain mapping lấy từ đâu — thêm cột domain vào manifest theo quy tắc nào (vd theo tiền tố tên bảng `RECON_*`/`REPORT_*`, hay mapping config riêng)?
-- Q2: Schema manifest/history commit vào repo hay gitignore (prompt §63 nói "nếu project policy yêu cầu" — chưa có policy)?
-- Q3: Inspector chạy trên Oracle thật cần VPN — kiểm chứng Oracle để sau (như các task trước) hay chặn implement tới khi có VPN?
+- Q0: ✅ Đã chốt — menu `data_model` hiện luôn sau khi ADMIN cấp quyền (người dùng chốt lúc review task, 09/11/2026).
+- Q1: Domain mapping lấy từ đâu — đang chờ người dùng chọn sau khi nghe diễn giải thêm.
+- Q2: ✅ Đã chốt — manifest/history commit vào repo (người dùng chốt lúc review task, 09/11/2026).
+- Q3: ✅ Đã chốt — inspector chỉ đọc database của app (SQLite), không đọc Oracle data source nghiệp vụ, nên không cần kiểm chứng Oracle cho task này (người dùng chốt "chỉ ER database SQLite", 09/11/2026).
