@@ -180,7 +180,7 @@ Mobile 390×844: page cuộn được; thứ tự CommandBar → Schema Explorer
 ### Command Bar
 
 1. Search (placeholder "Tìm table hoặc column…"; tìm trên table name, column name, table description, constraint/index name nếu có; filter đồng thời Schema Explorer và ER Canvas).
-2. Domain Filter (Tất cả phân hệ / Core / Đối soát / Báo cáo / Quản trị / Khác; mapping không hardcode trong page, lấy từ metadata/config).
+2. Domain Filter (Tất cả phân hệ / Core / Đối soát / Báo cáo / Quản trị / Khác; mapping không hardcode trong page, lấy từ metadata/config — xem mục Domain Mapping bên dưới).
 3. Display Mode (Hiển thị quan hệ / Chỉ tên table; đổi mode không mất selection).
 4. Schema Health (badge read-only: ✓ Schema đồng bộ / ⚠ Schema drift / ? Không xác định / ✕ Lỗi metadata; không phải button).
 5. Last Sync ("Cập nhật: DD/MM/YYYY HH:mm:ss", theo timezone đã cấu hình của app, không hardcode).
@@ -240,6 +240,17 @@ Chỉ xuất hiện khi Health = DRIFT. Mở Drawer/Panel "Schema Drift": Databa
 ### Search — Column Behavior
 
 Vd search `GRID_SPAN`: ER Canvas giữ table `REPORT_PARAMETER` visible và highlight column `GRID_SPAN`; Detail Panel hiển thị search match (`REPORT_PARAMETER.GRID_SPAN`, NUMBER, Nullable…). Không chỉ hiển thị table mà bỏ highlight matching column.
+
+### Domain Mapping (đã kiểm chứng từ code + hồ sơ task, 09/11/2026)
+
+Mapping phân hệ cho toàn bộ 43 bảng thật, đối chiếu 3 nguồn: `app/db/metadata.py` (43 bảng), `migrations/versions/0001`–`0006` (bảng nào do migration nào tạo), hồ sơ task (bảng nào do task nào tạo/dùng). Tổng: Core 10, Đối soát 19, Báo cáo 11, Quản trị 3 = 43, không bảng nào rơi vào Khác.
+
+- **Core (10)** — `RECON_USER`, `RECON_USER_ROLE` (task 01 auth), `RECON_MENU_GROUP`, `RECON_MENU`, `RECON_ROLE`, `RECON_ROLE_MENU` (task 19/20, migration 0003), `RECON_LOGIN_LOG` (task 01), `RECON_AUDIT_LOG`, `RECON_APP_SETTING` (migration 0001), `RECON_METADATA_MIGRATION` (task 13 chuyển RECON_APP SQLite → Oracle, hệ thống nền tảng).
+- **Đối soát (19)** — `RECON_TEMPLATE`, `RECON_TEMPLATE_VERSION`, `RECON_FILE` (task 04), `RECON_EXCEL_LOAD`, `RECON_EXCEL_ROW`, `RECON_RUN`, `RECON_RESULT_ROW`, `RECON_RESULT_DIFF`, `RECON_INVALID_ROW`, `RECON_ISSUE`, `RECON_ISSUE_REASON` (migration 0001), `RECON_RUN_QUEUE`, `RECON_RUN_SUMMARY`, `RECON_PURGE_LOG` (task 07 run queue/worker; purge log ghi việc xóa dữ liệu tạm của đối soát theo spec 04 mục 12), `RECON_BATCH_DEF`, `RECON_BATCH_DEF_ITEM`, `RECON_BATCH_RUN`, `RECON_BATCH_RUN_ITEM`, `RECON_BATCH_RUN_FILE` (task 18, migration 0006).
+- **Báo cáo (11)** — `RECON_REPORT`, `RECON_REPORT_TEMPLATE`, `RECON_RPT_TPL_VER`, `RECON_RPT_PARAM`, `RECON_RPT_PARAM_LOV`, `RECON_RPT_COLUMN`, `RECON_REPORT_RUN`, `RECON_RPT_EXPORT`, `RECON_RPT_FAVORITE`, `RECON_RPT_PRESET`, `RECON_RPT_LOV_CACHE` (task 21–28, migration 0004/0005).
+- **Quản trị (3)** — `RECON_DATA_SOURCE` (task 02, Admin khai báo kết nối; prototype cũng xếp vào admin), `RECON_LOOKUP_TYPE`, `RECON_LOOKUP_CODE` (task 17, migration 0002).
+
+Quy tắc suy ra từ mapping này (đề xuất cho cách "lai", chờ người dùng chốt): `RECON_RPT_*` hoặc `RECON_REPORT*` → Báo cáo; `RECON_BATCH_*` → Đối soát; `RECON_LOOKUP_*` hoặc `RECON_DATA_SOURCE` → Quản trị; `RECON_USER*`, `RECON_ROLE*`, `RECON_MENU*`, `RECON_LOGIN_LOG`, `RECON_AUDIT_LOG`, `RECON_APP_SETTING`, `RECON_METADATA_MIGRATION` → Core; mặc định `RECON_*` còn lại → Đối soát; bảng nào không khớp quy tắc nào → Khác + inspector cảnh báo. Phân hệ được ghi vào manifest; page chỉ đọc `table.domain` từ manifest.
 
 ## URL State
 
@@ -403,6 +414,6 @@ Sau khi DATA-MODEL-01 hoàn thành: STOP. Không tự bắt đầu task khác. K
 ## Câu hỏi mở
 
 - Q0: ✅ Đã chốt — menu `data_model` hiện luôn sau khi ADMIN cấp quyền (người dùng chốt lúc review task, 09/11/2026).
-- Q1: Domain mapping lấy từ đâu — đang chờ người dùng chọn sau khi nghe diễn giải thêm.
+- Q1: Domain mapping lấy từ đâu — mapping 43 bảng đã kiểm chứng xong từ code + hồ sơ task (xem task.md mục Domain Mapping); đang chờ người dùng chọn cách triển khai (tiền tố / file cấu hình / lai).
 - Q2: ✅ Đã chốt — manifest/history commit vào repo (người dùng chốt lúc review task, 09/11/2026).
 - Q3: ✅ Đã chốt — inspector chỉ đọc database của app (SQLite), không đọc Oracle data source nghiệp vụ, nên không cần kiểm chứng Oracle cho task này (người dùng chốt "chỉ ER database SQLite", 09/11/2026).
