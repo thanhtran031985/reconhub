@@ -16,10 +16,15 @@ _Chưa duyệt. Agent chép nguyên văn Implementation Plan đã duyệt vào �
 - File chính: `app/services/report.py` (thêm import `delete` từ SQLAlchemy và các bảng `recon_report_template`, `recon_rpt_tpl_ver`, `recon_rpt_param`, `recon_rpt_param_lov`, `recon_rpt_column`, `recon_rpt_preset`, `recon_report_run`).
 - Hàm mới `@service` + `@requires_menu("report_admin")`:
   - Load dòng report với `admin=True` (lạ → `NOT_FOUND`).
-  - Đếm `RECON_REPORT_RUN` theo `REPORT_ID`; nếu > 0 → `ServiceError(CONFLICT, "Báo cáo <CODE> đã có N lần chạy, không thể xóa hẳn.")`, không xóa gì.
-  - Ngược lại, trong cùng một transaction: xóa favorite + preset của báo cáo; với mỗi template: đặt `ACTIVE_VERSION_ID=None`, rồi với mỗi version: xóa LOV của tham số, xóa tham số, xóa cột, xóa version; xóa template; cuối cùng xóa báo cáo. Ghi audit `DELETE_REPORT` (`old_data`: code, name, số template/version đã xóa).
+  - Xóa luôn dù báo cáo đã có lần chạy (quyết định của người dùng
+    10/11/2026, sửa lại ý chặn ban đầu): trong cùng một transaction,
+    xóa export của các lần chạy rồi xóa lần chạy; xóa favorite + preset;
+    với mỗi template: đặt `ACTIVE_VERSION_ID=None`, rồi với mỗi version:
+    xóa LOV của tham số, xóa tham số, xóa cột, xóa version; xóa template;
+    cuối cùng xóa báo cáo. Ghi audit `DELETE_REPORT` (`old_data`: code,
+    name, số template/version/lần chạy/export đã xóa).
 - Thêm `("report", "delete_report"): ["report_admin"]` vào `tests/unit/test_perm_registry.py`.
-- Test viết trước (đỏ → xanh): `tests/unit/test_reporting_services.py` (xóa report trống; cascade template/version/param + LOV/column/preset/favorite; chặn `CONFLICT` khi đã có run, run và template còn nguyên; `FORBIDDEN` với operator; `NOT_FOUND`); `tests/unit/test_reporting_audit.py` (xóa thành công ghi 1 dòng `DELETE_REPORT`, xóa bị chặn không ghi dòng nào).
+- Test viết trước (đỏ → xanh): `tests/unit/test_reporting_services.py` (xóa report trống; cascade template/version/param + LOV/column/preset/favorite; xóa report đã có run DONE + export thì run, export và template đều bị xóa hẳn; `FORBIDDEN` với operator; `NOT_FOUND`); `tests/unit/test_reporting_audit.py` (xóa thành công ghi 1 dòng `DELETE_REPORT` kèm số lượng đã xóa).
 - Kiểm tra: `uv run poe test -- tests/unit/test_reporting_services.py tests/unit/test_reporting_audit.py tests/unit/test_perm_registry.py -q` xanh.
 
 ### Bước 2 — UI: mục "Xóa" + modal xác nhận + callback
@@ -34,7 +39,7 @@ _Chưa duyệt. Agent chép nguyên văn Implementation Plan đã duyệt vào �
 ### Bước 3 — Kiểm chứng cuối + xuất patch
 
 - `uv run poe typecheck`, `uv run poe lint`, `uv run poe test` xanh (full suite).
-- Kiểm chứng Playwright trên `/report-admin`: mở menu dòng chưa có template → thấy "Xóa báo cáo"; bấm Xóa → modal hiện mã/tên; xác nhận → dòng biến mất; thử xóa báo cáo đã có run → báo chặn, dữ liệu còn nguyên. Chụp màn hình 1440×900 và 1366×768.
+- Kiểm chứng Playwright trên `/report-admin`: mở menu dòng chưa có template → thấy "Xóa báo cáo"; bấm Xóa → modal hiện mã/tên; xác nhận → dòng biến mất; xóa báo cáo đã có run → run và template đều bị xóa hẳn. Chụp màn hình 1440×900 và 1366×768.
 - Xuất patch `adecaa7..HEAD`; không cần db-migrate, chỉ khởi động lại app sau khi áp.
 
 ## Thứ tự commit (mỗi bước 1 commit)
@@ -45,11 +50,11 @@ _Chưa duyệt. Agent chép nguyên văn Implementation Plan đã duyệt vào �
 
 ## Rủi ro
 
-- Xóa hẳn là thao tác phá hủy: giảm rủi ro bằng modal xác nhận (bắt buộc bấm mới trong modal), chặn khi đã có run, và test guard callback theo `dash_callback_safety` để một lần redraw không kích hoạt xóa hai lần.
+- Xóa hẳn là thao tác phá hủy: giảm rủi ro bằng modal xác nhận (bắt buộc bấm mới trong modal, hiện rõ mã + tên báo cáo) và test guard callback theo `dash_callback_safety` để một lần redraw không kích hoạt xóa hai lần. Lưu ý: xóa báo cáo đã có lần chạy sẽ mất luôn lịch sử kết quả của báo cáo đó, không khôi phục được.
 - FK trên Oracle: thứ tự xóa con trước cha đã tính sẵn (LOV → param/column → version → template → report); nếu Oracle báo lỗi FK thì dừng và báo, không đổi thứ tự bằng cách sửa tay.
 - `render_report_list` dựng lại sau mỗi lần lọc/phân trang: nút Xóa dùng pattern-matching id nên callback mở modal phải giữ guard mạnh, không đọc trạng thái từ nút đã bị dựng lại (target id giữ trong `dcc.Store`).
 
 ## Câu hỏi chốt trước khi code (Q0–Q1 trong task.md)
 
-- Q0: Báo cáo đã có lần chạy mà vẫn muốn xóa hẳn thì xử lý thế nào? Plan hiện tại: **chặn**.
+- Q0: Báo cáo đã có lần chạy mà vẫn muốn xóa hẳn thì xử lý thế nào? Plan hiện tại: **xóa luôn kèm run + export** (người dùng chốt 10/11/2026).
 - Q1: Có cần thêm "Lưu trữ báo cáo" vào menu không? Plan hiện tại: **không**, task riêng sau.

@@ -42,6 +42,7 @@ Thao tác đang trống với các báo cáo chưa có template nào.
 
 - Service `delete_report` mới trong `app/services/report.py` (chỉ ADMIN,
   menu `report_admin`, 1 transaction, ghi audit `DELETE_REPORT`).
+  Xóa luôn dù báo cáo đã có lần chạy: cascade cả run + export.
 - UI `/report-admin`: mục "Xóa" trong menu 3 chấm + modal xác nhận.
 - Không đổi schema, không migration.
 - Chỉ xóa cấp báo cáo (Report Master). Không thêm xóa riêng cấp
@@ -70,14 +71,15 @@ Thao tác đang trống với các báo cáo chưa có template nào.
 
 ## Quyết định kiến trúc
 
-- **Chặn xóa khi báo cáo đã có lần chạy** (`RECON_REPORT_RUN`):
-  trả `CONFLICT`, message nêu rõ số lần chạy. Lý do: kết quả run DONE là
-  lịch sử đối soát, không xóa kèm theo báo cáo. Nếu người dùng muốn xóa
-  kèm cả lần chạy thì quyết định lại ở task khác.
-- **Cascade khi chưa có lần chạy** (cùng transaction, thứ tự tránh vi phạm
-  FK): favorite + preset của báo cáo; với mỗi template: đặt
-  `ACTIVE_VERSION_ID=None`, rồi với mỗi version: xóa LOV của tham số,
-  xóa tham số, xóa cột, xóa version; xóa template; cuối cùng xóa báo cáo.
+- **Xóa luôn dù báo cáo đã có lần chạy** (`RECON_REPORT_RUN` + `RECON_RPT_EXPORT`):
+  theo quyết định của người dùng ngày 10/11/2026 (sửa lại quyết định chặn
+  ban đầu). Lý do: người dùng muốn xóa hẳn, chấp nhận mất lịch sử kết quả
+  của báo cáo đó.
+- **Cascade khi xóa** (cùng transaction, thứ tự tránh vi phạm FK): export
+  của các lần chạy → lần chạy; favorite + preset của báo cáo; với mỗi
+  template: đặt `ACTIVE_VERSION_ID=None`, rồi với mỗi version: xóa LOV
+  của tham số, xóa tham số, xóa cột, xóa version; xóa template; cuối
+  cùng xóa báo cáo. Audit ghi cả số lần chạy/export đã xóa.
 - **Nút "Xóa" gắn theo `report_id` trên mọi dòng** của cùng một báo cáo
   (kể cả dòng đã có template/version), nhãn "Xóa báo cáo", màu đỏ,
   icon `lucide:trash-2`. Với dòng chưa có template, menu giờ chỉ có
@@ -89,16 +91,16 @@ Thao tác đang trống với các báo cáo chưa có template nào.
 
 ### Bước 1 — Service `delete_report` + test viết trước
 - Làm: `app/services/report.py` — hàm mới `@service` + `@requires_menu("report_admin")`,
-  chặn khi có run, cascade như trên, audit `DELETE_REPORT`
-  (`old_data`: code, name, số template/version đã xóa).
+  xóa luôn dù báo cáo đã có lần chạy, cascade như trên, audit `DELETE_REPORT`
+  (`old_data`: code, name, số template/version/lần chạy/export đã xóa).
   Thêm `("report", "delete_report"): ["report_admin"]` vào
   `tests/unit/test_perm_registry.py`.
 - Test viết trước: `tests/unit/test_reporting_services.py` — xóa report
   trống thành công; cascade template/version/param (+LOV)/column/preset/
-  favorite; chặn `CONFLICT` khi đã có run (run và template còn nguyên);
-  `FORBIDDEN` với operator; `NOT_FOUND` với id lạ.
+  favorite; xóa report đã có run DONE + export thì run, export và template
+  đều bị xóa hẳn; `FORBIDDEN` với operator; `NOT_FOUND` với id lạ.
   Audit: `tests/unit/test_reporting_audit.py` — xóa thành công ghi 1 dòng
-  `DELETE_REPORT`, xóa bị chặn không ghi dòng nào.
+  `DELETE_REPORT` (kèm số lượng đã xóa).
 - Kiểm tra: `uv run poe test -- tests/unit/test_reporting_services.py tests/unit/test_reporting_audit.py tests/unit/test_perm_registry.py -q` xanh.
 
 ### Bước 2 — UI: mục "Xóa" + modal xác nhận + callback
@@ -141,9 +143,8 @@ Thao tác đang trống với các báo cáo chưa có template nào.
 
 - [ ] Dòng báo cáo chưa có template có menu 3 chấm với "Xóa báo cáo",
       cột Thao tác không còn trống.
-- [ ] Xóa báo cáo trống/có template (chưa có run) xóa hẳn khỏi DB kèm
-      favorite/preset/template/version/param/column, có audit.
-- [ ] Xóa báo cáo đã có run bị chặn, dữ liệu còn nguyên.
+- [ ] Xóa báo cáo trống/có template (kể cả đã có run) xóa hẳn khỏi DB kèm
+      favorite/preset/template/version/param/column/run/export, có audit.
 - [ ] Chỉ ADMIN thấy/làm được; operator bị `FORBIDDEN`.
 - [ ] `uv run poe typecheck`, `uv run poe lint`, `uv run poe test` xanh.
 
@@ -153,6 +154,7 @@ Thao tác đang trống với các báo cáo chưa có template nào.
 ## Câu hỏi mở
 
 - Q0: Báo cáo đã có lần chạy mà người dùng vẫn muốn xóa hẳn thì xử lý
-  thế nào (xóa kèm run + export, hay giữ nguyên chặn)? Hiện chốt chặn.
+  thế nào (xóa kèm run + export, hay giữ nguyên chặn)? Hiện chốt **xóa
+  luôn kèm run + export** theo ý người dùng ngày 10/11/2026.
 - Q1: Có cần thêm "Lưu trữ báo cáo" vào menu (nối `archive_report` sẵn có)
   cho trường hợp không xóa hẳn được không?

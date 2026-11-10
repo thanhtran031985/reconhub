@@ -16,3 +16,6 @@ Trạng thái: ⬜ (đã tạo task + nhánh, plan chưa duyệt, chưa code)
   dùng chọn "Xóa hẳn khỏi DB". Người dùng yêu cầu tách nhánh + task riêng
   vì sửa nhiều. Đã tạo nhánh `feat/32-report-delete` từ `adecaa7` và hồ sơ
   task; plan đang chờ duyệt, chưa code.
+- 2026-11-10: Người dùng sửa quyết định chặn: **xóa luôn dù có lần chạy**.
+  Đã cập nhật task.md/plan.md/decisions.md (cascade thêm run + export,
+  bỏ test chặn `CONFLICT`); plan đang chờ duyệt lại, chưa code.
