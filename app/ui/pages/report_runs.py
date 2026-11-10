@@ -173,6 +173,8 @@ def render_runs_table(runs: list[dict[str, Any]], exports_by_run: dict[int, list
                     ),
                     href=f"/download/report-export/{latest['id']}",
                     target="_blank",
+                    # Giữ vùng bấm tối thiểu khi icon chưa tải xong (CDN chậm).
+                    style={"display": "inline-flex", "minWidth": "36px", "minHeight": "28px", "alignItems": "center"},
                 ),
             )
         params_text = _fmt_params(run.get("params"))
