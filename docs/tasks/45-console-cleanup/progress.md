@@ -4,7 +4,7 @@
 |------|----------|------------|------|---------|
 | 1 | Docs + test đỏ | Xong | 2026-11-10 |  |
 | 2 | Sửa Main + menu-search + value=None | Xong | 2026-11-10 | Thêm 2 phát hiện khi kiểm chứng live: callback `handle_runs_refresh` trả None cho 2 ô lọc ngày + `command_bar` mặc định `search_value=None` — cả 2 đều gây cảnh báo value null, đã sửa về "". |
-| 3 | Kiểm chứng cuối + xuất patch | Đang làm | 2026-11-10 | Playwright check-45.py 10/10 (main chạm đáy 900px, không còn 3 lỗi console, tìm menu + Xem báo cáo vẫn chạy); full suite đang chạy. |
+| 3 | Kiểm chứng cuối + xuất patch | Xong | 2026-11-10 | Playwright check-45.py 10/10 (main chạm đáy 900px, không còn 3 lỗi console, tìm menu + Xem báo cáo vẫn chạy); full suite 1463 pass 6 skipped, typecheck 0, lint sạch. |
 
 ## Số liệu kiểm chứng (10/11/2026)
 
