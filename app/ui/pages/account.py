@@ -11,11 +11,14 @@ from app.core.session import get_current_ctx
 from app.services.user import change_password
 from app.ui.components.page_header import page_header
 
-dash.register_page(  # type: ignore[no-untyped-call]
-    __name__,
-    path="/account",
-    title="Tài khoản – ReconHub",
-)
+try:
+    dash.register_page(  # type: ignore[no-untyped-call]
+        __name__,
+        path="/account",
+        title="Tài khoản – ReconHub",
+    )
+except Exception:
+    pass
 
 
 def layout(**kwargs: Any) -> Any:
