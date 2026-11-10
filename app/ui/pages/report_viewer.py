@@ -30,12 +30,14 @@ from app.services.report_template import get_version, list_templates
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_subtle
 from app.ui.components.empty_state import empty_state
+from app.ui.components.notification import notify_error
 from app.ui.components.page_header import page_header
 from app.ui.components.report_widgets import (
     _format_cell,
     _lov_options,
     render_param_control,
     render_param_form,
+    render_result_grid,
     render_result_table,
 )
 
@@ -44,6 +46,7 @@ __all__ = [
     "_lov_options",
     "render_param_control",
     "render_param_form",
+    "render_result_grid",
     "render_result_table",
 ]
 
@@ -168,22 +171,20 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
                     dmc.Title("Tham số báo cáo", order=4, size="sm", mb="xs"),
                     html.Div(
                         id="viewer-param-form",
-                        children=render_param_form(preview, options_by_code),
-                    ),
-                    dmc.Group(
-                        [
-                            dmc.Button(
+                        children=render_param_form(
+                            preview,
+                            options_by_code,
+                            action=dmc.Button(
                                 "Xem báo cáo",
                                 id="viewer-run-btn",
                                 variant="filled",
                                 size="xs",
                             ),
-                            html.Div(
-                                id="viewer-run-error",
-                                **{"aria-live": "polite"},  # type: ignore[arg-type]
-                            ),
-                        ],
-                        mt="xs",
+                        ),
+                    ),
+                    html.Div(
+                        id="viewer-run-error",
+                        **{"aria-live": "polite"},  # type: ignore[arg-type]
                     ),
                 ],
                 withBorder=True,
@@ -223,7 +224,6 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
                                         id="viewer-export-btn",
                                         variant="filled",
                                         size="xs",
-                                        disabled=True,
                                     ),
                                 ],
                                 gap="xs",
@@ -241,7 +241,11 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
                     dcc.Loading(
                         id="viewer-loading",
                         type="circle",
-                        style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
+                        # style của Loading đi vào lớp phủ spinner; muốn khung
+                        # ngoài co giãn theo Paper phải dùng parent_style
+                        # (bài học layout /history: nếu không khung cao bằng
+                        # nội dung, grid 0px nên không thấy dòng nào).
+                        parent_style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
                         children=html.Div(
                             id="viewer-result-container",
                             style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
@@ -344,17 +348,17 @@ def handle_run_click(
     values = _values_from_inputs(param_values, param_ids)
     created = create_report_run(ctx, report_id, template_id=int(template_id), values=values)
     if not created.ok or not isinstance(created.data, dict):
-        return {}, 1, alert_box(created.message or "Không tạo được run.", tone="crit")
+        return {}, 1, notify_error(created.message or "Không tạo được run.")
     run_id = int(created.data["id"])
     executed = execute_report_run(ctx, run_id)
     if not executed.ok or not isinstance(executed.data, dict):
-        return {}, 1, alert_box(executed.message or "Chạy báo cáo lỗi.", tone="crit")
+        return {}, 1, notify_error(executed.message or "Chạy báo cáo lỗi.")
     # execute trả ok=True kể cả khi run FAILED (lỗi truy vấn là kết quả
     # nghiệp vụ, task 25): phải kiểm tra status, không render trang lỗi.
     run = executed.data.get("run") or {}
     if run.get("status") != "DONE":
         detail = run.get("error_message") or "Run lỗi, chưa rõ nguyên nhân."
-        return {}, 1, alert_box(f"Chạy báo cáo lỗi: {detail}", tone="crit")
+        return {}, 1, notify_error(f"Chạy báo cáo lỗi: {detail}")
     total = int(executed.data.get("total") or 0)
     return (
         {
@@ -364,6 +368,7 @@ def handle_run_click(
             "version_id": int(created.data["version_id"]),
             "total": total,
             "total_pages": _total_pages(total, page_size),
+            "values": values,
         },
         1,
         "",
@@ -386,28 +391,33 @@ def handle_page_change(page_no: int | None, run_store: dict[str, Any] | None) ->
 @callback(
     Output("viewer-sort-store", "data"),
     Output("viewer-page-store", "data", allow_duplicate=True),
-    Input({"type": "viewer-sort", "index": dash.ALL}, "n_clicks"),
+    Input("viewer-result-grid", "columnState"),
     State("viewer-sort-store", "data"),
     prevent_initial_call=True,
 )
-def handle_sort_click(
-    n_clicks: list[int | None] | None, sorts: list[dict[str, str]] | None
+def handle_grid_sort_change(
+    column_state: list[dict[str, Any]] | None,
+    sorts: list[dict[str, str]] | None,
 ) -> tuple[list[dict[str, str]], int]:
-    """Bấm tiêu đề cột: ASC → DESC → bỏ sắp xếp."""
-    if not n_clicks or not any(n_clicks):
+    """Sort từ header AG Grid (server-side): columnState → sort-store.
+
+    Grid tự sort client-side trong trang hiện tại khi bấm header; callback
+    này dịch thành sorts rồi refetch từ server nên kết quả cuối luôn đúng
+    toàn cục. Không đổi → PreventUpdate (tránh vòng lặp khi resize cột
+    cũng làm columnState đổi).
+    """
+    if not column_state:
         raise PreventUpdate
-    triggered_id = dash.callback_context.triggered_id
-    if not isinstance(triggered_id, dict) or "index" not in triggered_id:
+    new_sorts: list[dict[str, str]] = []
+    for entry in column_state:
+        if not isinstance(entry, dict):
+            continue
+        direction = str(entry.get("sort") or "").upper()
+        if direction in ("ASC", "DESC"):
+            new_sorts.append({"field": str(entry.get("colId", "")).upper(), "direction": direction})
+    new_sorts = new_sorts[:1]  # single-sort (suppressMultiSort)
+    if new_sorts == list(sorts or []):
         raise PreventUpdate
-    field = str(triggered_id["index"])
-    current = list(sorts or [])
-    existing = next((s for s in current if s["field"] == field), None)
-    if existing is None:
-        new_sorts = [{"field": field, "direction": "ASC"}]
-    elif existing["direction"] == "ASC":
-        new_sorts = [{"field": field, "direction": "DESC"}]
-    else:
-        new_sorts = []
     return new_sorts, 1
 
 
@@ -473,7 +483,7 @@ def handle_result_render(
     layout_res = get_result_layout(ctx, version_id, "web")
     layout = layout_res.data if layout_res.ok and isinstance(layout_res.data, dict) else {"columns": []}
     return (
-        render_result_table(layout, data.get("rows", [])),
+        render_result_grid(layout, data.get("rows", [])),
         f"{total} dòng",
     )
 
@@ -481,7 +491,6 @@ def handle_result_render(
 @callback(
     Output("viewer-pagination", "total"),
     Output("viewer-pagination", "value"),
-    Output("viewer-export-btn", "disabled"),
     Input("viewer-run-store", "data"),
     Input("viewer-page-size", "value"),
     State("viewer-page-store", "data"),
@@ -490,13 +499,16 @@ def handle_pagination_sync(
     run_store: dict[str, Any] | None,
     page_size: int | None,
     page_no: int | None,
-) -> tuple[int, int, bool]:
-    """Đồng bộ Pagination + nút Xuất từ run-store (total có sẵn, không query)."""
+) -> tuple[int, int]:
+    """Đồng bộ Pagination từ run-store (total có sẵn, không query).
+
+    Nút Xuất Excel luôn mở (task 39) nên không còn điều khiển disabled ở đây.
+    """
     if not run_store or not run_store.get("run_id"):
-        return 1, 1, True
+        return 1, 1
     total = int(run_store.get("total") or 0)
     total_pages = _total_pages(total, int(page_size or 50))
-    return total_pages, min(int(page_no or 1), total_pages), False
+    return total_pages, min(int(page_no or 1), total_pages)
 
 
 @callback(
@@ -548,24 +560,83 @@ def handle_location_run(href: str | None, run_store: dict[str, Any] | None) -> t
     )
 
 
+def _export_progress() -> Any:
+    """Thanh tiến trình export (indeterminate — service export chỉ có trạng
+    thái QUEUED/RUNNING/DONE/FAILED, không báo % tiến độ số)."""
+    return dmc.Stack(
+        [
+            dmc.Progress(value=100, animated=True, striped=True, size="sm", color="blue"),
+            dmc.Text("Đang xuất file…", c="dimmed", size="sm"),
+        ],
+        gap=4,
+    )
+
+
 @callback(
     Output("viewer-export-store", "data"),
     Output("viewer-export-status", "children"),
     Output("viewer-export-poll", "disabled"),
+    Output("viewer-run-store", "data", allow_duplicate=True),
+    Output("viewer-page-store", "data", allow_duplicate=True),
     Input("viewer-export-btn", "n_clicks"),
     State("viewer-run-store", "data"),
+    State("viewer-report-store", "data"),
+    State("viewer-tabs", "value"),
+    State({"type": "viewer-param", "index": dash.ALL}, "value"),
+    State({"type": "viewer-param", "index": dash.ALL}, "id"),
+    State("viewer-page-store", "data"),
     prevent_initial_call=True,
 )
-def handle_export_click(n_clicks: int | None, run_store: dict[str, Any] | None) -> tuple[dict[str, Any], Any, bool]:
-    """Yêu cầu export XLSX rồi poll tới DONE (task 26)."""
-    if not n_clicks or not run_store or not run_store.get("run_id"):
+def handle_export_click(
+    n_clicks: int | None,
+    run_store: dict[str, Any] | None,
+    report: dict[str, Any] | int | None,
+    template_id: str | None,
+    param_values: list[Any] | None,
+    param_ids: list[dict[str, Any]] | None,
+    page_no: int | None,
+) -> tuple[dict[str, Any], Any, bool, dict[str, Any], int]:
+    """Xuất Excel theo điều kiện tìm kiếm hiện tại (không cần xem trước).
+
+    Run hiện tại đúng điều kiện thì xuất lại run đó; khác (hoặc chưa có
+    run, hoặc mở từ ?run=) thì tạo + chạy run mới từ form rồi xuất.
+    """
+    if not n_clicks:
         raise PreventUpdate
     ctx = get_current_ctx()
-    if ctx is None:
+    if ctx is None or not report or not template_id:
         raise PreventUpdate
-    res = request_export(ctx, int(run_store["run_id"]), "XLSX")
+    report_id = int(report["id"]) if isinstance(report, dict) else int(report)
+    values = _values_from_inputs(param_values, param_ids)
+    current = dict(run_store or {})
+    page = int(page_no or 1)
+    run_id = current.get("run_id")
+    if not run_id or current.get("values") != values:
+        created = create_report_run(ctx, report_id, template_id=int(template_id), values=values)
+        if not created.ok or not isinstance(created.data, dict):
+            return {}, notify_error(created.message or "Không tạo được run."), True, current, page
+        run_id = int(created.data["id"])
+        executed = execute_report_run(ctx, run_id)
+        if not executed.ok or not isinstance(executed.data, dict):
+            return {}, notify_error(executed.message or "Chạy báo cáo lỗi."), True, current, page
+        run = executed.data.get("run") or {}
+        if run.get("status") != "DONE":
+            detail = run.get("error_message") or "Run lỗi, chưa rõ nguyên nhân."
+            return {}, notify_error(f"Chạy báo cáo lỗi: {detail}"), True, current, page
+        total = int(executed.data.get("total") or 0)
+        current = {
+            "run_id": run_id,
+            "template_id": int(template_id),
+            "report_id": report_id,
+            "version_id": int(created.data["version_id"]),
+            "total": total,
+            "total_pages": _total_pages(total, 50),
+            "values": values,
+        }
+        page = 1
+    res = request_export(ctx, int(run_id), "XLSX")
     if not res.ok or not isinstance(res.data, dict):
-        return {}, alert_box(res.message or "Không tạo được export.", tone="crit"), True
+        return {}, notify_error(res.message or "Không tạo được export."), True, current, page
     export = res.data
     if export["status"] == "DONE":
         return (
@@ -576,11 +647,15 @@ def handle_export_click(n_clicks: int | None, run_store: dict[str, Any] | None) 
                 target="_blank",
             ),
             True,
+            current,
+            page,
         )
     return (
         {"export_id": export["id"]},
-        dmc.Text("Đang xuất file…", c="dimmed", size="sm"),
+        _export_progress(),
         False,
+        current,
+        page,
     )
 
 
@@ -600,7 +675,7 @@ def handle_export_poll(_n: int | None, export_store: dict[str, Any] | None) -> t
         raise PreventUpdate
     res = get_export(ctx, int(export_store["export_id"]))
     if not res.ok or not isinstance(res.data, dict):
-        return alert_box(res.message or "Không kiểm tra được export.", tone="crit"), True
+        return notify_error(res.message or "Không kiểm tra được export."), True
     status = res.data["status"]
     if status == "DONE":
         return (
@@ -613,7 +688,7 @@ def handle_export_poll(_n: int | None, export_store: dict[str, Any] | None) -> t
         )
     if status == "FAILED":
         return (
-            alert_box(res.data.get("error_message") or "Export lỗi.", tone="crit"),
+            notify_error(res.data.get("error_message") or "Export lỗi."),
             True,
         )
-    return dmc.Text("Đang xuất file…", c="dimmed", size="sm"), False
+    return _export_progress(), False

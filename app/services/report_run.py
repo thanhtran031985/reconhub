@@ -253,7 +253,13 @@ def build_run_query(detail: dict[str, Any], resolved: dict[str, Any]) -> tuple[s
         sql_text = detail["sql_text"]
         if not sql_text:
             raise ServiceError(ErrorCode.VALIDATION_ERROR, "Version CUSTOM_SQL chưa có SQL_TEXT.")
-        return str(sql_text), dict(resolved)
+        # Bind đủ mọi tham số đã khai báo: tham số không bắt buộc vắng giá
+        # trị thì bind NULL (thay vì vắng mặt) để SQL dạng
+        # (:P_ORG IS NULL OR ORG = :P_ORG) chạy được; vắng bind thì driver
+        # Oracle báo DPY-4010. Bind thừa không có trong SQL được driver bỏ
+        # qua nên an toàn.
+        binds = {str(p["code"]): resolved.get(str(p["code"])) for p in detail.get("params", [])}
+        return str(sql_text), binds
     if source_type in ("VIEW", "TABLE"):
         columns = [{"name": c["field_name"]} for c in detail["columns"]]
         selected = [c["field_name"] for c in detail["columns"] if c["web_visible"]]

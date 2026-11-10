@@ -15,6 +15,7 @@ from dash import html
 
 from app.core.context import Ctx
 from app.services.report_param import resolve_lov
+from app.ui.components.data_grid import data_grid
 from app.ui.components.empty_state import empty_state
 
 
@@ -108,12 +109,14 @@ def render_param_control(param: dict[str, Any], options: list[dict[str, str]] | 
                         dmc.DateInput(
                             id={"type": "viewer-param", "index": code + "__from"},
                             value=str(raw.get("from")) if raw.get("from") else None,
+                            valueFormat="YYYY-MM-DD",
                             placeholder="Từ ngày…",
                             **{"aria-label": f"{label} từ ngày"},
                         ),
                         dmc.DateInput(
                             id={"type": "viewer-param", "index": code + "__to"},
                             value=str(raw.get("to")) if raw.get("to") else None,
+                            valueFormat="YYYY-MM-DD",
                             placeholder="Đến ngày…",
                             **{"aria-label": f"{label} đến ngày"},
                         ),
@@ -169,6 +172,7 @@ def render_param_control(param: dict[str, Any], options: list[dict[str, str]] | 
             id=pid,
             label=label,
             value=str(value) if value is not None else None,
+            valueFormat="YYYY-MM-DD",
             placeholder="Chọn ngày…",
             **{"aria-label": label},
         )
@@ -192,19 +196,32 @@ def render_param_control(param: dict[str, Any], options: list[dict[str, str]] | 
 def render_param_form(
     layout_detail: dict[str, Any],
     options_by_code: dict[str, list[dict[str, str]]],
+    action: Any = None,
 ) -> Any:
-    """Form tham số theo grid 12 cột (build_param_layout)."""
+    """Form tham số theo grid 12 cột (build_param_layout).
+
+    action: nút hành động (vd "Xem báo cáo") — tổng span tham số < 12 thì
+    đặt cùng dòng với tham số (ô span = phần còn lại, tối đa 3, tối thiểu
+    2 cột; phần còn lại < 2 cột thì vẫn xuống dòng mới); >= 12 thì xuống
+    dòng mới như trước.
+    """
     rows = []
+    row_spans: list[int] = []
+    total_span = 0
     for row in layout_detail.get("rows", []):
         cells = []
+        row_span = 0
         for entry in row.get("params", []):
             span = max(1, min(12, int(entry.get("grid_span") or 1)))
+            row_span += span
+            total_span += span
             cells.append(
                 html.Div(
                     render_param_control(entry, options_by_code.get(str(entry["code"]))),
                     style={"gridColumn": f"span {span}"},
                 )
             )
+        row_spans.append(row_span)
         rows.append(
             html.Div(
                 cells,
@@ -216,7 +233,124 @@ def render_param_form(
                 },
             )
         )
+    if action is not None:
+        placed = False
+        if rows and total_span < 12:
+            remaining = 12 - row_spans[-1]
+            if remaining >= 2:
+                rows[-1].children.append(
+                    html.Div(
+                        action,
+                        style={
+                            "gridColumn": f"span {min(remaining, 3)}",
+                            "alignSelf": "end",
+                        },
+                    )
+                )
+                placed = True
+        if not placed:
+            rows.append(html.Div(action))
     return html.Div(rows)
+
+
+def render_result_grid(layout: dict[str, Any], rows: list[dict[str, Any]]) -> Any:
+    """Kết quả dạng AG Grid (data_grid): cột theo layout web, ô định dạng
+    theo mask như bảng cũ, hàng Tổng ghim cuối (pinnedBottomRowData).
+
+    Phân trang vẫn server-side (dmc.Pagination + select số dòng/trang ở
+    viewer): grid chỉ hiển thị đúng trang đã fetch, không bật pagination
+    nội bộ. Sort cũng server-side qua columnState → sort-store → refetch.
+
+    rowData mang chuỗi ĐÃ ĐỊNH DẠNG (như bảng cũ) nên sort client-side
+    mặc định của AG Grid sẽ sai (so chuỗi: "9.000" > "55.000"). Vì vậy
+    cột NUMBER/DATE có comparator riêng parse ngược chuỗi định dạng về
+    số/ngày — hàm JS nằm ở app/ui/assets/dashAgGridFunctions.js
+    (namespace dashAgGridFunctions). Dạng inline
+    {"function": "function(a, b) {...}"} đã thử ở dash-ag-grid 35.3.0 và
+    KHÔNG chạy (rơi về sort chuỗi) — chỉ dạng tham chiếu tên mới chạy.
+    """
+    columns = layout.get("columns", [])
+    if not rows:
+        return empty_state(
+            "Không có dòng nào.",
+            "Thử đổi tham số hoặc khoảng thời gian rồi chạy lại.",
+        )
+
+    def _align(c_meta: dict[str, Any]) -> str:
+        a = str(c_meta.get("alignment") or "LEFT").upper()
+        if a in ("CENTER", "GIỮA", "GIUA"):
+            return "center"
+        if a in ("RIGHT", "PHẢI", "PHAI"):
+            return "right"
+        return "left"
+
+    def _val(row_dict: dict[str, Any], f_name: str) -> Any:
+        if f_name in row_dict:
+            return row_dict[f_name]
+        if f_name.upper() in row_dict:
+            return row_dict[f_name.upper()]
+        if f_name.lower() in row_dict:
+            return row_dict[f_name.lower()]
+        return None
+
+    defs = []
+    for c in columns:
+        field = str(c["field_name"])
+        width = c.get("width")
+        col_def: dict[str, Any] = {
+            "field": field,
+            "colId": field,
+            "headerName": str(c["label"]),
+            "width": int(width) if width else 140,
+            "minWidth": 80,
+            "sortable": True,
+            "filter": False,
+            "cellStyle": {"textAlign": _align(c)},
+        }
+        if c.get("data_type") == "NUMBER":
+            col_def["comparator"] = {"function": "reconViewerNumCompare"}
+        elif c.get("data_type") in ("DATE", "DATETIME"):
+            col_def["comparator"] = {"function": "reconViewerDateCompare"}
+        defs.append(col_def)
+    row_data = [
+        {str(c["field_name"]): _format_cell(_val(row, str(c["field_name"])), c) for c in columns}
+        for row in rows
+    ]
+    pinned = None
+    if any(bool(c.get("is_total")) for c in columns):
+        pinned_row: dict[str, Any] = {}
+        is_first = True
+        for c in columns:
+            field = str(c["field_name"])
+            if c.get("is_total") and c.get("data_type") == "NUMBER":
+                total_val = 0.0
+                for row in rows:
+                    val = _val(row, field)
+                    if val is not None:
+                        try:
+                            total_val += float(val)
+                        except (TypeError, ValueError):
+                            pass
+                pinned_row[field] = _format_cell(total_val, c)
+            else:
+                pinned_row[field] = "Tổng cộng" if is_first else ""
+            is_first = False
+        pinned = [pinned_row]
+    # pinnedBottomRowData không phải prop trực tiếp của dag.AgGrid 35.3.0
+    # (truyền vào sẽ lỗi TypeError) — phải đi qua dashGridOptions.
+    grid_options: dict[str, Any] = {
+        "suppressMultiSort": True,
+        "defaultColDef": {"sortable": True, "filter": False, "resizable": True, "minWidth": 80},
+    }
+    if pinned is not None:
+        grid_options["pinnedBottomRowData"] = pinned
+    return data_grid(
+        id="viewer-result-grid",
+        columnDefs=defs,
+        rowData=row_data,
+        dashGridOptions=grid_options,
+        dangerously_allow_code=True,
+    )
 
 
 def render_result_table(layout: dict[str, Any], rows: list[dict[str, Any]]) -> Any:
