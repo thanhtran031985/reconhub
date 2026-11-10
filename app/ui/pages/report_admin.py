@@ -23,7 +23,7 @@ from app.engine.catalog import list_columns as list_db_columns
 from app.services.data_source import list_data_sources
 from app.services.lookup import list_lookup_types
 from app.services.perm import page_gate
-from app.services.report import create_report, get_report, list_reports, update_report
+from app.services.report import create_report, delete_report, get_report, list_reports, update_report
 from app.services.report_column import (
     delete_column,
     list_columns,
@@ -65,6 +65,7 @@ from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary
 from app.ui.components.command_bar import command_bar
 from app.ui.components.empty_state import empty_state
+from app.ui.components.modal_confirm import modal_confirm
 from app.ui.components.notification import (
     notify_error,
     notify_success,
@@ -435,11 +436,13 @@ def render_report_list(
     }
 
     table_rows = []
+    seen_report_ids: set[int] = set()
     for it in paged_items:
         tpl_id = it.get("tpl_id")
         ver_id = it.get("ver_id")
         status = it.get("status") or "DRAFT"
         is_active = it.get("is_active")
+        report_id = it.get("report_id")
 
         menu_items: list[Any] = []
         if tpl_id:
@@ -465,6 +468,21 @@ def render_report_list(
                     id={"type": "admin-archive-ver", "index": ver_id},
                     color="orange",
                     leftSection=DashIconify(icon="lucide:archive", width=14),
+                )
+            )
+        # Task 32: mục "Xóa báo cáo" gắn theo report_id, chỉ thêm 1 lần trên
+        # dòng đầu tiên của mỗi báo cáo (id Dash phải duy nhất trong trang).
+        # Nhờ đó dòng chưa có template cũng có menu, cột Thao tác hết trống.
+        if report_id is not None and int(report_id) not in seen_report_ids:
+            seen_report_ids.add(int(report_id))
+            if menu_items:
+                menu_items.append(dmc.MenuDivider())
+            menu_items.append(
+                dmc.MenuItem(
+                    "Xóa báo cáo",
+                    id={"type": "admin-delete-report", "index": int(report_id)},
+                    color="red",
+                    leftSection=DashIconify(icon="lucide:trash-2", width=14),
                 )
             )
 
@@ -828,6 +846,22 @@ def layout(action: str | None = None, **kwargs: Any) -> Any:
                     "height": "100%",
                 },
             ),
+            # Task 32: modal xác nhận xóa hẳn báo cáo + store giữ report_id
+            # cần xóa. Đặt ngoài container danh sách để lần dựng lại bảng
+            # không tạo lại modal/store (tránh kích hoạt callback xóa 2 lần).
+            modal_confirm(
+                id="admin-delete-modal",
+                title="Xác nhận xóa vĩnh viễn báo cáo",
+                description=dmc.Text(
+                    "Chọn một báo cáo để xóa.",
+                    id="admin-delete-modal-desc",
+                    size="sm",
+                    c="dimmed",
+                ),
+                confirm_label="Xóa vĩnh viễn",
+                danger=True,
+            ),
+            dcc.Store(id="admin-delete-target-id", data=None),
         ],
         style={
             "height": "100%",
@@ -4361,6 +4395,98 @@ def handle_list_clone_click(
     if new_state is None:
         return state or {"mode": "list"}, alert
     return new_state, alert
+
+
+def open_delete_modal_logic(
+    delete_clicks: list[int | None] | None,
+    triggered_id: Any,
+    ctx: Ctx | None,
+) -> tuple[bool, int | None, Any]:
+    """Logic mở modal xác nhận xóa báo cáo (task 32).
+
+    Tách khỏi callback để test được guard: không có cú bấm thật (danh sách
+    vừa dựng lại) thì modal giữ đóng và không làm gì khác. Bấm Hủy trong
+    modal thì đóng modal, kể cả khi nút Xóa vẫn còn n_clicks cũ.
+    """
+    if isinstance(triggered_id, str) and triggered_id == "admin-delete-modal-cancel":
+        return False, None, dash.no_update
+    if not delete_clicks or not any(delete_clicks):
+        return False, None, dash.no_update
+    if not isinstance(triggered_id, dict) or triggered_id.get("type") != "admin-delete-report":
+        return False, None, dash.no_update
+    report_id = int(triggered_id["index"])
+    desc = (
+        "Báo cáo này sẽ bị xóa vĩnh viễn cùng toàn bộ template, version, "
+        "lần chạy và dữ liệu liên quan. Không thể khôi phục."
+    )
+    if ctx is not None:
+        res = get_report(ctx, report_id)
+        if res.ok and isinstance(res.data, dict):
+            desc = (
+                f"Báo cáo {res.data.get('code')} — {res.data.get('name')} sẽ bị xóa vĩnh viễn cùng "
+                "toàn bộ template, version, lần chạy và dữ liệu liên quan. Không thể khôi phục."
+            )
+    return True, report_id, desc
+
+
+def confirm_delete_logic(
+    n_clicks: int | None,
+    target_id: int | None,
+    ctx: Ctx | None,
+) -> tuple[Any, Any]:
+    """Logic xác nhận xóa báo cáo (task 32). Trả (alert, reports).
+
+    Không có cú bấm xác nhận hoặc chưa chọn báo cáo thì PreventUpdate,
+    không xóa gì.
+    """
+    if not n_clicks:
+        raise PreventUpdate
+    if target_id is None:
+        raise PreventUpdate
+    if ctx is None:
+        raise PreventUpdate
+    res = delete_report(ctx, int(target_id))
+    if not res.ok:
+        return _err_alert(res), dash.no_update
+    reports = _load_reports_with_templates(ctx)
+    code = (res.data or {}).get("code", "")
+    return notify_success(f"Đã xóa báo cáo {code}."), reports
+
+
+@callback(
+    Output("admin-delete-modal", "opened"),
+    Output("admin-delete-target-id", "data"),
+    Output("admin-delete-modal-desc", "children"),
+    Input({"type": "admin-delete-report", "index": dash.ALL}, "n_clicks"),
+    Input("admin-delete-modal-cancel", "n_clicks"),
+    prevent_initial_call=True,
+)
+def handle_list_delete_click(
+    delete_clicks: list[int | None] | None,
+    cancel_clicks: int | None,
+) -> tuple[bool, int | None, Any]:
+    """Nút Xóa báo cáo ở danh sách → mở modal xác nhận (task 32)."""
+    ctx = get_current_ctx()
+    return open_delete_modal_logic(delete_clicks, dash.callback_context.triggered_id, ctx)
+
+
+@callback(
+    Output("admin-delete-modal", "opened", allow_duplicate=True),
+    Output("admin-delete-target-id", "data", allow_duplicate=True),
+    Output("admin-alert", "children", allow_duplicate=True),
+    Output("admin-reports-store", "data", allow_duplicate=True),
+    Input("admin-delete-modal-confirm", "n_clicks"),
+    State("admin-delete-target-id", "data"),
+    prevent_initial_call=True,
+)
+def handle_delete_confirm(
+    n_clicks: int | None,
+    target_id: int | None,
+) -> tuple[bool, None, Any, Any]:
+    """Bấm xác nhận trong modal → xóa hẳn báo cáo rồi tải lại danh sách."""
+    ctx = get_current_ctx()
+    alert, reports = confirm_delete_logic(n_clicks, target_id, ctx)
+    return False, None, alert, reports
 
 
 @callback(

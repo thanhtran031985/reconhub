@@ -109,6 +109,81 @@ class TestAdminLayout:
         assert "DRAFT" in text
         assert "Sửa" in text and "Clone" in text and "Lưu trữ" in text
 
+    def test_render_report_list_delete_action_for_template_less_report(self):
+        import app.ui.pages.report_admin as page
+
+        reports = [
+            {
+                "id": 7,
+                "code": "FIN",
+                "name": "BÁO CÁO FIN",
+                "category_code": "FINANCE",
+                "owner": "FIN",
+                "is_active": True,
+                "templates": [],
+            }
+        ]
+        text = _dump(page.render_report_list(reports))
+        assert "Chưa có template" in text
+        assert "Hoạt động" in text
+        assert "Xóa báo cáo" in text
+        assert text.count("Xóa báo cáo") == 1
+
+    def test_render_report_list_delete_action_once_per_report(self, run_env, admin_ctx):
+        import app.ui.pages.report_admin as page
+        from app.services.report_template import get_template, list_templates
+
+        templates = list_templates(admin_ctx, run_env["report_id"]).data
+        templates = [get_template(admin_ctx, int(t["id"])).data for t in templates]
+        reports = [
+            {
+                "id": run_env["report_id"],
+                "code": "FIN_REVENUE",
+                "name": "Báo cáo doanh thu",
+                "category_code": "FINANCE",
+                "templates": templates,
+            }
+        ]
+        text = _dump(page.render_report_list(reports))
+        assert "Xóa báo cáo" in text
+        assert text.count("Xóa báo cáo") == 1
+
+    def test_delete_modal_guard_no_click(self, run_env, admin_ctx):
+        import app.ui.pages.report_admin as page
+        from dash import no_update
+
+        trigger = {"type": "admin-delete-report", "index": run_env["report_id"]}
+        opened, target, _desc = page.open_delete_modal_logic(None, trigger, admin_ctx)
+        assert opened is False and target is None
+        opened, target, _desc = page.open_delete_modal_logic([0], trigger, admin_ctx)
+        assert opened is False and target is None
+        opened, target, desc = page.open_delete_modal_logic(
+            [1], "admin-delete-modal-cancel", admin_ctx
+        )
+        assert opened is False and target is None and desc is no_update
+
+    def test_delete_modal_opens_once(self, run_env, admin_ctx):
+        import app.ui.pages.report_admin as page
+
+        trigger = {"type": "admin-delete-report", "index": run_env["report_id"]}
+        opened, target, desc = page.open_delete_modal_logic([1], trigger, admin_ctx)
+        assert opened is True
+        assert target == run_env["report_id"]
+        assert "FIN_REVENUE" in desc
+
+    def test_delete_confirm_guard_and_delete(self, run_env, admin_ctx):
+        import app.ui.pages.report_admin as page
+        import pytest
+        from dash.exceptions import PreventUpdate
+
+        with pytest.raises(PreventUpdate):
+            page.confirm_delete_logic(None, run_env["report_id"], admin_ctx)
+        with pytest.raises(PreventUpdate):
+            page.confirm_delete_logic(1, None, admin_ctx)
+        alert, reports = page.confirm_delete_logic(1, run_env["report_id"], admin_ctx)
+        assert "FIN_REVENUE" not in str(reports)
+        assert reports == []
+
     def test_admin_filter_search_and_status(self, run_env, admin_ctx):
         import app.ui.pages.report_admin as page
 
