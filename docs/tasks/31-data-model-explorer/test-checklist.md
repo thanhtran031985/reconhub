@@ -212,6 +212,22 @@ Checklist kiểm thử cho task DATA-MODEL-01. Đánh dấu `[x]` khi ca đã pa
 - [x] 1440×900
 - [x] 390×844 (`data-model-final-390.png`; không tràn ngang, nội dung bị shell che — xem ghi chú Mobile bên dưới)
 
+## Bổ sung sau review (2026-11-10)
+
+- [x] Click table → highlight đúng (bảng được chọn viền primary, bảng liên quan accent, bảng không liên quan mờ đi)
+- [x] Click vùng trống canvas → selection bị xóa, canvas về bình thường, Detail Panel về empty state ("Chọn một table hoặc relationship để xem chi tiết.")
+- [ ] Click entity vẫn chọn table; dblclick vẫn center + zoom; nút zoom/fit không bị ảnh hưởng khi click vùng trống
+- [x] Nút thu nhỏ ở header Explorer: bấm → panel thành dải hẹp 36px có nút mở lại, ER Canvas lấy phần chỗ trống
+- [x] Nút thu nhỏ ở header Chi tiết: tương tự, độc lập với Explorer
+- [x] Thu cả hai panel: ER Canvas chiếm toàn bộ chiều rộng
+- [ ] Bấm nút mở lại → panel trở về tỉ lệ cũ (Explorer 2 / Canvas 5 / Detail 3)
+- [ ] Thu nhỏ/mở rộng không phá search, selection, deep link URL, zoom/fit
+- [x] Nút thu nhỏ/mở có aria-label + tooltip tiếng Việt
+- [x] Desktop 1440×900 không cuộn trang ở mọi trạng thái (mở/thu từng panel/thu cả hai)
+- [ ] Mobile giữ hành vi responsive hiện có (panel thu nhỏ không bị ép min-height 320px)
+
+Ghi chú bổ sung (10/11/2026): Playwright trên server thử (1440×900) đã qua click-outside, thu Explorer (36px, canvas 724px), thu cả hai (Detail 36px, canvas 1124px), không cuộn trang ở cả 3 trạng thái; ảnh `data-model-click-outside-1440.png`, `data-model-collapse-1440.png`, `data-model-collapse-both-1440.png` (người dùng đã xem). Còn [ ]: entity click/zoom/dblclick sau khi bổ sung và search/zoom-fit không phá — script dừng ở bước mở lại theo quyết định của người dùng (bỏ qua bước chụp ảnh nếu lâu quá); zoom/dblclick đã kiểm chứng ở bước 8, listener click-outside loại trừ entity/line và nút zoom/fit nằm ngoài canvas container (code inspection + probe: dispatch tổng hợp + click chuột thật đều xóa selection đúng, replay callback ALL không chọn lại). Mở lại: Explorer đã mở lại được trên trình duyệt (lượt chạy 2), Chi tiết chỉ kiểm bằng unit test (`test_handle_panel_toggle` đảo cả hai panel độc lập + bấm lại mở ra, `test_update_panel_layout` assert flex 2/5/3 khi mở) — bấm mở lại Chi tiết trên trình duyệt timeout 2 lần do VM chậm (mỗi lần render workspace ~85 giây, `dcc.Loading` che nút trong lúc render), không phải lỗi sản phẩm. Mobile: chỉ sửa CSS (media query <900px + `.dm-panel-collapsed` min-height 36px), chưa chạy Playwright mobile.
+
 ## Ghi chú kiểm chứng (09/11/2026, bước 8)
 
 - Baseline trước khi implement: full suite trừ e2e 1212 passed, 6 skipped (213s); typecheck 0 lỗi (baseline "21 lỗi" trong ghi chú cũ đã lỗi thời).

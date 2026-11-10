@@ -156,6 +156,90 @@ def render_panel_skeleton() -> Any:
     )
 
 
+# --- Bổ sung sau review (2026-11-10): thu nhỏ/mở rộng 2 panel bên ---
+
+_PANEL_BASE_STYLE: dict[str, Any] = {
+    "minWidth": 0,
+    "display": "flex",
+    "flexDirection": "column",
+    "overflow": "hidden",
+}
+_PANEL_CONTAINER_STYLE: dict[str, Any] = {"flex": 1, "minHeight": 0, "overflow": "auto"}
+_PANEL_COLLAPSED_FLEX = "0 0 36px"
+# pt="xs" (10px) + px="sm" (12px) của header cũ, viết sang style để
+# callback đổi được padding khi thu nhỏ.
+_PANEL_HEADER_STYLE: dict[str, Any] = {"padding": "10px 12px 0 12px"}
+_PANEL_HEADER_COLLAPSED_STYLE: dict[str, Any] = {"padding": "10px 0 0 0", "justifyContent": "center"}
+
+
+def _panel_style(flex: int, collapsed: bool) -> dict[str, Any]:
+    """Style Paper panel: thu nhỏ thành dải hẹp 36px, mở rộng giữ tỉ lệ flex."""
+    style = dict(_PANEL_BASE_STYLE)
+    style["flex"] = _PANEL_COLLAPSED_FLEX if collapsed else flex
+    return style
+
+
+def _panel_toggle_button(panel: str, collapsed: bool) -> Any:
+    """Nút thu nhỏ/mở rộng ở header panel (icon + aria-label + tooltip tiếng Việt)."""
+    if panel == "explorer":
+        icon = "lucide:panel-left-open" if collapsed else "lucide:panel-left-close"
+        label = "Mở rộng bảng Explorer" if collapsed else "Thu nhỏ bảng Explorer"
+        btn_id = "data-model-explorer-collapse-btn"
+    else:
+        icon = "lucide:panel-right-open" if collapsed else "lucide:panel-right-close"
+        label = "Mở rộng bảng Chi tiết" if collapsed else "Thu nhỏ bảng Chi tiết"
+        btn_id = "data-model-detail-collapse-btn"
+    return dmc.Tooltip(
+        label=label,
+        children=dmc.ActionIcon(
+            DashIconify(icon=icon, width=14),
+            id=btn_id,
+            variant="subtle",
+            color="gray",
+            size="sm",
+            **{"aria-label": label},
+        ),
+        withArrow=True,
+    )
+
+
+def _explorer_header_children(collapsed: bool, count_text: str) -> list[Any]:
+    """Nội dung header Explorer. Thu nhỏ chỉ còn nút mở lại + count ẩn
+    (count vẫn render để update_workspace không lỗi 'nonexistent object')."""
+    if collapsed:
+        return [
+            _panel_toggle_button("explorer", collapsed=True),
+            dmc.Text(
+                str(count_text),
+                id="data-model-explorer-count",
+                size="xs",
+                c="dimmed",
+                style={"display": "none"},
+            ),
+        ]
+    return [
+        dmc.Text("Schema Explorer", fw=600, size="sm"),
+        dmc.Group(
+            [
+                dmc.Text(str(count_text), id="data-model-explorer-count", size="xs", c="dimmed"),
+                _panel_toggle_button("explorer", collapsed=False),
+            ],
+            gap="xs",
+            align="center",
+        ),
+    ]
+
+
+def _detail_header_children(collapsed: bool) -> list[Any]:
+    """Nội dung header Chi tiết: thu nhỏ chỉ còn nút mở lại."""
+    if collapsed:
+        return [_panel_toggle_button("detail", collapsed=True)]
+    return [
+        dmc.Text("Chi tiết", fw=600, size="sm"),
+        _panel_toggle_button("detail", collapsed=False),
+    ]
+
+
 # --- Bước 4: Schema Explorer + command bar (helper thuần) ---
 
 DOMAIN_ORDER: list[str] = ["core", "recon", "report", "admin", "other"]
@@ -1152,6 +1236,8 @@ def layout(**kwargs: Any) -> Any:
         "expanded": {},
         "center_table": None,
         "history_table": None,
+        "explorer_collapsed": False,
+        "detail_collapsed": False,
     }
 
     manifest_data: dict[str, Any] | None = None
@@ -1232,18 +1318,10 @@ def layout(**kwargs: Any) -> Any:
                         dmc.Paper(
                             [
                                 dmc.Group(
-                                    [
-                                        dmc.Text("Schema Explorer", fw=600, size="sm"),
-                                        dmc.Text(
-                                            f"{counts['tables']} tables",
-                                            id="data-model-explorer-count",
-                                            size="xs",
-                                            c="dimmed",
-                                        ),
-                                    ],
+                                    _explorer_header_children(False, f"{counts['tables']} tables"),
+                                    id="data-model-explorer-header",
                                     justify="space-between",
-                                    px="sm",
-                                    pt="xs",
+                                    style=dict(_PANEL_HEADER_STYLE),
                                 ),
                                 html.Div(
                                     id="data-model-explorer-container",
@@ -1251,15 +1329,10 @@ def layout(**kwargs: Any) -> Any:
                                     style={"flex": 1, "minHeight": 0, "overflow": "auto"},
                                 ),
                             ],
+                            id="data-model-explorer-panel",
                             withBorder=True,
                             radius="sm",
-                            style={
-                                "flex": 2,
-                                "minWidth": 0,
-                                "display": "flex",
-                                "flexDirection": "column",
-                                "overflow": "hidden",
-                            },
+                            style=_panel_style(2, False),
                         ),
                         dmc.Paper(
                             [
@@ -1312,34 +1385,29 @@ def layout(**kwargs: Any) -> Any:
                                     style={"flex": 1, "minHeight": 0, "overflow": "auto"},
                                 ),
                             ],
+                            id="data-model-canvas-panel",
                             withBorder=True,
                             radius="sm",
-                            style={
-                                "flex": 5,
-                                "minWidth": 0,
-                                "display": "flex",
-                                "flexDirection": "column",
-                                "overflow": "hidden",
-                            },
+                            style=_panel_style(5, False),
                         ),
                         dmc.Paper(
                             [
-                                dmc.Text("Chi tiết", fw=600, size="sm", px="sm", pt="xs"),
+                                dmc.Group(
+                                    _detail_header_children(False),
+                                    id="data-model-detail-header",
+                                    justify="space-between",
+                                    style=dict(_PANEL_HEADER_STYLE),
+                                ),
                                 html.Div(
                                     id="data-model-detail-container",
                                     children=render_panel_skeleton(),
                                     style={"flex": 1, "minHeight": 0, "overflow": "auto"},
                                 ),
                             ],
+                            id="data-model-detail-panel",
                             withBorder=True,
                             radius="sm",
-                            style={
-                                "flex": 3,
-                                "minWidth": 0,
-                                "display": "flex",
-                                "flexDirection": "column",
-                                "overflow": "hidden",
-                            },
+                            style=_panel_style(3, False),
                         ),
                     ],
                     gap="xs",
@@ -1571,6 +1639,95 @@ def handle_group_toggle(
     expanded[str(domain)] = not current if current is not None else False
     ui_data["expanded"] = expanded
     return ui_data
+
+
+@callback(
+    Output("data-model-ui-store", "data", allow_duplicate=True),
+    Input("data-model-explorer-collapse-btn", "n_clicks"),
+    Input("data-model-detail-collapse-btn", "n_clicks"),
+    State("data-model-ui-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_panel_toggle(
+    _explorer_clicks: int | None,
+    _detail_clicks: int | None,
+    ui: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Bấm nút thu nhỏ/mở rộng ở header panel: đảo cờ trong ui-store.
+
+    Hai panel độc lập; trạng thái giữ trong page (không đưa vào URL).
+    """
+    ctx_dash = dash.callback_context
+    ui_data = dict(ui or {})
+    triggered = getattr(ctx_dash, "triggered", None) or []
+    if not triggered:
+        raise dash.exceptions.PreventUpdate
+    value = triggered[0].get("value")
+    if not isinstance(value, int) or value <= 0:
+        raise dash.exceptions.PreventUpdate
+    prop_id = str(triggered[0].get("prop_id") or "")
+    if prop_id.startswith("data-model-explorer-collapse-btn"):
+        ui_data["explorer_collapsed"] = not bool(ui_data.get("explorer_collapsed"))
+    elif prop_id.startswith("data-model-detail-collapse-btn"):
+        ui_data["detail_collapsed"] = not bool(ui_data.get("detail_collapsed"))
+    else:
+        raise dash.exceptions.PreventUpdate
+    return ui_data
+
+
+@callback(
+    Output("data-model-explorer-panel", "style"),
+    Output("data-model-canvas-panel", "style"),
+    Output("data-model-detail-panel", "style"),
+    Output("data-model-explorer-panel", "className"),
+    Output("data-model-detail-panel", "className"),
+    Output("data-model-explorer-header", "children"),
+    Output("data-model-explorer-header", "style"),
+    Output("data-model-detail-header", "children"),
+    Output("data-model-detail-header", "style"),
+    Output("data-model-explorer-container", "style"),
+    Output("data-model-detail-container", "style"),
+    Input("data-model-ui-store", "data"),
+    State("data-model-explorer-count", "children"),
+)
+def update_panel_layout(
+    ui: dict[str, Any] | None,
+    explorer_count: str | None,
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    str,
+    str,
+    list[Any],
+    dict[str, Any],
+    list[Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+]:
+    """Style + header 3 panel theo cờ thu nhỏ trong ui-store.
+
+    Panel thu nhỏ thành dải hẹp 36px (class dm-panel-collapsed để mobile
+    không ép min-height 320px), ER Canvas tự giãn theo chỗ trống vì flex.
+    """
+    ui_data = ui or {}
+    explorer_collapsed = bool(ui_data.get("explorer_collapsed"))
+    detail_collapsed = bool(ui_data.get("detail_collapsed"))
+    count_text = str(explorer_count or "")
+    return (
+        _panel_style(2, explorer_collapsed),
+        _panel_style(5, False),
+        _panel_style(3, detail_collapsed),
+        "dm-panel-collapsed" if explorer_collapsed else "",
+        "dm-panel-collapsed" if detail_collapsed else "",
+        _explorer_header_children(explorer_collapsed, count_text),
+        dict(_PANEL_HEADER_COLLAPSED_STYLE) if explorer_collapsed else dict(_PANEL_HEADER_STYLE),
+        _detail_header_children(detail_collapsed),
+        dict(_PANEL_HEADER_COLLAPSED_STYLE) if detail_collapsed else dict(_PANEL_HEADER_STYLE),
+        {"display": "none"} if explorer_collapsed else dict(_PANEL_CONTAINER_STYLE),
+        {"display": "none"} if detail_collapsed else dict(_PANEL_CONTAINER_STYLE),
+    )
 
 
 @callback(

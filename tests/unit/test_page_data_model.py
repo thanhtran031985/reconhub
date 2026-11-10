@@ -1327,3 +1327,107 @@ def test_handle_sync_run_error(dm_env, dm_manifest, monkeypatch):
     assert "Không thể đọc metadata database." in str(err)
     assert "Thử lại" in str(err)
     assert manifest_data is not None  # giữ manifest cũ khi sync lỗi
+
+
+# --- Bổ sung sau review (2026-11-10): click-outside + thu nhỏ panel ---
+
+
+def test_update_workspace_selection_none_shows_empty_detail(dm_manifest):
+    """Click-outside xóa selection (store null): render với selection=None ->
+    Detail về empty state, Explorer/Canvas không còn highlight."""
+    import app.ui.pages.data_model as page
+
+    explorer, canvas, detail, count_text, _status, _zoom = page.update_workspace(
+        dm_manifest, "", "all", "relations", None, {"expanded": {}}, 1.0
+    )
+    assert "Chọn một table hoặc relationship để xem chi tiết." in str(detail)
+    assert "RECON_RUN" in str(explorer)
+    assert "43 tables" in count_text
+    nodes = list(_walk(canvas))
+    entities = {
+        n.id["table"]: n for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-entity"
+    }
+    assert entities
+    assert all("selected" not in (n.className or "") for n in entities.values())
+    assert all("dimmed" not in (n.className or "") for n in entities.values())
+
+
+def test_handle_panel_toggle(monkeypatch):
+    """Nút thu nhỏ/mở rộng ở header panel: đảo cờ trong ui-store, độc lập nhau."""
+    import dash
+
+    import app.ui.pages.data_model as page
+
+    def _trigger(btn_id):
+        monkeypatch.setattr(
+            "dash.callback_context",
+            SimpleNamespace(triggered=[{"prop_id": btn_id + ".n_clicks", "value": 1}]),
+        )
+
+    base_ui = {"domain": "all", "mode": "relations", "expanded": {}}
+    _trigger("data-model-explorer-collapse-btn")
+    ui = page.handle_panel_toggle(1, None, base_ui)
+    assert ui.get("explorer_collapsed") is True
+    assert ui.get("detail_collapsed") is not True
+    # Bấm lại -> mở ra.
+    ui2 = page.handle_panel_toggle(1, None, ui)
+    assert ui2.get("explorer_collapsed") is False
+    # Nút Detail độc lập với Explorer.
+    _trigger("data-model-detail-collapse-btn")
+    ui3 = page.handle_panel_toggle(None, 1, ui2)
+    assert ui3.get("detail_collapsed") is True
+    assert ui3.get("explorer_collapsed") is False
+    # n_clicks=0 (phát lại lúc load) -> không đổi.
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "data-model-explorer-collapse-btn.n_clicks", "value": 0}]),
+    )
+    with pytest.raises(dash.exceptions.PreventUpdate):
+        page.handle_panel_toggle(0, None, ui3)
+
+
+def test_update_panel_layout():
+    """Style + header panel theo cờ thu nhỏ trong ui-store."""
+    import app.ui.pages.data_model as page
+
+    base_ui = {"domain": "all", "mode": "relations", "expanded": {}}
+    (
+        exp_style,
+        canvas_style,
+        det_style,
+        exp_cls,
+        det_cls,
+        exp_head,
+        _exp_head_style,
+        det_head,
+        _det_head_style,
+        exp_cont_style,
+        det_cont_style,
+    ) = page.update_panel_layout(base_ui, "43 tables")
+    assert exp_style["flex"] == 2
+    assert canvas_style["flex"] == 5
+    assert det_style["flex"] == 3
+    assert exp_cls == "" and det_cls == ""
+    assert "Thu nhỏ bảng Explorer" in str(exp_head)
+    assert "Thu nhỏ bảng Chi tiết" in str(det_head)
+    assert "43 tables" in str(exp_head)
+    assert exp_cont_style.get("display") != "none"
+    assert det_cont_style.get("display") != "none"
+
+    # Thu Explorer: dải hẹp 36px, nút mở lại, container ẩn, canvas giữ flex 5.
+    out = page.update_panel_layout({**base_ui, "explorer_collapsed": True}, "43 tables")
+    assert out[0]["flex"] == "0 0 36px"
+    assert out[3] == "dm-panel-collapsed"
+    assert "Mở rộng bảng Explorer" in str(out[5])
+    assert "43 tables" in str(out[5])  # count vẫn render (ẩn) để update_workspace không lỗi
+    assert out[9] == {"display": "none"}
+    assert out[1]["flex"] == 5
+    assert out[10].get("display") != "none"
+
+    # Thu cả hai: ER chiếm toàn bộ chiều rộng còn lại.
+    out2 = page.update_panel_layout({**base_ui, "explorer_collapsed": True, "detail_collapsed": True}, "43 tables")
+    assert out2[0]["flex"] == "0 0 36px"
+    assert out2[2]["flex"] == "0 0 36px"
+    assert out2[1]["flex"] == 5
+    assert "Mở rộng bảng Chi tiết" in str(out2[7])
+    assert out2[9] == {"display": "none"} and out2[10] == {"display": "none"}

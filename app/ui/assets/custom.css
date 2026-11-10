@@ -260,9 +260,15 @@ main > div > div,
     flex-direction: column !important;
   }
 
-  .dm-workspace > * {
+  /* Panel thu nhỏ (class dm-panel-collapsed) giữ dải hẹp 36px, không bị
+     ép min-height 320px như panel thường (bổ sung sau review 2026-11-10). */
+  .dm-workspace > *:not(.dm-panel-collapsed) {
     flex: none !important;
     min-height: 320px;
+  }
+
+  .dm-workspace > .dm-panel-collapsed {
+    min-height: 36px;
   }
 }
 
