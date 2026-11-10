@@ -39,6 +39,21 @@ def _dump(component) -> str:
     return json.dumps(conv(component), ensure_ascii=False, default=str)
 
 
+def _find_by_id(component, target_id):
+    """Tìm component theo id trong cây layout (duyệt đệ quy children)."""
+    if getattr(component, "id", None) == target_id:
+        return component
+    children = getattr(component, "children", None)
+    if isinstance(children, (list, tuple)):
+        for child in children:
+            found = _find_by_id(child, target_id)
+            if found is not None:
+                return found
+    elif children is not None:
+        return _find_by_id(children, target_id)
+    return None
+
+
 class TestFormatCell:
     def test_number_masks(self):
         import app.ui.pages.report_viewer as page
@@ -100,6 +115,15 @@ class TestParamControls:
         assert "MultiSelect" in _dump(multi_c)
         range_c = page.render_param_control({**base, "data_type": "DATE", "control_type": "DATE_RANGE"}, None)
         assert _dump(range_c).count("DateInput") == 2
+
+    def test_date_input_value_format(self):
+        import app.ui.pages.report_viewer as page
+
+        base = {"id": 1, "code": "p_x", "label": "X", "required": False, "grid_span": 3, "lov": {"lov_type": "NONE"}}
+        date_c = page.render_param_control({**base, "data_type": "DATE", "control_type": "DATE"}, None)
+        assert "YYYY-MM-DD" in _dump(date_c)
+        range_c = page.render_param_control({**base, "data_type": "DATE", "control_type": "DATE_RANGE"}, None)
+        assert _dump(range_c).count("YYYY-MM-DD") == 2
 
     def test_required_marker(self):
         import app.ui.pages.report_viewer as page
@@ -169,6 +193,110 @@ class TestResultTable:
         assert "Không có dòng nào" in text
 
 
+class TestParamFormAction:
+    def _preview(self, spans):
+        params = [
+            {
+                "id": i + 1,
+                "code": f"p_{i}",
+                "label": f"P{i}",
+                "data_type": "STRING",
+                "control_type": "TEXT",
+                "required": False,
+                "grid_span": span,
+                "lov": {"lov_type": "NONE"},
+            }
+            for i, span in enumerate(spans)
+        ]
+        return {"rows": [{"params": params}]}
+
+    def test_action_same_row_when_total_span_lt_12(self):
+        from dash import html
+
+        import app.ui.pages.report_viewer as page
+
+        form = page.render_param_form(
+            self._preview([3, 3, 2, 2]),
+            {},
+            action=html.Div("ACTION-BTN", id="viewer-run-btn"),
+        )
+        rows = form.children
+        assert len(rows) == 1  # tổng span 10 < 12: nút cùng dòng với tham số
+        assert "ACTION-BTN" in _dump(rows[0])
+
+    def test_action_new_row_when_total_span_ge_12(self):
+        from dash import html
+
+        import app.ui.pages.report_viewer as page
+
+        form = page.render_param_form(
+            self._preview([6, 6]),
+            {},
+            action=html.Div("ACTION-BTN", id="viewer-run-btn"),
+        )
+        rows = form.children
+        assert len(rows) == 2  # tổng span 12: nút xuống dòng mới
+        assert "ACTION-BTN" not in _dump(rows[0])
+        assert "ACTION-BTN" in _dump(rows[1])
+
+    def test_no_action_unchanged(self):
+        import app.ui.pages.report_viewer as page
+
+        form = page.render_param_form(self._preview([3, 3]), {})
+        assert len(form.children) == 1
+
+
+class TestResultGrid:
+    def _layout(self):
+        return {
+            "columns": [
+                {
+                    "field_name": "AMOUNT",
+                    "label": "Số tiền",
+                    "data_type": "NUMBER",
+                    "format_mask": "#,##0",
+                    "alignment": "RIGHT",
+                    "width": 120,
+                    "is_total": True,
+                },
+                {
+                    "field_name": "ORG",
+                    "label": "Đơn vị",
+                    "data_type": "STRING",
+                    "format_mask": None,
+                    "alignment": "LEFT",
+                    "width": 180,
+                    "is_total": False,
+                },
+            ]
+        }
+
+    def test_grid_columns_rows_and_totals(self):
+        from app.ui.components.report_widgets import render_result_grid
+
+        rows = [{"AMOUNT": 1000000, "ORG": "A"}, {"AMOUNT": 2500000, "ORG": "B"}]
+        text = _dump(render_result_grid(self._layout(), rows))
+        assert "AgGrid" in text
+        assert "Số tiền" in text and "Đơn vị" in text
+        assert "1.000.000" in text
+        assert "3.500.000" in text  # hàng Tổng (pinned)
+        assert "pinnedBottomRowData" in text
+
+    def test_grid_empty_rows(self):
+        from app.ui.components.report_widgets import render_result_grid
+
+        text = _dump(render_result_grid(self._layout(), []))
+        assert "Không có dòng nào" in text
+
+    def test_grid_number_column_has_comparator(self):
+        """Hồi quy sort sai: rowData là chuỗi định dạng nên cột NUMBER cần
+        comparator parse ngược về số ("9.000" không được > "55.000")."""
+        from app.ui.components.report_widgets import render_result_grid
+
+        text = _dump(render_result_grid(self._layout(), [{"AMOUNT": 1, "ORG": "A"}]))
+        assert "reconViewerNumCompare" in text
+
+
 class TestViewerLayout:
     def test_layout_operator_renders_tabs_and_form(self, export_env, operator_ctx, monkeypatch):
         import app.ui.pages.report_viewer as page
@@ -203,6 +331,26 @@ class TestViewerLayout:
         monkeypatch.setattr(page, "get_current_ctx", lambda: norole_ctx)
         text = _dump(page.layout(report_id=export_env["report_id"]))
         assert "không có quyền" in text
+
+    def test_export_button_always_enabled(self, export_env, operator_ctx, monkeypatch):
+        import app.ui.pages.report_viewer as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        comp = page.layout(report_id=export_env["report_id"])
+        btn = _find_by_id(comp, "viewer-export-btn")
+        assert btn is not None
+        assert not getattr(btn, "disabled", False)
+
+    def test_result_loading_frame_stretches(self, export_env, operator_ctx, monkeypatch):
+        """Hồi quy grid 0px: style của dcc.Loading đi vào lớp phủ spinner,
+        khung ngoài phải co giãn bằng parent_style (như layout /history)."""
+        import app.ui.pages.report_viewer as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        comp = page.layout(report_id=export_env["report_id"])
+        loading = _find_by_id(comp, "viewer-loading")
+        assert loading is not None
+        assert (loading.parent_style or {}).get("flex") == 1
 
 
 class TestViewerRun:
@@ -263,6 +411,55 @@ class TestViewerRun:
         assert page_store == 1
         text = _dump(error)
         assert "ORA-12154" in text
+
+    def test_run_failed_shows_notification_not_alert(self, export_env, operator_ctx, monkeypatch):
+        from unittest.mock import patch
+
+        import app.ui.pages.report_viewer as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        with patch(
+            "app.services.report_source.open_source_connection",
+            side_effect=RuntimeError("ORA-12154: TNS:could not resolve"),
+        ):
+            _run_store, _page_store, error = page.handle_run_click(
+                1,
+                export_env["report_id"],
+                export_env["sql_template_id"],
+                ["HN"],
+                [{"type": "viewer-param", "index": "p_org"}],
+                50,
+            )
+        text = _dump(error)
+        assert "Notification" in text
+        assert "Alert" not in text
+        assert "ORA-12154" in text
+
+    def test_result_render_uses_ag_grid(self, export_env, operator_ctx, monkeypatch):
+        from unittest.mock import patch
+
+        import app.ui.pages.report_viewer as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        conn, _ = _mock_ora_conn(ROWS)
+        with patch(
+            "app.services.report_source.open_source_connection",
+            return_value=conn,
+        ):
+            run_store, _page_store, _error = page.handle_run_click(
+                1,
+                export_env["report_id"],
+                export_env["sql_template_id"],
+                ["HN"],
+                [{"type": "viewer-param", "index": "p_org"}],
+                50,
+            )
+            result_html, _count = page.handle_result_render(run_store, 1, [], 50)
+        text = _dump(result_html)
+        assert "AgGrid" in text
+        assert "AMOUNT" in text
+        assert "1.000" in text
+        assert "HN" in text
 
     def test_page_of_failed_run_is_clean_error(self, export_env, operator_ctx, monkeypatch):
         from unittest.mock import patch
@@ -406,3 +603,134 @@ class TestViewerRun:
         assert "Tổng cộng" in text
         assert "3.500.000" in text
         assert "TableTfoot" in text
+
+
+class TestViewerSort:
+    def test_grid_sort_change_sets_sort_store(self):
+        import app.ui.pages.report_viewer as page
+
+        column_state = [
+            {"colId": "AMOUNT", "sort": "desc", "sortIndex": 0},
+            {"colId": "ORG", "sort": None, "sortIndex": None},
+        ]
+        sorts, page_no = page.handle_grid_sort_change(column_state, [])
+        assert sorts == [{"field": "AMOUNT", "direction": "DESC"}]
+        assert page_no == 1
+
+    def test_grid_sort_change_noop_when_same(self):
+        import pytest
+        from dash.exceptions import PreventUpdate
+
+        import app.ui.pages.report_viewer as page
+
+        column_state = [{"colId": "AMOUNT", "sort": "desc", "sortIndex": 0}]
+        with pytest.raises(PreventUpdate):
+            page.handle_grid_sort_change(column_state, [{"field": "AMOUNT", "direction": "DESC"}])
+
+    def test_grid_sort_change_clears_sort(self):
+        import app.ui.pages.report_viewer as page
+
+        column_state = [{"colId": "AMOUNT", "sort": None, "sortIndex": None}]
+        sorts, page_no = page.handle_grid_sort_change(
+            column_state, [{"field": "AMOUNT", "direction": "DESC"}]
+        )
+        assert sorts == []
+        assert page_no == 1
+
+
+class TestViewerExport:
+    def _param_ids(self):
+        return [{"type": "viewer-param", "index": "p_org"}]
+
+    def test_export_click_creates_run_from_form_when_no_run(self, export_env, operator_ctx, monkeypatch):
+        from unittest.mock import patch
+
+        import app.ui.pages.report_viewer as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        conn, _ = _mock_ora_conn(ROWS)
+        with patch(
+            "app.services.report_source.open_source_connection",
+            return_value=conn,
+        ):
+            store, status, poll_disabled, new_run_store, page_no = page.handle_export_click(
+                1,
+                {},
+                export_env["report_id"],
+                export_env["sql_template_id"],
+                ["HN"],
+                self._param_ids(),
+                1,
+            )
+        assert store.get("export_id") is not None
+        assert poll_disabled is False  # QUEUED → poll
+        assert "Progress" in _dump(status)
+        assert new_run_store.get("run_id") is not None
+        assert new_run_store.get("values") == {"p_org": "HN"}
+        assert page_no == 1
+
+    def test_export_click_reuses_run_when_values_match(self, export_env, operator_ctx, monkeypatch):
+        import app.ui.pages.report_viewer as page
+        from app.services.report_run import list_report_runs
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        run = _done_run(operator_ctx, export_env)
+        run_store = {
+            "run_id": run["id"],
+            "template_id": export_env["sql_template_id"],
+            "report_id": export_env["report_id"],
+            "values": {"p_org": "HN"},
+            "total": 3,
+            "total_pages": 1,
+        }
+        store, _status, _poll, new_run_store, page_no = page.handle_export_click(
+            1,
+            run_store,
+            export_env["report_id"],
+            export_env["sql_template_id"],
+            ["HN"],
+            self._param_ids(),
+            2,
+        )
+        assert store.get("export_id") is not None
+        assert new_run_store["run_id"] == run["id"]
+        assert page_no == 2  # xuất lại run cũ: giữ nguyên trang đang xem
+        runs = list_report_runs(operator_ctx, page=1, page_size=50)
+        assert runs.ok and runs.data["total"] == 1  # không tạo run mới
+
+    def test_export_click_creates_new_run_when_values_changed(self, export_env, operator_ctx, monkeypatch):
+        from unittest.mock import patch
+
+        import app.ui.pages.report_viewer as page
+        from app.services.report_run import list_report_runs
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        run = _done_run(operator_ctx, export_env)
+        run_store = {
+            "run_id": run["id"],
+            "template_id": export_env["sql_template_id"],
+            "report_id": export_env["report_id"],
+            "values": {"p_org": "HN"},
+            "total": 3,
+            "total_pages": 1,
+        }
+        conn, _ = _mock_ora_conn(ROWS)
+        with patch(
+            "app.services.report_source.open_source_connection",
+            return_value=conn,
+        ):
+            store, _status, _poll, new_run_store, page_no = page.handle_export_click(
+                1,
+                run_store,
+                export_env["report_id"],
+                export_env["sql_template_id"],
+                ["HCM"],
+                self._param_ids(),
+                2,
+            )
+        assert store.get("export_id") is not None
+        assert new_run_store["run_id"] != run["id"]
+        assert new_run_store.get("values") == {"p_org": "HCM"}
+        assert page_no == 1  # run mới: về trang 1
+        runs = list_report_runs(operator_ctx, page=1, page_size=50)
+        assert runs.ok and runs.data["total"] == 2

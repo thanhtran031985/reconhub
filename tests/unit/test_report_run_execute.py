@@ -377,6 +377,45 @@ class TestExecuteReportRun:
         count_call = next(c for c in cursor.execute.call_args_list if "COUNT(*)" in str(c.args[0]))
         assert count_call.args[1] == {"p_org": "HN", "p_amount_min": 1000}
 
+    def test_build_run_query_custom_sql_binds_null_for_absent_optional(self):
+        """Hồi quy DPY-4010: tham số không bắt buộc vắng giá trị phải được
+        bind NULL (để SQL dạng (:P_ORG IS NULL OR ...) chạy được) thay vì
+        vắng mặt hoàn toàn khỏi binds."""
+        from app.services.report_run import build_run_query
+
+        detail = {
+            "source_type": "CUSTOM_SQL",
+            "sql_text": (
+                "SELECT amount, org FROM fin_revenue "
+                "WHERE (:P_ORG IS NULL OR ORG = :P_ORG) AND TXN_DATE >= :P_FROM"
+            ),
+            "params": [{"code": "p_org"}, {"code": "p_from"}],
+            "columns": [{"field_name": "AMOUNT"}],
+        }
+        sql, binds = build_run_query(detail, {"p_from": "2026-11-01"})
+        assert sql == detail["sql_text"]
+        assert binds == {"p_org": None, "p_from": "2026-11-01"}
+
+    def test_execute_view_absent_optional_adds_no_filter(self, run_env, operator_ctx):
+        """VIEW: tham số không bắt buộc vắng → không lọc, binds không có key
+        đó (hành vi cũ phải giữ nguyên sau sửa CUSTOM_SQL)."""
+        from app.services.report_run import create_report_run, execute_report_run
+
+        run = create_report_run(
+            operator_ctx,
+            run_env["report_id"],
+            template_id=run_env["view_template_id"],
+            values={"p_org": "HN"},
+        ).data
+        conn, cursor = _mock_ora_conn(ROWS)
+        with patch(
+            "app.services.report_source.open_source_connection", return_value=conn
+        ):
+            res = execute_report_run(operator_ctx, run["id"])
+        assert res.ok, res.message
+        count_call = next(c for c in cursor.execute.call_args_list if "COUNT(*)" in str(c.args[0]))
+        assert count_call.args[1] == {"p_org": "HN"}
+
     def test_execute_twice_rejected(self, run_env, operator_ctx):
         from app.services.report_run import create_report_run, execute_report_run
 
