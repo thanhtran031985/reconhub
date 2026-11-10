@@ -27,7 +27,6 @@ from app.services.report import create_report, delete_report, get_report, list_r
 from app.services.report_column import (
     delete_column,
     list_columns,
-    move_column,
     preview_result_layout,
     refresh_columns,
     reorder_columns,
@@ -65,7 +64,9 @@ from app.services.report_template import (
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary
 from app.ui.components.command_bar import command_bar
+from app.ui.components.data_grid import data_grid
 from app.ui.components.empty_state import empty_state
+from app.ui.components.grid_defaults import GRID_DEFAULTS
 from app.ui.components.modal_confirm import modal_confirm
 from app.ui.components.notification import (
     notify_error,
@@ -1926,162 +1927,174 @@ def _render_columns_preview(columns: list[dict[str, Any]]) -> Any:
     )
 
 
-def _render_step4_rows(columns: list[dict[str, Any]]) -> list[Any]:
-    """Render danh sách các dòng tr cho bảng Cấu hình cột (siêu nhẹ, không lag DOM)."""
-    rows = []
-    for i, c in enumerate(columns):
-        masks = FORMAT_MASKS.get(str(c.get("data_type")), [])
-        rows.append(
-            html.Tr(
-                key=f"col-{c['id']}",
-                children=[
-                    html.Td(
-                        html.Div(
-                            [
-                                html.Button(
-                                    "↑",
-                                    id={"type": "admin-col-up", "index": c["id"]},
-                                    disabled=i == 0,
-                                    className="rh-btn-move-up rh-btn-arrow",
-                                    title=f"Dời cột {c['field_name']} lên",
-                                ),
-                                html.Button(
-                                    "↓",
-                                    id={"type": "admin-col-down", "index": c["id"]},
-                                    disabled=i == len(columns) - 1,
-                                    className="rh-btn-move-down rh-btn-arrow",
-                                    title=f"Dời cột {c['field_name']} xuống",
-                                ),
-                            ],
-                            style={"display": "flex", "gap": "2px", "justifyContent": "center"},
-                        ),
-                        style={"width": "54px", "minWidth": "54px", "padding": "4px 4px"},
-                    ),
-                    html.Td(
-                        html.Span("⋮⋮", className="rh-drag-handle", style={"cursor": "grab", "fontSize": "14px"}),
-                        style={"textAlign": "center", "width": "24px", "minWidth": "24px", "padding": "4px 4px"},
-                    ),
-                    html.Td(
-                        html.Span(
-                            str(c["field_name"]),
-                            className="rh-code",
-                            title=str(c["field_name"]),
-                            style={"fontSize": "11px", "fontWeight": 600},
-                        ),
-                        style={"minWidth": "160px", "maxWidth": "220px", "textAlign": "left", "padding": "4px 4px", "wordBreak": "break-word"},
-                    ),
-                    html.Td(
-                        dcc.Input(
-                            value=str(c.get("label") or c["field_name"]),
-                            id={"type": "admin-col-label", "index": c["id"]},
-                            className="rh-native-input",
-                            style={"width": "100%"},
-                        ),
-                        style={"minWidth": "160px", "maxWidth": "240px", "textAlign": "left", "padding": "4px 4px"},
-                    ),
-                    html.Td(
-                        dmc.Select(
-                            data=["STRING", "NUMBER", "DATE", "DATETIME"],
-                            value=str(c.get("data_type")),
-                            id={"type": "admin-col-type", "index": c["id"]},
-                            size="xs",
-                            clearable=False,
-                            searchable=False,
-                            variant="unstyled",
-                            styles={
-                                "input": {"fontSize": "11px", "minHeight": "22px", "height": "22px", "padding": "0 4px"}
-                            },
-                        ),
-                        style={"width": "90px", "minWidth": "90px", "padding": "4px 4px"},
-                    ),
-                    html.Td(
-                        dmc.Select(
-                            data=[{"value": m, "label": m} for m in masks] + [{"value": "", "label": "(không)"}],
-                            value=str(c.get("format_mask") or ""),
-                            id={"type": "admin-col-format", "index": c["id"]},
-                            size="xs",
-                            clearable=False,
-                            searchable=False,
-                            variant="unstyled",
-                            styles={
-                                "input": {"fontSize": "11px", "minHeight": "22px", "height": "22px", "padding": "0 4px"}
-                            },
-                        ),
-                        style={"width": "115px", "minWidth": "115px", "padding": "4px 4px"},
-                    ),
-                    html.Td(
-                        dmc.Select(
-                            data=[{"value": opt["value"], "label": opt["label"]} for opt in ALIGNMENT_OPTIONS],
-                            value=str(c.get("alignment") or "LEFT"),
-                            id={"type": "admin-col-align", "index": c["id"]},
-                            size="xs",
-                            clearable=False,
-                            searchable=False,
-                            variant="unstyled",
-                            styles={
-                                "input": {"fontSize": "11px", "minHeight": "22px", "height": "22px", "padding": "0 4px"}
-                            },
-                        ),
-                        style={"width": "80px", "minWidth": "80px", "padding": "4px 4px"},
-                    ),
-                    html.Td(
-                        dcc.Input(
-                            type="number",
-                            value=c.get("column_width") or c.get("width") or 120,
-                            id={"type": "admin-col-width", "index": c["id"]},
-                            min=40,
-                            max=500,
-                            className="rh-native-input",
-                            style={"width": "100%", "textAlign": "center"},
-                        ),
-                        style={"width": "65px", "minWidth": "65px", "padding": "4px 4px"},
-                    ),
-                    html.Td(
-                        dcc.Checklist(
-                            options=[{"label": "", "value": "1"}],
-                            value=["1"] if c.get("web_visible") else [],
-                            id={"type": "admin-col-web", "index": c["id"]},
-                            className="rh-native-checklist",
-                        ),
-                        style={"width": "48px", "minWidth": "48px", "textAlign": "center", "padding": "4px 4px"},
-                    ),
-                    html.Td(
-                        dcc.Checklist(
-                            options=[{"label": "", "value": "1"}],
-                            value=["1"] if c.get("excel_visible") else [],
-                            id={"type": "admin-col-excel", "index": c["id"]},
-                            className="rh-native-checklist",
-                        ),
-                        style={"width": "48px", "minWidth": "48px", "textAlign": "center", "padding": "4px 4px"},
-                    ),
-                    html.Td(
-                        dcc.Checklist(
-                            options=[{"label": "", "value": "1"}],
-                            value=["1"] if c.get("is_total") else [],
-                            id={"type": "admin-col-total", "index": c["id"]},
-                            className="rh-native-checklist",
-                        )
-                        if str(c.get("data_type")) == "NUMBER"
-                        else html.Span("—", style={"color": "#aaa", "fontSize": "11px"}),
-                        style={"width": "48px", "minWidth": "48px", "textAlign": "center", "padding": "4px 4px"},
-                    ),
-                    html.Td(
-                        html.Button(
-                            "🗑",
-                            id={"type": "admin-col-del", "index": c["id"]},
-                            className="rh-btn-del",
-                            title=f"Xóa cột {c['field_name']}",
-                        ),
-                        style={"width": "40px", "minWidth": "40px", "textAlign": "center", "padding": "4px 4px"},
-                    ),
-                ],
-                className="rh-drag-col",
-                draggable="true",
-                **{"data-col-id": str(c["id"]), "data-field-name": str(c["field_name"]).upper()},  # type: ignore[arg-type]
-                style={"verticalAlign": "middle", "borderBottom": "1px solid var(--line, #e0e0e0)"},
-            )
-        )
-    return rows
+# ─── Grid cột bước 4: AG Grid (task 35) ─────────────────────────────────────
+# Grid cũ (html.Table tự dựng, ~11 component Dash/dòng, không virtualize)
+# treo trang với template nhiều cột. AgGrid chỉ vẽ dòng đang nhìn thấy,
+# sửa ô/kéo-thả/tìm kiếm là tính năng có sẵn; "Lưu cột" đọc rowData +
+# virtualRowData thay vì gom ~10 danh sách pattern-matching ALL.
+
+# Định dạng: cellEditorParams không nhận function (dash-ag-grid 35.3.0
+# không convert {"function": ...} trong đó — đã kiểm chứng bằng prototype)
+# nên options là hợp tĩnh mọi mask; service validate mask theo kiểu lúc lưu.
+_COL_GRID_FORMAT_VALUES: list[str] = sorted(
+    {mask for masks in FORMAT_MASKS.values() for mask in masks} | {""}
+)
+_COL_GRID_TOTAL_EDITABLE_FN = "params.data.data_type === 'NUMBER'"
+_COL_GRID_FORMAT_EMPTY_FN = "params.value || '(không)'"
+
+
+def _column_grid_column_defs(editable: bool) -> list[dict[str, Any]]:
+    """columnDefs cho grid cột bước 4.
+
+    Kiểu (data_type) chỉ hiển thị: service coi DATA_TYPE là readonly và
+    grid cũ cũng chưa bao giờ lưu được giá trị select Kiểu.
+    """
+    total_editable: bool | dict[str, str] = (
+        {"function": _COL_GRID_TOTAL_EDITABLE_FN} if editable else False
+    )
+    return [
+        {
+            "headerName": "",
+            "rowDrag": editable,
+            "width": 30,
+            "minWidth": 30,
+            "maxWidth": 30,
+            "sortable": False,
+            "filter": False,
+            "resizable": False,
+            "suppressHeaderMenuButton": True,
+        },
+        {"field": "field_name", "headerName": "Trường DB", "editable": False, "width": 170},
+        {
+            "field": "label",
+            "headerName": "Nhãn",
+            "editable": editable,
+            "cellEditor": "agTextCellEditor",
+            "width": 180,
+        },
+        {"field": "data_type", "headerName": "Kiểu", "editable": False, "width": 100},
+        {
+            "field": "format_mask",
+            "headerName": "Định dạng",
+            "editable": editable,
+            "cellEditor": "agSelectCellEditor",
+            "cellEditorParams": {"values": _COL_GRID_FORMAT_VALUES},
+            "valueFormatter": {"function": _COL_GRID_FORMAT_EMPTY_FN},
+            "width": 150,
+        },
+        {
+            "field": "alignment",
+            "headerName": "Canh",
+            "editable": editable,
+            "cellEditor": "agSelectCellEditor",
+            "cellEditorParams": {"values": ["LEFT", "CENTER", "RIGHT"]},
+            "width": 90,
+        },
+        {
+            "field": "width",
+            "headerName": "Rộng",
+            "editable": editable,
+            "cellEditor": "agNumberCellEditor",
+            "cellEditorParams": {"min": 40, "max": 400},
+            "width": 80,
+        },
+        {
+            "field": "web_visible",
+            "headerName": "Web",
+            "editable": editable,
+            "cellRenderer": "agCheckboxCellRenderer",
+            "cellEditor": "agCheckboxCellEditor",
+            "width": 60,
+        },
+        {
+            "field": "excel_visible",
+            "headerName": "Excel",
+            "editable": editable,
+            "cellRenderer": "agCheckboxCellRenderer",
+            "cellEditor": "agCheckboxCellEditor",
+            "width": 60,
+        },
+        {
+            "field": "is_total",
+            "headerName": "Tổng",
+            "editable": total_editable,
+            "cellRenderer": "agCheckboxCellRenderer",
+            "cellEditor": "agCheckboxCellEditor",
+            "width": 60,
+        },
+    ]
+
+
+def _column_grid_options(quick_filter: str = "") -> dict[str, Any]:
+    """dashGridOptions đầy đủ cho grid cột (render + callback tìm kiếm).
+
+    Sort/filter cột tắt: sort sẽ làm virtualRowData lệch khỏi thứ tự hiển
+    thị và lưu nhầm thứ tự đã sort thành thứ tự hiển thị. Chỉ còn tìm
+    kiếm nhanh qua ô "Tìm trường DB" (quickFilterText). rowSelection dạng
+    chuỗi "single": dạng object {"mode": "singleRow"} không kích hoạt
+    selectedRows ở dash-ag-grid 35.3.0 (đã kiểm chứng bằng prototype).
+    """
+    options = dict(GRID_DEFAULTS)
+    options["rowModelType"] = "clientSide"
+    options["rowDragManaged"] = True
+    options["rowSelection"] = "single"
+    options["quickFilterText"] = quick_filter or ""
+    options["defaultColDef"] = {
+        **GRID_DEFAULTS["defaultColDef"],
+        "sortable": False,
+        "filter": False,
+        "suppressMovable": True,
+    }
+    return options
+
+
+def _column_grid_save_payload(
+    row_data: list[dict[str, Any]] | None,
+    virtual_data: list[dict[str, Any]] | None,
+) -> tuple[list[dict[str, Any]], list[int]]:
+    """(rows cho update_columns, order cho reorder_columns) từ props grid.
+
+    Nội dung ô lấy từ rowData (đồng bộ sau mỗi lần sửa ô). Thứ tự lấy từ
+    virtualRowData (đồng bộ sau kéo-thả; rowData thì không — đã kiểm chứng
+    bằng prototype). Khi đang lọc tìm kiếm, virtualRowData chỉ còn dòng
+    visible: gộp thứ tự visible vào vị trí cũ của chúng trong rowData.
+    Chỉ gửi 7 trường sửa được — FIELD_NAME/DATA_TYPE/DISPLAY_ORDER là
+    readonly, có mặt trong payload là service báo lỗi.
+    """
+    rows_by_id: dict[int, dict[str, Any]] = {}
+    full_ids: list[int] = []
+    for r in row_data or []:
+        if not isinstance(r, dict) or r.get("id") is None:
+            continue
+        cid = int(r["id"])
+        full_ids.append(cid)
+        width = r.get("width")
+        if width == "":
+            width = None
+        elif isinstance(width, float) and width.is_integer():
+            width = int(width)
+        rows_by_id[cid] = {
+            "id": cid,
+            "label": r.get("label"),
+            "format_mask": r.get("format_mask") or None,
+            "alignment": r.get("alignment"),
+            "width": width,
+            "web_visible": bool(r.get("web_visible")),
+            "excel_visible": bool(r.get("excel_visible")),
+            "is_total": bool(r.get("is_total")),
+        }
+    vis_ids = [
+        int(r["id"])
+        for r in virtual_data or []
+        if isinstance(r, dict) and r.get("id") is not None
+    ]
+    if not vis_ids or len(vis_ids) == len(full_ids):
+        order = vis_ids or full_ids
+    else:
+        vis_set = set(vis_ids)
+        it = iter(vis_ids)
+        order = [next(it) if cid in vis_set else cid for cid in full_ids]
+    return [rows_by_id[cid] for cid in full_ids], order
 
 
 def render_step4(state: dict[str, Any]) -> Any:
@@ -2092,7 +2105,7 @@ def render_step4(state: dict[str, Any]) -> Any:
         res = list_columns(ctx, int(state["version_id"]))
         if res.ok and isinstance(res.data, list):
             columns = res.data
-    rows = _render_step4_rows(columns)
+    is_draft = str(state.get("version_status") or "") == "DRAFT"
 
     card_cols = dmc.Paper(
         [
@@ -2101,7 +2114,7 @@ def render_step4(state: dict[str, Any]) -> Any:
                     dmc.Stack(
                         [
                             dmc.Title("Cấu hình cột", order=3, size=15, fw=600),
-                            dmc.Text("Nhập trực tiếp trên grid. Kéo biểu tượng ⋮⋮ hoặc dùng ↑↓ để đổi vị trí hiển thị.", size="xs", c="dimmed"),
+                            dmc.Text("Nhập trực tiếp trên grid. Kéo dòng để đổi vị trí hiển thị, bấm Lưu cột để ghi.", size="xs", c="dimmed"),
                         ],
                         gap=0,
                     ),
@@ -2120,14 +2133,26 @@ def render_step4(state: dict[str, Any]) -> Any:
                                 variant="filled",
                                 color="primary",
                                 size="xs",
+                                disabled=not is_draft,
                                 leftSection=DashIconify(icon="lucide:save", width=14),
                                 style={"height": "28px", "fontWeight": 600},
+                            ),
+                            dmc.Button(
+                                "Xóa cột đã chọn",
+                                id="admin-col-delete-btn",
+                                variant="light",
+                                color="red",
+                                size="xs",
+                                disabled=True,
+                                leftSection=DashIconify(icon="lucide:trash-2", width=14),
+                                style={"height": "28px", "fontWeight": 500},
                             ),
                             dmc.Button(
                                 "Khôi phục thứ tự DB",
                                 id="admin-col-restore-btn",
                                 variant="light",
                                 size="xs",
+                                disabled=not is_draft,
                                 leftSection=DashIconify(icon="lucide:rotate-ccw", width=14),
                                 style={"height": "28px", "fontWeight": 500},
                             ),
@@ -2136,6 +2161,7 @@ def render_step4(state: dict[str, Any]) -> Any:
                                 id="admin-col-refresh-btn",
                                 variant="subtle",
                                 size="xs",
+                                disabled=not is_draft,
                                 style={"height": "28px"},
                             ),
                         ],
@@ -2148,38 +2174,16 @@ def render_step4(state: dict[str, Any]) -> Any:
                 mb="xs",
             ),
             (
-                dmc.ScrollArea(
-                    dmc.Table(
-                        [
-                            dmc.TableThead(
-                                dmc.TableTr(
-                                    [
-                                        dmc.TableTh("Vị trí", style={"width": "54px", "minWidth": "54px", "padding": "6px 4px"}),
-                                        dmc.TableTh("", style={"width": "24px", "minWidth": "24px", "padding": "6px 4px"}),
-                                        dmc.TableTh("Trường DB", style={"minWidth": "160px", "maxWidth": "220px", "textAlign": "left", "padding": "6px 4px"}),
-                                        dmc.TableTh("Nhãn", style={"minWidth": "160px", "maxWidth": "240px", "textAlign": "left", "padding": "6px 4px"}),
-                                        dmc.TableTh("Kiểu", style={"width": "90px", "minWidth": "90px", "padding": "6px 4px"}),
-                                        dmc.TableTh("Định dạng", style={"width": "115px", "minWidth": "115px", "padding": "6px 4px"}),
-                                        dmc.TableTh("Canh", style={"width": "80px", "minWidth": "80px", "padding": "6px 4px"}),
-                                        dmc.TableTh("Rộng", style={"width": "65px", "minWidth": "65px", "textAlign": "center", "padding": "6px 4px"}),
-                                        dmc.TableTh("Web", style={"width": "48px", "minWidth": "48px", "textAlign": "center", "padding": "6px 4px"}),
-                                        dmc.TableTh("Excel", style={"width": "48px", "minWidth": "48px", "textAlign": "center", "padding": "6px 4px"}),
-                                        dmc.TableTh("Tổng", style={"width": "48px", "minWidth": "48px", "textAlign": "center", "padding": "6px 4px"}),
-                                        dmc.TableTh("Xóa", style={"width": "40px", "minWidth": "40px", "textAlign": "center", "padding": "6px 4px"}),
-                                    ]
-                                )
-                            ),
-                            html.Tbody(rows, id="admin-col-tbody"),
-                        ],
-                        striped=False,
-                        highlightOnHover=True,
-                        withTableBorder=True,
-                        className="rh-col-table",
-                        style={"width": "100%", "borderCollapse": "collapse"},
-                    ),
-                    h="calc(100vh - 310px)",
+                data_grid(
+                    id="admin-col-grid",
+                    columnDefs=_column_grid_column_defs(editable=is_draft),
+                    rowData=[dict(c) for c in columns],
+                    dashGridOptions=_column_grid_options(),
+                    getRowId="id",
+                    dangerously_allow_code=True,
+                    container_style={"height": "calc(100vh - 310px)", "flex": "0 0 auto"},
                 )
-                if rows
+                if columns
                 else empty_state(
                     "Chưa có cột nào.",
                     "Quay lại bước 2 và phân tích nguồn dữ liệu trước.",
@@ -2771,7 +2775,6 @@ def _step_hidden_placeholders(step: int) -> html.Div:
     if step != 2:
         hidden_children.append(dcc.Input(id="admin-s2-sql", type="hidden", value=""))
     if step != 4:
-        hidden_children.append(html.Tbody(id="admin-col-tbody", style={"display": "none"}))
         hidden_children.append(html.Div(id="admin-col-preview-container", style={"display": "none"}))
     if step != 5:
         hidden_children.append(html.Div(id="admin-dryrun-result", style={"display": "none"}))
@@ -3384,8 +3387,13 @@ def handle_column_save(
     n_clicks: int | None,
     state: dict[str, Any],
     rows: list[dict[str, Any]] | None,
+    order: list[int] | None = None,
 ) -> tuple[bool, Any]:
-    """Bước 4: lưu cả grid cột một lần (update_columns bulk)."""
+    """Bước 4: lưu cả grid cột một lần (update_columns bulk + xếp lại thứ tự).
+
+    Thứ tự chỉ ghi khi khác DB hiện tại để khỏi ghi audit thừa; reorder là
+    1 transaction riêng sau bulk update (xem plan task 35 Q7).
+    """
     if not n_clicks:
         raise PreventUpdate
     ctx = get_current_ctx()
@@ -3394,41 +3402,17 @@ def handle_column_save(
     res = update_columns(ctx, int(state["version_id"]), rows or [])
     if not res.ok:
         return False, _err_alert(res)
+    if order:
+        current = (
+            [int(c["id"]) for c in res.data.get("columns", [])]
+            if isinstance(res.data, dict)
+            else []
+        )
+        if current and [int(x) for x in order] != current:
+            rres = reorder_columns(ctx, int(state["version_id"]), [int(x) for x in order])
+            if not rres.ok:
+                return False, _err_alert(rres)
     return True, notify_success("Đã lưu cấu hình cột.")
-
-
-def handle_column_move(
-    n_clicks: int | None,
-    state: dict[str, Any],
-    column_id: int | None,
-    direction: str,
-) -> tuple[bool, Any]:
-    """Bước 4: dời cột lên/xuống trong grid."""
-    if not n_clicks:
-        raise PreventUpdate
-    ctx = get_current_ctx()
-    if ctx is None or not state.get("version_id") or not column_id:
-        raise PreventUpdate
-    version_id = int(state["version_id"])
-    res = list_columns(ctx, version_id)
-    if not res.ok or not isinstance(res.data, list):
-        return False, _err_alert(res)
-    ids = [int(c["id"]) for c in res.data]
-    idx = ids.index(int(column_id)) if int(column_id) in ids else -1
-    if idx < 0:
-        return False, notify_error("Không tìm thấy cột.")
-    if direction == "up":
-        if idx == 0:
-            return False, notify_warning("Đã ở đầu danh sách.")
-        to_index = idx - 1
-    else:
-        if idx == len(ids) - 1:
-            return False, notify_warning("Đã ở cuối danh sách.")
-        to_index = idx + 1
-    move_res = move_column(ctx, version_id, int(column_id), to_index)
-    if not move_res.ok:
-        return False, _err_alert(move_res)
-    return True, None
 
 
 def handle_column_delete(
@@ -4172,133 +4156,84 @@ def handle_p_autolayout(n_clicks: int | None, state: dict[str, Any] | None) -> t
     Output("admin-col-preview-container", "children", allow_duplicate=True),
     Input("admin-col-save-btn", "n_clicks"),
     State("admin-state-store", "data"),
-    State({"type": "admin-col-label", "index": dash.ALL}, "value"),
-    State({"type": "admin-col-label", "index": dash.ALL}, "id"),
-    State({"type": "admin-col-format", "index": dash.ALL}, "value"),
-    State({"type": "admin-col-align", "index": dash.ALL}, "value"),
-    State({"type": "admin-col-width", "index": dash.ALL}, "value"),
-    State({"type": "admin-col-web", "index": dash.ALL}, "value"),
-    State({"type": "admin-col-excel", "index": dash.ALL}, "value"),
-    State({"type": "admin-col-total", "index": dash.ALL}, "value"),
-    State({"type": "admin-col-total", "index": dash.ALL}, "id"),
+    State("admin-col-grid", "rowData"),
+    State("admin-col-grid", "virtualRowData"),
     prevent_initial_call=True,
 )
 def handle_col_save(
     n_clicks: int | None,
     state: dict[str, Any] | None,
-    labels: list[str | None] | None,
-    ids: list[dict[str, Any]] | None,
-    formats: list[str | None] | None,
-    aligns: list[str | None] | None,
-    widths: list[int | None] | None,
-    webs: list[Any] | None,
-    excels: list[Any] | None,
-    totals: list[Any] | None,
-    total_ids: list[dict[str, Any]] | None,
+    row_data: list[dict[str, Any]] | None,
+    virtual_data: list[dict[str, Any]] | None,
 ) -> tuple[Any, Any]:
-    """Lưu cả grid cột một lần mà không gây treo browser."""
+    """Lưu cả grid cột một lần (nội dung từ rowData, thứ tự từ virtualRowData)."""
     if not state or not state.get("version_id") or not n_clicks:
         raise PreventUpdate
-
-    def _is_chk(v: Any) -> bool:
-        if isinstance(v, list):
-            return "1" in v
-        return bool(v)
-
-    # Checkbox "Tổng" chỉ render ở dòng NUMBER (dòng khác hiện "—") nên
-    # danh sách totals ngắn hơn số dòng — phải gom theo id cột, không được
-    # lấy theo vị trí dòng (IndexError khi grid lẫn kiểu).
-    totals_by_id = {
-        int(t["index"]): _is_chk(v)
-        for t, v in zip(total_ids or [], totals or [], strict=False)
-        if isinstance(t, dict) and "index" in t
-    }
-    rows: list[dict[str, Any]] = []
-    for i, pid in enumerate(ids or []):
-        rows.append(
-            {
-                "id": int(pid["index"]),
-                "label": (labels or [None] * len(ids or []))[i],
-                "format_mask": (formats or [None] * len(ids or []))[i] or None,
-                "alignment": (aligns or [None] * len(ids or []))[i],
-                "width": (widths or [None] * len(ids or []))[i],
-                "web_visible": _is_chk((webs or [None] * len(ids or []))[i]),
-                "excel_visible": _is_chk((excels or [None] * len(ids or []))[i]),
-                "is_total": totals_by_id.get(int(pid["index"]), False),
-            }
-        )
-    ok, alert = handle_column_save(n_clicks, state, rows)
+    rows, order = _column_grid_save_payload(row_data, virtual_data)
+    ok, alert = handle_column_save(n_clicks, state, rows, order)
     ctx = get_current_ctx()
     updated_cols = list_columns(ctx, int(state["version_id"])).data or [] if ctx else []
     return alert, _render_columns_preview(updated_cols)
 
 
 @callback(
-    Output("admin-state-store", "data", allow_duplicate=True),
-    Output("admin-alert", "children", allow_duplicate=True),
-    Input({"type": "admin-col-up", "index": dash.ALL}, "n_clicks"),
-    Input({"type": "admin-col-down", "index": dash.ALL}, "n_clicks"),
-    State("admin-state-store", "data"),
+    Output("admin-col-grid", "dashGridOptions"),
+    Input("admin-col-search", "value"),
     prevent_initial_call=True,
 )
-def handle_col_move_click(
-    _up: list[int | None] | None,
-    _down: list[int | None] | None,
-    state: dict[str, Any] | None,
-) -> tuple[dict[str, Any], Any]:
-    """Nút ↑↓ dời cột."""
-    if not state:
-        raise PreventUpdate
-    ctx_dash = dash.callback_context
-    if not ctx_dash.triggered:
-        raise PreventUpdate
-    has_click = False
-    for item in ctx_dash.triggered:
-        if item.get("value") and int(item.get("value", 0)) > 0:
-            has_click = True
-            break
-    if not has_click:
-        raise PreventUpdate
-    triggered_id = ctx_dash.triggered_id
-    if not isinstance(triggered_id, dict) or "index" not in triggered_id:
-        raise PreventUpdate
-    direction = "up" if triggered_id.get("type") == "admin-col-up" else "down"
-    ok, alert = handle_column_move(1, state, int(triggered_id["index"]), direction)
-    return _bump(state), alert
+def handle_col_search(value: str | None) -> dict[str, Any]:
+    """Tìm kiếm nhanh trên grid cột (quick filter của AgGrid)."""
+    return _column_grid_options(value or "")
 
 
 @callback(
+    Output("admin-col-delete-btn", "disabled"),
+    Input("admin-col-grid", "selectedRows"),
+    prevent_initial_call=True,
+)
+def handle_col_delete_btn_state(selected_rows: list[dict[str, Any]] | None) -> bool:
+    """Nút Xóa chỉ bật khi đã chọn một dòng trong grid."""
+    return not bool(selected_rows)
+
+
+@callback(
+    Output("admin-state-store", "data", allow_duplicate=True),
     Output("admin-alert", "children", allow_duplicate=True),
     Output("admin-col-preview-container", "children", allow_duplicate=True),
     Input("admin-col-refresh-btn", "n_clicks"),
     State("admin-state-store", "data"),
     prevent_initial_call=True,
 )
-def handle_col_refresh(n_clicks: int | None, state: dict[str, Any] | None) -> tuple[Any, Any]:
-    """Nút Làm mới cột từ nguồn DB (cập nhật DB & preview mà không làm đơ tbody)."""
+def handle_col_refresh(n_clicks: int | None, state: dict[str, Any] | None) -> tuple[Any, Any, Any]:
+    """Nút Làm mới cột từ nguồn DB (cập nhật DB, preview và grid AgGrid)."""
     if not state or not state.get("version_id") or not n_clicks:
         raise PreventUpdate
     ok, alert = handle_refresh_columns(n_clicks, state)
+    if not ok:
+        return dash.no_update, alert, dash.no_update
     ctx = get_current_ctx()
     updated_cols = list_columns(ctx, int(state["version_id"])).data or [] if ctx else []
-    return alert, _render_columns_preview(updated_cols)
+    return _bump(state), alert, _render_columns_preview(updated_cols)
 
 
 @callback(
+    Output("admin-state-store", "data", allow_duplicate=True),
     Output("admin-alert", "children", allow_duplicate=True),
     Output("admin-col-preview-container", "children", allow_duplicate=True),
     Input("admin-col-restore-btn", "n_clicks"),
     State("admin-state-store", "data"),
     prevent_initial_call=True,
 )
-def handle_col_restore(n_clicks: int | None, state: dict[str, Any] | None) -> tuple[Any, Any]:
-    """Nút Khôi phục thứ tự cột theo DB (DOM đã sort tức thời 0ms trong JS)."""
+def handle_col_restore(n_clicks: int | None, state: dict[str, Any] | None) -> tuple[Any, Any, Any]:
+    """Nút Khôi phục thứ tự cột theo DB (grid AgGrid render lại từ DB)."""
     if not state or not state.get("version_id") or not n_clicks:
         raise PreventUpdate
     ok, alert = handle_restore_order(n_clicks, state)
+    if not ok:
+        return dash.no_update, alert, dash.no_update
     ctx = get_current_ctx()
     updated_cols = list_columns(ctx, int(state["version_id"])).data or [] if ctx else []
-    return alert, _render_columns_preview(updated_cols)
+    return _bump(state), alert, _render_columns_preview(updated_cols)
 
 
 @callback(
@@ -5094,40 +5029,26 @@ def handle_p_move_direction(_left: list[Any], _right: list[Any], state: dict[str
     Output("admin-state-store", "data", allow_duplicate=True),
     Output("admin-alert", "children", allow_duplicate=True),
     Output("admin-col-preview-container", "children", allow_duplicate=True),
-    Input({"type": "admin-col-del", "index": dash.ALL}, "n_clicks"),
+    Input("admin-col-delete-btn", "n_clicks"),
+    State("admin-col-grid", "selectedRows"),
     State("admin-state-store", "data"),
     prevent_initial_call=True,
 )
-def handle_col_del_click(n_clicks: list[int | None] | int | None, state: dict[str, Any] | None) -> tuple[Any, Any]:
-    """Bấm Xóa cột khỏi version."""
-    if not state or not state.get("version_id"):
+def handle_col_del_click(
+    n_clicks: int | None, selected_rows: list[dict[str, Any]] | None, state: dict[str, Any] | None
+) -> tuple[Any, Any, Any]:
+    """Xóa cột đang chọn trong grid AgGrid (xóa ngay qua service, grid render lại từ DB)."""
+    if not state or not state.get("version_id") or not n_clicks:
         raise PreventUpdate
-    clicks_list = n_clicks if isinstance(n_clicks, list) else [n_clicks]
-    if not any(c for c in clicks_list if c):
-        raise PreventUpdate
-    ctx_dash = dash.callback_context
-    if not ctx_dash.triggered:
-        raise PreventUpdate
-    has_click = False
-    for item in ctx_dash.triggered:
-        if item.get("value") and int(item.get("value", 0)) > 0:
-            has_click = True
-            break
-    if not has_click:
-        raise PreventUpdate
-    triggered_id = ctx_dash.triggered_id
-    if not isinstance(triggered_id, dict) or triggered_id.get("type") != "admin-col-del":
-        raise PreventUpdate
+    if not selected_rows:
+        return dash.no_update, notify_warning("Chọn một dòng trong grid trước khi xóa."), dash.no_update
+    col_id = int(selected_rows[0]["id"])
+    ok, alert = handle_column_delete(n_clicks, state, col_id)
+    if not ok:
+        return dash.no_update, alert, dash.no_update
     ctx = get_current_ctx()
-    if ctx is None:
-        raise PreventUpdate
-    col_id = int(triggered_id["index"])
-    res = delete_column(ctx, int(state["version_id"]), col_id)
-    if not res.ok:
-        return _err_alert(res), dash.no_update
-    # Client DOM đã xóa dòng mượt mà tức thời; cập nhật layout preview mà không rebuild 4.500 component
-    updated_cols = list_columns(ctx, int(state["version_id"])).data or []
-    return notify_success("Đã xóa cột khỏi cấu hình báo cáo."), _render_columns_preview(updated_cols)
+    updated_cols = list_columns(ctx, int(state["version_id"])).data or [] if ctx else []
+    return _bump(state), alert, _render_columns_preview(updated_cols)
 
 
 @callback(
@@ -5200,26 +5121,6 @@ def handle_drag_drop_reorder(
         raise PreventUpdate
     drag_type = drag_data.get("type")
     version_id = int(state["version_id"])
-    if drag_type == "col":
-        from_id = int(drag_data.get("from_id", 0))
-        to_id = int(drag_data.get("to_id", 0))
-        if from_id == to_id or not from_id or not to_id:
-            raise PreventUpdate
-        cols_res = list_columns(ctx, version_id)
-        if not cols_res.ok or not isinstance(cols_res.data, list):
-            raise PreventUpdate
-        col_list = list(cols_res.data)
-        col_ids = [int(c["id"]) for c in col_list]
-        if from_id not in col_ids or to_id not in col_ids:
-            raise PreventUpdate
-        from_idx = col_ids.index(from_id)
-        to_idx = col_ids.index(to_id)
-        item = col_ids.pop(from_idx)
-        col_ids.insert(to_idx, item)
-        reorder_columns(ctx, version_id, col_ids)
-        # Cập nhật card Xem trước layout online ngay lập tức; không bump wizard state để tránh giật lag DOM
-        updated_cols = list_columns(ctx, version_id).data or []
-        return dash.no_update, notify_success("Đã thay đổi vị trí cột thành công."), _render_columns_preview(updated_cols)
     if drag_type == "param":
         from_id = int(drag_data.get("from_id", 0))
         if not from_id:

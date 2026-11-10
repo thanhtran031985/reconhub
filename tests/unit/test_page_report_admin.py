@@ -612,10 +612,10 @@ class TestStep4:
         assert next(c for c in cols if c["field_name"] == "AMOUNT")["label"] == "Số tiền"
 
     def test_column_save_bulk_mixed_types_via_callback(self, run_env, admin_ctx, monkeypatch):
-        """Hồi quy: lưu grid lẫn kiểu qua callback thật (totals chỉ có ở cột NUMBER).
+        """Hồi quy: lưu grid AgGrid lẫn kiểu qua callback thật (totals chỉ có ở cột NUMBER).
 
-        Trước sửa: handle_col_save lấy totals theo vị trí dòng nên IndexError
-        ở dòng STRING/DATE đầu tiên sau cột NUMBER cuối, nhãn không lưu được.
+        Grid gửi nội dung ô qua rowData và thứ tự qua virtualRowData (rowData
+        không đồng bộ sau kéo-thả — xem plan task 35).
         """
         import app.ui.pages.report_admin as page
         from app.db.metadata import recon_rpt_column
@@ -634,18 +634,19 @@ class TestStep4:
             )
         cols = list_columns(admin_ctx, vid).data
         new_labels = {"AMOUNT": "Số tiền", "ORG": "Đơn vị", "TXN_DATE": "Ngày giao dịch"}
+        row_data = []
+        for c in cols:
+            row = dict(c)
+            row["label"] = new_labels[c["field_name"]]
+            row["is_total"] = c["field_name"] == "AMOUNT"
+            row_data.append(row)
+        # Đổi thứ tự qua virtualRowData: ORG lên đầu.
+        virtual_data = [row_data[1], row_data[0], row_data[2]]
         alert, preview = page.handle_col_save(
             1,
             _draft_state(run_env) | {"version_id": vid},
-            labels=[new_labels[c["field_name"]] for c in cols],
-            ids=[{"index": c["id"]} for c in cols],
-            formats=[None] * len(cols),
-            aligns=["RIGHT" if c["field_name"] == "AMOUNT" else "LEFT" for c in cols],
-            widths=[120] * len(cols),
-            webs=[["1"]] * len(cols),
-            excels=[["1"]] * len(cols),
-            totals=[["1"]],
-            total_ids=[{"index": amount["id"]}],
+            row_data,
+            virtual_data,
         )
         assert alert is not None
         cols = list_columns(admin_ctx, vid).data
@@ -654,60 +655,115 @@ class TestStep4:
         assert by_field["AMOUNT"]["is_total"] is True
         assert by_field["ORG"]["is_total"] is False
         assert by_field["TXN_DATE"]["is_total"] is False
+        assert cols[0]["field_name"] == "ORG"
         # Preview vẽ lại từ DB mới nên header theo nhãn đã lưu.
         assert "Đơn vị" in _dump(preview)
 
-    def test_step4_row_selects_carry_value(self, run_env, admin_ctx, monkeypatch):
-        """Hồi quy: select Kiểu/Định dạng/Canh ở grid cột phải mang value=.
+    def test_column_grid_defs(self):
+        """Grid AgGrid bước 4: đủ cột, đúng editor, Kiểu chỉ xem, Tổng chỉ NUMBER."""
+        import app.ui.pages.report_admin as page
 
-        Trước sửa: dùng html.Select chỉ đánh selected trên Option nên Dash
-        không nhận được value (cả khi người dùng đã đổi) — lưu cột ghi
-        ALIGNMENT=None -> IntegrityError, nhãn không lưu được.
-        """
+        defs = page._column_grid_column_defs(editable=True)
+        by_field = {d.get("field"): d for d in defs if d.get("field")}
+        assert defs[0].get("rowDrag") is True
+        assert by_field["label"]["editable"] is True
+        assert by_field["label"]["cellEditor"] == "agTextCellEditor"
+        assert by_field["data_type"]["editable"] is False
+        fmt = by_field["format_mask"]
+        assert fmt["cellEditor"] == "agSelectCellEditor"
+        assert "#,##0" in fmt["cellEditorParams"]["values"]
+        assert "DD/MM/YYYY" in fmt["cellEditorParams"]["values"]
+        assert "" in fmt["cellEditorParams"]["values"]
+        assert by_field["alignment"]["cellEditorParams"]["values"] == ["LEFT", "CENTER", "RIGHT"]
+        width = by_field["width"]
+        assert width["cellEditor"] == "agNumberCellEditor"
+        assert width["cellEditorParams"]["min"] == 40
+        assert width["cellEditorParams"]["max"] == 400
+        for f in ("web_visible", "excel_visible", "is_total"):
+            assert by_field[f]["cellRenderer"] == "agCheckboxCellRenderer"
+            assert by_field[f]["cellEditor"] == "agCheckboxCellEditor"
+        total_editable = by_field["is_total"]["editable"]
+        assert isinstance(total_editable, dict) and "NUMBER" in total_editable.get("function", "")
+
+        locked = page._column_grid_column_defs(editable=False)
+        assert locked[0].get("rowDrag") is False
+        assert all(d.get("editable") is False for d in locked if "editable" in d)
+
+    def test_column_grid_save_payload_merge(self):
+        """Gộp thứ tự từ virtualRowData (đồng bộ sau kéo-thả) vào rowData."""
+        import app.ui.pages.report_admin as page
+
+        def row(cid, label="L"):
+            return {
+                "id": cid,
+                "field_name": f"F{cid}",
+                "label": label,
+                "data_type": "STRING",
+                "display_order": cid * 10,
+                "web_visible": True,
+                "excel_visible": True,
+                "format_mask": "",
+                "alignment": "LEFT",
+                "width": "",
+                "is_total": False,
+            }
+
+        rows, order = page._column_grid_save_payload([row(1), row(2), row(3)], [row(3), row(1), row(2)])
+        assert order == [3, 1, 2]
+        assert [r["id"] for r in rows] == [1, 2, 3]
+        assert "field_name" not in rows[0] and "data_type" not in rows[0] and "display_order" not in rows[0]
+        assert rows[0]["format_mask"] is None and rows[0]["width"] is None
+        # Đang lọc tìm kiếm: chỉ 2 dòng visible, thứ tự visible gộp vào vị trí cũ.
+        rows, order = page._column_grid_save_payload([row(1), row(2), row(3), row(4)], [row(3), row(1)])
+        assert order == [3, 2, 1, 4]
+        # Không có virtual: giữ nguyên thứ tự rowData.
+        rows, order = page._column_grid_save_payload([row(1), row(2)], None)
+        assert order == [1, 2]
+
+    def test_column_delete_selected(self, run_env, admin_ctx, monkeypatch):
+        import dash
+
         import app.ui.pages.report_admin as page
         from app.services.report_column import list_columns
 
         vid = self._draft_with_columns(run_env, admin_ctx, monkeypatch)
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        state = _draft_state(run_env) | {"version_id": vid}
         cols = list_columns(admin_ctx, vid).data
-        rows = page._render_step4_rows(cols)
+        amount = next(c for c in cols if c["field_name"] == "AMOUNT")
+        new_state, _alert, _preview = page.handle_col_del_click(1, [{"id": amount["id"]}], state)
+        assert new_state["rev"] == 1
+        assert all(c["field_name"] != "AMOUNT" for c in list_columns(admin_ctx, vid).data)
+        # Chưa chọn dòng nào: cảnh báo, không đổi state.
+        no_state, warn, no_preview = page.handle_col_del_click(1, [], state)
+        assert no_state is dash.no_update
+        assert no_preview is dash.no_update
+        assert "Chọn một dòng" in _dump(warn)
 
-        selects: list = []
-
-        def _walk(node):
-            if node is None or isinstance(node, str):
-                return
-            if node.__class__.__name__ == "Select":
-                selects.append(node)
-                return
-            children = getattr(node, "children", None)
-            if isinstance(children, list):
-                for ch in children:
-                    _walk(ch)
-            elif children is not None:
-                _walk(children)
-
-        for row in rows:
-            _walk(row)
-        assert len(selects) == 3 * len(cols)
-        for i, c in enumerate(cols):
-            type_sel, fmt_sel, align_sel = selects[3 * i : 3 * i + 3]
-            assert type_sel.to_plotly_json()["props"]["value"] == str(c["data_type"])
-            assert fmt_sel.to_plotly_json()["props"]["value"] == str(c.get("format_mask") or "")
-            assert align_sel.to_plotly_json()["props"]["value"] == str(c.get("alignment") or "LEFT")
-
-    def test_column_move_and_restore(self, run_env, admin_ctx, monkeypatch):
+    def test_column_restore_order(self, run_env, admin_ctx, monkeypatch):
         import app.ui.pages.report_admin as page
-        from app.services.report_column import list_columns
+        from app.services.report_column import list_columns, reorder_columns
 
         vid = self._draft_with_columns(run_env, admin_ctx, monkeypatch)
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
         cols = list_columns(admin_ctx, vid).data
-        first = cols[0]
-        ok, _ = page.handle_column_move(1, _draft_state(run_env) | {"version_id": vid}, first["id"], "down")
-        assert ok is True
+        ids = [c["id"] for c in cols]
+        reorder_columns(admin_ctx, vid, [ids[1], ids[0], ids[2]])
+        assert list_columns(admin_ctx, vid).data[0]["field_name"] == "ORG"
         ok, _ = page.handle_restore_order(1, _draft_state(run_env) | {"version_id": vid})
         assert ok is True
-        cols = list_columns(admin_ctx, vid).data
-        assert cols[0]["field_name"] == "AMOUNT"
+        assert list_columns(admin_ctx, vid).data[0]["field_name"] == "AMOUNT"
+
+    def test_column_search_quick_filter(self):
+        import app.ui.pages.report_admin as page
+
+        opts = page.handle_col_search("AMO")
+        assert opts["quickFilterText"] == "AMO"
+        assert opts["rowDragManaged"] is True
+        assert opts["rowSelection"] == "single"
+        assert page.handle_col_search("")["quickFilterText"] == ""
+        assert page.handle_col_delete_btn_state([]) is True
+        assert page.handle_col_delete_btn_state([{"id": 1}]) is False
 
 
 class TestStep5:
