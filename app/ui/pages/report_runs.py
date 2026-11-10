@@ -216,7 +216,12 @@ def render_runs_table(runs: list[dict[str, Any]], exports_by_run: dict[int, list
                     dmc.TableTd(file_cell, style={"height": "34px"}),
                     dmc.TableTd(
                         dcc.Link(
-                            dmc.Button("Chạy lại", size="xs", variant="subtle"),
+                            dmc.Button(
+                                "Chạy lại",
+                                size="xs",
+                                variant="subtle",
+                                leftSection=DashIconify(icon="lucide:play-circle", width=14),
+                            ),
                             href=f"/reports/{run['report_id']}?rerun_from={run_id}",
                         ),
                         style={"height": "34px"},
@@ -372,7 +377,11 @@ def layout() -> Any:
             dcc.Loading(
                 id="report-runs-loading",
                 type="circle",
-                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
+                # Như viewer (task 39): style của Loading đi vào lớp phủ
+                # spinner, khung ngoài co giãn phải dùng parent_style —
+                # nếu không khối Loading cao theo nội dung và đẩy phân
+                # trang ra khỏi khung, bị overflow:hidden cắt mất.
+                parent_style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
                 children=html.Div(
                     id="report-runs-table-container",
                     style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
@@ -407,7 +416,7 @@ def layout() -> Any:
             ),
         ],
         style={
-            "height": "100%",
+            "height": "calc(100vh - 48px)",
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
