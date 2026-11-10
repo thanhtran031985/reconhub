@@ -58,6 +58,7 @@ from app.services.report_template import (
     get_template,
     get_version,
     list_templates,
+    reopen_version,
     update_template,
     update_version_source,
 )
@@ -862,6 +863,19 @@ def layout(action: str | None = None, **kwargs: Any) -> Any:
                 danger=True,
             ),
             dcc.Store(id="admin-delete-target-id", data=None),
+            # Task 34: modal xác nhận mở lại version về DRAFT.
+            modal_confirm(
+                id="admin-reopen-modal",
+                title="Mở lại bản nháp",
+                description=dmc.Text(
+                    "Chọn một version để mở lại.",
+                    id="admin-reopen-modal-desc",
+                    size="sm",
+                    c="dimmed",
+                ),
+                confirm_label="Mở lại để sửa",
+                danger=True,
+            ),
         ],
         style={
             "height": "100%",
@@ -2422,6 +2436,27 @@ def render_step6(state: dict[str, Any]) -> Any:
                             justify="center",
                             mt="xl",
                         ),
+                        # Task 34: mở lại version ACTIVE về DRAFT để sửa lại bảng cũ.
+                        dmc.Text(
+                            "Muốn sửa lại bảng này? Mở lại version về DRAFT — báo cáo sẽ tạm ngưng phục vụ tới khi kích hoạt lại.",
+                            size="xs",
+                            c="dimmed",
+                            mt="md",
+                            ta="center",
+                        ),
+                        dmc.Group(
+                            [
+                                dmc.Button(
+                                    "Mở lại để sửa",
+                                    id="admin-reopen-btn",
+                                    variant="outline",
+                                    color="red",
+                                    size="sm",
+                                ),
+                            ],
+                            justify="center",
+                            mt="xs",
+                        ),
                     ],
                 )
             ],
@@ -2471,6 +2506,18 @@ def render_step6(state: dict[str, Any]) -> Any:
                         variant="filled",
                         size="sm",
                         disabled=not can_activate or status == "ACTIVE",
+                    ),
+                    # Task 34: version DRY_RUN_OK mở lại được về DRAFT để sửa tiếp.
+                    (
+                        dmc.Button(
+                            "Mở lại bản nháp",
+                            id="admin-reopen-btn",
+                            variant="outline",
+                            color="red",
+                            size="sm",
+                        )
+                        if status == "DRY_RUN_OK"
+                        else html.Div()
                     ),
                     dcc.Link(
                         dmc.Button(
@@ -3485,7 +3532,9 @@ def handle_dry_run(
         state["dry_run_ok"] = False
         return state, None, _err_alert(res)
     state["dry_run_ok"] = True
-    state["version_status"] = "DRY_RUN_OK"
+    # Task 34: dùng trạng thái version do service trả về — version ACTIVE
+    # dry-run dạng xem trước nên giữ ACTIVE, không gán DRY_RUN_OK.
+    state["version_status"] = str(res.data.get("status") or "DRY_RUN_OK")
     state["max_step"] = max(int(state.get("max_step") or 5), 6)
     return state, res.data, None
 
@@ -4324,7 +4373,9 @@ def handle_dryrun_click(
             html.Div(),
         )
     new_state["dry_run_ok"] = True
-    new_state["version_status"] = "DRY_RUN_OK"
+    # Task 34: dùng trạng thái version do service trả về — version ACTIVE
+    # dry-run dạng xem trước nên giữ ACTIVE, không gán DRY_RUN_OK.
+    new_state["version_status"] = str(res.data.get("status") or "DRY_RUN_OK")
     new_state["max_step"] = max(int(state.get("max_step") or 5), 6)
 
     layout_res = preview_result_layout(ctx, int(state["version_id"]))
@@ -4343,11 +4394,22 @@ def handle_dryrun_click(
         ],
         gap="sm",
     )
-    banner = dmc.Alert(
-        "Đã dry-run OK — có thể qua bước Hoàn tất để kích hoạt.",
-        color="green",
-        title="Dry-run OK",
-        variant="light",
+    # Task 34: version ACTIVE dry-run dạng xem trước nên banner nói rõ
+    # không đổi trạng thái; DRAFT/DRY_RUN_OK thì banner cũ (qua bước 6 kích hoạt).
+    banner = (
+        dmc.Alert(
+            "Đã xem trước version ACTIVE — đây là dữ liệu hiện tại của báo cáo đang chạy, trạng thái không đổi.",
+            color="blue",
+            title="Xem trước ACTIVE",
+            variant="light",
+        )
+        if new_state["version_status"] == "ACTIVE"
+        else dmc.Alert(
+            "Đã dry-run OK — có thể qua bước Hoàn tất để kích hoạt.",
+            color="green",
+            title="Dry-run OK",
+            variant="light",
+        )
     )
     alert = notify_success(
         f"Chạy dry-run thành công: tổng {res.data.get('total'):,} dòng ({res.data.get('query_ms')} ms)."
@@ -4472,6 +4534,73 @@ def confirm_delete_logic(
     return notify_success(f"Đã xóa báo cáo {code}."), reports
 
 
+def open_reopen_modal_logic(
+    n_clicks: int | None,
+    triggered_id: Any,
+    state: dict[str, Any] | None,
+    ctx: Ctx | None,
+) -> tuple[bool, Any]:
+    """Logic mở modal xác nhận mở lại version về DRAFT (task 34).
+
+    Tách khỏi callback để test được guard: không có cú bấm thật, không có
+    version, hoặc version không phải ACTIVE/DRY_RUN_OK thì modal giữ đóng.
+    Bấm Hủy trong modal thì đóng modal, kể cả khi nút Mở lại vẫn còn
+    n_clicks cũ.
+    """
+    if isinstance(triggered_id, str) and triggered_id == "admin-reopen-modal-cancel":
+        return False, dash.no_update
+    if not n_clicks:
+        return False, dash.no_update
+    if not state or not state.get("version_id"):
+        return False, dash.no_update
+    status = str(state.get("version_status") or "DRAFT")
+    if status not in ("ACTIVE", "DRY_RUN_OK"):
+        return False, dash.no_update
+    ver_no = ""
+    if ctx is not None:
+        res = get_version(ctx, int(state["version_id"]))
+        if res.ok and isinstance(res.data, dict):
+            ver_no = f"Version {res.data.get('version_no')} "
+    if status == "ACTIVE":
+        desc = (
+            f"{ver_no}đang ACTIVE sẽ trở về DRAFT để sửa lại. Báo cáo sẽ tạm "
+            "ngưng phục vụ ở Trung tâm báo cáo cho tới khi dry-run lại và "
+            "kích hoạt version mới."
+        )
+    else:
+        desc = (
+            f"{ver_no}đã dry-run xong sẽ trở về DRAFT để sửa lại; cần dry-run "
+            "lại trước khi kích hoạt."
+        )
+    return True, desc
+
+
+def confirm_reopen_logic(
+    n_clicks: int | None,
+    state: dict[str, Any] | None,
+    ctx: Ctx | None,
+) -> tuple[dict[str, Any], Any]:
+    """Logic xác nhận mở lại version (task 34). Trả (state, alert).
+
+    Không có cú bấm xác nhận hoặc chưa chọn version thì PreventUpdate,
+    không đổi gì. Thành công thì state về DRAFT và nhảy sang bước 4
+    (Cấu hình cột) — bước này thay đổi key render của wizard nên giao
+    diện dựng lại ở bước 4.
+    """
+    if not n_clicks:
+        raise PreventUpdate
+    if ctx is None or not state or not state.get("version_id"):
+        raise PreventUpdate
+    res = reopen_version(ctx, int(state["version_id"]))
+    if not res.ok:
+        return dict(state), _err_alert(res)
+    new_state = dict(state)
+    new_state["version_status"] = "DRAFT"
+    new_state["dry_run_ok"] = False
+    new_state["step"] = 4
+    return new_state, notify_success("Đã mở lại version về DRAFT. Sửa lại ở bước 4 (Cấu hình cột).")
+
+
 @callback(
     Output("admin-delete-modal", "opened"),
     Output("admin-delete-target-id", "data"),
@@ -4506,6 +4635,42 @@ def handle_delete_confirm(
     ctx = get_current_ctx()
     alert, reports = confirm_delete_logic(n_clicks, target_id, ctx)
     return False, None, alert, reports
+
+
+@callback(
+    Output("admin-reopen-modal", "opened"),
+    Output("admin-reopen-modal-desc", "children"),
+    Input("admin-reopen-btn", "n_clicks"),
+    Input("admin-reopen-modal-cancel", "n_clicks"),
+    State("admin-state-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_reopen_click(
+    n_clicks: int | None,
+    cancel_clicks: int | None,
+    state: dict[str, Any] | None,
+) -> tuple[bool, Any]:
+    """Nút Mở lại để sửa ở bước 6 → mở modal xác nhận (task 34)."""
+    ctx = get_current_ctx()
+    return open_reopen_modal_logic(n_clicks, dash.callback_context.triggered_id, state, ctx)
+
+
+@callback(
+    Output("admin-reopen-modal", "opened", allow_duplicate=True),
+    Output("admin-state-store", "data", allow_duplicate=True),
+    Output("admin-alert", "children", allow_duplicate=True),
+    Input("admin-reopen-modal-confirm", "n_clicks"),
+    State("admin-state-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_reopen_confirm(
+    n_clicks: int | None,
+    state: dict[str, Any] | None,
+) -> tuple[bool, dict[str, Any], Any]:
+    """Bấm xác nhận trong modal → mở lại version về DRAFT, nhảy bước 4."""
+    ctx = get_current_ctx()
+    new_state, alert = confirm_reopen_logic(n_clicks, state, ctx)
+    return False, new_state, alert
 
 
 @callback(

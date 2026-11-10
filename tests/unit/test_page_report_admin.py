@@ -755,6 +755,36 @@ class TestStep5:
         assert result is None
         assert alert is not None
 
+    def test_dry_run_active_keeps_status(self, run_env, admin_ctx, monkeypatch):
+        """Task 34: dry-run version ACTIVE chỉ xem trước, state giữ ACTIVE."""
+        from unittest.mock import patch
+
+        import app.ui.pages.report_admin as page
+        from app.services.report_template import get_version
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        _patch_describe(monkeypatch)
+        state = _draft_state(run_env)
+        state.update(
+            {
+                "version_id": run_env["sql_version_id"],
+                "version_status": "ACTIVE",
+                "step": 5,
+                "max_step": 6,
+            }
+        )
+        conn, _ = _mock_ora_conn(ROWS)
+        with patch(
+            "app.services.report_source.open_source_connection",
+            return_value=conn,
+        ):
+            state, result, alert = page.handle_dry_run(1, state, values={"p_org": "HN"})
+        assert state["dry_run_ok"] is True
+        assert state["version_status"] == "ACTIVE"
+        assert result is not None and result["total"] == 3
+        assert alert is None
+        assert get_version(admin_ctx, run_env["sql_version_id"]).data["status"] == "ACTIVE"
+
 
 class TestStep6:
     def test_render_step6_shows_activate(self, run_env):
@@ -792,7 +822,93 @@ class TestStep6:
         state = _draft_state(run_env)
         _state, alert = page.handle_activate(1, state)
         assert alert is not None
-        assert "dry-run" in _dump(alert).lower()
+
+    def test_render_step6_active_shows_reopen(self, run_env):
+        """Task 34: màn hình ACTIVE có nút Mở lại để sửa."""
+        import app.ui.pages.report_admin as page
+
+        state = _draft_state(run_env)
+        state.update(
+            {
+                "version_id": run_env["sql_version_id"],
+                "version_status": "ACTIVE",
+                "step": 6,
+                "max_step": 6,
+            }
+        )
+        text = _dump(page.render_step_content(6, state))
+        assert "Đã kích hoạt" in text
+        assert "Mở lại để sửa" in text
+
+    def test_open_reopen_modal_active(self, run_env, admin_ctx):
+        """Task 34: bấm Mở lại ở version ACTIVE thì mở modal có cảnh báo."""
+        import app.ui.pages.report_admin as page
+
+        state = _draft_state(run_env)
+        state.update(
+            {
+                "version_id": run_env["sql_version_id"],
+                "version_status": "ACTIVE",
+                "step": 6,
+                "max_step": 6,
+            }
+        )
+        opened, desc = page.open_reopen_modal_logic(1, "admin-reopen-btn", state, admin_ctx)
+        assert opened is True
+        assert "tạm ngưng" in _dump(desc)
+
+    def test_open_reopen_modal_draft_blocked(self, run_env, admin_ctx):
+        """Task 34: version DRAFT không mở modal mở lại."""
+        import app.ui.pages.report_admin as page
+
+        state = _draft_state(run_env)
+        opened, _desc = page.open_reopen_modal_logic(1, "admin-reopen-btn", state, admin_ctx)
+        assert opened is False
+
+    def test_reopen_active_to_draft(self, run_env, admin_ctx):
+        """Task 34: xác nhận mở lại ACTIVE → DRAFT, gỡ pointer, nhảy bước 4."""
+        import app.ui.pages.report_admin as page
+        from app.services.report_template import get_template, get_version
+
+        state = _draft_state(run_env)
+        state.update(
+            {
+                "version_id": run_env["sql_version_id"],
+                "version_status": "ACTIVE",
+                "step": 6,
+                "max_step": 6,
+            }
+        )
+        new_state, alert = page.confirm_reopen_logic(1, state, admin_ctx)
+        assert alert is None or "DRAFT" in _dump(alert)
+        assert new_state["version_status"] == "DRAFT"
+        assert new_state["dry_run_ok"] is False
+        assert new_state["step"] == 4
+        assert get_version(admin_ctx, run_env["sql_version_id"]).data["status"] == "DRAFT"
+        assert get_template(admin_ctx, run_env["sql_template_id"]).data["active_version_id"] is None
+
+    def test_reopen_dry_run_ok_to_draft(self, run_env, admin_ctx, monkeypatch):
+        """Task 34: version DRY_RUN_OK mở lại được về DRAFT để sửa tiếp."""
+        from unittest.mock import patch
+
+        import app.ui.pages.report_admin as page
+        from app.services.report_template import get_version
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        _patch_describe(monkeypatch)
+        state = _draft_state(run_env)
+        conn, _ = _mock_ora_conn(ROWS)
+        with patch(
+            "app.services.report_source.open_source_connection",
+            return_value=conn,
+        ):
+            state, _result, _alert = page.handle_dry_run(1, state, values={"p_org": "HN"})
+        assert state["version_status"] == "DRY_RUN_OK"
+        new_state, alert = page.confirm_reopen_logic(1, state, admin_ctx)
+        assert new_state["version_status"] == "DRAFT"
+        assert new_state["step"] == 4
+        assert "DRAFT" in _dump(alert)
+        assert get_version(admin_ctx, run_env["draft_version_id"]).data["status"] == "DRAFT"
 
     def test_clone_and_archive(self, run_env, admin_ctx, monkeypatch):
         import app.ui.pages.report_admin as page
