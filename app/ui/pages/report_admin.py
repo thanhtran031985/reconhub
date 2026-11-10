@@ -116,7 +116,6 @@ DATA_TYPE_OPTIONS = [
     {"label": "DATE", "value": "DATE"},
     {"label": "TEXT", "value": "STRING"},
     {"label": "NUMBER", "value": "NUMBER"},
-    {"label": "SELECT", "value": "SELECT"},
     {"label": "DATETIME", "value": "DATETIME"},
     {"label": "BOOLEAN", "value": "BOOLEAN"},
 ]
@@ -1361,10 +1360,9 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
                                             value=int(p.get("display_row") or r),
                                             min=1,
                                             max=20,
-                                            w=34,
+                                            w=46,
                                             size="xs",
                                             debounce=500,
-                                            hideControls=True,
                                             styles={"input": {"height": "22px", "minHeight": "22px", "padding": "0 2px", "fontSize": "11px", "lineHeight": "22px", "textAlign": "center"}},
                                             id={"type": "admin-p-canvas-row", "index": p["id"]},
                                         ),
@@ -1379,10 +1377,9 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
                                             value=span,
                                             min=1,
                                             max=12,
-                                            w=34,
+                                            w=46,
                                             size="xs",
                                             debounce=500,
-                                            hideControls=True,
                                             styles={"input": {"height": "22px", "minHeight": "22px", "padding": "0 2px", "fontSize": "11px", "lineHeight": "22px", "textAlign": "center"}},
                                             id={"type": "admin-p-canvas-span", "index": p["id"]},
                                         ),
@@ -2675,15 +2672,15 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
         next_btn = dmc.Button(
             "Tiếp theo",
             id="admin-s1-save-btn",
-            rightSection=DashIconify(icon="lucide:arrow-right", width=14),
+            rightSection=DashIconify(icon="lucide:arrow-right", width=12),
             color="primary",
             size="xs",
             radius="xl",
             style={
                 "fontWeight": 600,
-                "height": "22px",
-                "padding": "0 14px",
-                "fontSize": "11px",
+                "height": "18px",
+                "padding": "0 10px",
+                "fontSize": "10px",
                 "boxShadow": "0 1px 3px rgba(0, 120, 212, 0.25)",
             },
         )
@@ -2691,15 +2688,15 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
         next_btn = dmc.Anchor(
             dmc.Button(
                 "Về Trung tâm báo cáo",
-                rightSection=DashIconify(icon="lucide:arrow-right", width=14),
+                rightSection=DashIconify(icon="lucide:arrow-right", width=12),
                 color="primary",
                 size="xs",
                 radius="xl",
                 style={
                     "fontWeight": 600,
-                    "height": "22px",
-                    "padding": "0 14px",
-                    "fontSize": "11px",
+                    "height": "18px",
+                    "padding": "0 10px",
+                    "fontSize": "10px",
                     "boxShadow": "0 1px 3px rgba(0, 120, 212, 0.25)",
                 },
             ),
@@ -2710,15 +2707,15 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
         next_btn = dmc.Button(
             "Tiếp theo",
             id="admin-next-btn",
-            rightSection=DashIconify(icon="lucide:arrow-right", width=14),
+            rightSection=DashIconify(icon="lucide:arrow-right", width=12),
             color="primary",
             size="xs",
             radius="xl",
             style={
                 "fontWeight": 600,
-                "height": "22px",
-                "padding": "0 14px",
-                "fontSize": "11px",
+                "height": "18px",
+                "padding": "0 10px",
+                "fontSize": "10px",
                 "boxShadow": "0 1px 3px rgba(0, 120, 212, 0.25)",
             },
         )
@@ -2726,7 +2723,7 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
     prev_btn = dmc.Button(
         "Quay lại",
         id="admin-prev-btn",
-        leftSection=DashIconify(icon="lucide:arrow-left", width=14),
+        leftSection=DashIconify(icon="lucide:arrow-left", width=12),
         variant="subtle",
         color="gray",
         size="xs",
@@ -2734,9 +2731,9 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
         disabled=step <= 1 or step == 6,
         style={
             "fontWeight": 500,
-            "height": "22px",
-            "padding": "0 12px",
-            "fontSize": "11px",
+            "height": "18px",
+            "padding": "0 10px",
+            "fontSize": "10px",
             "color": "var(--ink, #1E1E1E)",
             "display": "none" if step == 6 else "inline-flex",
         },
@@ -2752,7 +2749,7 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
             align="center",
         ),
         radius="xl",
-        p=2,
+        p=1,
         withBorder=True,
         style={
             "backgroundColor": "#FFFFFF",
@@ -2772,7 +2769,7 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
             html.Span(
                 hint_text,
                 id="admin-wmsg",
-                style={"fontSize": "11px", "color": "var(--ink-soft, #616161)", "fontWeight": 500},
+                style={"fontSize": "10px", "color": "var(--ink-soft, #616161)", "fontWeight": 500},
             ),
             capsule,
         ],
@@ -2781,8 +2778,8 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
         className="wfoot",
         style={
             "flexShrink": 0,
-            "height": "26px",
-            "padding": "0 16px",
+            "height": "20px",
+            "padding": "0 12px",
             "borderTop": "1px solid var(--line, #E0E0E0)",
             "backgroundColor": "#FFFFFF",
             "display": "flex",
@@ -4773,6 +4770,108 @@ def handle_list_archive_click(
     )
 
 
+def _save_param_table(
+    ctx: Ctx,
+    version_id: int,
+    table_labels: list[str | None] | None,
+    table_types: list[str | None] | None,
+    table_webs: list[bool | None] | None,
+    table_reqs: list[bool | None] | None,
+    table_defs: list[str | None] | None,
+    table_lovs: list[str | None] | None,
+    table_orders: list[int | None] | None,
+) -> tuple[int, list[str]]:
+    """Lưu các dòng bảng tham số bước 3 có đổi so với DB (task 38).
+
+    Các danh sách ALL trả về theo đúng thứ tự DOM = thứ tự params lúc render
+    bảng; lệch độ dài thì không ghi gì và trả lỗi. Chỉ ghi dòng có đổi; lỗi
+    từng dòng không chặn dòng khác. Trả (số dòng đã lưu, [thông báo lỗi]).
+    LOV chỉ ghi khi loại LOV đổi: giữ nguyên cấu hình LOV đã lưu mà chỉ đổi
+    lov_type, đồng thời đổi control_type theo luật của handle_p_save_lov.
+    """
+    version = _version_detail(ctx, version_id)
+    params = version.get("params", [])
+    n = len(params)
+    columns = {
+        "nhãn": table_labels,
+        "kiểu": table_types,
+        "hiện": table_webs,
+        "bắt buộc": table_reqs,
+        "mặc định": table_defs,
+        "LOV": table_lovs,
+        "STT": table_orders,
+    }
+    for name, values in columns.items():
+        if values is not None and len(values) != n:
+            return 0, [
+                f"Dữ liệu bảng tham số không khớp với DB "
+                f"(cột {name}: {len(values)} dòng, DB có {n} tham số)."
+            ]
+    if n == 0:
+        return 0, []
+
+    def _at(values: list[Any] | None, i: int) -> Any:
+        return values[i] if values is not None else None
+
+    saved = 0
+    errors: list[str] = []
+    for i, p in enumerate(params):
+        stored_lov = p.get("lov") or {}
+        stored_lov_type = str(stored_lov.get("lov_type") or "NONE")
+        raw_label = _at(table_labels, i)
+        new_label = str(p.get("label") or "") if raw_label is None else (str(raw_label) or "").strip()
+        raw_type = _at(table_types, i)
+        new_type = str(p.get("data_type") or "STRING") if raw_type is None else str(raw_type)
+        raw_web = _at(table_webs, i)
+        new_web = bool(p.get("is_visible", True)) if raw_web is None else bool(raw_web)
+        raw_req = _at(table_reqs, i)
+        new_req = bool(p.get("required")) if raw_req is None else bool(raw_req)
+        raw_def = _at(table_defs, i)
+        new_def = p.get("default_value") if raw_def is None else ((str(raw_def) or "").strip() or None)
+        raw_lov = _at(table_lovs, i)
+        new_lov = stored_lov_type if raw_lov is None else (str(raw_lov) or "NONE")
+        raw_order = _at(table_orders, i)
+        try:
+            new_order = int(p.get("display_order") or 10) if raw_order is None else int(raw_order)
+        except (TypeError, ValueError):
+            new_order = int(p.get("display_order") or 10)
+        stored_order = int(p.get("display_order") or 10)
+        stored_def = p.get("default_value")
+
+        changed = (
+            new_label != str(p.get("label") or "")
+            or new_type != str(p.get("data_type") or "STRING")
+            or new_web != bool(p.get("is_visible", True))
+            or new_req != bool(p.get("required"))
+            or (new_def is not None and new_def != (stored_def or ""))
+            or new_lov != stored_lov_type
+            or new_order != stored_order
+        )
+        if not changed:
+            continue
+        payload: dict[str, Any] = {
+            "label": new_label,
+            "data_type": new_type,
+            "is_visible": new_web,
+            "required": new_req,
+            "default_value": new_def,
+            "display_order": new_order,
+        }
+        if new_lov != stored_lov_type:
+            payload["lov"] = {**(stored_lov or {}), "lov_type": new_lov}
+            stored_ctl = str(p.get("control_type") or "TEXT")
+            if new_lov != "NONE" and stored_ctl == "TEXT":
+                payload["control_type"] = "SELECT"
+            elif new_lov == "NONE" and stored_ctl in ("SELECT", "MULTI_SELECT"):
+                payload["control_type"] = "TEXT"
+        res = update_param(ctx, version_id, int(p["id"]), payload)
+        if res.ok:
+            saved += 1
+        else:
+            errors.append(f"{p.get('code')}: {res.message}")
+    return saved, errors
+
+
 @callback(
     Output("admin-state-store", "data", allow_duplicate=True),
     Output("admin-alert", "children", allow_duplicate=True),
@@ -4792,6 +4891,13 @@ def handle_list_archive_click(
     State("admin-s1-preview-max", "value"),
     State("admin-s1-export-max", "value"),
     State("admin-s2-sql", "value"),
+    State({"type": "admin-p-table-label", "index": dash.ALL}, "value"),
+    State({"type": "admin-p-table-type", "index": dash.ALL}, "value"),
+    State({"type": "admin-p-table-web", "index": dash.ALL}, "checked"),
+    State({"type": "admin-p-table-req", "index": dash.ALL}, "checked"),
+    State({"type": "admin-p-table-def", "index": dash.ALL}, "value"),
+    State({"type": "admin-p-table-lov", "index": dash.ALL}, "value"),
+    State({"type": "admin-p-table-order", "index": dash.ALL}, "value"),
     prevent_initial_call=True,
 )
 def handle_save_draft_click(
@@ -4811,6 +4917,13 @@ def handle_save_draft_click(
     preview_max_rows: int | None,
     export_max_rows: int | None,
     s2_sql: str | None,
+    table_labels: list[str | None] | None = None,
+    table_types: list[str | None] | None = None,
+    table_webs: list[bool | None] | None = None,
+    table_reqs: list[bool | None] | None = None,
+    table_defs: list[str | None] | None = None,
+    table_lovs: list[str | None] | None = None,
+    table_orders: list[int | None] | None = None,
 ) -> tuple[dict[str, Any], Any]:
     """Bấm nút Lưu nháp trên thanh tiêu đề wizard: lưu trực tiếp dữ liệu theo bước hiện tại."""
     if not n_clicks or not state:
@@ -4919,6 +5032,31 @@ def handle_save_draft_click(
                 apply_source_diff(ctx, version_id, diff_res.data)
                 _sync_new_bind_params(ctx, version_id, diff_res.data.get("new_binds") or [])
         return _bump(state), notify_success(f"Đã lưu nháp nguồn dữ liệu thành công lúc {now_str}.")
+
+    if current_step == 3 and state.get("version_id"):
+        # Task 38: trước đây nhánh này rơi xuống toast chung mà không ghi gì —
+        # bảng tham số (admin-p-table-*) không có đường lưu nào. Nay lưu các
+        # dòng có đổi; dry-run đọc nhãn từ DB nên tự hiện nhãn mới.
+        saved, errors = _save_param_table(
+            ctx,
+            int(state["version_id"]),
+            table_labels,
+            table_types,
+            table_webs,
+            table_reqs,
+            table_defs,
+            table_lovs,
+            table_orders,
+        )
+        if errors and saved == 0:
+            return _bump(state), notify_error("; ".join(errors), title="Không lưu được tham số")
+        if errors:
+            return _bump(state), notify_warning(
+                f"Đã lưu {saved} tham số; {len(errors)} tham số lỗi: " + "; ".join(errors)
+            )
+        if saved == 0:
+            return _bump(state), notify_success("Không có thay đổi nào ở bảng tham số.")
+        return _bump(state), notify_success(f"Đã lưu nháp tham số: cập nhật {saved} tham số.")
 
     return _bump(state), notify_success(f"Đã lưu nháp tiến độ báo cáo thành công lúc {now_str}.")
 

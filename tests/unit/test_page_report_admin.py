@@ -542,7 +542,8 @@ class TestStep3:
         assert "Cấu hình LOV" in text
 
     def test_param_canvas_row_col_centered_nowrap(self):
-        """Task 37: giá trị Hàng/Cột căn giữa (ẩn nút tăng/giảm), nhóm không rớt dòng trong box hẹp."""
+        """Task 37: giá trị Hàng/Cột căn giữa, nhóm không rớt dòng trong box hẹp.
+        Task 38: trả lại nút tăng/giảm (bỏ hideControls), giữ căn giữa."""
         import app.ui.pages.report_admin as page
 
         params = [
@@ -559,9 +560,109 @@ class TestStep3:
             }
         ]
         text = _dump(page._render_param_canvas(params, []))
-        assert "hideControls" in text
+        assert "hideControls" not in text
         assert "nowrap" in text
         assert "textAlign" in text and "center" in text
+
+    def _step3_table_args(self, **overrides):
+        """Giá trị bảng bước 3 cho version draft (1 param p_org) — khớp DB mặc định."""
+        args = {
+            "table_labels": ["Đơn vị"],
+            "table_types": ["STRING"],
+            "table_webs": [True],
+            "table_reqs": [True],
+            "table_defs": [""],
+            "table_lovs": ["NONE"],
+            "table_orders": [10],
+        }
+        args.update(overrides)
+        return args
+
+    def _call_save_draft_step3(self, page, state, **table_overrides):
+        return page.handle_save_draft_click(
+            1,
+            state,
+            report_code=None,
+            report_name=None,
+            category_code=None,
+            owner=None,
+            description=None,
+            is_visible=None,
+            default_favorite=None,
+            tpl_code=None,
+            tpl_name=None,
+            display_order=None,
+            timeout_sec=None,
+            preview_max_rows=None,
+            export_max_rows=None,
+            s2_sql=None,
+            **self._step3_table_args(**table_overrides),
+        )
+
+    def test_save_draft_step3_saves_table_label(self, run_env, admin_ctx, monkeypatch):
+        """Task 38: Lưu nháp ở bước 3 lưu nhãn bảng tham số (trước đây chỉ toast mà không ghi)."""
+        import app.ui.pages.report_admin as page
+        from app.services.report_template import get_version
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        state = _draft_state(run_env)
+        state["step"] = 3
+        vid = run_env["draft_version_id"]
+        assert get_version(admin_ctx, vid).data["params"][0]["label"] == "Đơn vị"
+
+        _new_state, notif = self._call_save_draft_step3(
+            page, state, table_labels=["Từ ngày"]
+        )
+        assert notif is not None
+        assert "Đã lưu" in _dump(notif)
+        assert get_version(admin_ctx, vid).data["params"][0]["label"] == "Từ ngày"
+
+    def test_save_draft_step3_no_change_reports_nothing(self, run_env, admin_ctx, monkeypatch):
+        """Task 38: Lưu nháp bước 3 khi không đổi gì thì báo rõ, không ghi DB."""
+        import app.ui.pages.report_admin as page
+        from app.services.report_template import get_version
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        state = _draft_state(run_env)
+        state["step"] = 3
+        vid = run_env["draft_version_id"]
+
+        _new_state, notif = self._call_save_draft_step3(page, state)
+        assert notif is not None
+        assert "Không có thay đổi" in _dump(notif)
+        assert get_version(admin_ctx, vid).data["params"][0]["label"] == "Đơn vị"
+
+    def test_save_draft_step3_length_mismatch_errors(self, run_env, admin_ctx, monkeypatch):
+        """Task 38: danh sách bảng lệch độ dài với DB thì báo lỗi, không ghi gì."""
+        import app.ui.pages.report_admin as page
+        from app.services.report_template import get_version
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        state = _draft_state(run_env)
+        state["step"] = 3
+        vid = run_env["draft_version_id"]
+
+        _new_state, notif = self._call_save_draft_step3(
+            page, state, table_labels=["Từ ngày", "Thừa"]
+        )
+        assert notif is not None
+        assert "không khớp" in _dump(notif)
+        assert get_version(admin_ctx, vid).data["params"][0]["label"] == "Đơn vị"
+
+    def test_save_draft_step3_dryrun_shows_new_label(self, run_env, admin_ctx, monkeypatch):
+        """Task 38: nhãn đã lưu hiện ở form dry-run bước 5 (preview_layout đọc từ DB)."""
+        import app.ui.pages.report_admin as page
+        from app.services.report_param import preview_layout
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        state = _draft_state(run_env)
+        state["step"] = 3
+        vid = run_env["draft_version_id"]
+
+        self._call_save_draft_step3(page, state, table_labels=["Từ ngày"])
+        layout = preview_layout(admin_ctx, vid)
+        labels = [e["label"] for r in layout.data["rows"] for e in r["params"]]
+        assert "Từ ngày" in labels
 
     def test_param_create_and_delete(self, run_env, admin_ctx, monkeypatch):
         import app.ui.pages.report_admin as page
@@ -922,11 +1023,14 @@ class TestStep4:
         assert "calc(100vh - 380px)" in text
 
     def test_wizard_footer_compact(self):
-        """Task 37: footer thu còn 26px (~1/2 của 48px)."""
+        """Task 37: footer thu còn 26px (~1/2 của 48px).
+        Task 38: người dùng vẫn muốn nhỏ hơn → footer 20px, nút 18px."""
         import app.ui.pages.report_admin as page
 
         text = _dump(page._render_wizard_footer(4, _fresh_state()))
-        assert "26px" in text
+        assert "20px" in text
+        assert "18px" in text
+        assert "26px" not in text
         assert "48px" not in text
 
     def test_column_search_quick_filter(self):
