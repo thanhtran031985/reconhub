@@ -2277,18 +2277,8 @@ def render_step5(state: dict[str, Any], dry_run: dict[str, Any] | None = None) -
         layout_data = (
             layout_res.data if layout_res and layout_res.ok and isinstance(layout_res.data, dict) else {"columns": []}
         )
-        result_area = dmc.Stack(
-            [
-                dmc.Text(
-                    f"Tổng {dry_run.get('total')} dòng · "
-                    f"{dry_run.get('query_ms')} ms · "
-                    f"hiển thị tối đa {len(dry_run.get('rows', []))} dòng mẫu",
-                    size="sm",
-                ),
-                render_result_table(layout_data, dry_run.get("rows", [])),
-            ],
-            gap="sm",
-        )
+        # Task 36: chỉ còn bảng kết quả (tối đa 10 dòng), không dòng info.
+        result_area = render_result_table(layout_data, dry_run.get("rows", []))
 
     params_count = len(version.get("params", []))
     lov_count = sum(1 for p in version.get("params", []) if (p.get("lov") or {}).get("lov_type", "NONE") != "NONE")
@@ -2335,31 +2325,7 @@ def render_step5(state: dict[str, Any], dry_run: dict[str, Any] | None = None) -
 
     return dmc.Stack(
         [
-            html.Div(
-                [
-                    dmc.Title("5. Xem trước", order=3, style={"fontSize": "15px", "fontWeight": 600, "margin": 0}),
-                    dmc.Alert(
-                        "Preview dùng tối đa 100 dòng. Kích hoạt chỉ khi SQL, tham số, LOV và mapping cột đều hợp lệ.",
-                        color="orange",
-                        variant="light",
-                        mt=2,
-                        mb="xs",
-                    ),
-                ]
-            ),
-            html.Div(
-                id="admin-dryrun-banner",
-                children=(
-                    dmc.Alert(
-                        "Đã dry-run OK — có thể qua bước Hoàn tất để kích hoạt.",
-                        color="green",
-                        title="Dry-run OK",
-                        variant="light",
-                    )
-                    if state.get("dry_run_ok")
-                    else html.Div()
-                ),
-            ),
+            dmc.Title("5. Xem trước", order=3, style={"fontSize": "15px", "fontWeight": 600, "margin": 0}),
             render_param_form(preview, options_by_code),
             dmc.Group(
                 [
@@ -2809,7 +2775,6 @@ def _step_hidden_placeholders(step: int) -> html.Div:
         hidden_children.append(html.Div(id="admin-col-preview-container", style={"display": "none"}))
     if step != 5:
         hidden_children.append(html.Div(id="admin-dryrun-result", style={"display": "none"}))
-        hidden_children.append(html.Div(id="admin-dryrun-banner", style={"display": "none"}))
     return html.Div(hidden_children, style={"display": "none"})
 
 
@@ -4341,7 +4306,6 @@ def handle_col_restore(n_clicks: int | None, state: dict[str, Any] | None) -> tu
     Output("admin-dryrun-store", "data"),
     Output("admin-alert", "children", allow_duplicate=True),
     Output("admin-dryrun-result", "children", allow_duplicate=True),
-    Output("admin-dryrun-banner", "children", allow_duplicate=True),
     Input("admin-dryrun-btn", "n_clicks"),
     State("admin-state-store", "data"),
     State({"type": "viewer-param", "index": dash.ALL}, "value"),
@@ -4353,7 +4317,7 @@ def handle_dryrun_click(
     state: dict[str, Any] | None,
     param_values: list[Any] | None,
     param_ids: list[dict[str, Any]] | None,
-) -> tuple[dict[str, Any], dict[str, Any] | None, Any, Any, Any]:
+) -> tuple[dict[str, Any], dict[str, Any] | None, Any, Any]:
     """Nút Chạy dry-run ở bước 5."""
     if not state or not n_clicks:
         raise PreventUpdate
@@ -4370,7 +4334,6 @@ def handle_dryrun_click(
             None,
             _err_alert(res),
             dmc.Text("Chưa chạy dry-run.", size="sm", c="dimmed"),
-            html.Div(),
         )
     new_state["dry_run_ok"] = True
     # Task 34: dùng trạng thái version do service trả về — version ACTIVE
@@ -4382,39 +4345,12 @@ def handle_dryrun_click(
     layout_data = (
         layout_res.data if layout_res and layout_res.ok and isinstance(layout_res.data, dict) else {"columns": []}
     )
-    result_area = dmc.Stack(
-        [
-            dmc.Text(
-                f"Tổng {res.data.get('total')} dòng · "
-                f"{res.data.get('query_ms')} ms · "
-                f"hiển thị tối đa {len(res.data.get('rows', []))} dòng mẫu",
-                size="sm",
-            ),
-            render_result_table(layout_data, res.data.get("rows", [])),
-        ],
-        gap="sm",
-    )
-    # Task 34: version ACTIVE dry-run dạng xem trước nên banner nói rõ
-    # không đổi trạng thái; DRAFT/DRY_RUN_OK thì banner cũ (qua bước 6 kích hoạt).
-    banner = (
-        dmc.Alert(
-            "Đã xem trước version ACTIVE — đây là dữ liệu hiện tại của báo cáo đang chạy, trạng thái không đổi.",
-            color="blue",
-            title="Xem trước ACTIVE",
-            variant="light",
-        )
-        if new_state["version_status"] == "ACTIVE"
-        else dmc.Alert(
-            "Đã dry-run OK — có thể qua bước Hoàn tất để kích hoạt.",
-            color="green",
-            title="Dry-run OK",
-            variant="light",
-        )
-    )
+    # Task 36: chỉ còn bảng kết quả (tối đa 10 dòng), không dòng info, không banner.
+    result_area = render_result_table(layout_data, res.data.get("rows", []))
     alert = notify_success(
-        f"Chạy dry-run thành công: tổng {res.data.get('total'):,} dòng ({res.data.get('query_ms')} ms)."
+        f"Chạy dry-run thành công: xem trước {len(res.data.get('rows', []))} dòng ({res.data.get('query_ms')} ms)."
     )
-    return new_state, res.data, alert, result_area, banner
+    return new_state, res.data, alert, result_area
 
 
 @callback(

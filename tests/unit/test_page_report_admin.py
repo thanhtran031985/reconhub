@@ -735,7 +735,8 @@ class TestStep5:
         ):
             state, result, alert = page.handle_dry_run(1, state, values={"p_org": "HN"})
         assert state["dry_run_ok"] is True
-        assert result is not None and result["total"] == 3
+        assert result is not None and result["total"] is None
+        assert len(result["rows"]) == 3
         assert alert is None
         assert get_version(admin_ctx, run_env["draft_version_id"]).data["status"] == "DRY_RUN_OK"
 
@@ -754,6 +755,52 @@ class TestStep5:
         assert state["dry_run_ok"] is False
         assert result is None
         assert alert is not None
+
+    def test_dry_run_click_no_banner_no_info(self, run_env, admin_ctx, monkeypatch):
+        """Task 36: callback Chạy dry-run trả 4 giá trị, không banner, không dòng info, toast xem trước N dòng."""
+        from unittest.mock import patch
+
+        import app.ui.pages.report_admin as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        _patch_describe(monkeypatch)
+        state = _draft_state(run_env)
+        conn, _ = _mock_ora_conn(ROWS)
+        with patch(
+            "app.services.report_source.open_source_connection",
+            return_value=conn,
+        ):
+            out = page.handle_dryrun_click(
+                1, state, ["HN"], [{"type": "viewer-param", "index": "p_org"}]
+            )
+        assert len(out) == 4
+        new_state, result, alert, result_area = out
+        assert new_state["dry_run_ok"] is True
+        assert result is not None and result["total"] is None
+        area = _dump(result_area)
+        assert "Tổng" not in area and "dòng mẫu" not in area
+        assert "Dry-run OK" not in area and "Xem trước ACTIVE" not in area
+        assert "HN" in area  # bảng kết quả vẫn hiện dòng dữ liệu
+        assert "xem trước 3 dòng" in _dump(alert)
+
+    def test_render_step5_no_alert_no_info(self, run_env, admin_ctx, monkeypatch):
+        """Task 36: bước 5 có kết quả dry-run thì không còn alert cam, banner hay dòng info."""
+        import app.ui.pages.report_admin as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        _patch_describe(monkeypatch)
+        state = _draft_state(run_env)
+        state["dry_run_ok"] = True
+        dry_run = {
+            "total": None,
+            "rows": [{"AMOUNT": 1000, "ORG": "HN", "TXN_DATE": "2026-02-01"}],
+            "query_ms": 5,
+        }
+        text = _dump(page.render_step5(state, dry_run))
+        assert "Preview dùng tối đa" not in text
+        assert "Dry-run OK" not in text
+        assert "Tổng" not in text and "dòng mẫu" not in text
+        assert "HN" in text
 
     def test_dry_run_active_keeps_status(self, run_env, admin_ctx, monkeypatch):
         """Task 34: dry-run version ACTIVE chỉ xem trước, state giữ ACTIVE."""
@@ -781,7 +828,8 @@ class TestStep5:
             state, result, alert = page.handle_dry_run(1, state, values={"p_org": "HN"})
         assert state["dry_run_ok"] is True
         assert state["version_status"] == "ACTIVE"
-        assert result is not None and result["total"] == 3
+        assert result is not None and result["total"] is None
+        assert len(result["rows"]) == 3
         assert alert is None
         assert get_version(admin_ctx, run_env["sql_version_id"]).data["status"] == "ACTIVE"
 

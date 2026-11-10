@@ -526,14 +526,52 @@ def execute_report_run(ctx: Ctx, run_id: int, page: int = 1, page_size: int = 50
     }
 
 
+# Task 36: dry-run chỉ xem trước tối đa 10 dòng — không chạy COUNT toàn bộ
+# (COUNT quét hết dữ liệu nên dry-run 5509 dòng mất ~10 giây trên Oracle).
+DRY_RUN_PREVIEW_ROWS = 10
+
+
+def _execute_preview(
+    detail: dict[str, Any],
+    resolved: dict[str, Any],
+    limit: int,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Chạy 1 query lấy tối đa `limit` dòng đầu; KHÔNG đếm tổng (trả rows, columns)."""
+    sql, raw_binds = build_run_query(detail, resolved)
+    binds = _prepare_query_binds(detail, raw_binds)
+    order_by = stable_order_by(detail, [])
+    ds_id = detail["data_source_id"]
+    if ds_id is None:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Version chưa gắn Data Source.")
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        ds_row = conn.execute(
+            select(recon_data_source.c.DB_TYPE).where(recon_data_source.c.ID == ds_id)
+        ).mappings().first()
+    db_type = str(ds_row.get("DB_TYPE") if ds_row else "ORACLE").upper()
+    data_timeout = int(detail["timeout_sec"])
+    try:
+        with open_checked_connection(ds_id, data_timeout) as ora_conn:
+            cursor = ora_conn.cursor()
+            cursor.execute(build_paged_query(sql, 1, limit, order_by, db_type=db_type), binds)
+            col_names = [str(d[0]) for d in (cursor.description or [])]
+            rows = [dict(zip(col_names, tuple(r), strict=False)) for r in cursor.fetchmany(limit)]
+    except ServiceError:
+        raise
+    except Exception as exc:
+        raise map_oracle_error(exc, data_timeout) from exc
+    return rows, col_names
+
+
 @service
 @requires_menu("report_admin")
 def dry_run_version(ctx: Ctx, version_id: int, values: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Dry-run version DRAFT tối đa preview_max_rows; thành công → DRY_RUN_OK (Q7).
+    """Dry-run version DRAFT tối đa 10 dòng xem trước; thành công → DRY_RUN_OK (Q7).
 
     Đóng vòng T21-04: activate yêu cầu DRY_RUN_OK nhưng trước task 25 chưa có
     đường nào tới đó. Lỗi → version giữ DRAFT. Task 34: version ACTIVE dry-run
-    được dạng xem trước thuần túy, không đổi trạng thái.
+    được dạng xem trước thuần túy, không đổi trạng thái. Task 36: không chạy
+    COUNT toàn bộ nên `total` là None (không biết tổng).
     """
     engine = get_recon_engine()
     with engine.connect() as conn:
@@ -545,13 +583,11 @@ def dry_run_version(ctx: Ctx, version_id: int, values: dict[str, Any] | None = N
         )
     resolved = _resolve_or_raise(ctx, version_id, values)
     started = time.monotonic()
-    # Xem trước tối đa 100 dòng (bước 5) dù version lưu preview_max_rows lớn hơn.
-    total, rows, col_names = _execute_count_page(
+    # Task 36: chỉ fetch tối đa 10 dòng xem trước, không COUNT toàn bộ.
+    rows, col_names = _execute_preview(
         detail,
         resolved,
-        page=1,
-        page_size=min(int(detail["preview_max_rows"]), 100),
-        sorts=[],
+        limit=min(DRY_RUN_PREVIEW_ROWS, int(detail["preview_max_rows"])),
     )
     query_ms = int((time.monotonic() - started) * 1000)
     # Task 34: version ACTIVE chỉ xem trước, không đổi trạng thái; DRAFT /
@@ -567,11 +603,11 @@ def dry_run_version(ctx: Ctx, version_id: int, values: dict[str, Any] | None = N
             version_id,
             "DRY_RUN_VERSION",
             ctx.username,
-            new_data={"total": total, "query_ms": query_ms, "status": result_status},
+            new_data={"preview_rows": len(rows), "query_ms": query_ms, "status": result_status},
         )
     return {
         "version_id": version_id,
-        "total": total,
+        "total": None,
         "rows": rows,
         "columns": col_names,
         "query_ms": query_ms,

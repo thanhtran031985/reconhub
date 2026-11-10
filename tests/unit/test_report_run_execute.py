@@ -432,7 +432,7 @@ class TestDryRunVersion:
     def test_dry_run_activates_draft(self, run_env, admin_ctx):
         from app.services.report_run import dry_run_version
 
-        conn, _ = _mock_ora_conn(ROWS)
+        conn, cursor = _mock_ora_conn(ROWS)
         with patch(
             "app.services.report_source.open_source_connection", return_value=conn
         ):
@@ -440,8 +440,10 @@ class TestDryRunVersion:
                 admin_ctx, run_env["draft_version_id"], {"p_org": "HN"}
             )
         assert res.ok, res.message
-        assert res.data["total"] == 3
+        # Task 36: không chạy COUNT nữa nên không biết tổng; chỉ lấy trang xem trước.
+        assert res.data["total"] is None
         assert len(res.data["rows"]) == 3
+        assert all("COUNT(" not in str(c.args[0]) for c in cursor.execute.call_args_list)
         engine = run_env["engine"]
         with engine.connect() as db:
             row = db.execute(
@@ -451,8 +453,8 @@ class TestDryRunVersion:
             ).scalar_one()
         assert row == "DRY_RUN_OK"
 
-    def test_dry_run_caps_rows_at_100(self, run_env, admin_ctx):
-        """Hồi quy: version lưu preview_max_rows=500 thì dry-run vẫn tối đa 100 dòng."""
+    def test_dry_run_caps_rows_at_10(self, run_env, admin_ctx):
+        """Hồi quy task 36: version lưu preview_max_rows=500 thì dry-run vẫn tối đa 10 dòng, không COUNT."""
         from app.services.report_run import dry_run_version
 
         engine = run_env["engine"]
@@ -472,14 +474,15 @@ class TestDryRunVersion:
                 admin_ctx, run_env["draft_version_id"], {"p_org": "HN"}
             )
         assert res.ok, res.message
-        assert res.data["total"] == 500
-        assert len(res.data["rows"]) == 100
+        assert res.data["total"] is None
+        assert len(res.data["rows"]) == 10
+        assert all("COUNT(" not in str(c.args[0]) for c in cursor.execute.call_args_list)
         paged_sql = next(
             str(c.args[0])
             for c in cursor.execute.call_args_list
             if "FETCH NEXT" in str(c.args[0])
         )
-        assert "FETCH NEXT 100 ROWS ONLY" in paged_sql
+        assert "FETCH NEXT 10 ROWS ONLY" in paged_sql
 
     def test_dry_run_failure_keeps_draft(self, run_env, admin_ctx):
         from app.services.report_run import dry_run_version
@@ -522,7 +525,7 @@ class TestDryRunVersion:
                 admin_ctx, run_env["sql_version_id"], {"p_org": "HN"}
             )
         assert res.ok, res.message
-        assert res.data["total"] == 3
+        assert res.data["total"] is None
         assert res.data["status"] == "ACTIVE"
         engine = run_env["engine"]
         with engine.connect() as db:
