@@ -4,7 +4,11 @@
 |------|----------|------------|------|---------|
 | 1 | Docs + test đỏ | Xong | 2026-11-10 |  |
 | 2 | Sửa nút Xem size sm | Xong | 2026-11-10 |  |
-| 3 | Kiểm chứng cuối + xuất patch | Đang làm | 2026-11-10 |  |
+| 3 | Kiểm chứng cuối + xuất patch | Xong | 2026-11-10 |  |
+
+- Full suite: **1443 pass / 6 skipped** (1441 + 2 test mới).
+- Người dùng test lại: SQL là do code họ sai, không cần sửa SQL — chỉ
+  làm nút button.
 
 ## Số liệu kiểm chứng (10/11/2026)
 
