@@ -4,7 +4,9 @@
 |------|----------|------------|------|---------|
 | 1 | Docs + test đỏ | Xong | 2026-11-10 |  |
 | 2 | Sửa padding 6 trang | Xong | 2026-11-10 |  |
-| 3 | Kiểm chứng cuối + xuất patch | Đang làm | 2026-11-10 |  |
+| 3 | Kiểm chứng cuối + xuất patch | Xong | 2026-11-10 |  |
+
+- Full suite: **1441 pass / 6 skipped** (1434 + 7 test mới).
 
 ## Số liệu kiểm chứng (10/11/2026)
 
