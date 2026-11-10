@@ -848,7 +848,10 @@ def render_app_shell(pathname: str | None, is_collapsed_data: Any) -> Any:
             dmc.AppShellMain(
                 main_content,
                 style={
-                    "height": "calc(100vh - 44px)",
+                    # Task 45: height 100vh — header fixed nên main bắt đầu
+                    # từ y=0; calc(100vh - 44px) làm main kết thúc sớm 44px,
+                    # lộ nền trắng body dưới đáy màn hình.
+                    "height": "100vh",
                     "minHeight": 0,
                     "overflow": "hidden",
                     "display": "flex",
@@ -932,19 +935,22 @@ def sync_sidebar_ui(is_collapsed: Any, pathname: str | None) -> tuple[Any, ...]:
     Output("app-menu-search-input", "value"),
     Input("app-menu-search-input", "value"),
     Input("app-menu-search-input", "n_submit"),
-    Input("app-location", "pathname"),
     State("app-menu-search-store", "data"),
     prevent_initial_call=True,
 )
 def handle_menu_search(
-    value: str | None, n_submit: int | None, pathname: str | None, items: list[dict[str, Any]] | None
+    value: str | None, n_submit: int | None, items: list[dict[str, Any]] | None
 ) -> tuple[Any, Any, Any, Any]:
-    """Task 30: tìm kiếm menu ở header — gõ để lọc, Enter tới kết quả đầu."""
+    """Task 30: tìm kiếm menu ở header — gõ để lọc, Enter tới kết quả đầu.
+
+    Task 45: bỏ Input pathname — callback chạy lúc tải trang, trước khi
+    header kịp render ô tìm kiếm, nên Dash báo ReferenceError (input
+    không tồn tại trong layout gốc chỉ có app-shell-container rỗng).
+    Không mất hành vi xóa khi đổi trang vì render_app_shell dựng lại
+    header (ô tìm kiếm mới value="", dropdown ẩn) mỗi lần đổi trang.
+    """
     ctx_dash = dash.callback_context
     triggered = ctx_dash.triggered[0]["prop_id"] if ctx_dash.triggered else ""
-    if "app-location.pathname" in triggered:
-        # Đổi trang (kể cả bấm vào kết quả): xoá ô tìm kiếm, đóng dropdown.
-        return [], dict(_MENU_SEARCH_RESULTS_STYLE), dash.no_update, ""
     matches = filter_menu_items(items, value or "")
     if "n_submit" in triggered:
         if not matches:

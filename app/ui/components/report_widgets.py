@@ -108,14 +108,17 @@ def render_param_control(param: dict[str, Any], options: list[dict[str, str]] | 
                     [
                         dmc.DateInput(
                             id={"type": "viewer-param", "index": code + "__from"},
-                            value=str(raw.get("from")) if raw.get("from") else None,
+                            # Task 45: value "" thay vì None — None gây cảnh
+                            # báo React "value should not be null" +
+                            # uncontrolled -> controlled khi chọn ngày.
+                            value=str(raw.get("from")) if raw.get("from") else "",
                             valueFormat="YYYY-MM-DD",
                             placeholder="Từ ngày…",
                             **{"aria-label": f"{label} từ ngày"},
                         ),
                         dmc.DateInput(
                             id={"type": "viewer-param", "index": code + "__to"},
-                            value=str(raw.get("to")) if raw.get("to") else None,
+                            value=str(raw.get("to")) if raw.get("to") else "",
                             valueFormat="YYYY-MM-DD",
                             placeholder="Đến ngày…",
                             **{"aria-label": f"{label} đến ngày"},
@@ -153,7 +156,7 @@ def render_param_control(param: dict[str, Any], options: list[dict[str, str]] | 
                 id=pid,
                 label=label,
                 data=opts,
-                value=value if isinstance(value, list) else None,
+                value=value if isinstance(value, list) else [],
                 placeholder="Chọn giá trị…",
                 searchable=True,
                 clearable=True,
@@ -162,7 +165,7 @@ def render_param_control(param: dict[str, Any], options: list[dict[str, str]] | 
             id=pid,
             label=label,
             data=opts,
-            value=str(value) if value is not None else None,
+            value=str(value) if value is not None else "",
             placeholder="Chọn giá trị…",
             searchable=True,
             clearable=not param.get("required"),
@@ -171,7 +174,7 @@ def render_param_control(param: dict[str, Any], options: list[dict[str, str]] | 
         return dmc.DateInput(
             id=pid,
             label=label,
-            value=str(value) if value is not None else None,
+            value=str(value) if value is not None else "",
             valueFormat="YYYY-MM-DD",
             placeholder="Chọn ngày…",
             **{"aria-label": label},
@@ -180,14 +183,14 @@ def render_param_control(param: dict[str, Any], options: list[dict[str, str]] | 
         return dmc.NumberInput(
             id=pid,
             label=label,
-            value=value,
+            value=value if value is not None else "",
             placeholder="Nhập số…",
             **{"aria-label": label},
         )
     return dmc.TextInput(
         id=pid,
         label=label,
-        value=str(value) if value is not None else None,
+        value=str(value) if value is not None else "",
         placeholder=f"Nhập {str(param['label']).lower()}…",
         **{"aria-label": label},
     )
