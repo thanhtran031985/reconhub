@@ -544,11 +544,12 @@ def dry_run_version(ctx: Ctx, version_id: int, values: dict[str, Any] | None = N
         )
     resolved = _resolve_or_raise(ctx, version_id, values)
     started = time.monotonic()
+    # Xem trước tối đa 100 dòng (bước 5) dù version lưu preview_max_rows lớn hơn.
     total, rows, col_names = _execute_count_page(
         detail,
         resolved,
         page=1,
-        page_size=int(detail["preview_max_rows"]),
+        page_size=min(int(detail["preview_max_rows"]), 100),
         sorts=[],
     )
     query_ms = int((time.monotonic() - started) * 1000)

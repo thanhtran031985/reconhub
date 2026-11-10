@@ -451,6 +451,36 @@ class TestDryRunVersion:
             ).scalar_one()
         assert row == "DRY_RUN_OK"
 
+    def test_dry_run_caps_rows_at_100(self, run_env, admin_ctx):
+        """Hồi quy: version lưu preview_max_rows=500 thì dry-run vẫn tối đa 100 dòng."""
+        from app.services.report_run import dry_run_version
+
+        engine = run_env["engine"]
+        with engine.begin() as db:
+            db.execute(
+                recon_rpt_tpl_ver.update()
+                .where(recon_rpt_tpl_ver.c.ID == run_env["draft_version_id"])
+                .values(PREVIEW_MAX_ROWS=500)
+            )
+        rows = [(i, "HN", "2026-02-01") for i in range(500)]
+        conn, cursor = _mock_ora_conn(rows, total=500)
+        cursor.fetchmany.side_effect = lambda n: rows[:n]
+        with patch(
+            "app.services.report_source.open_source_connection", return_value=conn
+        ):
+            res = dry_run_version(
+                admin_ctx, run_env["draft_version_id"], {"p_org": "HN"}
+            )
+        assert res.ok, res.message
+        assert res.data["total"] == 500
+        assert len(res.data["rows"]) == 100
+        paged_sql = next(
+            str(c.args[0])
+            for c in cursor.execute.call_args_list
+            if "FETCH NEXT" in str(c.args[0])
+        )
+        assert "FETCH NEXT 100 ROWS ONLY" in paged_sql
+
     def test_dry_run_failure_keeps_draft(self, run_env, admin_ctx):
         from app.services.report_run import dry_run_version
 

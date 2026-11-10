@@ -611,6 +611,90 @@ class TestStep4:
         cols = list_columns(admin_ctx, vid).data
         assert next(c for c in cols if c["field_name"] == "AMOUNT")["label"] == "Số tiền"
 
+    def test_column_save_bulk_mixed_types_via_callback(self, run_env, admin_ctx, monkeypatch):
+        """Hồi quy: lưu grid lẫn kiểu qua callback thật (totals chỉ có ở cột NUMBER).
+
+        Trước sửa: handle_col_save lấy totals theo vị trí dòng nên IndexError
+        ở dòng STRING/DATE đầu tiên sau cột NUMBER cuối, nhãn không lưu được.
+        """
+        import app.ui.pages.report_admin as page
+        from app.db.metadata import recon_rpt_column
+        from app.services.report_column import list_columns
+
+        vid = self._draft_with_columns(run_env, admin_ctx, monkeypatch)
+        cols = list_columns(admin_ctx, vid).data
+        amount = next(c for c in cols if c["field_name"] == "AMOUNT")
+        # Fixture describe giả trả kiểu None → analyze map hết về STRING;
+        # đặt AMOUNT về NUMBER để grid lẫn kiểu đúng như thật.
+        with run_env["engine"].begin() as db:
+            db.execute(
+                recon_rpt_column.update()
+                .where(recon_rpt_column.c.ID == amount["id"])
+                .values(DATA_TYPE="NUMBER")
+            )
+        cols = list_columns(admin_ctx, vid).data
+        new_labels = {"AMOUNT": "Số tiền", "ORG": "Đơn vị", "TXN_DATE": "Ngày giao dịch"}
+        alert, preview = page.handle_col_save(
+            1,
+            _draft_state(run_env) | {"version_id": vid},
+            labels=[new_labels[c["field_name"]] for c in cols],
+            ids=[{"index": c["id"]} for c in cols],
+            formats=[None] * len(cols),
+            aligns=["RIGHT" if c["field_name"] == "AMOUNT" else "LEFT" for c in cols],
+            widths=[120] * len(cols),
+            webs=[["1"]] * len(cols),
+            excels=[["1"]] * len(cols),
+            totals=[["1"]],
+            total_ids=[{"index": amount["id"]}],
+        )
+        assert alert is not None
+        cols = list_columns(admin_ctx, vid).data
+        by_field = {c["field_name"]: c for c in cols}
+        assert by_field["ORG"]["label"] == "Đơn vị"
+        assert by_field["AMOUNT"]["is_total"] is True
+        assert by_field["ORG"]["is_total"] is False
+        assert by_field["TXN_DATE"]["is_total"] is False
+        # Preview vẽ lại từ DB mới nên header theo nhãn đã lưu.
+        assert "Đơn vị" in _dump(preview)
+
+    def test_step4_row_selects_carry_value(self, run_env, admin_ctx, monkeypatch):
+        """Hồi quy: select Kiểu/Định dạng/Canh ở grid cột phải mang value=.
+
+        Trước sửa: dùng html.Select chỉ đánh selected trên Option nên Dash
+        không nhận được value (cả khi người dùng đã đổi) — lưu cột ghi
+        ALIGNMENT=None -> IntegrityError, nhãn không lưu được.
+        """
+        import app.ui.pages.report_admin as page
+        from app.services.report_column import list_columns
+
+        vid = self._draft_with_columns(run_env, admin_ctx, monkeypatch)
+        cols = list_columns(admin_ctx, vid).data
+        rows = page._render_step4_rows(cols)
+
+        selects: list = []
+
+        def _walk(node):
+            if node is None or isinstance(node, str):
+                return
+            if node.__class__.__name__ == "Select":
+                selects.append(node)
+                return
+            children = getattr(node, "children", None)
+            if isinstance(children, list):
+                for ch in children:
+                    _walk(ch)
+            elif children is not None:
+                _walk(children)
+
+        for row in rows:
+            _walk(row)
+        assert len(selects) == 3 * len(cols)
+        for i, c in enumerate(cols):
+            type_sel, fmt_sel, align_sel = selects[3 * i : 3 * i + 3]
+            assert type_sel.to_plotly_json()["props"]["value"] == str(c["data_type"])
+            assert fmt_sel.to_plotly_json()["props"]["value"] == str(c.get("format_mask") or "")
+            assert align_sel.to_plotly_json()["props"]["value"] == str(c.get("alignment") or "LEFT")
+
     def test_column_move_and_restore(self, run_env, admin_ctx, monkeypatch):
         import app.ui.pages.report_admin as page
         from app.services.report_column import list_columns

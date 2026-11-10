@@ -1966,38 +1966,47 @@ def _render_step4_rows(columns: list[dict[str, Any]]) -> list[Any]:
                         style={"minWidth": "160px", "maxWidth": "240px", "textAlign": "left", "padding": "4px 4px"},
                     ),
                     html.Td(
-                        html.Select(
-                            [
-                                html.Option("STRING", value="STRING", selected=(str(c.get("data_type")) == "STRING")),
-                                html.Option("NUMBER", value="NUMBER", selected=(str(c.get("data_type")) == "NUMBER")),
-                                html.Option("DATE", value="DATE", selected=(str(c.get("data_type")) == "DATE")),
-                                html.Option("DATETIME", value="DATETIME", selected=(str(c.get("data_type")) == "DATETIME")),
-                            ],
+                        dmc.Select(
+                            data=["STRING", "NUMBER", "DATE", "DATETIME"],
+                            value=str(c.get("data_type")),
                             id={"type": "admin-col-type", "index": c["id"]},
-                            className="rh-native-select",
-                            style={"width": "100%"},
+                            size="xs",
+                            clearable=False,
+                            searchable=False,
+                            variant="unstyled",
+                            styles={
+                                "input": {"fontSize": "11px", "minHeight": "22px", "height": "22px", "padding": "0 4px"}
+                            },
                         ),
                         style={"width": "90px", "minWidth": "90px", "padding": "4px 4px"},
                     ),
                     html.Td(
-                        html.Select(
-                            [html.Option(m, value=m, selected=(str(c.get("format_mask") or "") == m)) for m in masks]
-                            + [html.Option("(không)", value="", selected=(not c.get("format_mask")))],
+                        dmc.Select(
+                            data=[{"value": m, "label": m} for m in masks] + [{"value": "", "label": "(không)"}],
+                            value=str(c.get("format_mask") or ""),
                             id={"type": "admin-col-format", "index": c["id"]},
-                            className="rh-native-select",
-                            style={"width": "100%"},
+                            size="xs",
+                            clearable=False,
+                            searchable=False,
+                            variant="unstyled",
+                            styles={
+                                "input": {"fontSize": "11px", "minHeight": "22px", "height": "22px", "padding": "0 4px"}
+                            },
                         ),
                         style={"width": "115px", "minWidth": "115px", "padding": "4px 4px"},
                     ),
                     html.Td(
-                        html.Select(
-                            [
-                                html.Option(opt["label"], value=opt["value"], selected=(str(c.get("alignment") or "LEFT") == opt["value"]))
-                                for opt in ALIGNMENT_OPTIONS
-                            ],
+                        dmc.Select(
+                            data=[{"value": opt["value"], "label": opt["label"]} for opt in ALIGNMENT_OPTIONS],
+                            value=str(c.get("alignment") or "LEFT"),
                             id={"type": "admin-col-align", "index": c["id"]},
-                            className="rh-native-select",
-                            style={"width": "100%"},
+                            size="xs",
+                            clearable=False,
+                            searchable=False,
+                            variant="unstyled",
+                            styles={
+                                "input": {"fontSize": "11px", "minHeight": "22px", "height": "22px", "padding": "0 4px"}
+                            },
                         ),
                         style={"width": "80px", "minWidth": "80px", "padding": "4px 4px"},
                     ),
@@ -4157,6 +4166,7 @@ def handle_p_autolayout(n_clicks: int | None, state: dict[str, Any] | None) -> t
     State({"type": "admin-col-web", "index": dash.ALL}, "value"),
     State({"type": "admin-col-excel", "index": dash.ALL}, "value"),
     State({"type": "admin-col-total", "index": dash.ALL}, "value"),
+    State({"type": "admin-col-total", "index": dash.ALL}, "id"),
     prevent_initial_call=True,
 )
 def handle_col_save(
@@ -4170,6 +4180,7 @@ def handle_col_save(
     webs: list[Any] | None,
     excels: list[Any] | None,
     totals: list[Any] | None,
+    total_ids: list[dict[str, Any]] | None,
 ) -> tuple[Any, Any]:
     """Lưu cả grid cột một lần mà không gây treo browser."""
     if not state or not state.get("version_id") or not n_clicks:
@@ -4180,6 +4191,14 @@ def handle_col_save(
             return "1" in v
         return bool(v)
 
+    # Checkbox "Tổng" chỉ render ở dòng NUMBER (dòng khác hiện "—") nên
+    # danh sách totals ngắn hơn số dòng — phải gom theo id cột, không được
+    # lấy theo vị trí dòng (IndexError khi grid lẫn kiểu).
+    totals_by_id = {
+        int(t["index"]): _is_chk(v)
+        for t, v in zip(total_ids or [], totals or [], strict=False)
+        if isinstance(t, dict) and "index" in t
+    }
     rows: list[dict[str, Any]] = []
     for i, pid in enumerate(ids or []):
         rows.append(
@@ -4191,7 +4210,7 @@ def handle_col_save(
                 "width": (widths or [None] * len(ids or []))[i],
                 "web_visible": _is_chk((webs or [None] * len(ids or []))[i]),
                 "excel_visible": _is_chk((excels or [None] * len(ids or []))[i]),
-                "is_total": _is_chk((totals or [None] * len(ids or []))[i]),
+                "is_total": totals_by_id.get(int(pid["index"]), False),
             }
         )
     ok, alert = handle_column_save(n_clicks, state, rows)
