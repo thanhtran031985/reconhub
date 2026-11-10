@@ -5,8 +5,6 @@ T27-06 (server pagination lịch sử), Q4 (Chạy lại với tham số cũ).
 
 from __future__ import annotations
 
-import pytest
-
 from app.core.context import Ctx
 from tests.unit.test_page_report_viewer import _dump
 from tests.unit.test_report_export_queue import (
@@ -16,8 +14,6 @@ from tests.unit.test_report_export_queue import (
     run_env,
 )
 from tests.unit.test_report_run_execute import (
-    ROWS,
-    _mock_ora_conn,
     admin_ctx,
     norole_ctx,
     operator_ctx,
@@ -93,8 +89,11 @@ class TestRunsTable:
         exports = {run["id"]: [{"id": exp.data["id"], "status": "DONE"}]}
         text = _dump(page.render_runs_table(runs, exports))
         assert "Chạy lại" in text
-        assert "Xem" in text
-        assert "Tải file" in text
+        assert f"?rerun_from={run['id']}" in text
+        # Task 43: bỏ nút Xem, nút tải thành icon Excel + mũi tên xuống
+        # (tooltip "Tải file Excel" vẫn có, nhưng không còn link chữ).
+        assert "children='Tải file'" not in text
+        assert "file-spreadsheet" in text
         assert f"/download/report-export/{exp.data['id']}" in text
 
     def test_no_file_when_no_done_export(self, export_env, operator_ctx):
@@ -108,39 +107,14 @@ class TestRunsTable:
 
 
 class TestRerun:
-    def test_rerun_creates_new_run(self, export_env, operator_ctx, monkeypatch):
-        from types import SimpleNamespace
-        from unittest.mock import patch
+    """Task 43: 'Chạy lại' không chạy luôn nữa — chỉ là link sang viewer
+    với ?rerun_from= để điền sẵn tham số (người dùng tự bấm Xem)."""
 
+    def test_rerun_is_link_to_viewer(self, export_env, operator_ctx, monkeypatch):
         import app.ui.pages.report_runs as page
-        from app.services.report_run import list_report_runs
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         orig = _done_run(operator_ctx, export_env)
-        monkeypatch.setattr(
-            "dash.callback_context",
-            SimpleNamespace(
-                triggered=[{"prop_id": "x.n_clicks"}],
-                triggered_id={"type": "runs-rerun-btn", "index": orig["id"]},
-            ),
-        )
-        conn, _ = _mock_ora_conn(ROWS)
-        with patch(
-            "app.services.report_source.open_source_connection",
-            return_value=conn,
-        ):
-            out = page.handle_rerun([1])
-        text = _dump(out)
-        assert "Đã chạy lại xong." in text
-        assert "Xem kết quả" in text
-        res = list_report_runs(operator_ctx, page=1, page_size=50)
-        assert res.ok and res.data["total"] == 2
-
-    def test_rerun_without_click_noop(self, export_env, operator_ctx, monkeypatch):
-        from dash.exceptions import PreventUpdate
-
-        import app.ui.pages.report_runs as page
-
-        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
-        with pytest.raises(PreventUpdate):
-            page.handle_rerun([None])
+        text = _dump(page.layout())
+        assert f"/reports/{orig['report_id']}?rerun_from={orig['id']}" in text
+        assert not hasattr(page, "handle_rerun")

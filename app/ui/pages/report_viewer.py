@@ -128,6 +128,33 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
     version_detail: dict[str, Any] = version_res.data if version_res.ok and isinstance(version_res.data, dict) else {}
     preview_res = preview_layout(ctx, int(first["active_version_id"]))
     preview = preview_res.data if preview_res.ok and isinstance(preview_res.data, dict) else {"rows": []}
+    # Task 43: ?rerun_from=<run_id> (từ Lịch sử: Chạy lại) — điền sẵn
+    # tham số của run gốc vào form (khớp theo mã tham số ở version ACTIVE
+    # hiện tại; mã lạ bỏ qua). Không tự chạy, không nạp kết quả cũ.
+    rerun_alert: str | None = None
+    rerun_from = kwargs.get("rerun_from")
+    if rerun_from is not None:
+        try:
+            rerun_id = int(str(rerun_from))
+        except (TypeError, ValueError):
+            rerun_id = None
+        if rerun_id is None:
+            rerun_alert = "Không tải được tham số của run gốc."
+        else:
+            run_res = get_report_run(ctx, rerun_id)
+            if (
+                not run_res.ok
+                or not isinstance(run_res.data, dict)
+                or int(run_res.data.get("report_id", -1)) != report_id_int
+            ):
+                rerun_alert = "Không tải được tham số của run gốc."
+            else:
+                saved = dict(run_res.data.get("params") or {})
+                for row in preview.get("rows", []):
+                    for entry in row.get("params", []):
+                        code = str(entry.get("code"))
+                        if code in saved:
+                            entry["value"] = saved[code]
     options_by_code: dict[str, list[dict[str, str]]] = {}
     for row in preview.get("rows", []):
         for entry in row.get("params", []):
@@ -234,6 +261,10 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
             dmc.Paper(
                 [
                     dmc.Title("Tham số báo cáo", order=4, size="sm", mb="xs"),
+                    html.Div(
+                        alert_box(rerun_alert, tone="warn") if rerun_alert else None,
+                        id="viewer-rerun-alert",
+                    ),
                     html.Div(
                         id="viewer-param-form",
                         children=render_param_form(

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import pytest
 from sqlalchemy import text as sa_text
 
 from tests.unit.test_page_report_viewer import (
@@ -20,6 +19,7 @@ from tests.unit.test_page_report_viewer import (
     export_env,
     operator_ctx,
 )
+from tests.unit.test_report_export_queue import _done_run, _request
 from tests.unit.test_report_run_cancel import _make_run
 from tests.unit.test_report_run_execute import admin_ctx, run_env
 
@@ -140,8 +140,6 @@ class TestRunsTable43:
         assert "—" in text  # run chưa xong: kết thúc/tổng/dòng trống
 
     def test_file_icon_and_no_view_button(self, export_env, operator_ctx):
-        from tests.unit.test_report_export_queue import _done_run, _request
-
         import app.ui.pages.report_runs as page
 
         run = _done_run(operator_ctx, export_env)
@@ -162,7 +160,7 @@ class TestRunsTable43:
         assert "file-spreadsheet" in text  # icon Excel
         assert "arrow-down" in text or "download" in text  # mũi tên xuống
         assert f"/download/report-export/{exp.data['id']}" in text
-        assert "Tải file" not in text
+        assert "children='Tải file'" not in text  # không còn link chữ (tooltip vẫn có)
         assert ">Xem<" not in text  # bỏ nút Xem
         assert "Chạy lại" in text
         assert f"?rerun_from={run['id']}" in text
@@ -186,8 +184,6 @@ class TestRunsTable43:
 
 class TestViewerRerunFrom:
     def test_layout_prefills_params_from_run(self, export_env, operator_ctx, monkeypatch):
-        from tests.unit.test_report_export_queue import _done_run
-
         import app.ui.pages.report_viewer as page
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
