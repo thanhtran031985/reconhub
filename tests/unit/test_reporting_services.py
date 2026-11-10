@@ -627,3 +627,83 @@ class TestVersionCloneActivateArchive:
                 select(recon_report_run.c.VERSION_ID).where(recon_report_run.c.ID == run_id)
             ).scalar_one()
         assert kept == old_id
+
+
+class TestVersionReopen:
+    """Task 34: mở lại version ACTIVE/DRY_RUN_OK về DRAFT."""
+
+    def test_reopen_active_clears_pointer(self, reporting_env, admin_ctx):
+        from sqlalchemy import select
+
+        from app.db.metadata import recon_audit_log, recon_report_template
+        from app.services.report_template import get_template, reopen_version
+
+        engine = reporting_env
+        report = _make_report(admin_ctx)
+        tpl = _make_template(admin_ctx, report["id"])
+        active_id = _insert_version(engine, tpl["id"], 2, "ACTIVE")
+        with engine.begin() as conn:
+            conn.execute(
+                recon_report_template.update()
+                .where(recon_report_template.c.ID == tpl["id"])
+                .values(ACTIVE_VERSION_ID=active_id)
+            )
+        res = reopen_version(admin_ctx, active_id)
+        assert res.ok, res.message
+        assert res.data["status"] == "DRAFT"
+        got = get_template(admin_ctx, tpl["id"])
+        assert got.data["active_version_id"] is None
+        versions = {v["version_no"]: v["status"] for v in got.data["versions"]}
+        assert versions[2] == "DRAFT"
+        with engine.connect() as conn:
+            rows = conn.execute(
+                select(recon_audit_log).where(
+                    recon_audit_log.c.ENTITY == "RECON_RPT_TPL_VER",
+                    recon_audit_log.c.ENTITY_ID == active_id,
+                    recon_audit_log.c.ACTION == "REOPEN_VERSION",
+                )
+            ).mappings().all()
+        assert len(rows) == 1
+
+    def test_reopen_dry_run_ok(self, reporting_env, admin_ctx):
+        from app.services.report_template import get_version, reopen_version
+
+        engine = reporting_env
+        report = _make_report(admin_ctx)
+        tpl = _make_template(admin_ctx, report["id"])
+        dry_id = _insert_version(engine, tpl["id"], 2, "DRY_RUN_OK")
+        res = reopen_version(admin_ctx, dry_id)
+        assert res.ok, res.message
+        assert res.data["status"] == "DRAFT"
+        assert get_version(admin_ctx, dry_id).data["status"] == "DRAFT"
+
+    def test_reopen_draft_rejected(self, reporting_env, admin_ctx):
+        from app.services.report_template import reopen_version
+
+        engine = reporting_env
+        report = _make_report(admin_ctx)
+        tpl = _make_template(admin_ctx, report["id"])
+        draft_id = _insert_version(engine, tpl["id"], 2, "DRAFT")
+        res = reopen_version(admin_ctx, draft_id)
+        assert not res.ok and res.code == "VALIDATION_ERROR"
+
+    def test_reopen_archived_rejected(self, reporting_env, admin_ctx):
+        from app.services.report_template import reopen_version
+
+        engine = reporting_env
+        report = _make_report(admin_ctx)
+        tpl = _make_template(admin_ctx, report["id"])
+        archived_id = _insert_version(engine, tpl["id"], 2, "ARCHIVED")
+        res = reopen_version(admin_ctx, archived_id)
+        assert not res.ok and res.code == "VALIDATION_ERROR"
+
+    def test_reopen_forbidden_for_operator(self, reporting_env, admin_ctx, operator_ctx):
+        from app.services.report_template import reopen_version
+
+        engine = reporting_env
+        report = _make_report(admin_ctx)
+        tpl = _make_template(admin_ctx, report["id"])
+        active_id = _insert_version(engine, tpl["id"], 2, "ACTIVE")
+        res = reopen_version(operator_ctx, active_id)
+        assert not res.ok and res.code == "FORBIDDEN"
+

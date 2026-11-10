@@ -803,6 +803,58 @@ def activate_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
 
 @service
 @requires_menu("report_admin")
+def reopen_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
+    """Mở lại version ACTIVE/DRY_RUN_OK về DRAFT để sửa lại bảng cũ (task 34).
+
+    Chỉ ADMIN (cổng menu report_admin). Một transaction: version ACTIVE thì
+    gỡ ACTIVE_VERSION_ID của template (template tạm không có version ACTIVE
+    cho tới khi kích hoạt lại); DRY_RUN_OK thì chỉ đổi trạng thái. Ghi audit
+    REOPEN_VERSION. DRAFT đã là DRAFT và ARCHIVED không mở lại.
+    """
+    engine = get_recon_engine()
+    now = _now()
+    with engine.begin() as conn:
+        row = _load_version_row(conn, version_id, admin=True)
+        status = str(row["STATUS"])
+        if status not in ("ACTIVE", "DRY_RUN_OK"):
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                "Chỉ version ACTIVE hoặc DRY_RUN_OK mới mở lại được bản nháp.",
+            )
+        template_id = int(row["TEMPLATE_ID"])
+        if status == "ACTIVE":
+            conn.execute(
+                recon_report_template.update()
+                .where(recon_report_template.c.ID == template_id)
+                .values(ACTIVE_VERSION_ID=None, UPDATED_BY=ctx.username, UPDATED_AT=now)
+            )
+        conn.execute(
+            recon_rpt_tpl_ver.update()
+            .where(recon_rpt_tpl_ver.c.ID == version_id)
+            .values(
+                STATUS="DRAFT",
+                UPDATED_BY=ctx.username,
+                UPDATED_AT=now,
+                ROW_VERSION=int(row["ROW_VERSION"]) + 1,
+            )
+        )
+        write_audit_log(
+            conn=conn,
+            entity="RECON_RPT_TPL_VER",
+            entity_id=version_id,
+            action="REOPEN_VERSION",
+            actor=ctx.username,
+            old_data={"status": status},
+            new_data={"status": "DRAFT", "template_id": template_id},
+            now=now,
+        )
+        updated = conn.execute(select(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID == version_id)).mappings().first()
+        assert updated is not None
+        return _version_dict(updated)
+
+
+@service
+@requires_menu("report_admin")
 def archive_version(ctx: Ctx, version_id: int) -> dict[str, Any]:
     """Lưu trữ version DRAFT/DRY_RUN_OK. Version ACTIVE không lưu trữ
     trực tiếp — kích hoạt version khác hoặc lưu trữ cả template."""

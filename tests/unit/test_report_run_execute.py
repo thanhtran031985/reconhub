@@ -509,3 +509,49 @@ class TestDryRunVersion:
             operator_ctx, run_env["draft_version_id"], {"p_org": "HN"}
         )
         assert not res.ok and res.code == "FORBIDDEN"
+
+    def test_dry_run_active_is_preview_only(self, run_env, admin_ctx):
+        """Task 34: dry-run version ACTIVE chỉ xem trước, giữ nguyên ACTIVE."""
+        from app.services.report_run import dry_run_version
+
+        conn, _ = _mock_ora_conn(ROWS)
+        with patch(
+            "app.services.report_source.open_source_connection", return_value=conn
+        ):
+            res = dry_run_version(
+                admin_ctx, run_env["sql_version_id"], {"p_org": "HN"}
+            )
+        assert res.ok, res.message
+        assert res.data["total"] == 3
+        assert res.data["status"] == "ACTIVE"
+        engine = run_env["engine"]
+        with engine.connect() as db:
+            row = db.execute(
+                select(recon_rpt_tpl_ver.c.STATUS).where(
+                    recon_rpt_tpl_ver.c.ID == run_env["sql_version_id"]
+                )
+            ).scalar_one()
+        assert row == "ACTIVE"
+        with engine.connect() as db:
+            tpl = db.execute(
+                select(recon_report_template.c.ACTIVE_VERSION_ID).where(
+                    recon_report_template.c.ID == run_env["sql_template_id"]
+                )
+            ).scalar_one()
+        assert tpl == run_env["sql_version_id"]
+
+    def test_dry_run_archived_rejected(self, run_env, admin_ctx):
+        """Task 34: version đã lưu trữ không dry-run được."""
+        from app.services.report_run import dry_run_version
+
+        engine = run_env["engine"]
+        with engine.begin() as db:
+            db.execute(
+                recon_rpt_tpl_ver.update()
+                .where(recon_rpt_tpl_ver.c.ID == run_env["draft_version_id"])
+                .values(STATUS="ARCHIVED")
+            )
+        res = dry_run_version(
+            admin_ctx, run_env["draft_version_id"], {"p_org": "HN"}
+        )
+        assert not res.ok and res.code == "VALIDATION_ERROR"

@@ -532,15 +532,16 @@ def dry_run_version(ctx: Ctx, version_id: int, values: dict[str, Any] | None = N
     """Dry-run version DRAFT tối đa preview_max_rows; thành công → DRY_RUN_OK (Q7).
 
     Đóng vòng T21-04: activate yêu cầu DRY_RUN_OK nhưng trước task 25 chưa có
-    đường nào tới đó. Lỗi → version giữ DRAFT.
+    đường nào tới đó. Lỗi → version giữ DRAFT. Task 34: version ACTIVE dry-run
+    được dạng xem trước thuần túy, không đổi trạng thái.
     """
     engine = get_recon_engine()
     with engine.connect() as conn:
         detail = load_version_detail(conn, version_id)
-    if detail["status"] not in ("DRAFT", "DRY_RUN_OK"):
+    if detail["status"] not in ("DRAFT", "DRY_RUN_OK", "ACTIVE"):
         raise ServiceError(
             ErrorCode.VALIDATION_ERROR,
-            "Chỉ dry-run được version DRAFT hoặc chưa kích hoạt.",
+            "Chỉ dry-run được version DRAFT, DRY_RUN_OK hoặc ACTIVE.",
         )
     resolved = _resolve_or_raise(ctx, version_id, values)
     started = time.monotonic()
@@ -553,15 +554,20 @@ def dry_run_version(ctx: Ctx, version_id: int, values: dict[str, Any] | None = N
         sorts=[],
     )
     query_ms = int((time.monotonic() - started) * 1000)
+    # Task 34: version ACTIVE chỉ xem trước, không đổi trạng thái; DRAFT /
+    # DRY_RUN_OK thành công thì chuyển DRY_RUN_OK để đủ điều kiện kích hoạt.
+    result_status = str(detail["status"])
     with engine.begin() as conn:
-        conn.execute(recon_rpt_tpl_ver.update().where(recon_rpt_tpl_ver.c.ID == version_id).values(STATUS="DRY_RUN_OK"))
+        if result_status in ("DRAFT", "DRY_RUN_OK"):
+            conn.execute(recon_rpt_tpl_ver.update().where(recon_rpt_tpl_ver.c.ID == version_id).values(STATUS="DRY_RUN_OK"))
+            result_status = "DRY_RUN_OK"
         write_audit_log(
             conn,
             "RECON_RPT_TPL_VER",
             version_id,
             "DRY_RUN_VERSION",
             ctx.username,
-            new_data={"total": total, "query_ms": query_ms},
+            new_data={"total": total, "query_ms": query_ms, "status": result_status},
         )
     return {
         "version_id": version_id,
@@ -569,6 +575,7 @@ def dry_run_version(ctx: Ctx, version_id: int, values: dict[str, Any] | None = N
         "rows": rows,
         "columns": col_names,
         "query_ms": query_ms,
+        "status": result_status,
     }
 
 
