@@ -86,3 +86,38 @@ class TestParamControlNoNone:
         )
         dates = _find_by_type(comp, "DateInput")
         assert [d.value for d in dates] == ["2026-11-01", "2026-11-05"]
+
+
+class TestRunsFilterDatesNoNone:
+    def test_command_bar_search_defaults_to_empty_string(self):
+        from app.ui.components.command_bar import command_bar
+
+        bar = command_bar(search_id="test-search")
+        inputs = _find_by_type(bar, "TextInput")
+        assert inputs and all(i.value == "" for i in inputs), [i.value for i in inputs]
+
+    def test_refresh_returns_empty_string_for_blank_dates(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from app.core.context import Ctx
+        from app.ui.pages.report_runs import handle_runs_refresh
+
+        ctx = Ctx(user_id=1, username="admin", full_name="Admin", roles=frozenset({"ADMIN"}), permissions=frozenset())
+        monkeypatch.setattr("app.ui.pages.report_runs.get_current_ctx", lambda: ctx)
+        monkeypatch.setattr("app.ui.pages.report_runs._load_page_data", lambda *a, **k: ([], 0, {}))
+        monkeypatch.setattr("dash.callback_context", SimpleNamespace(triggered_id=None))
+        out = handle_runs_refresh(1, "50", None, None, "all", "", "all", None, 1)
+        assert out[4] == "" and out[5] == "", out[4:6]
+
+    def test_clear_returns_empty_string_for_dates(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from app.core.context import Ctx
+        from app.ui.pages.report_runs import handle_runs_refresh
+
+        ctx = Ctx(user_id=1, username="admin", full_name="Admin", roles=frozenset({"ADMIN"}), permissions=frozenset())
+        monkeypatch.setattr("app.ui.pages.report_runs.get_current_ctx", lambda: ctx)
+        monkeypatch.setattr("app.ui.pages.report_runs._load_page_data", lambda *a, **k: ([], 0, {}))
+        monkeypatch.setattr("dash.callback_context", SimpleNamespace(triggered_id="report-runs-clear-btn"))
+        out = handle_runs_refresh(1, "50", "2026-11-01", "2026-11-05", "FIN", "bc", "admin", 1, 1)
+        assert out[4] == "" and out[5] == "" and out[6] == "all" and out[7] == ""

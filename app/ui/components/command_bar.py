@@ -9,13 +9,18 @@ from dash_iconify import DashIconify
 def command_bar(
     search_id: str | None = None,
     search_placeholder: str = "Tìm kiếm...",
-    search_value: str | None = None,
+    search_value: str | None = "",
     filters: list[Any] | Any = None,
     actions: list[Any] | Any = None,
     id: str | None = None,
     **kwargs: Any,
 ) -> dmc.Paper:
-    """Thanh công cụ CommandBar chuẩn Fluent Compact (tìm kiếm, bộ lọc nhanh, hành động)."""
+    """Thanh công cụ CommandBar chuẩn Fluent Compact (tìm kiếm, bộ lọc nhanh, hành động).
+
+    Task 45: search_value mặc định "" (không None) — None gây cảnh báo
+    React "value should not be null" + uncontrolled -> controlled khi
+    callback ghi lại giá trị ô tìm kiếm.
+    """
     left_items: list[Any] = []
 
     if search_id:
@@ -23,7 +28,7 @@ def command_bar(
             dmc.TextInput(
                 id=search_id,
                 placeholder=search_placeholder,
-                value=search_value,
+                value=search_value if search_value is not None else "",
                 leftSection=DashIconify(icon="lucide:search", width=14),
                 size="xs",
                 style={"width": 260, "minWidth": 160},

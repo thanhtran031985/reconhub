@@ -335,6 +335,10 @@ def layout() -> Any:
                     dmc.DateInput(
                         id="report-runs-filter-from",
                         placeholder="Từ ngày",
+                        # Task 45: value "" ngay từ đầu — không có value
+                        # thì ô là uncontrolled, callback trả "" sẽ thành
+                        # controlled và React cảnh báo.
+                        value="",
                         valueFormat="YYYY-MM-DD",
                         size="xs",
                         w=140,
@@ -343,6 +347,7 @@ def layout() -> Any:
                     dmc.DateInput(
                         id="report-runs-filter-to",
                         placeholder="Đến ngày",
+                        value="",
                         valueFormat="YYYY-MM-DD",
                         size="xs",
                         w=140,
@@ -488,8 +493,10 @@ def handle_runs_refresh(
             1,
             "Tổng 0 run",
             page,
-            from_date,
-            to_date,
+            # Task 45: "" thay vì None — None gây cảnh báo React
+            # "value should not be null" ở ô lọc ngày.
+            from_date or "",
+            to_date or "",
             category or "all",
             name or "",
             runner or "all",
@@ -499,8 +506,8 @@ def handle_runs_refresh(
         max(1, (total + size - 1) // size),
         f"Tổng {total} run",
         page,
-        from_date,
-        to_date,
+        from_date or "",
+        to_date or "",
         category or "all",
         name or "",
         runner or "all",
