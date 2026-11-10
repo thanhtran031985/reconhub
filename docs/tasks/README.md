@@ -36,7 +36,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 29 | [29-reporting-fluent-ui](29-reporting-fluent-ui/task.md) — Đồng bộ giao diện Báo cáo động theo thiết kế chuẩn Screen16 preview.html | ✅ | 27, 28 | feat/29-reporting-fluent-ui |
 | 30 | [30-menu-search](30-menu-search/task.md) — Bỏ badge "Mới" ở menu thanh bên và thêm ô tìm kiếm menu ở header | ✅ | 19, 20 | feat/30-menu-search |
 | 31 | [31-data-model-explorer](31-data-model-explorer/task.md) — Data Model Explorer + Automatic ER Diagram (DATA-MODEL-01) | ✅ | 19, 20 | feat/31-data-model-explorer |
-| 32 | [32-report-delete](32-report-delete/task.md) — Xóa hẳn báo cáo (Report Master) trên /report-admin + sửa cột Thao tác trống với báo cáo chưa có template | ⬜ | 21, 27, 28 | feat/32-report-delete |
+| 32 | [32-report-delete](32-report-delete/task.md) — Xóa hẳn báo cáo (Report Master) trên /report-admin + sửa cột Thao tác trống với báo cáo chưa có template | ✅ | 21, 27, 28 | feat/32-report-delete |
 
 Thiết kế: 11 màn (designs/components/Screen01–Screen11), 13 thành phần, Gallery. Giao diện dựng bằng Dash Mantine Components.
 

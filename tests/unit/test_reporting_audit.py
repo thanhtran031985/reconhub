@@ -159,7 +159,7 @@ class TestReportingAudit:
         from app.services.report import delete_report
 
         report = _make_report(admin_ctx)
-        tpl = _make_template(admin_ctx, report["id"])
+        _make_template(admin_ctx, report["id"])
         assert delete_report(admin_ctx, report["id"]).ok
         rows = _audit_rows(audit_env, "RECON_REPORT")
         actions = [r["ACTION"] for r in rows]

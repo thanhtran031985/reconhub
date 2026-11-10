@@ -149,8 +149,9 @@ class TestAdminLayout:
         assert text.count("Xóa báo cáo") == 1
 
     def test_delete_modal_guard_no_click(self, run_env, admin_ctx):
-        import app.ui.pages.report_admin as page
         from dash import no_update
+
+        import app.ui.pages.report_admin as page
 
         trigger = {"type": "admin-delete-report", "index": run_env["report_id"]}
         opened, target, _desc = page.open_delete_modal_logic(None, trigger, admin_ctx)
@@ -172,9 +173,10 @@ class TestAdminLayout:
         assert "FIN_REVENUE" in desc
 
     def test_delete_confirm_guard_and_delete(self, run_env, admin_ctx):
-        import app.ui.pages.report_admin as page
         import pytest
         from dash.exceptions import PreventUpdate
+
+        import app.ui.pages.report_admin as page
 
         with pytest.raises(PreventUpdate):
             page.confirm_delete_logic(None, run_env["report_id"], admin_ctx)

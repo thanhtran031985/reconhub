@@ -289,9 +289,7 @@ def delete_report(ctx: Ctx, report_id: int) -> dict[str, Any]:
         # 1. Lần chạy + export của các lần chạy đó.
         run_ids = [
             int(r[0])
-            for r in conn.execute(
-                select(recon_report_run.c.ID).where(recon_report_run.c.REPORT_ID == report_id)
-            ).all()
+            for r in conn.execute(select(recon_report_run.c.ID).where(recon_report_run.c.REPORT_ID == report_id)).all()
         ]
         n_exports = 0
         if run_ids:
@@ -333,9 +331,7 @@ def delete_report(ctx: Ctx, report_id: int) -> dict[str, Any]:
                     ).all()
                 ]
                 if param_ids:
-                    conn.execute(
-                        delete(recon_rpt_param_lov).where(recon_rpt_param_lov.c.PARAM_ID.in_(param_ids))
-                    )
+                    conn.execute(delete(recon_rpt_param_lov).where(recon_rpt_param_lov.c.PARAM_ID.in_(param_ids)))
                 conn.execute(delete(recon_rpt_param).where(recon_rpt_param.c.VERSION_ID.in_(ver_ids)))
                 conn.execute(delete(recon_rpt_column).where(recon_rpt_column.c.VERSION_ID.in_(ver_ids)))
                 conn.execute(delete(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID.in_(ver_ids)))
