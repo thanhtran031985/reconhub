@@ -243,7 +243,7 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
                                 "Xem báo cáo",
                                 id="viewer-run-btn",
                                 variant="filled",
-                                size="xs",
+                                size="sm",
                             ),
                         ),
                     ),
