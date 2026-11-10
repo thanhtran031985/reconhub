@@ -163,6 +163,7 @@ def layout(**kwargs: Any) -> Any:
                     ],
                     gap="md",
                     maw=640,
+                    mx="auto",
                 ),
                 style={
                     "flex": "1 1 0%",
@@ -177,6 +178,7 @@ def layout(**kwargs: Any) -> Any:
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
+            "padding": "8px 12px",
             "backgroundColor": "var(--mantine-color-body)",
         },
     )

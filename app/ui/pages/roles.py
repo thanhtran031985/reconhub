@@ -712,6 +712,7 @@ def layout() -> Any:
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
+            "padding": "8px 12px",
         },
         children=[
             dcc.Store(id="roles-selected-store", data=first_id),

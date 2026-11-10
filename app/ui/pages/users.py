@@ -259,6 +259,7 @@ def layout() -> Any:
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
+            "padding": "8px 12px",
         },
         children=[
             # Header

@@ -571,6 +571,7 @@ def layout() -> Any:
     if not res.ok or not isinstance(res.data, dict):
         return html.Div(
             id="menus-page-root",
+            style={"padding": "8px 12px"},
             children=[
                 dmc.Title("Danh sách menu", order=2, fw=700),
                 html.Div(
@@ -600,6 +601,7 @@ def layout() -> Any:
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
+            "padding": "8px 12px",
         },
         children=[
             dcc.Store(id="menus-saved-store", data=tree),

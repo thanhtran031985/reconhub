@@ -43,14 +43,14 @@ def _viewer_ctx() -> Ctx:
 class TestLayoutRender:
     def test_layout_renders_without_error(self, lookups_env: Any, monkeypatch: Any) -> None:
         """Layout /lookups phải render thành công khi đã đăng nhập."""
-        monkeypatch.setattr("app.core.session.get_current_ctx", lambda: _admin_ctx())
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
         from app.ui.pages.lookups import layout
         result = layout()
         assert result is not None
 
     def test_layout_has_screen12_search_inputs(self, lookups_env: Any, monkeypatch: Any) -> None:
         """Layout phải có ô tìm kiếm Type và ô tìm kiếm Code theo chuẩn Screen12."""
-        monkeypatch.setattr("app.core.session.get_current_ctx", lambda: _admin_ctx())
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
         from app.ui.pages.lookups import layout
         result = str(layout())
         assert "lookups-type-search-input" in result
@@ -69,14 +69,14 @@ class TestLayoutRender:
 
     def test_layout_contains_lookup_type_list(self, lookups_env: Any, monkeypatch: Any) -> None:
         """Layout phải có vùng hiển thị danh sách Lookup Type."""
-        monkeypatch.setattr("app.core.session.get_current_ctx", lambda: _admin_ctx())
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
         from app.ui.pages.lookups import layout
         result = str(layout())
         assert "lookups-type-list" in result or "LOOKUP_TYPE" in result or "lookups" in result.lower()
 
     def test_layout_has_add_type_button(self, lookups_env: Any, monkeypatch: Any) -> None:
         """Admin thấy nút Thêm loại danh mục."""
-        monkeypatch.setattr("app.core.session.get_current_ctx", lambda: _admin_ctx())
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
         from app.ui.pages.lookups import layout
         result = str(layout())
         assert "lookups-add-type-btn" in result
@@ -124,7 +124,7 @@ class TestHandleSelectType:
     def test_select_type_loads_code_table(self, lookups_env: Any, monkeypatch: Any) -> None:
         """Click vào type trái → cập nhật bảng code bên phải."""
         monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
-        monkeypatch.setattr("app.core.session.get_current_ctx", lambda: _admin_ctx())
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
         from app.ui.pages.lookups import handle_select_type
         # Gọi callback trực tiếp
         result = handle_select_type("ISSUE_STATUS")
@@ -174,7 +174,7 @@ class TestUiUxFixes:
 
 class TestLeftColumnDesign:
     def test_type_card_shows_total_and_active_counts(self, lookups_env: Any, monkeypatch: Any) -> None:
-        monkeypatch.setattr("app.core.session.get_current_ctx", lambda: _admin_ctx())
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
         from app.ui.pages.lookups import render_type_list
 
         ui, _total = render_type_list(_admin_ctx(), selected_type="ISSUE_REASON")
@@ -185,7 +185,7 @@ class TestLeftColumnDesign:
         assert "ISSUE_REASON" in text
 
     def test_add_type_button_is_at_bottom_of_left_column(self, lookups_env: Any, monkeypatch: Any) -> None:
-        monkeypatch.setattr("app.core.session.get_current_ctx", lambda: _admin_ctx())
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
         from app.ui.pages.lookups import layout
 
         text = str(layout())

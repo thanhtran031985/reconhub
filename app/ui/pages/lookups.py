@@ -666,7 +666,7 @@ def layout(**kwargs: Any) -> Any:
     code_table_ui = render_code_table(ctx, lookup_type=None)
 
     return html.Div(
-        style={"height": "calc(100vh - 48px)", "display": "flex", "flexDirection": "column", "overflow": "hidden"},
+        style={"height": "calc(100vh - 48px)", "display": "flex", "flexDirection": "column", "overflow": "hidden", "padding": "8px 12px"},
         children=[
             dcc.Store(id="lookups-selected-type-store", data=None),
             dcc.Store(id="lookups-refresh-store", data=0),
