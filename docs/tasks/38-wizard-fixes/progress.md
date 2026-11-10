@@ -2,10 +2,10 @@
 
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 | --- | --- | --- | --- | --- |
-| 0 | Task + nhánh `feat/38-wizard-fixes` từ `7ae6f43` | Xong | 2026-11-10 |  |
-| 1 | Test đỏ cho 3 lỗi | Xong | 2026-11-10 |  |
-| 2 | Sửa 3 mục (footer 20px, Lưu nháp bước 3 lưu bảng, Canvas trả controls) | Xong | 2026-11-10 |  |
-| 3 | Kiểm chứng cuối + xuất patch | Đang làm | 2026-11-10 |  |
+| 0 | Task + nhánh `feat/38-wizard-fixes` từ `7ae6f43` | Xong | 2026-11-10 | `cca4430` |
+| 1 | Test đỏ cho 3 lỗi | Xong | 2026-11-10 | `6602d49` |
+| 2 | Sửa 3 mục (footer 20px, Lưu nháp bước 3 lưu bảng, Canvas trả controls) | Xong | 2026-11-10 | `6602d49` |
+| 3 | Kiểm chứng cuối + xuất patch | Xong | 2026-11-10 | `6602d49` |
 
 Kiểm chứng: typecheck 0 lỗi, lint sạch, test `test_page_report_admin.py`
 67 pass, full suite 1395 pass 6 skipped, Playwright 12/12 (footer 20px/
