@@ -228,6 +228,33 @@ Checklist kiểm thử cho task DATA-MODEL-01. Đánh dấu `[x]` khi ca đã pa
 
 Ghi chú bổ sung (10/11/2026): Playwright trên server thử (1440×900) đã qua click-outside, thu Explorer (36px, canvas 724px), thu cả hai (Detail 36px, canvas 1124px), không cuộn trang ở cả 3 trạng thái; ảnh `data-model-click-outside-1440.png`, `data-model-collapse-1440.png`, `data-model-collapse-both-1440.png` (người dùng đã xem). Còn [ ]: entity click/zoom/dblclick sau khi bổ sung và search/zoom-fit không phá — script dừng ở bước mở lại theo quyết định của người dùng (bỏ qua bước chụp ảnh nếu lâu quá); zoom/dblclick đã kiểm chứng ở bước 8, listener click-outside loại trừ entity/line và nút zoom/fit nằm ngoài canvas container (code inspection + probe: dispatch tổng hợp + click chuột thật đều xóa selection đúng, replay callback ALL không chọn lại). Mở lại: Explorer đã mở lại được trên trình duyệt (lượt chạy 2), Chi tiết chỉ kiểm bằng unit test (`test_handle_panel_toggle` đảo cả hai panel độc lập + bấm lại mở ra, `test_update_panel_layout` assert flex 2/5/3 khi mở) — bấm mở lại Chi tiết trên trình duyệt timeout 2 lần do VM chậm (mỗi lần render workspace ~85 giây, `dcc.Loading` che nút trong lúc render), không phải lỗi sản phẩm. Mobile: chỉ sửa CSS (media query <900px + `.dm-panel-collapsed` min-height 36px), chưa chạy Playwright mobile.
 
+## Sửa lỗi treo trang (2026-11-10)
+
+- [x] Click table chỉ ghi selection-store, KHÔNG ghi app-location href (không navigation, không chạy lại layout)
+- [x] Guard-fail ở `handle_table_click` / `handle_entity_click` / `handle_rel_nav` trả `dash.no_update`
+- [x] Guard-fail ở `handle_group_toggle` / `handle_rel_click` raise `PreventUpdate`
+- [x] Guard-fail ở `handle_context_menu` trả toàn bộ 7 outputs `no_update`; action "copy" chỉ ghi `copy-store`
+- [x] `update_workspace` khi trigger chỉ là selection/zoom-store: explorer children + explorer-count là `no_update`, canvas + detail vẫn dựng lại, zoom label giữ đúng (0.7 → "70%")
+- [x] Đổi search/domain/mode vẫn dựng lại Explorer đầy đủ (không `no_update`)
+- [x] URL vẫn đổi theo selection qua clientside `history.replaceState` (không navigation); deep-link khi load/refresh vẫn giữ qua `layout(**kwargs)`
+- [x] Highlight dòng Explorer đồng bộ clientside (class `active` + `aria-selected` theo `data-table`) khi Explorer không dựng lại
+- [x] Click table không reset zoom về 100% (không còn navigation → `zoom-store` không khởi tạo lại)
+- [x] Một click (chọn table) chỉ gây TỐI ĐA 1 lần render workspace — đo bằng số request `/_dash-update-component` (probe v2)
+- [x] Bấm thu nhỏ Explorer → tab responsive; bấm thu nhỏ Chi tiết → tab responsive; bấm mở lại cả hai → tab responsive (probe v2)
+- [x] Bấm vùng trống canvas → tab responsive, selection bị xóa
+- [x] Ảnh `data-model-fix-1440.png` (trạng thái đã chọn) ở `~/workspace/dashboard-preview/`
+- [x] Test hồi quy: `test_handle_rel_click_guard_fail_prevents_update`, `test_update_workspace_selection_only_skips_explorer`, `test_update_workspace_search_change_rebuilds_explorer`, `test_table_click_does_not_touch_zoom_or_url` (đỏ trước khi sửa, xanh sau khi sửa)
+
+Ghi chú đo render (10/11/2026): probe v1 dùng MutationObserver childList cho kết quả 0 render dù click đã xử lý — React cập nhật DOM tại chỗ, không thay children của container, nên childList không đếm được render. Đổi sang đếm request POST tới `/_dash-update-component` (mỗi lần server callback chạy = 1 request) — script `~/workspace/dashboard-preview/data_model_fix_probe2.py`.
+
+Kết quả đo cuối (v3, probe2 `postfix3` + script nghiệm thu `data_model_fix_verify.py`, server thử cổng 8051):
+- Kết luận loại: (b) render chậm rồi hồi phục, KHÔNG phải vòng lặp vô hạn — người dùng bấm Wait thì trang hồi lại; chuỗi render nối tiếp + một lần render đầy đủ tự nó đã quá chậm.
+- TRƯỚC sửa: click RECON_RUN → main thread block ~80s, 21 request trong 150s mà chưa settle; thu nhỏ Explorer → block ~88s, 8 request/90s.
+- Sau v1: click → 22 request/156s, block ~56s (chuỗi đã cắt nhưng một render đầy đủ vẫn ~70s).
+- Sau v2: click ping 2–4ms (hết treo); thu/mở panel vẫn block ~78–80s.
+- Sau v3: click table ping 2–8ms, thu Explorer ping 2–9ms, mở lại ping 2–3ms — hết treo cả 3 thao tác; selection đúng suốt quá trình. Mỗi thao tác ~2–3 request data-model + ~2 request/10s từ interval 5s `app-perm-revision-check` của shell (có sẵn trên mọi page, không phải chuỗi render; probe báo "chưa settle" vì interval 5s khiến quiet không đạt 10s — là giới hạn của probe, không phải lỗi).
+- Nghiệm thu cuối (ping 1–2ms từng bước): click 3 table liên tiếp (RECON_RUN → RECON_USER → RECON_TEMPLATE, URL đổi theo từng table), click vùng trống (selection xóa, Detail về empty, URL bỏ `?table=`), zoom + (nhãn 110%, transform scale(1.1), giữ selection), thu/mở Chi tiết (flex `0 0 36px` ↔ `3 1 0%`) — VERIFY OK. Ảnh `data-model-fix-1440.png` (RECON_RUN đã chọn, zoom 110%).
+
 ## Ghi chú kiểm chứng (09/11/2026, bước 8)
 
 - Baseline trước khi implement: full suite trừ e2e 1212 passed, 6 skipped (213s); typecheck 0 lỗi (baseline "21 lỗi" trong ghi chú cũ đã lỗi thời).

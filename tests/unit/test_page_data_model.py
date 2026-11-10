@@ -324,7 +324,14 @@ def test_render_explorer_empty_search(dm_manifest):
     assert "data-model-clear-filter-btn" in text
 
 
-def test_handle_table_click_updates_selection_and_url(monkeypatch):
+def test_handle_table_click_updates_selection_no_navigation(monkeypatch):
+    """Click dòng table: chỉ đổi selection-store, KHÔNG ghi app-location href.
+
+    Hồi quy treo trang 2026-11-10: ghi href gây navigation -> layout() chạy
+    lại -> update_workspace render lại -> callback pattern-matching phát lại
+    -> ghi store/href lại -> tab treo. URL đồng bộ bằng clientside
+    replaceState (không navigation) nên zoom cũng không bị reset về 100%.
+    """
     import json
 
     import dash
@@ -342,18 +349,12 @@ def test_handle_table_click_updates_selection_and_url(monkeypatch):
             ]
         ),
     )
-    selection, href = page.handle_table_click(
-        [1], {"kind": None, "table": None}, {"domain": "recon", "mode": "relations", "expanded": {}}
-    )
+    selection = page.handle_table_click([1], {"kind": None, "table": None})
     assert selection == {"kind": "table", "table": "RECON_RUN"}
-    assert href == "/data-model?table=RECON_RUN&domain=recon&mode=relations"
-    # Không có trigger thì không đổi.
+    # Không có trigger thì không đổi gì (trả no_update, không ghi store).
     monkeypatch.setattr("dash.callback_context", SimpleNamespace(triggered=[]))
-    selection2, href2 = page.handle_table_click(
-        [0], {"kind": None, "table": None}, {"domain": "all", "mode": "relations", "expanded": {}}
-    )
-    assert selection2 == {"kind": None, "table": None}
-    assert href2 == dash.no_update
+    selection2 = page.handle_table_click([0], {"kind": None, "table": None})
+    assert selection2 is dash.no_update
     # Phát lại lúc load với n_clicks=0 cũng không đổi (hồi quy: từng tự chọn
     # RECON_APP_SETTING và đổi URL ngay khi mở page).
     monkeypatch.setattr(
@@ -367,15 +368,14 @@ def test_handle_table_click_updates_selection_and_url(monkeypatch):
             ]
         ),
     )
-    selection3, href3 = page.handle_table_click(
-        [0], {"kind": None, "table": None}, {"domain": "all", "mode": "relations", "expanded": {}}
-    )
-    assert selection3 == {"kind": None, "table": None}
-    assert href3 == dash.no_update
+    selection3 = page.handle_table_click([0], {"kind": None, "table": None})
+    assert selection3 is dash.no_update
 
 
 def test_handle_group_toggle(monkeypatch):
     import json
+
+    import dash
 
     import app.ui.pages.data_model as page
 
@@ -394,10 +394,18 @@ def test_handle_group_toggle(monkeypatch):
     assert ui["expanded"] == {"report": False}
     ui2 = page.handle_group_toggle([1], {"expanded": {"report": False}, "domain": "all", "mode": "relations"})
     assert ui2["expanded"] == {"report": True}
+    # Hồi quy treo trang 2026-11-10: guard-fail phải PreventUpdate, không ghi
+    # lại ui-store (ghi lại giá trị hiện tại vẫn kích hoạt update_workspace
+    # render lại -> phát lại -> ghi lại -> treo tab).
+    monkeypatch.setattr("dash.callback_context", SimpleNamespace(triggered=[]))
+    with pytest.raises(dash.exceptions.PreventUpdate):
+        page.handle_group_toggle([0], {"expanded": {}, "domain": "all", "mode": "relations"})
 
 
 def test_handle_context_menu_actions(monkeypatch):
     import json
+
+    import dash
 
     import app.ui.pages.data_model as page
 
@@ -443,7 +451,16 @@ def test_handle_context_menu_actions(monkeypatch):
         [1], {"kind": None, "table": None}, {"expanded": {}}, {"query": "", "change_type": "all", "table": None}
     )
     assert copy_store == {"text": "RECON_RUN"}
-    assert opened_copy is False
+    # Copy không đổi selection/ui-store/history/drawer (hồi quy treo trang:
+    # ghi lại giá trị hiện tại vẫn kích hoạt render lại).
+    assert _sel is dash.no_update and _ui is dash.no_update
+    assert _hf is dash.no_update and opened_copy is dash.no_update
+    # Guard-fail (phát lại sau render): toàn bộ 7 outputs đều no_update.
+    monkeypatch.setattr("dash.callback_context", SimpleNamespace(triggered=[]))
+    out = page.handle_context_menu(
+        [0], {"kind": None, "table": None}, {"expanded": {}}, {"query": "", "change_type": "all", "table": None}
+    )
+    assert all(v is dash.no_update for v in out)
 
 
 def test_handle_dblclick_centers_and_zooms(monkeypatch):
@@ -653,6 +670,8 @@ def test_handle_zoom_clamps(monkeypatch):
 def test_handle_entity_click(monkeypatch):
     import json
 
+    import dash
+
     import app.ui.pages.data_model as page
 
     monkeypatch.setattr(
@@ -666,11 +685,11 @@ def test_handle_entity_click(monkeypatch):
             ]
         ),
     )
-    selection, href = page.handle_entity_click(
-        [1], {"kind": None, "table": None}, {"domain": "all", "mode": "relations"}
-    )
+    selection = page.handle_entity_click([1], {"kind": None, "table": None})
     assert selection == {"kind": "table", "table": "RECON_RUN"}
-    assert href == "/data-model?table=RECON_RUN&domain=all&mode=relations"
+    # Guard-fail: không ghi gì (hồi quy treo trang 2026-11-10).
+    monkeypatch.setattr("dash.callback_context", SimpleNamespace(triggered=[]))
+    assert page.handle_entity_click([0], {"kind": None, "table": None}) is dash.no_update
 
 
 def test_handle_rel_click_selects_relationship(dm_manifest, monkeypatch):
@@ -1053,17 +1072,16 @@ def test_handle_rel_nav(monkeypatch):
             ]
         ),
     )
-    selection, href = page.handle_rel_nav([1], {"kind": "relationship"}, {"mode": "relations"})
+    selection = page.handle_rel_nav([1], {"kind": "relationship"})
     assert selection == {"kind": "table", "table": "RECON_USER"}
-    assert href == "/data-model?table=RECON_USER&domain=all&mode=relations"
 
     monkeypatch.setattr(
         "dash.callback_context",
         SimpleNamespace(triggered=[{"prop_id": "x.n_clicks", "value": 0}]),
     )
-    selection2, href2 = page.handle_rel_nav([0], {"kind": None, "table": None}, {})
-    assert selection2 == {"kind": None, "table": None}
-    assert href2 is dash.no_update
+    selection2 = page.handle_rel_nav([0], {"kind": None, "table": None})
+    # Guard-fail: không ghi gì (hồi quy treo trang 2026-11-10).
+    assert selection2 is dash.no_update
 
 
 # --- Bước 7: Sync state machine + loading/empty/error ---
@@ -1353,7 +1371,16 @@ def test_update_workspace_selection_none_shows_empty_detail(dm_manifest):
 
 
 def test_handle_panel_toggle(monkeypatch):
-    """Nút thu nhỏ/mở rộng ở header panel: đảo cờ trong ui-store, độc lập nhau."""
+    """Nút thu nhỏ/mở rộng ở header panel: đảo cờ trong panel-store, độc lập nhau.
+
+    Hồi quy treo trang 2026-11-10 (v2): cờ thu nhỏ tách khỏi ui-store thành
+    store riêng `data-model-panel-store` để bấm thu/mở panel KHÔNG kích hoạt
+    `update_workspace` (render lại toàn bộ workspace ~5.000 component).
+    Hồi quy v3: mỗi panel có 2 nút riêng (thu/mở) cùng tồn tại trong DOM,
+    chỉ đổi style ẩn/hiện — không tạo lại header (tạo lại header sẽ remount
+    `data-model-explorer-count` là Output của update_workspace khiến Dash
+    chạy lại update_workspace -> render đầy đủ -> treo tab).
+    """
     import dash
 
     import app.ui.pages.data_model as page
@@ -1364,70 +1391,227 @@ def test_handle_panel_toggle(monkeypatch):
             SimpleNamespace(triggered=[{"prop_id": btn_id + ".n_clicks", "value": 1}]),
         )
 
-    base_ui = {"domain": "all", "mode": "relations", "expanded": {}}
+    base_panel: dict[str, bool] = {}
     _trigger("data-model-explorer-collapse-btn")
-    ui = page.handle_panel_toggle(1, None, base_ui)
-    assert ui.get("explorer_collapsed") is True
-    assert ui.get("detail_collapsed") is not True
-    # Bấm lại -> mở ra.
-    ui2 = page.handle_panel_toggle(1, None, ui)
-    assert ui2.get("explorer_collapsed") is False
+    panel = page.handle_panel_toggle(1, None, None, None, base_panel)
+    assert panel.get("explorer_collapsed") is True
+    assert panel.get("detail_collapsed") is not True
+    # Bấm nút mở lại (nút riêng) -> mở ra.
+    _trigger("data-model-explorer-expand-btn")
+    panel2 = page.handle_panel_toggle(None, 1, None, None, panel)
+    assert panel2.get("explorer_collapsed") is False
     # Nút Detail độc lập với Explorer.
     _trigger("data-model-detail-collapse-btn")
-    ui3 = page.handle_panel_toggle(None, 1, ui2)
-    assert ui3.get("detail_collapsed") is True
-    assert ui3.get("explorer_collapsed") is False
+    panel3 = page.handle_panel_toggle(None, None, 1, None, panel2)
+    assert panel3.get("detail_collapsed") is True
+    assert panel3.get("explorer_collapsed") is False
+    _trigger("data-model-detail-expand-btn")
+    panel4 = page.handle_panel_toggle(None, None, None, 1, panel3)
+    assert panel4.get("detail_collapsed") is False
     # n_clicks=0 (phát lại lúc load) -> không đổi.
     monkeypatch.setattr(
         "dash.callback_context",
         SimpleNamespace(triggered=[{"prop_id": "data-model-explorer-collapse-btn.n_clicks", "value": 0}]),
     )
     with pytest.raises(dash.exceptions.PreventUpdate):
-        page.handle_panel_toggle(0, None, ui3)
+        page.handle_panel_toggle(0, None, None, None, panel4)
 
 
 def test_update_panel_layout():
-    """Style + header panel theo cờ thu nhỏ trong ui-store."""
+    """Style panel theo cờ thu nhỏ trong panel-store — CHỈ style, không tạo lại header.
+
+    Hồi quy treo trang 2026-11-10 (v3): callback này trước đây output cả
+    header children; tạo lại header sẽ remount `data-model-explorer-count`
+    (Output của update_workspace) khiến Dash chạy lại update_workspace
+    (render đầy đủ ~5.000 component, block ~76s). Nay header tĩnh (2 nút
+    thu/mở cùng tồn tại, chỉ đổi style ẩn/hiện), callback chỉ trả style.
+    """
     import app.ui.pages.data_model as page
 
-    base_ui = {"domain": "all", "mode": "relations", "expanded": {}}
+    base_panel: dict[str, bool] = {}
+    out = page.update_panel_layout(base_panel)
+    assert len(out) == 16
     (
         exp_style,
         canvas_style,
         det_style,
         exp_cls,
         det_cls,
-        exp_head,
+        exp_title_style,
+        exp_count_style,
+        exp_collapse_style,
+        exp_expand_style,
+        det_title_style,
+        det_collapse_style,
+        det_expand_style,
         _exp_head_style,
-        det_head,
         _det_head_style,
         exp_cont_style,
         det_cont_style,
-    ) = page.update_panel_layout(base_ui, "43 tables")
+    ) = out
     assert exp_style["flex"] == 2
     assert canvas_style["flex"] == 5
     assert det_style["flex"] == 3
     assert exp_cls == "" and det_cls == ""
-    assert "Thu nhỏ bảng Explorer" in str(exp_head)
-    assert "Thu nhỏ bảng Chi tiết" in str(det_head)
-    assert "43 tables" in str(exp_head)
+    # Mở: tiêu đề/count/nút thu hiện, nút mở ẩn, container hiện.
+    assert exp_title_style.get("display") != "none"
+    assert exp_count_style.get("display") != "none"
+    assert exp_collapse_style.get("display") != "none"
+    assert exp_expand_style == {"display": "none"}
+    assert det_title_style.get("display") != "none"
+    assert det_collapse_style.get("display") != "none"
+    assert det_expand_style == {"display": "none"}
     assert exp_cont_style.get("display") != "none"
     assert det_cont_style.get("display") != "none"
 
-    # Thu Explorer: dải hẹp 36px, nút mở lại, container ẩn, canvas giữ flex 5.
-    out = page.update_panel_layout({**base_ui, "explorer_collapsed": True}, "43 tables")
+    # Thu Explorer: dải hẹp 36px, tiêu đề/count/nút thu ẩn, nút mở hiện,
+    # container ẩn, canvas giữ flex 5.
+    out = page.update_panel_layout({**base_panel, "explorer_collapsed": True})
     assert out[0]["flex"] == "0 0 36px"
     assert out[3] == "dm-panel-collapsed"
-    assert "Mở rộng bảng Explorer" in str(out[5])
-    assert "43 tables" in str(out[5])  # count vẫn render (ẩn) để update_workspace không lỗi
-    assert out[9] == {"display": "none"}
+    assert out[5] == {"display": "none"}
+    assert out[6] == {"display": "none"}
+    assert out[7] == {"display": "none"}
+    assert out[8].get("display") != "none"
+    assert out[14] == {"display": "none"}
     assert out[1]["flex"] == 5
-    assert out[10].get("display") != "none"
+    assert out[15].get("display") != "none"
 
     # Thu cả hai: ER chiếm toàn bộ chiều rộng còn lại.
-    out2 = page.update_panel_layout({**base_ui, "explorer_collapsed": True, "detail_collapsed": True}, "43 tables")
+    out2 = page.update_panel_layout({**base_panel, "explorer_collapsed": True, "detail_collapsed": True})
     assert out2[0]["flex"] == "0 0 36px"
     assert out2[2]["flex"] == "0 0 36px"
     assert out2[1]["flex"] == 5
-    assert "Mở rộng bảng Chi tiết" in str(out2[7])
-    assert out2[9] == {"display": "none"} and out2[10] == {"display": "none"}
+    assert out2[9] == {"display": "none"}
+    assert out2[10] == {"display": "none"}
+    assert out2[11].get("display") != "none"
+    assert out2[14] == {"display": "none"} and out2[15] == {"display": "none"}
+
+
+# --- Hồi quy treo trang 2026-11-10 ---
+# Bấm Wait thì trang hồi lại sau một lúc: không phải vòng lặp vô hạn mà là
+# chuỗi render đầy đủ nối tiếp nhau. Tiêu chí nghiệm thu: một click chỉ gây
+# TỐI ĐA 1 lần render workspace.
+
+
+def test_handle_rel_click_guard_fail_prevents_update(dm_manifest, monkeypatch):
+    """Guard-fail ở handle_rel_click phải PreventUpdate, không ghi selection."""
+    import dash
+
+    import app.ui.pages.data_model as page
+
+    monkeypatch.setattr("dash.callback_context", SimpleNamespace(triggered=[]))
+    with pytest.raises(dash.exceptions.PreventUpdate):
+        page.handle_rel_click([0], dm_manifest, {"kind": None, "table": None})
+
+
+def test_update_workspace_selection_only_skips_explorer(dm_manifest, monkeypatch):
+    """Chỉ đổi selection thì Explorer + Canvas KHÔNG dựng lại (chỉ Detail).
+
+    Hồi quy treo trang 2026-11-10 (v2): đo thực tế cho thấy dựng lại canvas
+    (~5.000 component) tốn ~70s block main thread trên VM — một lần render
+    đã đủ treo tab. Highlight canvas đồng bộ bằng clientside
+    (data-model-selection-sink) nên server chỉ cần dựng Detail (nhỏ).
+    Click table không tạo lại dòng Explorer/entity/line -> không phát lại
+    callback click nào -> chuỗi render dừng ở 1 lần render nhỏ.
+    """
+    import dash
+
+    import app.ui.pages.data_model as page
+
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(
+            triggered=[{"prop_id": "data-model-selection-store.data", "value": {"kind": "table", "table": "RECON_RUN"}}]
+        ),
+    )
+    explorer, canvas, detail, count_text, _status, zoom_label = page.update_workspace(
+        dm_manifest,
+        "",
+        "all",
+        "relations",
+        {"kind": "table", "table": "RECON_RUN"},
+        {"expanded": {}},
+        0.7,
+    )
+    assert explorer is dash.no_update
+    assert canvas is dash.no_update
+    assert count_text is dash.no_update
+    assert "RECON_RUN" in str(detail)
+    assert zoom_label == "70%"
+
+    # Chỉ đổi zoom: toàn bộ no_update (zoom áp bằng clientside transform
+    # + label, server không cần dựng gì).
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "data-model-zoom-store.data", "value": 0.9}]),
+    )
+    out = page.update_workspace(
+        dm_manifest, "", "all", "relations", {"kind": None, "table": None}, {"expanded": {}}, 0.9
+    )
+    assert all(v is dash.no_update for v in out)
+
+
+def test_update_workspace_search_change_rebuilds_explorer(dm_manifest, monkeypatch):
+    """Đổi search/domain/mode thì Explorer vẫn dựng lại đầy đủ (không no_update)."""
+    import dash
+
+    import app.ui.pages.data_model as page
+
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(triggered=[{"prop_id": "data-model-search.value", "value": "GRID_SPAN"}]),
+    )
+    explorer, _canvas, _detail, count_text, _status, _zoom = page.update_workspace(
+        dm_manifest, "GRID_SPAN", "all", "relations", {"kind": None, "table": None}, {"expanded": {}}, 1.0
+    )
+    assert explorer is not dash.no_update
+    assert "1 tables" in count_text
+    assert "RECON_RPT_PARAM" in str(explorer)
+
+
+def test_table_click_does_not_touch_zoom_or_url(monkeypatch):
+    """Click table chỉ trả selection (1 giá trị, không tuple href).
+
+    Không ghi app-location href -> không navigation -> layout() không chạy
+    lại -> zoom-store không bị reset về 1.0. URL đồng bộ bằng clientside
+    replaceState (xem callback data-model-url-sink).
+    """
+    import json
+
+    import app.ui.pages.data_model as page
+
+    monkeypatch.setattr(
+        "dash.callback_context",
+        SimpleNamespace(
+            triggered=[
+                {
+                    "prop_id": json.dumps({"type": "dm-table-item", "table": "RECON_RUN"}) + ".n_clicks",
+                    "value": 1,
+                }
+            ]
+        ),
+    )
+    result = page.handle_table_click([1], {"kind": None, "table": None})
+    assert isinstance(result, dict)
+    assert result == {"kind": "table", "table": "RECON_RUN"}
+
+
+def test_render_canvas_rel_lines_carry_data_attributes(dm_manifest):
+    """Line relationship mang data-source/target/column để clientside tính related.
+
+    Hồi quy treo trang 2026-11-10 (v2): highlight canvas đồng bộ bằng
+    clientside (không dựng lại canvas khi đổi selection) nên line phải mang
+    đủ dữ liệu để JS tự tính bảng liên quan.
+    """
+    import app.ui.pages.data_model as page
+
+    tables = _manifest_tables(dm_manifest)
+    node = page.render_canvas(tables, {"kind": None, "table": None}, {"mode": "relations"}, 1.0, "")
+    lines = [n for n in _walk(node) if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-rel-line"]
+    assert len(lines) == 53
+    for line in lines:
+        props = line.to_plotly_json()["props"]
+        assert props.get("data-source"), f"line {line.id} thieu data-source"
+        assert props.get("data-target"), f"line {line.id} thieu data-target"
+        assert props.get("data-column"), f"line {line.id} thieu data-column"

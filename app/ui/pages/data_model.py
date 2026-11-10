@@ -179,65 +179,37 @@ def _panel_style(flex: int, collapsed: bool) -> dict[str, Any]:
     return style
 
 
-def _panel_toggle_button(panel: str, collapsed: bool) -> Any:
-    """Nút thu nhỏ/mở rộng ở header panel (icon + aria-label + tooltip tiếng Việt)."""
+def _panel_toggle_button(
+    panel: str, collapsed: bool, btn_id: str | None = None, style: dict[str, Any] | None = None
+) -> Any:
+    """Nút thu nhỏ/mở rộng ở header panel (icon + aria-label + tooltip tiếng Việt).
+
+    Mỗi panel có 2 nút riêng (thu/mở) cùng tồn tại trong DOM, chỉ đổi style
+    ẩn/hiện — không tạo lại header (hồi quy treo trang 2026-11-10 v3: tạo
+    lại header remount `data-model-explorer-count` khiến Dash chạy lại
+    update_workspace). btn_id mặc định theo panel + trạng thái.
+    """
     if panel == "explorer":
         icon = "lucide:panel-left-open" if collapsed else "lucide:panel-left-close"
         label = "Mở rộng bảng Explorer" if collapsed else "Thu nhỏ bảng Explorer"
-        btn_id = "data-model-explorer-collapse-btn"
+        default_id = "data-model-explorer-expand-btn" if collapsed else "data-model-explorer-collapse-btn"
     else:
         icon = "lucide:panel-right-open" if collapsed else "lucide:panel-right-close"
         label = "Mở rộng bảng Chi tiết" if collapsed else "Thu nhỏ bảng Chi tiết"
-        btn_id = "data-model-detail-collapse-btn"
+        default_id = "data-model-detail-expand-btn" if collapsed else "data-model-detail-collapse-btn"
     return dmc.Tooltip(
         label=label,
         children=dmc.ActionIcon(
             DashIconify(icon=icon, width=14),
-            id=btn_id,
+            id=btn_id or default_id,
             variant="subtle",
             color="gray",
             size="sm",
+            style=style,
             **{"aria-label": label},
         ),
         withArrow=True,
     )
-
-
-def _explorer_header_children(collapsed: bool, count_text: str) -> list[Any]:
-    """Nội dung header Explorer. Thu nhỏ chỉ còn nút mở lại + count ẩn
-    (count vẫn render để update_workspace không lỗi 'nonexistent object')."""
-    if collapsed:
-        return [
-            _panel_toggle_button("explorer", collapsed=True),
-            dmc.Text(
-                str(count_text),
-                id="data-model-explorer-count",
-                size="xs",
-                c="dimmed",
-                style={"display": "none"},
-            ),
-        ]
-    return [
-        dmc.Text("Schema Explorer", fw=600, size="sm"),
-        dmc.Group(
-            [
-                dmc.Text(str(count_text), id="data-model-explorer-count", size="xs", c="dimmed"),
-                _panel_toggle_button("explorer", collapsed=False),
-            ],
-            gap="xs",
-            align="center",
-        ),
-    ]
-
-
-def _detail_header_children(collapsed: bool) -> list[Any]:
-    """Nội dung header Chi tiết: thu nhỏ chỉ còn nút mở lại."""
-    if collapsed:
-        return [_panel_toggle_button("detail", collapsed=True)]
-    return [
-        dmc.Text("Chi tiết", fw=600, size="sm"),
-        _panel_toggle_button("detail", collapsed=False),
-    ]
 
 
 # --- Bước 4: Schema Explorer + command bar (helper thuần) ---
@@ -366,7 +338,8 @@ def _render_table_row(
         dmc.Group(label_children, gap="xs", align="center", style={"minWidth": 0, "flexWrap": "nowrap"}),
         id={"type": "dm-table-item", "table": name},
         className="dm-table-item active" if is_selected else "dm-table-item",
-        **{"aria-selected": "true" if is_selected else "false"},  # type: ignore[arg-type]
+        # data-table để clientside đồng bộ highlight khi Explorer không dựng lại
+        **{"aria-selected": "true" if is_selected else "false", "data-table": name},  # type: ignore[arg-type]
     )
     menu_items: list[Any] = [
         dmc.MenuItem(
@@ -536,6 +509,13 @@ def render_canvas(
                     "transform": f"rotate({line['angle_deg']:.2f}deg)",
                     "transformOrigin": "left center",
                     "zIndex": 1,
+                },
+                # data-* để clientside tự tính bảng/line liên quan khi đồng bộ
+                # highlight (canvas không dựng lại khi đổi selection).
+                **{
+                    "data-source": line["source"],
+                    "data-target": line["target"],
+                    "data-column": line["column"],
                 },
             )
         )
@@ -1236,8 +1216,6 @@ def layout(**kwargs: Any) -> Any:
         "expanded": {},
         "center_table": None,
         "history_table": None,
-        "explorer_collapsed": False,
-        "detail_collapsed": False,
     }
 
     manifest_data: dict[str, Any] | None = None
@@ -1262,6 +1240,14 @@ def layout(**kwargs: Any) -> Any:
             dcc.Store(id="data-model-manifest-store", data=manifest_data),
             dcc.Store(id="data-model-selection-store", data=initial_selection),
             dcc.Store(id="data-model-ui-store", data=initial_ui),
+            # Cờ thu nhỏ panel tách riêng khỏi ui-store (hồi quy treo trang
+            # 2026-11-10 v2): bấm thu/mở panel chỉ kích hoạt update_panel_layout
+            # (đổi style), không kích hoạt update_workspace (render lại toàn
+            # bộ workspace ~5.000 component).
+            dcc.Store(
+                id="data-model-panel-store",
+                data={"explorer_collapsed": False, "detail_collapsed": False},
+            ),
             dcc.Store(id="data-model-dblclick-store", data=None),
             dcc.Store(id="data-model-zoom-store", data=1.0),
             dcc.Store(id="data-model-sync-trigger", data=0),
@@ -1271,6 +1257,8 @@ def layout(**kwargs: Any) -> Any:
             html.Div(id="data-model-notification-area"),
             html.Div(id="data-model-center-sink"),
             html.Div(id="data-model-copy-sink"),
+            html.Div(id="data-model-selection-sink"),
+            html.Div(id="data-model-zoom-sink"),
             dcc.Store(id="data-model-copy-store", data=None),
             page_header(
                 title="Mô hình dữ liệu",
@@ -1318,7 +1306,35 @@ def layout(**kwargs: Any) -> Any:
                         dmc.Paper(
                             [
                                 dmc.Group(
-                                    _explorer_header_children(False, f"{counts['tables']} tables"),
+                                    [
+                                        dmc.Text(
+                                            "Schema Explorer",
+                                            id="data-model-explorer-title",
+                                            fw=600,
+                                            size="sm",
+                                        ),
+                                        dmc.Group(
+                                            [
+                                                dmc.Text(
+                                                    f"{counts['tables']} tables",
+                                                    id="data-model-explorer-count",
+                                                    size="xs",
+                                                    c="dimmed",
+                                                ),
+                                                _panel_toggle_button("explorer", collapsed=False),
+                                                # Nút mở lại cùng tồn tại trong DOM, ẩn sẵn;
+                                                # update_panel_layout chỉ đổi style (không tạo
+                                                # lại header — hồi quy treo trang v3).
+                                                _panel_toggle_button(
+                                                    "explorer",
+                                                    collapsed=True,
+                                                    style={"display": "none"},
+                                                ),
+                                            ],
+                                            gap="xs",
+                                            align="center",
+                                        ),
+                                    ],
                                     id="data-model-explorer-header",
                                     justify="space-between",
                                     style=dict(_PANEL_HEADER_STYLE),
@@ -1393,7 +1409,17 @@ def layout(**kwargs: Any) -> Any:
                         dmc.Paper(
                             [
                                 dmc.Group(
-                                    _detail_header_children(False),
+                                    [
+                                        dmc.Text("Chi tiết", id="data-model-detail-title", fw=600, size="sm"),
+                                        _panel_toggle_button("detail", collapsed=False),
+                                        # Nút mở lại cùng tồn tại trong DOM, ẩn sẵn (xem
+                                        # ghi chú ở header Explorer).
+                                        _panel_toggle_button(
+                                            "detail",
+                                            collapsed=True,
+                                            style={"display": "none"},
+                                        ),
+                                    ],
                                     id="data-model-detail-header",
                                     justify="space-between",
                                     style=dict(_PANEL_HEADER_STYLE),
@@ -1531,7 +1557,7 @@ def update_workspace(
     selection: dict[str, Any] | None,
     ui: dict[str, Any] | None,
     zoom: float | None,
-) -> tuple[Any, Any, Any, str, str, str]:
+) -> tuple[Any, Any, Any, Any, Any, Any]:
     """Dựng lại Explorer + Canvas + Detail theo search/domain/mode/selection."""
     if not manifest_data or not manifest_data.get("manifest"):
         return (
@@ -1569,50 +1595,77 @@ def update_workspace(
             "relationships": sum(len(t.get("foreign_keys", [])) for t in tables),
         },
     )
+    # Hồi quy treo trang 2026-11-10 (v2): đo thực tế cho thấy dựng lại canvas
+    # (~5.000 component) tốn ~70s block main thread trên VM — một lần render
+    # đã đủ treo tab. Nên:
+    # - Chỉ đổi selection: server chỉ dựng Detail (nhỏ); Explorer + Canvas
+    #   KHÔNG dựng lại, highlight đồng bộ bằng clientside
+    #   (data-model-selection-sink). Click table không tạo lại dòng
+    #   Explorer/entity/line -> không phát lại callback click nào.
+    # - Chỉ đổi zoom: toàn bộ no_update (zoom áp bằng clientside transform
+    #   + nhãn, data-model-zoom-sink).
+    # Các trigger khác (search/domain/mode/manifest/ui-store) vẫn dựng lại
+    # đầy đủ.
+    # Ngoài callback (gọi trực tiếp trong test) thì triggered không có sẵn:
+    # coi như render đầy đủ.
+    try:
+        triggered = dash.callback_context.triggered or []
+    except dash.exceptions.MissingCallbackContextException:
+        triggered = []
+    triggered_ids = {str(t.get("prop_id") or "").split(".")[0] for t in triggered}
+    if bool(triggered_ids) and triggered_ids <= {"data-model-zoom-store"}:
+        return (dash.no_update,) * 6
+    selection_only = bool(triggered_ids) and triggered_ids <= {
+        "data-model-selection-store",
+        "data-model-zoom-store",
+    }
+    detail_node = render_detail(
+        selection,
+        manifest,
+        manifest_data.get("history") or [],
+        search or "",
+        drifts=manifest_data.get("drift", {}).get("drifts") or [],
+    )
+    status_text = f"{counts['tables']} tables · {counts['columns']} columns · {counts['relationships']} relationships"
+    zoom_text = _zoom_label(zoom or 1.0)
+    if selection_only:
+        return dash.no_update, dash.no_update, detail_node, dash.no_update, status_text, zoom_text
     return (
         render_explorer(filtered, selection, ui, search or ""),
         render_canvas(filtered, selection, ui, zoom or 1.0, search or ""),
-        render_detail(
-            selection,
-            manifest,
-            manifest_data.get("history") or [],
-            search or "",
-            drifts=manifest_data.get("drift", {}).get("drifts") or [],
-        ),
+        detail_node,
         f"{len(filtered)} tables",
-        f"{counts['tables']} tables · {counts['columns']} columns · {counts['relationships']} relationships",
-        _zoom_label(zoom or 1.0),
+        status_text,
+        zoom_text,
     )
 
 
 @callback(
     Output("data-model-selection-store", "data"),
-    Output("app-location", "href", allow_duplicate=True),
     Input({"type": "dm-table-item", "table": ALL}, "n_clicks"),
     State("data-model-selection-store", "data"),
-    State("data-model-ui-store", "data"),
     prevent_initial_call=True,
 )
 def handle_table_click(
     _n_clicks: list[int | None],
     selection: dict[str, Any] | None,
-    ui: dict[str, Any] | None,
-) -> tuple[Any, Any]:
-    """Click dòng table: cập nhật selection + URL (?table=&domain=&mode=)."""
+) -> Any:
+    """Click dòng table: cập nhật selection-store (chỉ vậy).
+
+    Hồi quy treo trang 2026-11-10: KHÔNG ghi app-location href nữa (ghi href
+    gây navigation -> layout() chạy lại -> render lại -> phát lại callback
+    -> ghi lại -> tab treo). URL đồng bộ bằng clientside replaceState
+    (data-model-selection-sink). Guard-fail trả no_update để không kích
+    hoạt render lại.
+    """
     ctx_dash = dash.callback_context
     if (_triggered_clicks(ctx_dash) or 0) <= 0:
-        return selection or {"kind": None, "table": None}, dash.no_update
+        return dash.no_update
     triggered = _parse_triggered_id(ctx_dash.triggered[0]["prop_id"])
     table = triggered.get("table")
     if not table:
-        return selection or {"kind": None, "table": None}, dash.no_update
-    ui_data = ui or {}
-    domain = str(ui_data.get("domain") or "all")
-    mode = str(ui_data.get("mode") or "relations")
-    return (
-        {"kind": "table", "table": str(table)},
-        f"/data-model?table={table}&domain={domain}&mode={mode}",
-    )
+        return dash.no_update
+    return {"kind": "table", "table": str(table)}
 
 
 @callback(
@@ -1630,11 +1683,14 @@ def handle_group_toggle(
     ui_data = dict(ui or {})
     expanded = dict(ui_data.get("expanded") or {})
     if (_triggered_clicks(ctx_dash) or 0) <= 0:
-        return ui_data
+        # Hồi quy treo trang 2026-11-10: guard-fail phải PreventUpdate, không
+        # ghi lại ui-store (ghi lại giá trị hiện tại vẫn kích hoạt
+        # update_workspace render lại -> phát lại -> ghi lại -> treo tab).
+        raise dash.exceptions.PreventUpdate
     triggered = _parse_triggered_id(ctx_dash.triggered[0]["prop_id"])
     domain = triggered.get("domain")
     if not domain:
-        return ui_data
+        raise dash.exceptions.PreventUpdate
     current = expanded.get(str(domain))
     expanded[str(domain)] = not current if current is not None else False
     ui_data["expanded"] = expanded
@@ -1642,23 +1698,30 @@ def handle_group_toggle(
 
 
 @callback(
-    Output("data-model-ui-store", "data", allow_duplicate=True),
+    Output("data-model-panel-store", "data", allow_duplicate=True),
     Input("data-model-explorer-collapse-btn", "n_clicks"),
+    Input("data-model-explorer-expand-btn", "n_clicks"),
     Input("data-model-detail-collapse-btn", "n_clicks"),
-    State("data-model-ui-store", "data"),
+    Input("data-model-detail-expand-btn", "n_clicks"),
+    State("data-model-panel-store", "data"),
     prevent_initial_call=True,
 )
 def handle_panel_toggle(
-    _explorer_clicks: int | None,
-    _detail_clicks: int | None,
-    ui: dict[str, Any] | None,
+    _explorer_collapse: int | None,
+    _explorer_expand: int | None,
+    _detail_collapse: int | None,
+    _detail_expand: int | None,
+    panel: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Bấm nút thu nhỏ/mở rộng ở header panel: đảo cờ trong ui-store.
+    """Bấm nút thu nhỏ/mở rộng ở header panel: đảo cờ trong panel-store.
 
     Hai panel độc lập; trạng thái giữ trong page (không đưa vào URL).
+    Mỗi panel có 2 nút riêng (thu/mở) cùng tồn tại trong DOM; nút nào bấm
+    thì đảo cờ của panel đó. Panel-store tách khỏi ui-store để bấm thu/mở
+    không kích hoạt update_workspace (hồi quy treo trang 2026-11-10 v2).
     """
     ctx_dash = dash.callback_context
-    ui_data = dict(ui or {})
+    panel_data = dict(panel or {})
     triggered = getattr(ctx_dash, "triggered", None) or []
     if not triggered:
         raise dash.exceptions.PreventUpdate
@@ -1666,13 +1729,13 @@ def handle_panel_toggle(
     if not isinstance(value, int) or value <= 0:
         raise dash.exceptions.PreventUpdate
     prop_id = str(triggered[0].get("prop_id") or "")
-    if prop_id.startswith("data-model-explorer-collapse-btn"):
-        ui_data["explorer_collapsed"] = not bool(ui_data.get("explorer_collapsed"))
-    elif prop_id.startswith("data-model-detail-collapse-btn"):
-        ui_data["detail_collapsed"] = not bool(ui_data.get("detail_collapsed"))
+    if "explorer" in prop_id:
+        panel_data["explorer_collapsed"] = not bool(panel_data.get("explorer_collapsed"))
+    elif "detail" in prop_id:
+        panel_data["detail_collapsed"] = not bool(panel_data.get("detail_collapsed"))
     else:
         raise dash.exceptions.PreventUpdate
-    return ui_data
+    return panel_data
 
 
 @callback(
@@ -1681,52 +1744,71 @@ def handle_panel_toggle(
     Output("data-model-detail-panel", "style"),
     Output("data-model-explorer-panel", "className"),
     Output("data-model-detail-panel", "className"),
-    Output("data-model-explorer-header", "children"),
+    Output("data-model-explorer-title", "style"),
+    Output("data-model-explorer-count", "style"),
+    Output("data-model-explorer-collapse-btn", "style"),
+    Output("data-model-explorer-expand-btn", "style"),
+    Output("data-model-detail-title", "style"),
+    Output("data-model-detail-collapse-btn", "style"),
+    Output("data-model-detail-expand-btn", "style"),
     Output("data-model-explorer-header", "style"),
-    Output("data-model-detail-header", "children"),
     Output("data-model-detail-header", "style"),
     Output("data-model-explorer-container", "style"),
     Output("data-model-detail-container", "style"),
-    Input("data-model-ui-store", "data"),
-    State("data-model-explorer-count", "children"),
+    Input("data-model-panel-store", "data"),
 )
 def update_panel_layout(
-    ui: dict[str, Any] | None,
-    explorer_count: str | None,
+    panel: dict[str, Any] | None,
 ) -> tuple[
     dict[str, Any],
     dict[str, Any],
     dict[str, Any],
     str,
     str,
-    list[Any],
     dict[str, Any],
-    list[Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
     dict[str, Any],
     dict[str, Any],
     dict[str, Any],
 ]:
-    """Style + header 3 panel theo cờ thu nhỏ trong ui-store.
+    """Style 3 panel theo cờ thu nhỏ trong panel-store — CHỈ style, không tạo lại header.
 
     Panel thu nhỏ thành dải hẹp 36px (class dm-panel-collapsed để mobile
     không ép min-height 320px), ER Canvas tự giãn theo chỗ trống vì flex.
+    Header tĩnh (tiêu đề/count/2 nút thu-mở cùng tồn tại, chỉ đổi style
+    ẩn/hiện): tạo lại header sẽ remount `data-model-explorer-count`
+    (Output của update_workspace) khiến Dash chạy lại update_workspace
+    (render đầy đủ ~5.000 component, block ~76s) — hồi quy treo trang v3.
+    Lưu ý: `data-model-explorer-count` nhận style ở đây, children do
+    update_workspace viết (2 callback khác prop thì được phép).
     """
-    ui_data = ui or {}
-    explorer_collapsed = bool(ui_data.get("explorer_collapsed"))
-    detail_collapsed = bool(ui_data.get("detail_collapsed"))
-    count_text = str(explorer_count or "")
+    panel_data = panel or {}
+    explorer_collapsed = bool(panel_data.get("explorer_collapsed"))
+    detail_collapsed = bool(panel_data.get("detail_collapsed"))
+    hidden: dict[str, Any] = {"display": "none"}
     return (
         _panel_style(2, explorer_collapsed),
         _panel_style(5, False),
         _panel_style(3, detail_collapsed),
         "dm-panel-collapsed" if explorer_collapsed else "",
         "dm-panel-collapsed" if detail_collapsed else "",
-        _explorer_header_children(explorer_collapsed, count_text),
+        dict(hidden) if explorer_collapsed else {},
+        dict(hidden) if explorer_collapsed else {},
+        dict(hidden) if explorer_collapsed else {},
+        {} if explorer_collapsed else dict(hidden),
+        dict(hidden) if detail_collapsed else {},
+        dict(hidden) if detail_collapsed else {},
+        {} if detail_collapsed else dict(hidden),
         dict(_PANEL_HEADER_COLLAPSED_STYLE) if explorer_collapsed else dict(_PANEL_HEADER_STYLE),
-        _detail_header_children(detail_collapsed),
         dict(_PANEL_HEADER_COLLAPSED_STYLE) if detail_collapsed else dict(_PANEL_HEADER_STYLE),
-        {"display": "none"} if explorer_collapsed else dict(_PANEL_CONTAINER_STYLE),
-        {"display": "none"} if detail_collapsed else dict(_PANEL_CONTAINER_STYLE),
+        dict(hidden) if explorer_collapsed else dict(_PANEL_CONTAINER_STYLE),
+        dict(hidden) if detail_collapsed else dict(_PANEL_CONTAINER_STYLE),
     )
 
 
@@ -1749,7 +1831,7 @@ def handle_context_menu(
     selection: dict[str, Any] | None,
     ui: dict[str, Any] | None,
     history_filter: dict[str, Any] | None,
-) -> tuple[Any, Any, Any, bool, Any, Any, Any]:
+) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
     """Context menu của dòng table: center/columns/relationships/history/copy.
 
     TUYỆT ĐỐI KHÔNG có thao tác ghi schema (Drop/Alter/Delete/Run SQL).
@@ -1757,25 +1839,27 @@ def handle_context_menu(
     ctx_dash = dash.callback_context
     ui_data = dict(ui or {})
     hist_data = dict(history_filter or {"query": "", "change_type": "all", "table": None})
-    fallback_sel = selection or {"kind": None, "table": None}
-    no_filter_change = (dash.no_update, dash.no_update)
+    no_updates = (dash.no_update,) * 7
     if (_triggered_clicks(ctx_dash) or 0) <= 0:
-        return fallback_sel, ui_data, hist_data, False, dash.no_update, *no_filter_change
+        # Hồi quy treo trang 2026-11-10: guard-fail trả toàn no_update, không
+        # ghi lại selection/ui-store/history (ghi lại giá trị hiện tại vẫn
+        # kích hoạt render lại -> phát lại -> ghi lại -> treo tab).
+        return no_updates
     triggered = _parse_triggered_id(ctx_dash.triggered[0]["prop_id"])
     table = str(triggered.get("table") or "")
     action = str(triggered.get("action") or "")
     if not table or not action:
-        return fallback_sel, ui_data, hist_data, False, dash.no_update, *no_filter_change
+        return no_updates
     new_selection: dict[str, Any] = {"kind": "table", "table": table}
     if action == "center":
         ui_data["center_table"] = table
-        return new_selection, ui_data, hist_data, False, dash.no_update, *no_filter_change
+        return new_selection, ui_data, hist_data, False, dash.no_update, dash.no_update, dash.no_update
     if action == "columns":
         ui_data["mode"] = "relations"
-        return new_selection, ui_data, hist_data, False, dash.no_update, *no_filter_change
+        return new_selection, ui_data, hist_data, False, dash.no_update, dash.no_update, dash.no_update
     if action == "relationships":
         ui_data["mode"] = "relations"
-        return new_selection, ui_data, hist_data, False, dash.no_update, *no_filter_change
+        return new_selection, ui_data, hist_data, False, dash.no_update, dash.no_update, dash.no_update
     if action == "history":
         hist_data["table"] = table
         hist_data["query"] = ""
@@ -1783,8 +1867,17 @@ def handle_context_menu(
         # Reset ô tìm kiếm + filter loại trong drawer cho khớp store.
         return new_selection, ui_data, hist_data, True, dash.no_update, "", "all"
     if action == "copy":
-        return fallback_sel, ui_data, hist_data, False, {"text": table}, *no_filter_change
-    return fallback_sel, ui_data, hist_data, False, dash.no_update, *no_filter_change
+        # Copy chỉ ghi copy-store; không đổi selection/ui-store/history.
+        return (
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            {"text": table},
+            dash.no_update,
+            dash.no_update,
+        )
+    return no_updates
 
 
 @callback(
@@ -1848,6 +1941,87 @@ clientside_callback(
 )
 
 
+# Đồng bộ URL + highlight dòng Explorer + highlight canvas khi selection đổi —
+# clientside, KHÔNG navigation (hồi quy treo trang 2026-11-10: ghi
+# app-location href gây navigation -> layout() chạy lại -> render lại ->
+# phát lại -> treo tab; dựng lại canvas ~5.000 component tốn ~70s block
+# main thread trên VM nên server KHÔNG dựng lại Explorer/Canvas khi chỉ đổi
+# selection — highlight đồng bộ ở đây, server chỉ dựng Detail).
+# history.replaceState đổi query ?table= mà không reload; highlight dòng
+# Explorer bằng class; highlight canvas bằng class trên entity/line (related
+# tính từ data-source/target/column của line, giống logic render_canvas).
+clientside_callback(
+    """
+    function(selection) {
+        try {
+            var url = new URL(window.location.href);
+            if (selection && selection.kind === 'table' && selection.table) {
+                url.searchParams.set('table', selection.table);
+            } else if (selection && selection.kind === 'relationship') {
+                // Giữ nguyên URL (hành vi cũ): relationship không có table để deep-link.
+            } else {
+                url.searchParams.delete('table');
+            }
+            window.history.replaceState(null, '', url.toString());
+        } catch (e) {}
+        try {
+            var items = document.querySelectorAll('.dm-table-item');
+            for (var i = 0; i < items.length; i++) {
+                var el = items[i];
+                var on = !!(selection && selection.kind === 'table' && selection.table
+                    && el.getAttribute('data-table') === selection.table);
+                el.classList.toggle('active', on);
+                el.setAttribute('aria-selected', on ? 'true' : 'false');
+            }
+        } catch (e2) {}
+        try {
+            var selTable = (selection && selection.kind === 'table' && selection.table)
+                ? selection.table : null;
+            var selRel = (selection && selection.kind === 'relationship') ? selection : null;
+            var hasSel = !!(selTable || selRel);
+            var related = {};
+            var lines = document.querySelectorAll('.dm-rel-line');
+            for (var k = 0; k < lines.length; k++) {
+                var ln = lines[k];
+                var src = ln.getAttribute('data-source');
+                var tgt = ln.getAttribute('data-target');
+                var col = ln.getAttribute('data-column');
+                var isRel = false;
+                if (selTable) {
+                    isRel = (src === selTable || tgt === selTable);
+                } else if (selRel) {
+                    isRel = (src === selRel.source && tgt === selRel.target && col === selRel.column);
+                }
+                if (isRel) {
+                    related[src] = true;
+                    related[tgt] = true;
+                }
+                ln.className = 'dm-rel-line' + (hasSel ? (isRel ? ' related' : ' dimmed') : '');
+            }
+            var entities = document.querySelectorAll('.dm-entity');
+            for (var j = 0; j < entities.length; j++) {
+                var ent = entities[j];
+                var name = ent.getAttribute('data-table');
+                var cls = 'dm-entity';
+                if (selTable) {
+                    if (name === selTable) cls = 'dm-entity selected';
+                    else if (related[name]) cls = 'dm-entity related';
+                    else cls = 'dm-entity dimmed';
+                } else if (selRel) {
+                    cls = related[name] ? 'dm-entity related' : 'dm-entity dimmed';
+                }
+                ent.className = cls;
+            }
+        } catch (e3) {}
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("data-model-selection-sink", "children"),
+    Input("data-model-selection-store", "data"),
+    prevent_initial_call=True,
+)
+
+
 # --- Bước 5: ER Canvas callbacks ---
 
 MIN_ZOOM = 0.55
@@ -1857,13 +2031,6 @@ ZOOM_STEP = 0.1
 
 def _zoom_label(zoom: float) -> str:
     return f"{int(round(zoom * 100))}%"
-
-
-def _selection_href(table: str, ui: dict[str, Any] | None) -> str:
-    ui_data = ui or {}
-    domain = str(ui_data.get("domain") or "all")
-    mode = str(ui_data.get("mode") or "relations")
-    return f"/data-model?table={table}&domain={domain}&mode={mode}"
 
 
 @callback(
@@ -1895,28 +2062,54 @@ def handle_zoom_out(n_clicks: int | None, zoom: float | None) -> float:
     return min(MAX_ZOOM, max(MIN_ZOOM, round((zoom or 1.0) - ZOOM_STEP, 1)))
 
 
+# Áp zoom bằng clientside (transform + nhãn) để update_workspace KHÔNG cần
+# dựng lại canvas khi chỉ đổi zoom (hồi quy treo trang 2026-11-10 v2:
+# dựng lại canvas ~5.000 component tốn ~70s block main thread trên VM).
+clientside_callback(
+    """
+    function(zoom) {
+        try {
+            var z = (typeof zoom === 'number' && isFinite(zoom)) ? zoom : 1.0;
+            var inner = document.getElementById('data-model-canvas-inner');
+            if (inner) {
+                inner.style.transform = 'scale(' + z + ')';
+                inner.setAttribute('data-zoom', String(z));
+            }
+            var label = document.getElementById('data-model-zoom-label');
+            if (label) label.textContent = Math.round(z * 100) + '%';
+        } catch (e) {}
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("data-model-zoom-sink", "children"),
+    Input("data-model-zoom-store", "data"),
+    prevent_initial_call=True,
+)
+
+
 @callback(
     Output("data-model-selection-store", "data", allow_duplicate=True),
-    Output("app-location", "href", allow_duplicate=True),
     Input({"type": "dm-entity", "table": ALL}, "n_clicks"),
     State("data-model-selection-store", "data"),
-    State("data-model-ui-store", "data"),
     prevent_initial_call=True,
 )
 def handle_entity_click(
     _n_clicks: list[int | None],
     selection: dict[str, Any] | None,
-    ui: dict[str, Any] | None,
-) -> tuple[Any, Any]:
-    """Click entity trên canvas: chọn table + cập nhật URL (như click dòng)."""
+) -> Any:
+    """Click entity trên canvas: chọn table (chỉ ghi selection-store).
+
+    Hồi quy treo trang 2026-11-10: KHÔNG ghi app-location href nữa (xem
+    handle_table_click). Guard-fail trả no_update.
+    """
     ctx_dash = dash.callback_context
     if (_triggered_clicks(ctx_dash) or 0) <= 0:
-        return selection or {"kind": None, "table": None}, dash.no_update
+        return dash.no_update
     triggered = _parse_triggered_id(ctx_dash.triggered[0]["prop_id"])
     table = triggered.get("table")
     if not table:
-        return selection or {"kind": None, "table": None}, dash.no_update
-    return {"kind": "table", "table": str(table)}, _selection_href(str(table), ui)
+        return dash.no_update
+    return {"kind": "table", "table": str(table)}
 
 
 @callback(
@@ -1933,19 +2126,20 @@ def handle_rel_click(
 ) -> dict[str, Any]:
     """Click relationship line: chọn relationship (source/target/column)."""
     ctx_dash = dash.callback_context
-    fallback = selection or {"kind": None, "table": None}
     if (_triggered_clicks(ctx_dash) or 0) <= 0:
-        return fallback
+        # Hồi quy treo trang 2026-11-10: guard-fail phải PreventUpdate, không
+        # ghi lại selection (ghi lại giá trị hiện tại vẫn kích hoạt render).
+        raise dash.exceptions.PreventUpdate
     triggered = _parse_triggered_id(ctx_dash.triggered[0]["prop_id"])
     index = triggered.get("index")
     if index is None or not manifest_data or not manifest_data.get("manifest"):
-        return fallback
+        raise dash.exceptions.PreventUpdate
     tables = manifest_data["manifest"].get("tables", [])
     lines = relationship_lines(tables, layout_entities(tables, "relations"))
     try:
         line = lines[int(index)]
     except (IndexError, ValueError, TypeError):
-        return fallback
+        raise dash.exceptions.PreventUpdate from None
     return {
         "kind": "relationship",
         "source": line["source"],
@@ -2102,27 +2296,27 @@ def handle_drift_copy(
 
 @callback(
     Output("data-model-selection-store", "data", allow_duplicate=True),
-    Output("app-location", "href", allow_duplicate=True),
     Input({"type": "dm-rel-nav", "table": ALL}, "n_clicks"),
     State("data-model-selection-store", "data"),
-    State("data-model-ui-store", "data"),
     prevent_initial_call=True,
 )
 def handle_rel_nav(
     _n_clicks: list[int | None],
     selection: dict[str, Any] | None,
-    ui: dict[str, Any] | None,
-) -> tuple[Any, Any]:
-    """Nút Source/Target table trong relationship detail: chọn table đó + URL."""
+) -> Any:
+    """Nút Source/Target table trong relationship detail: chọn table đó.
+
+    Hồi quy treo trang 2026-11-10: KHÔNG ghi app-location href nữa (xem
+    handle_table_click). Guard-fail trả no_update.
+    """
     ctx_dash = dash.callback_context
-    fallback = selection or {"kind": None, "table": None}
     if (_triggered_clicks(ctx_dash) or 0) <= 0:
-        return fallback, dash.no_update
+        return dash.no_update
     triggered = _parse_triggered_id(ctx_dash.triggered[0]["prop_id"])
     table = triggered.get("table")
     if not table:
-        return fallback, dash.no_update
-    return {"kind": "table", "table": str(table)}, _selection_href(str(table), ui)
+        return dash.no_update
+    return {"kind": "table", "table": str(table)}
 
 
 # --- Bước 7: Sync state machine + loading/empty/error ---
