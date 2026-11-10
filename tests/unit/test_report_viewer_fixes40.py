@@ -80,6 +80,13 @@ class TestRunSqlService:
         NULL thì `org = NULL` cho 0 dòng — đúng ca người dùng báo."""
         from app.services.report_run import get_run_sql
 
+        # Fixture để p_org bắt buộc; cảnh báo chỉ xét tham số không bắt
+        # buộc (mới có thể vắng giá trị) nên nới lỏng như báo cáo thật.
+        engine = export_env["engine"]
+        with engine.begin() as conn_db:
+            conn_db.execute(
+                text("UPDATE RECON_RPT_PARAM SET REQUIRED='N' WHERE CODE='p_org'")
+            )
         run = _done_run(admin_ctx, export_env)
         res = get_run_sql(admin_ctx, run["id"])
         assert res.ok, res.message

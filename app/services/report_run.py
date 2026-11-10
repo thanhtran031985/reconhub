@@ -833,7 +833,12 @@ def get_run_sql(ctx: Ctx, run_id: int) -> dict[str, Any]:
     missing: list[str] = []
     if detail["source_type"] == "CUSTOM_SQL":
         upper = str(sql).upper()
-        for code in sorted({str(p["code"]) for p in detail.get("params", [])}):
+        # Chỉ tham số KHÔNG bắt buộc mới có thể vắng giá trị (bind NULL)
+        # nên mới cần điều kiện bảo vệ; tham số bắt buộc luôn có giá trị.
+        for param in detail.get("params", []):
+            if param.get("required"):
+                continue
+            code = str(param["code"])
             placeholder = f":{code.upper()}"
             if placeholder not in upper:
                 continue

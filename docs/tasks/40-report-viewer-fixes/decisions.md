@@ -14,3 +14,7 @@
   điều kiện NULL thì sửa ở /report-admin (dữ liệu của người dùng).
 - Font grid: chỉ giảm `--ag-font-size` 14px → 13px trên grid viewer, giữ
   nguyên chiều cao dòng/header.
+- Cảnh báo NULL ở tab SQL chỉ xét tham số KHÔNG bắt buộc (mới có thể vắng
+  giá trị): bản đầu xét cả p_from/p_to bắt buộc nên báo cáo có guard vẫn
+  hiện cảnh báo oan — phát hiện khi kiểm chứng live, đã sửa + hồi quy
+  bằng check 2c.
