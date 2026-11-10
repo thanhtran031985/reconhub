@@ -520,5 +520,23 @@
     "migration_id": "0006_batch_run",
     "task_id": null,
     "timestamp": "2026-11-06T00:00:00+00:00"
+  },
+  {
+    "after": "INTEGER, nullable=False",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_RPT_EXPORT.PROGRESS_PCT",
+    "migration_id": "0007_export_progress",
+    "task_id": null,
+    "timestamp": "2026-11-10T10:54:32.488492+00:00"
+  },
+  {
+    "after": "VARCHAR(200), nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_RPT_EXPORT.PROGRESS_STEP",
+    "migration_id": "0007_export_progress",
+    "task_id": null,
+    "timestamp": "2026-11-10T10:54:32.488492+00:00"
   }
 ]

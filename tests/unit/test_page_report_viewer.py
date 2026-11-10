@@ -374,7 +374,7 @@ class TestViewerRun:
             "app.services.report_source.open_source_connection",
             return_value=conn,
         ):
-            run_store, page_store, _error = page.handle_run_click(
+            run_store, page_store, _error, _loading = page.handle_run_click(
                 1,
                 export_env["report_id"],
                 export_env["sql_template_id"],
@@ -399,7 +399,7 @@ class TestViewerRun:
             "app.services.report_source.open_source_connection",
             side_effect=RuntimeError("ORA-12154: TNS:could not resolve"),
         ):
-            run_store, page_store, error = page.handle_run_click(
+            run_store, page_store, error, _loading = page.handle_run_click(
                 1,
                 export_env["report_id"],
                 export_env["sql_template_id"],
@@ -422,7 +422,7 @@ class TestViewerRun:
             "app.services.report_source.open_source_connection",
             side_effect=RuntimeError("ORA-12154: TNS:could not resolve"),
         ):
-            _run_store, _page_store, error = page.handle_run_click(
+            _run_store, _page_store, error, _loading = page.handle_run_click(
                 1,
                 export_env["report_id"],
                 export_env["sql_template_id"],
@@ -446,7 +446,7 @@ class TestViewerRun:
             "app.services.report_source.open_source_connection",
             return_value=conn,
         ):
-            run_store, _page_store, _error = page.handle_run_click(
+            run_store, _page_store, _error, _loading = page.handle_run_click(
                 1,
                 export_env["report_id"],
                 export_env["sql_template_id"],
@@ -472,7 +472,7 @@ class TestViewerRun:
             "app.services.report_source.open_source_connection",
             side_effect=RuntimeError("ORA-12154: TNS:could not resolve"),
         ):
-            run_store, _page_store, _error = page.handle_run_click(
+            run_store, _page_store, _error, _loading = page.handle_run_click(
                 1,
                 export_env["report_id"],
                 export_env["sql_template_id"],
@@ -653,7 +653,7 @@ class TestViewerExport:
             "app.services.report_source.open_source_connection",
             return_value=conn,
         ):
-            store, status, poll_disabled, new_run_store, page_no = page.handle_export_click(
+            store, status, poll_disabled, _download, new_run_store, page_no, _loading = page.handle_export_click(
                 1,
                 {},
                 export_env["report_id"],
@@ -683,7 +683,7 @@ class TestViewerExport:
             "total": 3,
             "total_pages": 1,
         }
-        store, _status, _poll, new_run_store, page_no = page.handle_export_click(
+        store, _status, _poll, _download, new_run_store, page_no, _loading = page.handle_export_click(
             1,
             run_store,
             export_env["report_id"],
@@ -719,7 +719,7 @@ class TestViewerExport:
             "app.services.report_source.open_source_connection",
             return_value=conn,
         ):
-            store, _status, _poll, new_run_store, page_no = page.handle_export_click(
+            store, _status, _poll, _download, new_run_store, page_no, _loading = page.handle_export_click(
                 1,
                 run_store,
                 export_env["report_id"],

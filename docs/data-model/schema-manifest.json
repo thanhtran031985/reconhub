@@ -1,7 +1,7 @@
 {
   "database": "sqlite",
   "generated": true,
-  "generated_at": "2026-11-09T15:38:12.273686+00:00",
+  "generated_at": "2026-11-10T10:54:32.462261+00:00",
   "generator": "schema-introspect",
   "schema": "main",
   "tables": [
@@ -4092,6 +4092,24 @@
           "unique": false
         },
         {
+          "default": "0",
+          "foreign_key": null,
+          "name": "PROGRESS_PCT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PROGRESS_STEP",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
           "default": null,
           "foreign_key": null,
           "name": "CREATED_BY",
@@ -6061,6 +6079,6 @@
       "unique_constraints": []
     }
   ],
-  "version": "0006_batch_run",
+  "version": "0007_export_progress",
   "warnings": []
 }

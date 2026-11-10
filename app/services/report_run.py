@@ -787,6 +787,84 @@ def get_report_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
         return _run_dict(row)
 
 
+def _format_bind_value(value: Any) -> Any:
+    """Bind hiển thị ở tab SQL: datetime → chuỗi ISO, còn lại giữ nguyên."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
+
+
+@service
+@requires_menu("report_center")
+def get_run_sql(ctx: Ctx, run_id: int) -> dict[str, Any]:
+    """SQL đã thực hiện của một run — task 40, CHỈ ADMIN.
+
+    Trả SQL_TEXT gốc của version đã snapshot, binds đã resolve (tham số
+    không bắt buộc vắng giá trị → None, tức bind NULL như task 39), câu
+    COUNT và câu phân trang thực thi. Không ADMIN → FORBIDDEN (không rò
+    rỉ SQL). Cảnh báo `null_guard_missing` khi CUSTOM_SQL dùng bind mà
+    không có điều kiện IS NULL/NVL/COALESCE: để trống tham số đó thì bind
+    NULL và `cột = NULL` cho 0 dòng (đúng ca Org trống ở /reports/5).
+    """
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    if not admin:
+        raise ServiceError(
+            ErrorCode.FORBIDDEN,
+            "Chỉ ADMIN mới xem được SQL thực hiện.",
+        )
+    with engine.connect() as conn:
+        run = _load_run_row(conn, run_id, ctx, admin)
+        detail = load_version_detail(conn, int(run["VERSION_ID"]))
+        resolved = dict(run["PARAMS_JSON"] or {})
+        ds_id = detail["data_source_id"]
+        db_type = "ORACLE"
+        if ds_id is not None:
+            ds_row = (
+                conn.execute(select(recon_data_source.c.DB_TYPE).where(recon_data_source.c.ID == ds_id))
+                .mappings()
+                .first()
+            )
+            if ds_row is not None:
+                db_type = str(ds_row.get("DB_TYPE") or "ORACLE").upper()
+    sql, raw_binds = build_run_query(detail, resolved)
+    binds = {str(k): _format_bind_value(v) for k, v in _prepare_query_binds(detail, raw_binds).items()}
+    order_by = stable_order_by(detail, [])
+    missing: list[str] = []
+    if detail["source_type"] == "CUSTOM_SQL":
+        upper = str(sql).upper()
+        for code in sorted({str(p["code"]) for p in detail.get("params", [])}):
+            placeholder = f":{code.upper()}"
+            if placeholder not in upper:
+                continue
+            guarded = (
+                f"{placeholder} IS NULL" in upper
+                or f"NVL({placeholder}" in upper
+                or f"COALESCE({placeholder}" in upper
+                or f"{placeholder} IS NOT NULL" in upper
+            )
+            if not guarded:
+                missing.append(code)
+    warning = ""
+    if missing:
+        warning = (
+            "Tham số " + ", ".join(missing) + " không có điều kiện IS NULL/NVL trong SQL: để trống sẽ bind "
+            "NULL và có thể ra 0 dòng. Sửa SQL của version ở /report-admin "
+            "nếu muốn để trống = lấy mọi giá trị."
+        )
+    return {
+        "run_id": int(run["ID"]),
+        "version_id": int(run["VERSION_ID"]),
+        "source_type": str(detail["source_type"]),
+        "sql_text": str(sql),
+        "binds": binds,
+        "count_sql": build_count_query(str(sql)),
+        "paged_sql": build_paged_query(str(sql), 1, 50, order_by, db_type=db_type),
+        "null_guard_missing": missing,
+        "warning": warning,
+    }
+
+
 def _preset_dict(row: Any) -> dict[str, Any]:
     params = row["PARAMS_JSON"]
     return {

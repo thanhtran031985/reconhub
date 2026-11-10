@@ -58,6 +58,8 @@ def _export_dict(row: Any) -> dict[str, Any]:
         "file_hash": row["FILE_HASH"],
         "part_count": int(row["PART_COUNT"]),
         "row_count": row["ROW_COUNT"],
+        "progress_pct": int(row["PROGRESS_PCT"] or 0),
+        "progress_step": row["PROGRESS_STEP"],
         "created_by": str(row["CREATED_BY"]),
         "created_at": row["CREATED_AT"],
         "finished_at": row["FINISHED_AT"],
@@ -141,6 +143,8 @@ def request_export(ctx: Ctx, run_id: int, format: str, force: bool = False) -> d
                 FORMAT=fmt,
                 STATUS="QUEUED",
                 PART_COUNT=1,
+                PROGRESS_PCT=0,
+                PROGRESS_STEP=None,
                 CREATED_BY=ctx.username,
                 CREATED_AT=now,
             )
@@ -286,6 +290,8 @@ def retry_export(ctx: Ctx, export_id: int) -> dict[str, Any]:
                 FILE_HASH=None,
                 PART_COUNT=1,
                 ROW_COUNT=None,
+                PROGRESS_PCT=0,
+                PROGRESS_STEP=None,
                 ERROR_MESSAGE=None,
                 FINISHED_AT=None,
             )
@@ -462,6 +468,21 @@ def _iter_batches(
             yield col_names, [dict(zip(col_names, tuple(r), strict=False)) for r in batch]
 
 
+def _update_export_progress(engine: Any, export_id: int, pct: int, step: str) -> None:
+    """Ghi % + bước hiện tại xuống DB để UI poll đọc được (task 40).
+
+    % kẹp 0..100; mỗi lần ghi là một transaction ngắn riêng (worker chạy
+    trong tiến trình khác với app nên không dùng chung transaction).
+    """
+    pct = max(0, min(100, int(pct)))
+    with engine.begin() as conn:
+        conn.execute(
+            recon_rpt_export.update()
+            .where(recon_rpt_export.c.ID == export_id)
+            .values(PROGRESS_PCT=pct, PROGRESS_STEP=step)
+        )
+
+
 def _fail_export(engine: Any, export_id: int, error: ServiceError) -> None:
     with engine.begin() as conn:
         actor = conn.execute(
@@ -473,6 +494,7 @@ def _fail_export(engine: Any, export_id: int, error: ServiceError) -> None:
             .values(
                 STATUS="FAILED",
                 ERROR_MESSAGE=error.message[:500],
+                PROGRESS_STEP=f"Lỗi: {error.message[:100]}",
                 FINISHED_AT=_now(),
             )
         )
@@ -561,7 +583,9 @@ def execute_export(
     out_dir = _export_dir(export_id)
     out_dir.mkdir(parents=True, exist_ok=True)
     ext = "xlsx" if fmt == "XLSX" else "csv"
+    total_rows = int(run["ROW_COUNT"] or 0)
     try:
+        _update_export_progress(eng, export_id, 5, "Đang chuẩn bị")
         columns = [c for c in detail["columns"] if c["excel_visible"]]
         fields = [c["field_name"] for c in columns]
         part = 1
@@ -570,6 +594,8 @@ def execute_export(
         written = 0
         written_in_part = 0
         batch_no = 0
+        last_pct = 10
+        _update_export_progress(eng, export_id, 10, "Đang truy vấn dữ liệu")
         try:
             for _col_names, batch in _iter_batches(detail, resolved):
                 batch_no += 1
@@ -593,8 +619,28 @@ def execute_export(
                     written += len(chunk)
                     written_in_part += len(chunk)
                     offset += len(chunk)
+                # Tiến độ ghi file: 10–85% theo số dòng đã ghi / tổng dòng
+                # của run DONE (biết trước tổng nên % là thật, không ước
+                # lượng theo thời gian). Chỉ ghi DB khi % đổi.
+                if total_rows > 0:
+                    pct = 10 + int(75 * written / total_rows)
+                else:
+                    pct = min(85, 10 + batch_no * 5)
+                pct = min(85, pct)
+                if pct != last_pct:
+                    last_pct = pct
+                    _update_export_progress(
+                        eng,
+                        export_id,
+                        pct,
+                        f"Đang ghi file Excel: {written} / {total_rows} dòng",
+                    )
         finally:
             writer.close()
+        if part > 1:
+            _update_export_progress(eng, export_id, 90, "Đang nén file")
+        else:
+            _update_export_progress(eng, export_id, 90, "Đang hoàn tất file")
         if part > 1:
             summary = _summary_text(
                 report_code,
@@ -625,6 +671,8 @@ def execute_export(
                     FILE_HASH=file_hash,
                     PART_COUNT=part,
                     ROW_COUNT=written,
+                    PROGRESS_PCT=100,
+                    PROGRESS_STEP="Hoàn tất",
                     FINISHED_AT=_now(),
                 )
             )

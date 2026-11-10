@@ -997,6 +997,9 @@ recon_rpt_export = Table(
     Column("FILE_HASH", String(128), nullable=True),
     Column("PART_COUNT", Integer, nullable=False, default=1),
     Column("ROW_COUNT", Integer, nullable=True),
+    # Task 40 (migration 0007): tiến độ export % thật + bước hiện tại.
+    Column("PROGRESS_PCT", Integer, nullable=False, default=0),
+    Column("PROGRESS_STEP", String(200), nullable=True),
     Column("CREATED_BY", String(60), nullable=False),
     Column("CREATED_AT", DateTime, nullable=False),
     Column("FINISHED_AT", DateTime, nullable=True),

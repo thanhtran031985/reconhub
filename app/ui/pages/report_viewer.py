@@ -11,20 +11,21 @@ from urllib.parse import parse_qs, urlparse
 
 import dash
 import dash_mantine_components as dmc
-from dash import Input, Output, State, callback, dcc, html
+from dash import Input, Output, State, callback, clientside_callback, dcc, html
 from dash.exceptions import PreventUpdate
 
 from app.core.session import get_current_ctx
-from app.services.perm import page_gate
+from app.services.perm import is_admin, page_gate
 from app.services.report import get_report
 from app.services.report_column import get_result_layout
-from app.services.report_export import get_export, request_export
+from app.services.report_export import download_export, get_export, request_export
 from app.services.report_param import preview_layout
 from app.services.report_run import (
     create_report_run,
     execute_report_run,
     get_report_page,
     get_report_run,
+    get_run_sql,
 )
 from app.services.report_template import get_version, list_templates
 from app.ui.components.alert_box import alert_box
@@ -132,6 +133,69 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
         for entry in row.get("params", []):
             if entry.get("control_type") in ("SELECT", "MULTI_SELECT"):
                 options_by_code[str(entry["code"])] = _lov_options(ctx, int(first["active_version_id"]), entry)
+    # Task 40: tab SQL thực hiện chỉ ADMIN thấy (chặn ở server lúc dựng
+    # layout, không chỉ ẩn bằng CSS).
+    show_sql = is_admin(ctx)
+    result_tabs_list: list[Any] = [dmc.TabsTab("Kết quả", value="result")]
+    result_panels: list[Any] = [
+        dmc.TabsPanel(
+            [
+                dcc.Loading(
+                    id="viewer-loading",
+                    type="circle",
+                    # style của Loading đi vào lớp phủ spinner; muốn khung
+                    # ngoài co giãn theo Paper phải dùng parent_style
+                    # (bài học layout /history: nếu không khung cao bằng
+                    # nội dung, grid 0px nên không thấy dòng nào).
+                    parent_style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
+                    children=html.Div(
+                        id="viewer-result-container",
+                        style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
+                        children=empty_state(
+                            "Nhập tham số và bấm Xem báo cáo.",
+                            "Kết quả hiển thị theo từng trang từ máy chủ.",
+                        ),
+                    ),
+                ),
+                dmc.Group(
+                    [
+                        dmc.Pagination(
+                            id="viewer-pagination",
+                            total=1,
+                            value=1,
+                            size="xs",
+                        ),
+                    ],
+                    justify="center",
+                    mt="xs",
+                ),
+            ],
+            value="result",
+            style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
+        )
+    ]
+    if show_sql:
+        result_tabs_list.append(dmc.TabsTab("SQL thực hiện", value="sql", id="viewer-sql-tab"))
+        result_panels.append(
+            dmc.TabsPanel(
+                html.Div(
+                    id="viewer-sql-container",
+                    children=empty_state(
+                        "Chưa chạy báo cáo.",
+                        "Bấm Xem báo cáo để xem SQL đã thực hiện.",
+                    ),
+                    style={"paddingTop": "8px", "overflowY": "auto"},
+                ),
+                value="sql",
+                style={"flex": 1, "minHeight": 0, "overflow": "hidden"},
+            )
+        )
+    result_tabs = dmc.Tabs(
+        [dmc.TabsList(result_tabs_list), *result_panels],
+        id="viewer-result-tabs",
+        value="result",
+        style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
+    )
     return dmc.Box(
         [
             dcc.Location(id="viewer-location", refresh=False),
@@ -142,6 +206,7 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
             dcc.Store(id="viewer-page-store", data=1),
             dcc.Store(id="viewer-sort-store", data=[]),
             dcc.Store(id="viewer-export-store", data={}),
+            dcc.Download(id="viewer-download"),
             page_header(
                 title=str(report["name"]),
                 subtitle=str(report.get("description") or ""),
@@ -238,35 +303,7 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
                         style={"marginTop": 4},
                         **{"aria-live": "polite"},  # type: ignore[arg-type]
                     ),
-                    dcc.Loading(
-                        id="viewer-loading",
-                        type="circle",
-                        # style của Loading đi vào lớp phủ spinner; muốn khung
-                        # ngoài co giãn theo Paper phải dùng parent_style
-                        # (bài học layout /history: nếu không khung cao bằng
-                        # nội dung, grid 0px nên không thấy dòng nào).
-                        parent_style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
-                        children=html.Div(
-                            id="viewer-result-container",
-                            style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
-                            children=empty_state(
-                                "Nhập tham số và bấm Xem báo cáo.",
-                                "Kết quả hiển thị theo từng trang từ máy chủ.",
-                            ),
-                        ),
-                    ),
-                    dmc.Group(
-                        [
-                            dmc.Pagination(
-                                id="viewer-pagination",
-                                total=1,
-                                value=1,
-                                size="xs",
-                            ),
-                        ],
-                        justify="center",
-                        mt="xs",
-                    ),
+                    result_tabs,
                 ],
                 withBorder=True,
                 radius="sm",
@@ -315,10 +352,35 @@ def _total_pages(total: int, page_size: int) -> int:
     return max(1, (int(total) + int(page_size) - 1) // int(page_size))
 
 
+# Task 40: nút Xem/Xuất sang dạng loading ngay khi bấm (mẫu Loading State
+# trong tài liệu DMC Button: clientside đặt loading=True — nút tự disable
+# khi loading nên không bấm trùng được; callback chính trả loading=False
+# ở cuối mọi đường). Cần allow_duplicate vì callback chính cũng ghi cùng
+# prop loading.
+clientside_callback(
+    """
+    function(n_clicks) { return true; }
+    """,
+    Output("viewer-run-btn", "loading", allow_duplicate=True),
+    Input("viewer-run-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks) { return true; }
+    """,
+    Output("viewer-export-btn", "loading", allow_duplicate=True),
+    Input("viewer-export-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+
 @callback(
     Output("viewer-run-store", "data"),
     Output("viewer-page-store", "data"),
     Output("viewer-run-error", "children"),
+    Output("viewer-run-btn", "loading"),
     Input("viewer-run-btn", "n_clicks"),
     State("viewer-report-store", "data"),
     State("viewer-tabs", "value"),
@@ -333,7 +395,7 @@ def handle_run_click(
     param_values: list[Any] | None,
     param_ids: list[dict[str, Any]] | None,
     page_size: int = 50,
-) -> tuple[dict[str, Any], int, Any]:
+) -> tuple[dict[str, Any], int, Any, bool]:
     """Tạo + chạy run đồng bộ (task 25 Q2); render do handle_result_render.
 
     run-store mang sẵn total/total_pages (từ execute) để đồng bộ pagination
@@ -348,17 +410,17 @@ def handle_run_click(
     values = _values_from_inputs(param_values, param_ids)
     created = create_report_run(ctx, report_id, template_id=int(template_id), values=values)
     if not created.ok or not isinstance(created.data, dict):
-        return {}, 1, notify_error(created.message or "Không tạo được run.")
+        return {}, 1, notify_error(created.message or "Không tạo được run."), False
     run_id = int(created.data["id"])
     executed = execute_report_run(ctx, run_id)
     if not executed.ok or not isinstance(executed.data, dict):
-        return {}, 1, notify_error(executed.message or "Chạy báo cáo lỗi.")
+        return {}, 1, notify_error(executed.message or "Chạy báo cáo lỗi."), False
     # execute trả ok=True kể cả khi run FAILED (lỗi truy vấn là kết quả
     # nghiệp vụ, task 25): phải kiểm tra status, không render trang lỗi.
     run = executed.data.get("run") or {}
     if run.get("status") != "DONE":
         detail = run.get("error_message") or "Run lỗi, chưa rõ nguyên nhân."
-        return {}, 1, notify_error(f"Chạy báo cáo lỗi: {detail}")
+        return {}, 1, notify_error(f"Chạy báo cáo lỗi: {detail}"), False
     total = int(executed.data.get("total") or 0)
     return (
         {
@@ -372,6 +434,7 @@ def handle_run_click(
         },
         1,
         "",
+        False,
     )
 
 
@@ -560,15 +623,38 @@ def handle_location_run(href: str | None, run_store: dict[str, Any] | None) -> t
     )
 
 
-def _export_progress() -> Any:
-    """Thanh tiến trình export (indeterminate — service export chỉ có trạng
-    thái QUEUED/RUNNING/DONE/FAILED, không báo % tiến độ số)."""
+def _export_progress(pct: int = 0, step: str = "") -> Any:
+    """Thanh tiến trình export theo % thật (task 40): worker ghi
+    PROGRESS_PCT/PROGRESS_STEP xuống DB, poll đọc qua get_export.
+
+    Trước task 40 là indeterminate (value=100, animated) vì service export
+    không báo % số.
+    """
+    pct = max(0, min(100, int(pct or 0)))
+    label = step or "Đang xuất file…"
     return dmc.Stack(
         [
-            dmc.Progress(value=100, animated=True, striped=True, size="sm", color="blue"),
-            dmc.Text("Đang xuất file…", c="dimmed", size="sm"),
+            dmc.Progress(value=pct, size="sm", color="blue"),
+            dmc.Text(f"{label} — {pct}%", c="dimmed", size="sm"),
         ],
         gap=4,
+    )
+
+
+def _auto_download(ctx: Any, export_id: int) -> tuple[Any, Any]:
+    """Tải file export tự động khi DONE (task 40, bỏ link "Tải file Excel").
+
+    Qua service download_export nên vẫn giữ kiểm quyền owner/ADMIN + audit
+    DOWNLOAD_EXPORT như route /download/report-export/<id>. Trả
+    (dcc.send_file, dòng trạng thái) hoặc (no_update, notification lỗi).
+    """
+    res = download_export(ctx, export_id)
+    if not res.ok or not isinstance(res.data, dict):
+        return dash.no_update, notify_error(res.message or "Không tải được file.")
+    file_name = str(res.data["file_name"])
+    return (
+        dcc.send_file(str(res.data["file_path"]), filename=file_name),  # type: ignore[attr-defined,no-untyped-call]
+        dmc.Text(f"Đã tải {file_name}.", size="sm"),
     )
 
 
@@ -576,8 +662,10 @@ def _export_progress() -> Any:
     Output("viewer-export-store", "data"),
     Output("viewer-export-status", "children"),
     Output("viewer-export-poll", "disabled"),
+    Output("viewer-download", "data"),
     Output("viewer-run-store", "data", allow_duplicate=True),
     Output("viewer-page-store", "data", allow_duplicate=True),
+    Output("viewer-export-btn", "loading"),
     Input("viewer-export-btn", "n_clicks"),
     State("viewer-run-store", "data"),
     State("viewer-report-store", "data"),
@@ -595,11 +683,14 @@ def handle_export_click(
     param_values: list[Any] | None,
     param_ids: list[dict[str, Any]] | None,
     page_no: int | None,
-) -> tuple[dict[str, Any], Any, bool, dict[str, Any], int]:
+) -> tuple[dict[str, Any], Any, bool, Any, dict[str, Any], int, bool]:
     """Xuất Excel theo điều kiện tìm kiếm hiện tại (không cần xem trước).
 
     Run hiện tại đúng điều kiện thì xuất lại run đó; khác (hoặc chưa có
-    run, hoặc mở từ ?run=) thì tạo + chạy run mới từ form rồi xuất.
+    run, hoặc mở từ ?run=) thì tạo + chạy run mới từ form rồi xuất — vì vậy
+    bấm Xuất cũng query dữ liệu và grid hiện dữ liệu sẽ xuất (task 39).
+    Giai đoạn chạy báo cáo chưa có % thật (chưa biết tổng dòng) nên chỉ
+    hiện loading trên nút; % thật bắt đầu khi worker export chạy.
     """
     if not n_clicks:
         raise PreventUpdate
@@ -614,15 +705,23 @@ def handle_export_click(
     if not run_id or current.get("values") != values:
         created = create_report_run(ctx, report_id, template_id=int(template_id), values=values)
         if not created.ok or not isinstance(created.data, dict):
-            return {}, notify_error(created.message or "Không tạo được run."), True, current, page
+            return (
+                {},
+                notify_error(created.message or "Không tạo được run."),
+                True,
+                dash.no_update,
+                current,
+                page,
+                False,
+            )
         run_id = int(created.data["id"])
         executed = execute_report_run(ctx, run_id)
         if not executed.ok or not isinstance(executed.data, dict):
-            return {}, notify_error(executed.message or "Chạy báo cáo lỗi."), True, current, page
+            return {}, notify_error(executed.message or "Chạy báo cáo lỗi."), True, dash.no_update, current, page, False
         run = executed.data.get("run") or {}
         if run.get("status") != "DONE":
             detail = run.get("error_message") or "Run lỗi, chưa rõ nguyên nhân."
-            return {}, notify_error(f"Chạy báo cáo lỗi: {detail}"), True, current, page
+            return {}, notify_error(f"Chạy báo cáo lỗi: {detail}"), True, dash.no_update, current, page, False
         total = int(executed.data.get("total") or 0)
         current = {
             "run_id": run_id,
@@ -636,38 +735,42 @@ def handle_export_click(
         page = 1
     res = request_export(ctx, int(run_id), "XLSX")
     if not res.ok or not isinstance(res.data, dict):
-        return {}, notify_error(res.message or "Không tạo được export."), True, current, page
+        return {}, notify_error(res.message or "Không tạo được export."), True, dash.no_update, current, page, False
     export = res.data
     if export["status"] == "DONE":
+        download, status = _auto_download(ctx, int(export["id"]))
         return (
             {"export_id": export["id"]},
-            dcc.Link(
-                "Tải file Excel",
-                href=f"/download/report-export/{export['id']}",
-                target="_blank",
-            ),
+            status,
             True,
+            download,
             current,
             page,
+            False,
         )
     return (
         {"export_id": export["id"]},
-        _export_progress(),
+        _export_progress(
+            int(export.get("progress_pct") or 0), str(export.get("progress_step") or "Đã đưa vào hàng đợi export…")
+        ),
         False,
+        dash.no_update,
         current,
         page,
+        False,
     )
 
 
 @callback(
     Output("viewer-export-status", "children", allow_duplicate=True),
     Output("viewer-export-poll", "disabled", allow_duplicate=True),
+    Output("viewer-download", "data", allow_duplicate=True),
     Input("viewer-export-poll", "n_intervals"),
     State("viewer-export-store", "data"),
     prevent_initial_call=True,
 )
-def handle_export_poll(_n: int | None, export_store: dict[str, Any] | None) -> tuple[Any, bool]:
-    """Poll trạng thái export mỗi 2s."""
+def handle_export_poll(_n: int | None, export_store: dict[str, Any] | None) -> tuple[Any, bool, Any]:
+    """Poll trạng thái export mỗi 2s: % thật + bước, DONE thì tự tải file."""
     if not export_store or not export_store.get("export_id"):
         raise PreventUpdate
     ctx = get_current_ctx()
@@ -675,20 +778,79 @@ def handle_export_poll(_n: int | None, export_store: dict[str, Any] | None) -> t
         raise PreventUpdate
     res = get_export(ctx, int(export_store["export_id"]))
     if not res.ok or not isinstance(res.data, dict):
-        return notify_error(res.message or "Không kiểm tra được export."), True
+        return notify_error(res.message or "Không kiểm tra được export."), True, dash.no_update
     status = res.data["status"]
     if status == "DONE":
-        return (
-            dcc.Link(
-                "Tải file Excel",
-                href=f"/download/report-export/{export_store['export_id']}",
-                target="_blank",
-            ),
-            True,
-        )
+        download, status_text = _auto_download(ctx, int(export_store["export_id"]))
+        return status_text, True, download
     if status == "FAILED":
         return (
             notify_error(res.data.get("error_message") or "Export lỗi."),
             True,
+            dash.no_update,
         )
-    return _export_progress(), False
+    return (
+        _export_progress(
+            int(res.data.get("progress_pct") or 0),
+            str(res.data.get("progress_step") or "Đang xuất file…"),
+        ),
+        False,
+        dash.no_update,
+    )
+
+
+@callback(
+    Output("viewer-sql-container", "children"),
+    Input("viewer-run-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_sql_tab_render(run_store: dict[str, Any] | None) -> Any:
+    """Render tab SQL thực hiện (chỉ ADMIN — service get_run_sql chặn).
+
+    Tab chỉ xuất hiện trong layout khi ADMIN nên đường thường không tới
+    đây; callback vẫn chặn lại để không rò rỉ SQL qua store.
+    """
+    if not run_store or not run_store.get("run_id"):
+        return empty_state(
+            "Chưa chạy báo cáo.",
+            "Bấm Xem báo cáo để xem SQL đã thực hiện.",
+        )
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    res = get_run_sql(ctx, int(run_store["run_id"]))
+    if not res.ok or not isinstance(res.data, dict):
+        return alert_box(res.message or "Không xem được SQL.", tone="crit")
+    data = res.data
+    binds_text = (
+        "\n".join(f"{key} = {value!r}" for key, value in (data.get("binds") or {}).items()) or "(không có bind)"
+    )
+    children: list[Any] = [
+        dmc.Title("Câu truy vấn", order=5, size="sm"),
+        html.Pre(
+            str(data.get("sql_text") or ""),
+            style={"fontFamily": "monospace", "fontSize": "12px", "whiteSpace": "pre-wrap", "marginTop": "4px"},
+        ),
+        dmc.Title("Binds", order=5, size="sm", mt="sm"),
+        html.Pre(
+            binds_text,
+            style={"fontFamily": "monospace", "fontSize": "12px", "whiteSpace": "pre-wrap", "marginTop": "4px"},
+        ),
+    ]
+    if data.get("warning"):
+        children.append(alert_box(str(data["warning"]), tone="warn"))
+    children.extend(
+        [
+            dmc.Title("Câu COUNT", order=5, size="sm", mt="sm"),
+            html.Pre(
+                str(data.get("count_sql") or ""),
+                style={"fontFamily": "monospace", "fontSize": "12px", "whiteSpace": "pre-wrap", "marginTop": "4px"},
+            ),
+            dmc.Title("Câu phân trang (trang 1, 50 dòng)", order=5, size="sm", mt="sm"),
+            html.Pre(
+                str(data.get("paged_sql") or ""),
+                style={"fontFamily": "monospace", "fontSize": "12px", "whiteSpace": "pre-wrap", "marginTop": "4px"},
+            ),
+        ]
+    )
+    return dmc.Stack(children, gap="xs")

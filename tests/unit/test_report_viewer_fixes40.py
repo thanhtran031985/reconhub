@@ -12,8 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 from app.db.metadata import recon_rpt_export
 from tests.unit.test_report_export_queue import (
@@ -95,9 +94,17 @@ class TestRunSqlService:
         assert not res.ok
 
     def test_empty_org_binds_null(self, export_env, admin_ctx):
-        from app.services.report_run import create_report_run, execute_report_run
-        from app.services.report_run import get_run_sql
+        from app.services.report_run import (
+            create_report_run,
+            execute_report_run,
+            get_run_sql,
+        )
 
+        # Fixture để p_org bắt buộc; báo cáo thật (/reports/5) thì Org
+        # không bắt buộc — nới lỏng ở đây để mô phỏng đúng ca đó.
+        engine = export_env["engine"]
+        with engine.begin() as conn_db:
+            conn_db.execute(text("UPDATE RECON_RPT_PARAM SET REQUIRED='N' WHERE CODE='p_org'"))
         created = create_report_run(
             admin_ctx,
             export_env["report_id"],
@@ -160,11 +167,15 @@ class TestExportProgress:
                 return_value=conn,
             ),
         ):
-            assert execute_export(exp["id"], engine=export_env["engine"])["status"] == "DONE"
+            result = execute_export(exp["id"], engine=export_env["engine"])
+        assert result["status"] == "DONE"
+        # 100% cuối ghi cùng lúc với DONE (không qua helper) nên helper
+        # chỉ thấy tới 90%; % cuối kiểm tra ở result.
+        assert result["progress_pct"] == 100
         pcts = [p for p, _ in seen]
         assert pcts, "worker phải cập nhật tiến độ trong lúc chạy"
         assert pcts == sorted(pcts)
-        assert pcts[-1] == 100
+        assert pcts[-1] == 90
         assert any(0 < p < 100 for p in pcts)
         assert any("ghi file" in s.lower() for _, s in seen)
 
@@ -310,9 +321,7 @@ class TestViewerLoadingDownloadSqlTab:
             return_value=conn,
         ):
             assert execute_export(exp["id"], engine=export_env["engine"])["status"] == "DONE"
-        status, poll_disabled, download = page.handle_export_poll(
-            1, {"export_id": exp["id"]}
-        )
+        status, poll_disabled, download = page.handle_export_poll(1, {"export_id": exp["id"]})
         assert poll_disabled is True
         assert "Tải file Excel" not in _dump(status)
         assert download is not None
@@ -334,11 +343,11 @@ class TestViewerLoadingDownloadSqlTab:
                     PROGRESS_STEP="Đang ghi file Excel: 10 / 20 dòng",
                 )
             )
-        status, poll_disabled, download = page.handle_export_poll(
-            1, {"export_id": exp["id"]}
-        )
+        status, poll_disabled, download = page.handle_export_poll(1, {"export_id": exp["id"]})
         assert poll_disabled is False
-        assert download is None
+        import dash
+
+        assert download is dash.no_update
         dumped = _dump(status)
         assert "45" in dumped
         assert "Đang ghi file Excel: 10 / 20 dòng" in dumped
@@ -379,8 +388,6 @@ class TestViewerLoadingDownloadSqlTab:
         }
         text = _dump(render_result_grid(layout, [{"AMOUNT": 1000}]))
         assert "rh-viewer-grid" in text
-        css = (Path(__file__).parents[2] / "app" / "ui" / "assets" / "custom.css").read_text(
-            encoding="utf-8"
-        )
+        css = (Path(__file__).parents[2] / "app" / "ui" / "assets" / "custom.css").read_text(encoding="utf-8")
         assert ".rh-viewer-grid" in css
         assert "--ag-font-size: 13px" in css

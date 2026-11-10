@@ -327,3 +327,10 @@ main > div > div,
   color: var(--primary, #0F6CBD);
   min-width: 18px;
 }
+
+/* Task 40: grid viewer nhỏ hơn 1 size (mặc định theme quartz 14px → 13px,
+   cả header và ô dữ liệu; chỉ áp cho grid viewer, không đổi grid cột
+   bước 4 hay chiều cao dòng/header). */
+.rh-viewer-grid {
+  --ag-font-size: 13px;
+}

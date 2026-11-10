@@ -313,8 +313,7 @@ def render_result_grid(layout: dict[str, Any], rows: list[dict[str, Any]]) -> An
             col_def["comparator"] = {"function": "reconViewerDateCompare"}
         defs.append(col_def)
     row_data = [
-        {str(c["field_name"]): _format_cell(_val(row, str(c["field_name"])), c) for c in columns}
-        for row in rows
+        {str(c["field_name"]): _format_cell(_val(row, str(c["field_name"])), c) for c in columns} for row in rows
     ]
     pinned = None
     if any(bool(c.get("is_total")) for c in columns):
@@ -349,6 +348,7 @@ def render_result_grid(layout: dict[str, Any], rows: list[dict[str, Any]]) -> An
         columnDefs=defs,
         rowData=row_data,
         dashGridOptions=grid_options,
+        className="ag-theme-quartz-auto-dark rh-viewer-grid",
         dangerously_allow_code=True,
     )
 
@@ -370,6 +370,7 @@ def render_result_table(layout: dict[str, Any], rows: list[dict[str, Any]]) -> A
         "fontSize": "12px",
         "fontWeight": 600,
     }
+
     def _align(c_meta: dict[str, Any]) -> str:
         a = str(c_meta.get("alignment") or "LEFT").upper()
         if a in ("CENTER", "GIỮA", "GIUA"):
