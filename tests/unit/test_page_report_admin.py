@@ -236,6 +236,83 @@ class TestStep1:
         assert "Mã template" in text
         assert "Lưu và tiếp tục" in text
 
+    def test_render_step1_keeps_stored_category(self, run_env, admin_ctx, monkeypatch):
+        """Task 37: báo cáo cũ mã nhóm 'FIN' (không trong options chuẩn) vẫn hiện đúng trong Select."""
+        import app.ui.pages.report_admin as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        state = _draft_state(run_env)
+        state["step"] = 1
+        text = _dump(page.render_step_content(1, state))
+        assert "value='FIN'" in text
+        assert "{'label': 'FIN', 'value': 'FIN'}" in text
+
+    def test_save_step1_unchanged_advances_silently(self, run_env, admin_ctx, monkeypatch):
+        """Task 37: bấm Tiếp theo ở bước 1 mà không đổi gì thì qua bước 2 im lặng, không toast lưu."""
+        import app.ui.pages.report_admin as page
+        from app.services.report import get_report
+        from app.services.report_template import get_template, get_version
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        state = _draft_state(run_env)
+        state["step"] = 1
+        rep = get_report(admin_ctx, int(state["report_id"])).data
+        tpl = get_template(admin_ctx, int(state["template_id"])).data
+        ver = get_version(admin_ctx, int(state["version_id"])).data
+        new_state, alert = page.handle_save_step1(
+            1,
+            state,
+            rep["code"],
+            rep["name"],
+            rep["category_code"],
+            rep["owner"],
+            rep["description"],
+            rep["is_visible"],
+            rep["default_favorite"],
+            tpl["code"],
+            tpl["name"],
+            tpl["display_order"],
+            ver["timeout_sec"],
+            ver["preview_max_rows"],
+            ver["export_max_rows"],
+        )
+        assert new_state["step"] == 2
+        assert alert is None
+
+    def test_save_step1_changed_still_toasts(self, run_env, admin_ctx, monkeypatch):
+        """Task 37: bấm Tiếp theo ở bước 1 có đổi tên thì vẫn lưu + toast như cũ."""
+        import app.ui.pages.report_admin as page
+        from app.services.report import get_report
+        from app.services.report_template import get_template, get_version
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        state = _draft_state(run_env)
+        state["step"] = 1
+        rep = get_report(admin_ctx, int(state["report_id"])).data
+        tpl = get_template(admin_ctx, int(state["template_id"])).data
+        ver = get_version(admin_ctx, int(state["version_id"])).data
+        new_state, alert = page.handle_save_step1(
+            1,
+            state,
+            rep["code"],
+            "Doanh thu (đổi tên)",
+            rep["category_code"],
+            rep["owner"],
+            rep["description"],
+            rep["is_visible"],
+            rep["default_favorite"],
+            tpl["code"],
+            tpl["name"],
+            tpl["display_order"],
+            ver["timeout_sec"],
+            ver["preview_max_rows"],
+            ver["export_max_rows"],
+        )
+        assert new_state["step"] == 2
+        assert alert is not None
+        assert "Đã lưu thông tin." in _dump(alert)
+        assert get_report(admin_ctx, int(state["report_id"])).data["name"] == "Doanh thu (đổi tên)"
+
     def test_save_step1_creates_report_and_template(self, run_env, admin_ctx, monkeypatch):
         import app.ui.pages.report_admin as page
 
@@ -463,6 +540,28 @@ class TestStep3:
         assert "param-canvas" in text
         assert "lovside" in text
         assert "Cấu hình LOV" in text
+
+    def test_param_canvas_row_col_centered_nowrap(self):
+        """Task 37: giá trị Hàng/Cột căn giữa (ẩn nút tăng/giảm), nhóm không rớt dòng trong box hẹp."""
+        import app.ui.pages.report_admin as page
+
+        params = [
+            {
+                "id": 1,
+                "code": "p_org",
+                "label": "Đơn vị",
+                "data_type": "STRING",
+                "control_type": "TEXT",
+                "required": True,
+                "display_row": 1,
+                "display_order": 10,
+                "grid_span": 2,
+            }
+        ]
+        text = _dump(page._render_param_canvas(params, []))
+        assert "hideControls" in text
+        assert "nowrap" in text
+        assert "textAlign" in text and "center" in text
 
     def test_param_create_and_delete(self, run_env, admin_ctx, monkeypatch):
         import app.ui.pages.report_admin as page
@@ -753,6 +852,82 @@ class TestStep4:
         ok, _ = page.handle_restore_order(1, _draft_state(run_env) | {"version_id": vid})
         assert ok is True
         assert list_columns(admin_ctx, vid).data[0]["field_name"] == "AMOUNT"
+
+    def test_column_grid_getrowid_is_function(self, run_env, admin_ctx, monkeypatch):
+        """Task 37: getRowId dạng chuỗi biểu thức 'params.data.id.toString()'.
+
+        Dạng chuỗi bare 'id' trả undefined (xóa rớt dòng), dạng dict function
+        làm crash đồng bộ selectedRows của dash-ag-grid (ge.replaceAll).
+        Dạng 'params.data.id' còn warning #25 (id số bị cast sang chuỗi).
+        """
+        import app.ui.pages.report_admin as page
+
+        vid = self._draft_with_columns(run_env, admin_ctx, monkeypatch)
+        state = _draft_state(run_env)
+        state["version_id"] = vid
+        text = _dump(page.render_step_content(4, state))
+        assert "params.data.id.toString()" in text
+
+    def test_column_move_row_helper(self):
+        """Task 37: helper đổi vị trí dòng đã chọn lên/xuống 1 nấc (đầu/cuối và không chọn thì giữ nguyên)."""
+        import app.ui.pages.report_admin as page
+
+        rows = [{"id": 1}, {"id": 2}, {"id": 3}]
+        assert [r["id"] for r in page._move_row_in_list(rows, 2, -1)] == [2, 1, 3]
+        assert [r["id"] for r in page._move_row_in_list(rows, 2, 1)] == [1, 3, 2]
+        assert [r["id"] for r in page._move_row_in_list(rows, 1, -1)] == [1, 2, 3]
+        assert [r["id"] for r in page._move_row_in_list(rows, 3, 1)] == [1, 2, 3]
+        assert [r["id"] for r in page._move_row_in_list(rows, 9, -1)] == [1, 2, 3]
+        assert [r["id"] for r in page._move_row_in_list(rows, None, -1)] == [1, 2, 3]
+
+    def test_column_move_up_down_callbacks(self):
+        """Task 37: nút Lên/Xuống đổi thứ tự rowData; chưa chọn hoặc đã ở đầu/cuối thì no_update."""
+        import dash
+
+        import app.ui.pages.report_admin as page
+
+        rows = [
+            {"id": 1, "field_name": "AMOUNT"},
+            {"id": 2, "field_name": "ORG"},
+            {"id": 3, "field_name": "TXN_DATE"},
+        ]
+        moved = page.handle_col_move_up(1, rows, [{"id": 2}])
+        assert [r["id"] for r in moved] == [2, 1, 3]
+        moved = page.handle_col_move_down(1, rows, [{"id": 2}])
+        assert [r["id"] for r in moved] == [1, 3, 2]
+        assert page.handle_col_move_up(1, rows, []) is dash.no_update
+        assert page.handle_col_move_up(1, rows, [{"id": 1}]) is dash.no_update
+        assert page.handle_col_move_down(1, rows, [{"id": 3}]) is dash.no_update
+
+    def test_column_grid_defs_flex(self):
+        """Task 37: 2 cột text Trường DB/Nhãn flex để grid chiếm full chiều rộng."""
+        import app.ui.pages.report_admin as page
+
+        defs = {d["field"]: d for d in page._column_grid_column_defs(editable=True) if "field" in d}
+        assert defs["field_name"].get("flex") == 1
+        assert defs["label"].get("flex") == 1
+        assert defs["field_name"].get("minWidth") == 170
+        assert defs["label"].get("minWidth") == 180
+        assert "flex" not in defs["width"]
+        assert "flex" not in defs["web_visible"]
+
+    def test_render_step4_grid_height_fits(self, run_env, admin_ctx, monkeypatch):
+        """Task 37: grid cao calc(100vh - 380px) để card không tràn footer."""
+        import app.ui.pages.report_admin as page
+
+        vid = self._draft_with_columns(run_env, admin_ctx, monkeypatch)
+        state = _draft_state(run_env)
+        state["version_id"] = vid
+        text = _dump(page.render_step_content(4, state))
+        assert "calc(100vh - 380px)" in text
+
+    def test_wizard_footer_compact(self):
+        """Task 37: footer thu còn 26px (~1/2 của 48px)."""
+        import app.ui.pages.report_admin as page
+
+        text = _dump(page._render_wizard_footer(4, _fresh_state()))
+        assert "26px" in text
+        assert "48px" not in text
 
     def test_column_search_quick_filter(self):
         import app.ui.pages.report_admin as page

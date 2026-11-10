@@ -923,6 +923,19 @@ def _lookup_options(ctx: Ctx) -> list[dict[str, str]]:
     ]
 
 
+def _category_options_for(category_code: str) -> list[dict[str, str]]:
+    """Options Nhóm báo cáo; giữ lại mã đã lưu dù không còn trong danh sách chuẩn.
+
+    Task 37: báo cáo cũ có mã 'FIN' không nằm trong CATEGORY_OPTIONS — Select
+    sẽ trống và mỗi lần bấm Tiếp theo lại 'đổi' nhóm thành FINANCE (toast lưu
+    oan + đổi ngầm dữ liệu). Giữ mã cũ làm option phụ để form hiện đúng giá trị.
+    """
+    options = list(CATEGORY_OPTIONS)
+    if category_code and all(o["value"] != category_code for o in options):
+        options.append({"label": category_code, "value": category_code})
+    return options
+
+
 def render_step1(state: dict[str, Any]) -> Any:
     """Bước 1: thông tin chung (bố cục 4 cột theo preview.html)."""
     ctx = get_current_ctx()
@@ -980,7 +993,7 @@ def render_step1(state: dict[str, Any]) -> Any:
                     dmc.Select(
                         id="admin-s1-category",
                         label="Nhóm báo cáo *",
-                        data=CATEGORY_OPTIONS,
+                        data=_category_options_for(str(report.get("category_code") or "FINANCE")),
                         value=str(report.get("category_code") or "FINANCE"),
                         clearable=False,
                     ),
@@ -1348,14 +1361,16 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
                                             value=int(p.get("display_row") or r),
                                             min=1,
                                             max=20,
-                                            w=38,
+                                            w=34,
                                             size="xs",
                                             debounce=500,
-                                            styles={"input": {"height": "22px", "minHeight": "22px", "padding": "0 2px", "fontSize": "11px", "textAlign": "center"}},
+                                            hideControls=True,
+                                            styles={"input": {"height": "22px", "minHeight": "22px", "padding": "0 2px", "fontSize": "11px", "lineHeight": "22px", "textAlign": "center"}},
                                             id={"type": "admin-p-canvas-row", "index": p["id"]},
                                         ),
                                     ],
                                     gap=2,
+                                    wrap="nowrap",
                                 ),
                                 dmc.Group(
                                     [
@@ -1364,19 +1379,22 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
                                             value=span,
                                             min=1,
                                             max=12,
-                                            w=38,
+                                            w=34,
                                             size="xs",
                                             debounce=500,
-                                            styles={"input": {"height": "22px", "minHeight": "22px", "padding": "0 2px", "fontSize": "11px", "textAlign": "center"}},
+                                            hideControls=True,
+                                            styles={"input": {"height": "22px", "minHeight": "22px", "padding": "0 2px", "fontSize": "11px", "lineHeight": "22px", "textAlign": "center"}},
                                             id={"type": "admin-p-canvas-span", "index": p["id"]},
                                         ),
                                     ],
                                     gap=2,
+                                    wrap="nowrap",
                                 ),
                             ],
-                            gap="xs",
+                            gap=4,
                             justify="flex-start",
                             align="center",
+                            wrap="nowrap",
                             mt=4,
                         ),
                     ],
@@ -1964,13 +1982,15 @@ def _column_grid_column_defs(editable: bool) -> list[dict[str, Any]]:
             "resizable": False,
             "suppressHeaderMenuButton": True,
         },
-        {"field": "field_name", "headerName": "Trường DB", "editable": False, "width": 170},
+        {"field": "field_name", "headerName": "Trường DB", "editable": False, "width": 170, "minWidth": 170, "flex": 1},
         {
             "field": "label",
             "headerName": "Nhãn",
             "editable": editable,
             "cellEditor": "agTextCellEditor",
             "width": 180,
+            "minWidth": 180,
+            "flex": 1,
         },
         {"field": "data_type", "headerName": "Kiểu", "editable": False, "width": 100},
         {
@@ -2148,6 +2168,22 @@ def render_step4(state: dict[str, Any]) -> Any:
                                 style={"height": "28px", "fontWeight": 500},
                             ),
                             dmc.Button(
+                                "↑ Lên",
+                                id="admin-col-up-btn",
+                                variant="light",
+                                size="xs",
+                                disabled=True,
+                                style={"height": "28px", "fontWeight": 500},
+                            ),
+                            dmc.Button(
+                                "↓ Xuống",
+                                id="admin-col-down-btn",
+                                variant="light",
+                                size="xs",
+                                disabled=True,
+                                style={"height": "28px", "fontWeight": 500},
+                            ),
+                            dmc.Button(
                                 "Khôi phục thứ tự DB",
                                 id="admin-col-restore-btn",
                                 variant="light",
@@ -2179,9 +2215,9 @@ def render_step4(state: dict[str, Any]) -> Any:
                     columnDefs=_column_grid_column_defs(editable=is_draft),
                     rowData=[dict(c) for c in columns],
                     dashGridOptions=_column_grid_options(),
-                    getRowId="id",
+                    getRowId="params.data.id.toString()",
                     dangerously_allow_code=True,
-                    container_style={"height": "calc(100vh - 310px)", "flex": "0 0 auto"},
+                    container_style={"height": "calc(100vh - 380px)", "flex": "0 0 auto"},
                 )
                 if columns
                 else empty_state(
@@ -2645,8 +2681,9 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
             radius="xl",
             style={
                 "fontWeight": 600,
-                "height": "30px",
-                "padding": "0 16px",
+                "height": "22px",
+                "padding": "0 14px",
+                "fontSize": "11px",
                 "boxShadow": "0 1px 3px rgba(0, 120, 212, 0.25)",
             },
         )
@@ -2660,8 +2697,9 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
                 radius="xl",
                 style={
                     "fontWeight": 600,
-                    "height": "30px",
-                    "padding": "0 16px",
+                    "height": "22px",
+                    "padding": "0 14px",
+                    "fontSize": "11px",
                     "boxShadow": "0 1px 3px rgba(0, 120, 212, 0.25)",
                 },
             ),
@@ -2678,8 +2716,9 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
             radius="xl",
             style={
                 "fontWeight": 600,
-                "height": "30px",
-                "padding": "0 16px",
+                "height": "22px",
+                "padding": "0 14px",
+                "fontSize": "11px",
                 "boxShadow": "0 1px 3px rgba(0, 120, 212, 0.25)",
             },
         )
@@ -2695,8 +2734,9 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
         disabled=step <= 1 or step == 6,
         style={
             "fontWeight": 500,
-            "height": "30px",
-            "padding": "0 14px",
+            "height": "22px",
+            "padding": "0 12px",
+            "fontSize": "11px",
             "color": "var(--ink, #1E1E1E)",
             "display": "none" if step == 6 else "inline-flex",
         },
@@ -2712,7 +2752,7 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
             align="center",
         ),
         radius="xl",
-        p=3,
+        p=2,
         withBorder=True,
         style={
             "backgroundColor": "#FFFFFF",
@@ -2741,8 +2781,8 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
         className="wfoot",
         style={
             "flexShrink": 0,
-            "height": "48px",
-            "padding": "0 20px",
+            "height": "26px",
+            "padding": "0 16px",
             "borderTop": "1px solid var(--line, #E0E0E0)",
             "backgroundColor": "#FFFFFF",
             "display": "flex",
@@ -3025,6 +3065,65 @@ def _sync_new_bind_params(ctx: Ctx, version_id: int, new_binds: list[str]) -> in
     return added_count
 
 
+def _step1_is_dirty(
+    ctx: Ctx,
+    state: dict[str, Any],
+    report_name: str | None,
+    category_code: str | None,
+    owner: str | None,
+    description: str | None,
+    is_visible: bool | None,
+    default_favorite: bool | None,
+    tpl_name: str | None,
+    display_order: int | None,
+    timeout_sec: int | None,
+    preview_max_rows: int | None,
+    export_max_rows: int | None,
+) -> bool:
+    """So sánh form bước 1 với DB: True khi có field đổi (cần lưu), False khi không đổi gì.
+
+    Task 37: bấm Tiếp theo mà không đổi gì thì qua bước 2 im lặng, không toast "Đã lưu".
+    Đọc DB lỗi thì trả True để giữ hành vi cũ (lưu + toast) cho an toàn.
+    """
+    try:
+        rep_res = get_report(ctx, int(state["report_id"]))
+        tpl_res = get_template(ctx, int(state["template_id"]))
+        if not rep_res.ok or not tpl_res.ok or not isinstance(rep_res.data, dict) or not isinstance(tpl_res.data, dict):
+            return True
+        rep = rep_res.data
+        tpl = tpl_res.data
+        if (report_name or "").strip() != str(rep.get("name") or ""):
+            return True
+        if (category_code or "FINANCE") != str(rep.get("category_code") or "FINANCE"):
+            return True
+        if (owner or "").strip() != str(rep.get("owner") or ""):
+            return True
+        if ((description or "").strip() or None) != rep.get("description"):
+            return True
+        if bool(default_favorite) != bool(rep.get("default_favorite")):
+            return True
+        if (bool(is_visible) if is_visible is not None else True) != bool(rep.get("is_visible")):
+            return True
+        if (tpl_name or "").strip() != str(tpl.get("name") or ""):
+            return True
+        if int(display_order or 10) != int(tpl.get("display_order") or 10):
+            return True
+        if state.get("version_id"):
+            ver_res = get_version(ctx, int(state["version_id"]))
+            if not ver_res.ok or not isinstance(ver_res.data, dict):
+                return True
+            ver = ver_res.data
+            if int(timeout_sec or 300) != int(ver.get("timeout_sec") or 300):
+                return True
+            if int(preview_max_rows or 100) != int(ver.get("preview_max_rows") or 100):
+                return True
+            if int(export_max_rows or 1000000) != int(ver.get("export_max_rows") or 1000000):
+                return True
+        return False
+    except Exception:
+        return True
+
+
 def handle_save_step1(
     n_clicks: int | None,
     state: dict[str, Any],
@@ -3099,6 +3198,25 @@ def handle_save_step1(
             return state, notify_success("Đã lưu thông tin.")
         report_id = int(state["report_id"])
         template_id = int(state["template_id"])
+        # Task 37: không đổi gì thì qua bước 2 im lặng (không gọi update, không toast).
+        if not _step1_is_dirty(
+            ctx,
+            state,
+            report_name,
+            category_code,
+            owner,
+            description,
+            is_visible,
+            default_favorite,
+            tpl_name,
+            display_order,
+            timeout_sec,
+            preview_max_rows,
+            export_max_rows,
+        ):
+            state["step"] = 2
+            state["max_step"] = max(int(state.get("max_step") or 1), 2)
+            return state, None
         rep_res = update_report(
             ctx,
             report_id,
@@ -4186,6 +4304,23 @@ def handle_col_search(value: str | None) -> dict[str, Any]:
     return _column_grid_options(value or "")
 
 
+def _move_row_in_list(
+    rows: list[dict[str, Any]] | None, selected_id: Any, direction: int
+) -> list[dict[str, Any]]:
+    """Đổi vị trí dòng đã chọn lên (-1) / xuống (+1) một nấc trong rowData (trả list mới)."""
+    rows = [dict(r) for r in (rows or [])]
+    if selected_id is None:
+        return rows
+    idx = next((i for i, r in enumerate(rows) if r.get("id") == selected_id), None)
+    if idx is None:
+        return rows
+    target = idx + direction
+    if target < 0 or target >= len(rows):
+        return rows
+    rows[idx], rows[target] = rows[target], rows[idx]
+    return rows
+
+
 @callback(
     Output("admin-col-delete-btn", "disabled"),
     Input("admin-col-grid", "selectedRows"),
@@ -4194,6 +4329,72 @@ def handle_col_search(value: str | None) -> dict[str, Any]:
 def handle_col_delete_btn_state(selected_rows: list[dict[str, Any]] | None) -> bool:
     """Nút Xóa chỉ bật khi đã chọn một dòng trong grid."""
     return not bool(selected_rows)
+
+
+@callback(
+    Output("admin-col-up-btn", "disabled"),
+    Output("admin-col-down-btn", "disabled"),
+    Input("admin-col-grid", "selectedRows"),
+    Input("admin-col-grid", "rowData"),
+    prevent_initial_call=True,
+)
+def handle_col_move_btn_state(
+    selected_rows: list[dict[str, Any]] | None, row_data: list[dict[str, Any]] | None
+) -> tuple[bool, bool]:
+    """Nút Lên/Xuống: bật khi đã chọn dòng và chưa ở đầu/cuối danh sách."""
+    if not selected_rows:
+        return True, True
+    rows = row_data or []
+    idx = next((i for i, r in enumerate(rows) if r.get("id") == selected_rows[0].get("id")), None)
+    if idx is None:
+        return True, True
+    return idx <= 0, idx >= len(rows) - 1
+
+
+@callback(
+    Output("admin-col-grid", "rowData", allow_duplicate=True),
+    Input("admin-col-up-btn", "n_clicks"),
+    State("admin-col-grid", "rowData"),
+    State("admin-col-grid", "selectedRows"),
+    prevent_initial_call=True,
+)
+def handle_col_move_up(
+    n_clicks: int | None,
+    row_data: list[dict[str, Any]] | None,
+    selected_rows: list[dict[str, Any]] | None,
+) -> Any:
+    """Nút ↑ Lên: đổi dòng đã chọn lên 1 nấc (lưu chung khi bấm Lưu cột)."""
+    if not n_clicks:
+        raise PreventUpdate
+    if not selected_rows:
+        return dash.no_update
+    moved = _move_row_in_list(row_data, selected_rows[0].get("id"), -1)
+    if moved == [dict(r) for r in (row_data or [])]:
+        return dash.no_update
+    return moved
+
+
+@callback(
+    Output("admin-col-grid", "rowData", allow_duplicate=True),
+    Input("admin-col-down-btn", "n_clicks"),
+    State("admin-col-grid", "rowData"),
+    State("admin-col-grid", "selectedRows"),
+    prevent_initial_call=True,
+)
+def handle_col_move_down(
+    n_clicks: int | None,
+    row_data: list[dict[str, Any]] | None,
+    selected_rows: list[dict[str, Any]] | None,
+) -> Any:
+    """Nút ↓ Xuống: đổi dòng đã chọn xuống 1 nấc (lưu chung khi bấm Lưu cột)."""
+    if not n_clicks:
+        raise PreventUpdate
+    if not selected_rows:
+        return dash.no_update
+    moved = _move_row_in_list(row_data, selected_rows[0].get("id"), 1)
+    if moved == [dict(r) for r in (row_data or [])]:
+        return dash.no_update
+    return moved
 
 
 @callback(
