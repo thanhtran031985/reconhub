@@ -27,8 +27,6 @@ def _find_by_type(component: Any, type_name: str) -> list[Any]:
 
 class TestPageHeaderTitle:
     def test_string_title_wrapped_once(self):
-        import dash_mantine_components as dmc
-
         from app.ui.components.page_header import page_header
 
         header = page_header(title="Lịch sử", subtitle="Phụ đề")
@@ -52,8 +50,6 @@ class TestPageHeaderTitle:
 
 class TestDragDropReorder:
     def _call(self, monkeypatch, drag_data, state=None):
-        from dash.exceptions import PreventUpdate
-
         from app.core.context import Ctx
         from app.ui.pages.report_admin import handle_drag_drop_reorder
 

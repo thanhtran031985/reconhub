@@ -6,17 +6,27 @@ import dash_mantine_components as dmc
 
 
 def page_header(
-    title: str,
+    title: str | Any,
     subtitle: str | None = None,
     actions: Any = None,
     breadcrumbs: list[dict[str, str]] | None = None,
     id: str | None = None,
     **kwargs: Any,
 ) -> dmc.Box:
-    """Component tiêu đề trang chuẩn 1 dòng Fluent Compact (Title 18px + subtitle 12px dimmed + actions)."""
-    title_elements: list[Any] = [
-        dmc.Title(title, order=4, size=18, fw=600, style={"lineHeight": 1.3, "whiteSpace": "nowrap"}),
-    ]
+    """Component tiêu đề trang chuẩn 1 dòng Fluent Compact (Title 18px + subtitle 12px dimmed + actions).
+
+    Task 46: title nhận cả chuỗi lẫn component — chuỗi thì bọc Title
+    như cũ; component (vd Title có id để callback cập nhật, như
+    history-title) thì dùng thẳng, không bọc thêm (bọc thêm gây
+    <h4> trong <h4>, React cảnh báo validateDOMNesting).
+    """
+    if isinstance(title, str):
+        title_node: Any = dmc.Title(
+            title, order=4, size=18, fw=600, style={"lineHeight": 1.3, "whiteSpace": "nowrap"}
+        )
+    else:
+        title_node = title
+    title_elements: list[Any] = [title_node]
 
     if subtitle:
         title_elements.append(

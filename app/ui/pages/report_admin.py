@@ -5443,7 +5443,6 @@ def handle_p_canvas_change(_rows: list[Any], _spans: list[Any], state: dict[str,
 @callback(
     Output("admin-state-store", "data", allow_duplicate=True),
     Output("admin-alert", "children", allow_duplicate=True),
-    Output("admin-col-preview-container", "children", allow_duplicate=True),
     Input("admin-drag-drop-store", "data"),
     State("admin-state-store", "data"),
     prevent_initial_call=True,
@@ -5451,8 +5450,15 @@ def handle_p_canvas_change(_rows: list[Any], _spans: list[Any], state: dict[str,
 def handle_drag_drop_reorder(
     drag_data: dict[str, Any] | None,
     state: dict[str, Any] | None,
-) -> tuple[Any, Any, Any]:
-    """Xử lý sự kiện kéo thả từ drag_drop_reporting.js."""
+) -> tuple[Any, Any]:
+    """Xử lý sự kiện kéo thả từ drag_drop_reporting.js.
+
+    Task 46: bỏ Output admin-col-preview-container — khung xem trước cột
+    chỉ tồn tại khi wizard mở, còn Store kéo-thả nằm trong layout tĩnh
+    nên Dash chạy callback ngay lúc tải trang danh sách và báo Output
+    không tồn tại. Kéo-thả tham số luôn trả no_update cho Output đó nên
+    bỏ đi không đổi hành vi.
+    """
     if not drag_data or not isinstance(drag_data, dict) or not state or not state.get("version_id"):
         raise PreventUpdate
     ctx = get_current_ctx()
@@ -5468,8 +5474,8 @@ def handle_drag_drop_reorder(
         to_index = max(0, int(drag_data.get("to_index") or 0))
         move_res = move_param(ctx, version_id, from_id, to_row, to_index)
         if not move_res.ok:
-            return dash.no_update, _err_alert(move_res), dash.no_update
-        return _bump(state), notify_success("Đã thay đổi vị trí tham số thành công."), dash.no_update
+            return dash.no_update, _err_alert(move_res)
+        return _bump(state), notify_success("Đã thay đổi vị trí tham số thành công.")
     raise PreventUpdate
 
 
