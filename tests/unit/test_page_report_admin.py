@@ -1022,16 +1022,16 @@ class TestStep4:
         text = _dump(page.render_step_content(4, state))
         assert "calc(100vh - 380px)" in text
 
-    def test_wizard_footer_compact(self):
-        """Task 37: footer thu còn 26px (~1/2 của 48px).
-        Task 38: người dùng vẫn muốn nhỏ hơn → footer 20px, nút 18px."""
+    def test_wizard_footer_buttons_bigger(self):
+        """Task 47: footer 48px, nút Quay lại/Tiếp theo 36px (chuẩn sm).
+        Task 37/38 thu nhỏ còn 20px/18px đã lỗi thời theo yêu cầu mới."""
         import app.ui.pages.report_admin as page
 
         text = _dump(page._render_wizard_footer(4, _fresh_state()))
-        assert "20px" in text
-        assert "18px" in text
-        assert "26px" not in text
-        assert "48px" not in text
+        assert "48px" in text
+        assert "36px" in text
+        assert "20px" not in text
+        assert "'height': '18px'" not in text and '"height": "18px"' not in text
 
     def test_column_search_quick_filter(self):
         import app.ui.pages.report_admin as page

@@ -1391,7 +1391,7 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
                             gap=4,
                             justify="flex-start",
                             align="center",
-                            wrap="nowrap",
+                            wrap="wrap",
                             mt=4,
                         ),
                     ],
@@ -1399,6 +1399,7 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
                     **{"draggable": "true", "data-param-id": str(p["id"])},  # type: ignore[arg-type]
                     style={
                         "gridColumn": f"span {span}",
+                        "minWidth": 0,
                         "backgroundColor": "var(--surface-1, #FFFFFF)",
                         "border": "1px solid var(--line, #E0E0E0)",
                         "borderRadius": "4px",
@@ -1429,7 +1430,7 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
                         boxes,
                         style={
                             "display": "grid",
-                            "gridTemplateColumns": "repeat(12, 1fr)",
+                            "gridTemplateColumns": "repeat(12, minmax(0, 1fr))",
                             "gap": "6px",
                         },
                     ),
@@ -1572,6 +1573,14 @@ def _render_lov_fields(lov_type: str, lov: dict[str, Any], lookup_opts: list[dic
     return html.Div([none_box, static_box, sql_box, lookup_box])
 
 
+def _param_row_style(is_selected: bool) -> dict[str, str]:
+    """Style highlight dòng tham số được chọn ở bảng bước 3 (dùng chung render + callback chọn Mã)."""
+    return {
+        "backgroundColor": "rgba(0, 120, 212, 0.06)" if is_selected else "transparent",
+        "borderLeft": "3px solid var(--mantine-color-blue-6, #0078D4)" if is_selected else "3px solid transparent",
+    }
+
+
 def render_step3(state: dict[str, Any]) -> Any:
     """Bước 3: tham số & LOV + layout 12 cột chuẩn Master-Detail Screen16 preview.html."""
     ctx = get_current_ctx()
@@ -1608,7 +1617,8 @@ def render_step3(state: dict[str, Any]) -> Any:
                             className="rh-code",
                             id={"type": "admin-param-select", "index": p["id"]},
                             style={"padding": "0 4px", "height": "24px", "fontWeight": 700},
-                        )
+                        ),
+                        style={"padding": "4px 4px"},
                     ),
                     dmc.TableTd(
                         dmc.TextInput(
@@ -1628,7 +1638,8 @@ def render_step3(state: dict[str, Any]) -> Any:
                             w=80,
                             styles={"input": {"height": "24px", "minHeight": "24px", "fontSize": "10px", "padding": "0 2px"}},
                             clearable=False,
-                        )
+                        ),
+                        style={"padding": "4px 4px"},
                     ),
                     dmc.TableTd(
                         dmc.Checkbox(
@@ -1636,7 +1647,7 @@ def render_step3(state: dict[str, Any]) -> Any:
                             id={"type": "admin-p-table-web", "index": p["id"]},
                             size="xs",
                         ),
-                        style={"textAlign": "center"},
+                        style={"textAlign": "center", "padding": "4px 4px"},
                     ),
                     dmc.TableTd(
                         dmc.Checkbox(
@@ -1644,7 +1655,7 @@ def render_step3(state: dict[str, Any]) -> Any:
                             id={"type": "admin-p-table-req", "index": p["id"]},
                             size="xs",
                         ),
-                        style={"textAlign": "center"},
+                        style={"textAlign": "center", "padding": "4px 4px"},
                     ),
                     dmc.TableTd(
                         dmc.TextInput(
@@ -1653,7 +1664,8 @@ def render_step3(state: dict[str, Any]) -> Any:
                             size="xs",
                             w=85,
                             styles={"input": {"height": "24px", "minHeight": "24px", "fontSize": "10px", "padding": "0 4px"}},
-                        )
+                        ),
+                        style={"padding": "4px 4px"},
                     ),
                     dmc.TableTd(
                         dmc.Select(
@@ -1664,7 +1676,8 @@ def render_step3(state: dict[str, Any]) -> Any:
                             w=80,
                             styles={"input": {"height": "24px", "minHeight": "24px", "fontSize": "10px", "padding": "0 2px"}},
                             clearable=False,
-                        )
+                        ),
+                        style={"padding": "4px 4px"},
                     ),
                     dmc.TableTd(
                         dmc.NumberInput(
@@ -1675,7 +1688,8 @@ def render_step3(state: dict[str, Any]) -> Any:
                             min=1,
                             max=999,
                             styles={"input": {"height": "24px", "minHeight": "24px", "fontSize": "10px", "padding": "0 2px", "textAlign": "center"}},
-                        )
+                        ),
+                        style={"textAlign": "center", "padding": "4px 4px"},
                     ),
                     dmc.TableTd(
                         dmc.ActionIcon(
@@ -1686,13 +1700,11 @@ def render_step3(state: dict[str, Any]) -> Any:
                             id={"type": "admin-param-del", "index": p["id"]},
                             **{"aria-label": f"Xóa tham số {p['code']}"},
                         ),
-                        style={"textAlign": "center"},
+                        style={"textAlign": "center", "padding": "4px 4px"},
                     ),
                 ],
-                style={
-                    "backgroundColor": "rgba(0, 120, 212, 0.06)" if is_selected else "transparent",
-                    "borderLeft": "3px solid var(--mantine-color-blue-6, #0078D4)" if is_selected else "3px solid transparent",
-                },
+                id={"type": "admin-param-row", "index": p["id"]},
+                style=_param_row_style(bool(is_selected)),
             )
         )
 
@@ -2672,15 +2684,15 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
         next_btn = dmc.Button(
             "Tiếp theo",
             id="admin-s1-save-btn",
-            rightSection=DashIconify(icon="lucide:arrow-right", width=12),
+            rightSection=DashIconify(icon="lucide:arrow-right", width=16),
             color="primary",
-            size="xs",
+            size="sm",
             radius="xl",
             style={
                 "fontWeight": 600,
-                "height": "18px",
-                "padding": "0 10px",
-                "fontSize": "10px",
+                "height": "36px",
+                "padding": "0 18px",
+                "fontSize": "13px",
                 "boxShadow": "0 1px 3px rgba(0, 120, 212, 0.25)",
             },
         )
@@ -2688,15 +2700,15 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
         next_btn = dmc.Anchor(
             dmc.Button(
                 "Về Trung tâm báo cáo",
-                rightSection=DashIconify(icon="lucide:arrow-right", width=12),
+                rightSection=DashIconify(icon="lucide:arrow-right", width=16),
                 color="primary",
-                size="xs",
+                size="sm",
                 radius="xl",
                 style={
                     "fontWeight": 600,
-                    "height": "18px",
-                    "padding": "0 10px",
-                    "fontSize": "10px",
+                    "height": "36px",
+                    "padding": "0 18px",
+                    "fontSize": "13px",
                     "boxShadow": "0 1px 3px rgba(0, 120, 212, 0.25)",
                 },
             ),
@@ -2707,15 +2719,15 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
         next_btn = dmc.Button(
             "Tiếp theo",
             id="admin-next-btn",
-            rightSection=DashIconify(icon="lucide:arrow-right", width=12),
+            rightSection=DashIconify(icon="lucide:arrow-right", width=16),
             color="primary",
-            size="xs",
+            size="sm",
             radius="xl",
             style={
                 "fontWeight": 600,
-                "height": "18px",
-                "padding": "0 10px",
-                "fontSize": "10px",
+                "height": "36px",
+                "padding": "0 18px",
+                "fontSize": "13px",
                 "boxShadow": "0 1px 3px rgba(0, 120, 212, 0.25)",
             },
         )
@@ -2723,17 +2735,17 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
     prev_btn = dmc.Button(
         "Quay lại",
         id="admin-prev-btn",
-        leftSection=DashIconify(icon="lucide:arrow-left", width=12),
+        leftSection=DashIconify(icon="lucide:arrow-left", width=16),
         variant="subtle",
         color="gray",
-        size="xs",
+        size="sm",
         radius="xl",
         disabled=step <= 1 or step == 6,
         style={
             "fontWeight": 500,
-            "height": "18px",
-            "padding": "0 10px",
-            "fontSize": "10px",
+            "height": "36px",
+            "padding": "0 18px",
+            "fontSize": "13px",
             "color": "var(--ink, #1E1E1E)",
             "display": "none" if step == 6 else "inline-flex",
         },
@@ -2778,7 +2790,7 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
         className="wfoot",
         style={
             "flexShrink": 0,
-            "height": "20px",
+            "height": "48px",
             "padding": "0 12px",
             "borderTop": "1px solid var(--line, #E0E0E0)",
             "backgroundColor": "#FFFFFF",
@@ -5153,14 +5165,20 @@ def handle_param_add_row_click(n_clicks: int | None, state: dict[str, Any] | Non
     Output("admin-p-lov-type", "value"),
     Output("admin-p-lov-body", "children"),
     Output("admin-state-store", "data", allow_duplicate=True),
+    Output({"type": "admin-param-row", "index": dash.ALL}, "style"),
     Input({"type": "admin-param-select", "index": dash.ALL}, "n_clicks"),
     State("admin-state-store", "data"),
     prevent_initial_call=True,
 )
 def handle_p_select_click(
     n_clicks: list[int | None] | int | None, state: dict[str, Any] | None
-) -> tuple[str, str, Any, dict[str, Any]]:
-    """Click vào mã tham số trong bảng để chọn và cấu hình LOV nhanh tức thì (không reload toàn trang)."""
+) -> tuple[str, str, Any, dict[str, Any], list[dict[str, str]]]:
+    """Click vào mã tham số trong bảng để chọn và cấu hình LOV nhanh tức thì (không reload toàn trang).
+
+    Task 47: trả thêm style từng dòng để indicator (highlight) chuyển theo dòng click —
+    trước đây callback chỉ đổi panel LOV + state, bảng không re-render nên highlight kẹt ở dòng đầu.
+    Chỉ đổi style (không re-render bảng) để không mất nhãn đang gõ dở.
+    """
     clicks_list = n_clicks if isinstance(n_clicks, list) else [n_clicks]
     if not any(c for c in clicks_list if c) or not state or not state.get("version_id"):
         raise PreventUpdate
@@ -5184,7 +5202,8 @@ def handle_p_select_click(
 
     new_state = dict(state)
     new_state["editing_param_id"] = param_id
-    return title, lov_type, body, new_state
+    row_styles = [_param_row_style(int(p["id"]) == param_id) for p in params]
+    return title, lov_type, body, new_state, row_styles
 
 
 @callback(
