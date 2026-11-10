@@ -1,11 +1,11 @@
 # Tiến độ — 32-report-delete
 
-Trạng thái: ⬜ (đã tạo task + nhánh, plan chưa duyệt, chưa code)
+Trạng thái: 🔄 (plan đã duyệt 10/11/2026, đang làm bước 1)
 
 | Bước | Nội dung | Trạng thái | Ngày | Commit |
 |---|---|---|---|---|
-| 0 | Tạo task + nhánh `feat/32-report-delete` từ `adecaa7`, viết plan | ✅ | 2026-11-10 |  |
-| 1 | Service `delete_report` + test viết trước | ⬜ |  |  |
+| 0 | Tạo task + nhánh `feat/32-report-delete` từ `adecaa7`, viết plan | ✅ | 2026-11-10 | 64bb201 |
+| 1 | Service `delete_report` + test viết trước | 🔄 |  |  |
 | 2 | UI: mục "Xóa" + modal xác nhận + callback | ⬜ |  |  |
 | 3 | Kiểm chứng cuối + xuất patch | ⬜ |  |  |
 

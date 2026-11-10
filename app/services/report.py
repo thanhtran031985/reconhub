@@ -13,12 +13,23 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy import Connection, select
+from sqlalchemy import Connection, delete, select
 
 from app.core.audit import write_audit_log
 from app.core.context import Ctx
 from app.db.engine import get_recon_engine
-from app.db.metadata import recon_report, recon_rpt_favorite
+from app.db.metadata import (
+    recon_report,
+    recon_report_run,
+    recon_report_template,
+    recon_rpt_column,
+    recon_rpt_export,
+    recon_rpt_favorite,
+    recon_rpt_param,
+    recon_rpt_param_lov,
+    recon_rpt_preset,
+    recon_rpt_tpl_ver,
+)
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
 from app.services.perm import is_admin, requires_menu
@@ -257,6 +268,108 @@ def archive_report(ctx: Ctx, report_id: int) -> dict[str, Any]:
         ).mappings().first()
         assert updated is not None
         return _report_dict(updated)
+
+
+@service
+@requires_menu("report_admin")
+def delete_report(ctx: Ctx, report_id: int) -> dict[str, Any]:
+    """Xóa hẳn Report Master kèm toàn bộ dữ liệu liên quan (chỉ Admin).
+
+    Xóa luôn dù báo cáo đã có lần chạy: export → lần chạy → favorite/
+    preset → template → version → tham số (+LOV)/cột → báo cáo, trong
+    cùng 1 transaction. Thứ tự xóa con trước cha để không vi phạm FK.
+    """
+    engine = get_recon_engine()
+    now = _now()
+    with engine.begin() as conn:
+        row = load_report_row(conn, report_id, admin=True)
+        code = str(row["CODE"])
+        name = str(row["NAME"])
+
+        # 1. Lần chạy + export của các lần chạy đó.
+        run_ids = [
+            int(r[0])
+            for r in conn.execute(
+                select(recon_report_run.c.ID).where(recon_report_run.c.REPORT_ID == report_id)
+            ).all()
+        ]
+        n_exports = 0
+        if run_ids:
+            n_exports = (
+                conn.execute(delete(recon_rpt_export).where(recon_rpt_export.c.RUN_ID.in_(run_ids))).rowcount or 0
+            )
+            conn.execute(delete(recon_report_run).where(recon_report_run.c.ID.in_(run_ids)))
+
+        # 2. Yêu thích + preset của báo cáo.
+        conn.execute(delete(recon_rpt_favorite).where(recon_rpt_favorite.c.REPORT_ID == report_id))
+        conn.execute(delete(recon_rpt_preset).where(recon_rpt_preset.c.REPORT_ID == report_id))
+
+        # 3. Template → version → tham số (+LOV)/cột.
+        tpl_ids = [
+            int(r[0])
+            for r in conn.execute(
+                select(recon_report_template.c.ID).where(recon_report_template.c.REPORT_ID == report_id)
+            ).all()
+        ]
+        n_versions = 0
+        for tpl_id in tpl_ids:
+            conn.execute(
+                recon_report_template.update()
+                .where(recon_report_template.c.ID == tpl_id)
+                .values(ACTIVE_VERSION_ID=None)
+            )
+            ver_ids = [
+                int(r[0])
+                for r in conn.execute(
+                    select(recon_rpt_tpl_ver.c.ID).where(recon_rpt_tpl_ver.c.TEMPLATE_ID == tpl_id)
+                ).all()
+            ]
+            n_versions += len(ver_ids)
+            if ver_ids:
+                param_ids = [
+                    int(r[0])
+                    for r in conn.execute(
+                        select(recon_rpt_param.c.ID).where(recon_rpt_param.c.VERSION_ID.in_(ver_ids))
+                    ).all()
+                ]
+                if param_ids:
+                    conn.execute(
+                        delete(recon_rpt_param_lov).where(recon_rpt_param_lov.c.PARAM_ID.in_(param_ids))
+                    )
+                conn.execute(delete(recon_rpt_param).where(recon_rpt_param.c.VERSION_ID.in_(ver_ids)))
+                conn.execute(delete(recon_rpt_column).where(recon_rpt_column.c.VERSION_ID.in_(ver_ids)))
+                conn.execute(delete(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID.in_(ver_ids)))
+        if tpl_ids:
+            conn.execute(delete(recon_report_template).where(recon_report_template.c.ID.in_(tpl_ids)))
+
+        # 4. Chính báo cáo.
+        conn.execute(delete(recon_report).where(recon_report.c.ID == report_id))
+        write_audit_log(
+            conn=conn,
+            entity="RECON_REPORT",
+            entity_id=report_id,
+            action="DELETE_REPORT",
+            actor=ctx.username,
+            old_data={
+                "code": code,
+                "name": name,
+                "deleted_templates": len(tpl_ids),
+                "deleted_versions": n_versions,
+                "deleted_runs": len(run_ids),
+                "deleted_exports": n_exports,
+            },
+            new_data=None,
+            now=now,
+        )
+        return {
+            "report_id": report_id,
+            "code": code,
+            "name": name,
+            "deleted_templates": len(tpl_ids),
+            "deleted_versions": n_versions,
+            "deleted_runs": len(run_ids),
+            "deleted_exports": n_exports,
+        }
 
 
 @service

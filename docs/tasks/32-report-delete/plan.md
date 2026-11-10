@@ -1,6 +1,6 @@
 # Kế hoạch — 32-report-delete
 
-_Chưa duyệt. Agent chép nguyên văn Implementation Plan đã duyệt vào đây sau khi người dùng duyệt._
+_Đã duyệt 10/11/2026: người dùng nói "xóa luôn dòng luôn bạn" sau khi xem ảnh 3 dòng FIN/FIN2/FIN3 (chưa có template, cột Thao tác trống) và chốt xóa luôn dù có lần chạy. Plan chép nguyên văn bên dưới._
 
 ## Bối cảnh
 

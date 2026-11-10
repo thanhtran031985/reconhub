@@ -139,6 +139,7 @@ class TestServiceMenuRegistry:
             # Task 28 bước 1: toàn bộ service báo cáo động (T28-02).
             ("report", "archive_report"): ["report_admin"],
             ("report", "create_report"): ["report_admin"],
+            ("report", "delete_report"): ["report_admin"],
             ("report", "get_report"): ["report_center"],
             ("report", "list_reports"): ["report_center"],
             ("report", "set_report_favorite"): ["report_center"],

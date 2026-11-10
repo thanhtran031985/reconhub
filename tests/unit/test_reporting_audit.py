@@ -155,6 +155,20 @@ class TestReportingAudit:
         assert rows[1]["OLD_JSON"]["name"] == "Doanh thu"
         assert rows[1]["NEW_JSON"]["name"] == "Doanh thu mới"
 
+    def test_delete_report_writes_audit(self, audit_env, admin_ctx):
+        from app.services.report import delete_report
+
+        report = _make_report(admin_ctx)
+        tpl = _make_template(admin_ctx, report["id"])
+        assert delete_report(admin_ctx, report["id"]).ok
+        rows = _audit_rows(audit_env, "RECON_REPORT")
+        actions = [r["ACTION"] for r in rows]
+        assert actions == ["CREATE_REPORT", "DELETE_REPORT"]
+        assert rows[1]["OLD_JSON"]["code"] == "FIN_REVENUE"
+        assert rows[1]["OLD_JSON"]["deleted_templates"] == 1
+        assert rows[1]["OLD_JSON"]["deleted_versions"] == 1
+        assert str(rows[1]["ENTITY_ID"]) == str(report["id"])
+
     def test_create_template_writes_audit(self, audit_env, admin_ctx):
         report = _make_report(admin_ctx)
         tpl = _make_template(admin_ctx, report["id"])

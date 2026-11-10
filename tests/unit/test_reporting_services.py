@@ -271,6 +271,168 @@ class TestReportMaster:
         assert list_reports(viewer_ctx).data[0]["is_favorite"] is False
 
 
+def _insert_run(engine, report_id, template_id, version_id, status="DONE"):
+    from app.db.metadata import recon_report_run
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with engine.begin() as conn:
+        res = conn.execute(
+            recon_report_run.insert().values(
+                REPORT_ID=report_id,
+                TEMPLATE_ID=template_id,
+                VERSION_ID=version_id,
+                PARAMS_JSON={},
+                STATUS=status,
+                ROW_COUNT=5,
+                QUERY_MS=10,
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                FINISHED_AT=now,
+            )
+        )
+        return int(res.inserted_primary_key[0])
+
+
+def _insert_export(engine, run_id):
+    from app.db.metadata import recon_rpt_export
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with engine.begin() as conn:
+        res = conn.execute(
+            recon_rpt_export.insert().values(
+                RUN_ID=run_id,
+                FORMAT="XLSX",
+                STATUS="DONE",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                FINISHED_AT=now,
+            )
+        )
+        return int(res.inserted_primary_key[0])
+
+
+def _insert_preset(engine, report_id, template_id, user_id=1):
+    from app.db.metadata import recon_rpt_preset
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with engine.begin() as conn:
+        res = conn.execute(
+            recon_rpt_preset.insert().values(
+                USER_ID=user_id,
+                REPORT_ID=report_id,
+                TEMPLATE_ID=template_id,
+                NAME="Mặc định",
+                PARAMS_JSON={},
+                IS_DEFAULT="N",
+                CREATED_BY="admin",
+                CREATED_AT=now,
+                UPDATED_BY="admin",
+                UPDATED_AT=now,
+                ROW_VERSION=1,
+            )
+        )
+        return int(res.inserted_primary_key[0])
+
+
+class TestDeleteReport:
+    """Task 32: xóa hẳn Report Master kèm toàn bộ dữ liệu liên quan."""
+
+    def test_delete_empty_report(self, reporting_env, admin_ctx):
+        from app.services.report import delete_report, get_report, list_reports
+
+        created = _make_report(admin_ctx)
+        res = delete_report(admin_ctx, created["id"])
+        assert res.ok, res.message
+        assert res.data["code"] == "FIN_REVENUE"
+        assert res.data["deleted_templates"] == 0
+        assert res.data["deleted_versions"] == 0
+        assert res.data["deleted_runs"] == 0
+        assert res.data["deleted_exports"] == 0
+        assert get_report(admin_ctx, created["id"]).code == "NOT_FOUND"
+        assert list_reports(admin_ctx).data == []
+
+    def test_delete_report_cascades_template(self, reporting_env, admin_ctx, viewer_ctx):
+        from sqlalchemy import select
+
+        from app.db.metadata import (
+            recon_report_template,
+            recon_rpt_column,
+            recon_rpt_param,
+            recon_rpt_param_lov,
+            recon_rpt_preset,
+            recon_rpt_tpl_ver,
+        )
+        from app.services.report import delete_report, set_report_favorite
+        from app.services.report_template import get_template
+
+        engine = reporting_env
+        report = _make_report(admin_ctx)
+        tpl = _make_template(admin_ctx, report["id"])
+        ver1 = get_template(admin_ctx, tpl["id"]).data["versions"][0]["id"]
+        ver2 = _insert_version(engine, tpl["id"], 2, "DRY_RUN_OK")
+        _insert_param(engine, ver1)
+        _insert_param(engine, ver2, code="P_TO")
+        _insert_column(engine, ver1)
+        _insert_column(engine, ver2, field="QTY")
+        assert set_report_favorite(viewer_ctx, report["id"], True).ok
+        _insert_preset(engine, report["id"], tpl["id"])
+
+        res = delete_report(admin_ctx, report["id"])
+        assert res.ok, res.message
+        assert res.data["deleted_templates"] == 1
+        assert res.data["deleted_versions"] == 2
+        with engine.connect() as conn:
+            for table, col, val in [
+                (recon_report_template, recon_report_template.c.REPORT_ID, report["id"]),
+                (recon_rpt_tpl_ver, recon_rpt_tpl_ver.c.TEMPLATE_ID, tpl["id"]),
+                (recon_rpt_param, recon_rpt_param.c.VERSION_ID, ver1),
+                (recon_rpt_param, recon_rpt_param.c.VERSION_ID, ver2),
+                (recon_rpt_column, recon_rpt_column.c.VERSION_ID, ver1),
+                (recon_rpt_preset, recon_rpt_preset.c.REPORT_ID, report["id"]),
+            ]:
+                assert conn.execute(select(table).where(col == val)).first() is None
+            assert conn.execute(select(recon_rpt_param_lov)).first() is None
+            from app.db.metadata import recon_rpt_favorite
+
+            assert conn.execute(select(recon_rpt_favorite)).first() is None
+
+    def test_delete_report_with_runs_deletes_runs(self, reporting_env, admin_ctx):
+        from sqlalchemy import select
+
+        from app.db.metadata import recon_report_run, recon_rpt_export
+        from app.services.report import delete_report
+        from app.services.report_template import get_template
+
+        engine = reporting_env
+        report = _make_report(admin_ctx)
+        tpl = _make_template(admin_ctx, report["id"])
+        ver1 = get_template(admin_ctx, tpl["id"]).data["versions"][0]["id"]
+        run_id = _insert_run(engine, report["id"], tpl["id"], ver1)
+        _insert_export(engine, run_id)
+
+        res = delete_report(admin_ctx, report["id"])
+        assert res.ok, res.message
+        assert res.data["deleted_runs"] == 1
+        assert res.data["deleted_exports"] == 1
+        assert res.data["deleted_templates"] == 1
+        with engine.connect() as conn:
+            assert conn.execute(select(recon_report_run)).first() is None
+            assert conn.execute(select(recon_rpt_export)).first() is None
+
+    def test_delete_forbidden_for_operator(self, reporting_env, admin_ctx, operator_ctx):
+        from app.services.report import delete_report
+
+        created = _make_report(admin_ctx)
+        res = delete_report(operator_ctx, created["id"])
+        assert not res.ok and res.code == "FORBIDDEN"
+
+    def test_delete_not_found(self, reporting_env, admin_ctx):
+        from app.services.report import delete_report
+
+        res = delete_report(admin_ctx, 999999)
+        assert not res.ok and res.code == "NOT_FOUND"
+
+
 class TestReportTemplate:
     def test_create_template_with_draft_v1(self, reporting_env, admin_ctx):
         from app.services.report_template import get_template
