@@ -7,16 +7,17 @@ REPORT_RUN snapshot + thực thi bind/whitelist (bước 1), phân trang server-
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import Connection, select
+from sqlalchemy import Connection, func, select
 
 from app.core.audit import write_audit_log
 from app.core.context import Ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
     recon_data_source,
+    recon_report,
     recon_report_run,
     recon_report_template,
     recon_rpt_column,
@@ -135,9 +136,14 @@ def _load_run_row(conn: Connection, run_id: int, ctx: Ctx, admin: bool) -> Any:
 
 def _run_dict(row: Any) -> dict[str, Any]:
     params = row["PARAMS_JSON"]
+    # report_name/category_code chỉ có khi query JOIN RECON_REPORT
+    # (list_report_runs); các loader khác (get/execute) không JOIN.
+    mapping = row if isinstance(row, dict) else dict(row)
     return {
         "id": int(row["ID"]),
         "report_id": int(row["REPORT_ID"]),
+        "report_name": mapping.get("report_name"),
+        "category_code": mapping.get("category_code"),
         "template_id": int(row["TEMPLATE_ID"]),
         "version_id": int(row["VERSION_ID"]),
         "params": dict(params) if isinstance(params, dict) else {},
@@ -731,6 +737,18 @@ def report_run_metrics(ctx: Ctx) -> dict[str, Any]:
 # ─── Bước 4: History, preset, favorite, owner scope ─────────────────────────
 
 
+def _parse_run_date(value: str | None, field: str) -> datetime | None:
+    """Ngày 'YYYY-MM-DD' → datetime; rỗng → None; sai định dạng → lỗi."""
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        return datetime.strptime(str(value).strip(), "%Y-%m-%d")
+    except ValueError:
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR, f"{field} phải có định dạng YYYY-MM-DD."
+        ) from None
+
+
 @service
 @requires_menu("report_center")
 def list_report_runs(
@@ -739,22 +757,58 @@ def list_report_runs(
     status: str | None = None,
     page: int = 1,
     page_size: int = 50,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    category_code: str | None = None,
+    report_name: str | None = None,
+    created_by: str | None = None,
 ) -> dict[str, Any]:
-    """Lịch sử run theo owner scope (luồng G, T25-09/10)."""
+    """Lịch sử run theo owner scope (luồng G, T25-09/10) — task 43: JOIN
+    RECON_REPORT lấy tên + nhóm báo cáo, lọc theo ngày chạy / nhóm / tên /
+    người chạy."""
     if page < 1:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "page phải ≥ 1.")
     if page_size < 1 or page_size > 200:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "page_size phải trong khoảng 1..200.")
+    start = _parse_run_date(from_date, "Từ ngày")
+    end = _parse_run_date(to_date, "Đến ngày")
+    if start is not None and end is not None and start > end:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Từ ngày phải ≤ đến ngày.")
     engine = get_recon_engine()
     admin = is_admin(ctx, engine)
     with engine.connect() as conn:
-        base = select(recon_report_run)
+        base = (
+            select(
+                recon_report_run,
+                recon_report.c.NAME.label("report_name"),
+                recon_report.c.CATEGORY_CODE.label("category_code"),
+            )
+            .select_from(recon_report_run)
+            .join(recon_report, recon_report.c.ID == recon_report_run.c.REPORT_ID)
+        )
         if not admin:
             base = base.where(recon_report_run.c.CREATED_BY == ctx.username)
         if report_id is not None:
             base = base.where(recon_report_run.c.REPORT_ID == report_id)
         if status is not None:
             base = base.where(recon_report_run.c.STATUS == status)
+        if start is not None:
+            base = base.where(recon_report_run.c.CREATED_AT >= start)
+        if end is not None:
+            base = base.where(recon_report_run.c.CREATED_AT < end + timedelta(days=1))
+        if category_code is not None and str(category_code).strip() != "":
+            base = base.where(recon_report.c.CATEGORY_CODE == str(category_code).strip())
+        if report_name is not None and str(report_name).strip() != "":
+            escaped = (
+                str(report_name)
+                .strip()
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            )
+            base = base.where(func.lower(recon_report.c.NAME).like(f"%{escaped.lower()}%"))
+        if created_by is not None and str(created_by).strip() != "":
+            base = base.where(recon_report_run.c.CREATED_BY == str(created_by).strip())
         total = len(conn.execute(base).mappings().all())
         rows = (
             conn.execute(
@@ -774,6 +828,21 @@ def list_report_runs(
         "page": page,
         "page_size": page_size,
     }
+
+
+@service
+@requires_menu("report_center")
+def list_run_creators(ctx: Ctx) -> list[str]:
+    """Danh sách người đã chạy (cho ô chọn Người chạy) — theo owner scope:
+    người thường chỉ thấy chính mình."""
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.connect() as conn:
+        query = select(recon_report_run.c.CREATED_BY).distinct()
+        if not admin:
+            query = query.where(recon_report_run.c.CREATED_BY == ctx.username)
+        rows = conn.execute(query.order_by(recon_report_run.c.CREATED_BY)).scalars().all()
+    return [str(r) for r in rows]
 
 
 @service
