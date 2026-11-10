@@ -38,6 +38,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 31 | [31-data-model-explorer](31-data-model-explorer/task.md) — Data Model Explorer + Automatic ER Diagram (DATA-MODEL-01) | ✅ | 19, 20 | feat/31-data-model-explorer |
 | 32 | [32-report-delete](32-report-delete/task.md) — Xóa hẳn báo cáo (Report Master) trên /report-admin + sửa cột Thao tác trống với báo cáo chưa có template | ✅ | 21, 27, 28 | feat/32-report-delete |
 | 34 | [34-version-reopen](34-version-reopen/task.md) — Mở lại version ACTIVE/DRY_RUN_OK về DRAFT + dry-run preview trên ACTIVE | ✅ | 21, 25, 33 | feat/34-version-reopen |
+| 35 | [35-report-aggrid](35-report-aggrid/task.md) — Thay grid cột bước 4 bằng AG Grid (hết treo trang khi lưu/kéo-thả) | 🔄 | 21, 24, 33, 34 | feat/35-report-aggrid |
 
 Thiết kế: 11 màn (designs/components/Screen01–Screen11), 13 thành phần, Gallery. Giao diện dựng bằng Dash Mantine Components.
 
