@@ -373,6 +373,32 @@ def _load_page_data(
     return runs, total, exports_by_run
 
 
+def _runs_fingerprint(
+    runs: list[dict[str, Any]],
+    exports_by_run: dict[int, list[dict[str, Any]]],
+    total: int,
+    page: int,
+) -> str:
+    """Dấu vân tay của dữ liệu đang hiện trên bảng Lịch sử (task 53).
+
+    Chỉ gồm những gì bảng hiện: tổng số run, trang, mỗi run
+    (id/trạng thái/số dòng/bắt đầu/kết thúc) và mỗi export của run
+    (id/trạng thái/% tiến trình). Tên/nhóm/tham số không đổi sau khi tạo
+    nên không cần đưa vào. Hai lần tải giống nhau cho cùng một chuỗi.
+    """
+    parts = [f"total={total}", f"page={page}"]
+    for run in runs:
+        parts.append(
+            f"r{run.get('id')}:{run.get('status')}:{run.get('row_count')}:"
+            f"{run.get('created_at')}:{run.get('finished_at')}"
+        )
+        for exp in exports_by_run.get(int(run["id"]), []):
+            parts.append(
+                f"e{exp.get('id')}:{exp.get('status')}:{exp.get('progress_pct')}"
+            )
+    return "|".join(parts)
+
+
 def _category_options() -> list[dict[str, str]]:
     return [{"label": "Tất cả nhóm", "value": "all"}] + [
         {"label": label, "value": code} for code, label in CATEGORY_LABELS.items()
@@ -417,6 +443,9 @@ def layout() -> Any:
             dcc.Store(id="report-runs-page-store", data=1),
             dcc.Store(id="report-runs-refresh-store", data=0),
             dcc.Store(id="report-runs-action-clicks", data={}),
+            # Task 53: vân tay dữ liệu đang hiện — tick tự động chỉ vẽ lại
+            # bảng khi vân tay đổi, không thì giữ nguyên (khỏi mất vị trí cuộn).
+            dcc.Store(id="report-runs-fingerprint", data=""),
             # Task 52: tự làm mới mỗi 10s để thấy export chạy ngầm xong.
             dcc.Interval(id="report-runs-auto-refresh", interval=10000, n_intervals=0),
             html.Div(id="report-runs-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
@@ -547,6 +576,7 @@ def layout() -> Any:
     Output("report-runs-filter-category", "value"),
     Output("report-runs-filter-name", "value"),
     Output("report-runs-filter-runner", "value"),
+    Output("report-runs-fingerprint", "data"),
     Input("report-runs-pagination", "value"),
     Input("report-runs-page-size", "value"),
     Input("report-runs-filter-from", "value"),
@@ -559,6 +589,7 @@ def layout() -> Any:
     Input("report-runs-refresh-btn", "n_clicks"),
     Input("report-runs-refresh-store", "data"),
     State("report-runs-page-store", "data"),
+    State("report-runs-fingerprint", "data"),
 )
 def handle_runs_refresh(
     page_no: int | None,
@@ -573,8 +604,17 @@ def handle_runs_refresh(
     _auto_n: int | None = None,
     _refresh_clicks: int | None = None,
     _refresh_store: int | None = None,
-) -> tuple[Any, int, str, int, Any, Any, str, str, str]:
-    """Chuyển trang / đổi cỡ trang / lọc lịch sử (đổi lọc → về trang 1)."""
+    _page_store: int | None = None,
+    last_fingerprint: str | None = None,
+) -> tuple[Any, ...]:
+    """Chuyển trang / đổi cỡ trang / lọc lịch sử (đổi lọc → về trang 1).
+
+    Task 53: tick tự động 10s chỉ vẽ lại bảng khi dữ liệu thật sự đổi
+    (vân tay mới khác vân tay đã lưu) — không đổi thì trả no_update cho
+    toàn bộ output, bảng giữ nguyên, không mất vị trí cuộn. Mọi trigger
+    khác (lọc, phân trang, "Làm mới", refresh-store sau hành động export)
+    luôn vẽ lại như cũ.
+    """
     ctx = get_current_ctx()
     if ctx is None:
         raise PreventUpdate
@@ -612,6 +652,21 @@ def handle_runs_refresh(
             category or "all",
             name or "",
             runner or "all",
+            dash.no_update,
+        )
+    fingerprint = _runs_fingerprint(runs, exports_by_run, total, page)
+    if triggered == "report-runs-auto-refresh" and fingerprint == (last_fingerprint or ""):
+        return (
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
         )
     return (
         render_runs_table(
@@ -627,6 +682,7 @@ def handle_runs_refresh(
         category or "all",
         name or "",
         runner or "all",
+        fingerprint,
     )
 
 
