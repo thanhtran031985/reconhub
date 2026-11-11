@@ -18,6 +18,7 @@ from app.core.config import get_settings
 from app.db.dialect import get_dialect
 from app.db.engine import get_db_engine
 from app.db.metadata import recon_rpt_export
+from app.services.export_retention import SWEEP_INTERVAL_SECONDS, sweep_old_exports
 from app.services.report_export import MAX_RUNNING_PER_USER, execute_export
 
 logger = structlog.get_logger("export-worker")
@@ -42,6 +43,26 @@ class ReportExportWorker:
         self.engine = engine or get_db_engine()
         self.dialect = get_dialect(self.engine)
         self.worker_id = f"export-worker-{int(time.time())}"
+        self._last_sweep_at: datetime | None = None
+
+    def maybe_sweep_old_exports(self) -> int:
+        """Dọn file export quá hạn (task 52): tối đa 1 lần/giờ, chỉ khi
+        mode=scheduler. Trả số file đã xóa."""
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if (
+            self._last_sweep_at is not None
+            and (now - self._last_sweep_at).total_seconds() < SWEEP_INTERVAL_SECONDS
+        ):
+            return 0
+        self._last_sweep_at = now
+        try:
+            deleted = sweep_old_exports(self.engine)
+        except Exception as exc:
+            logger.warn("Không thể dọn file export cũ", error=str(exc))
+            return 0
+        if deleted:
+            logger.info("Đã dọn file export quá hạn", deleted=deleted)
+        return deleted
 
     def reset_stale_exports(self, timeout_seconds: int = 300) -> int:
         """Export RUNNING quá hạn heartbeat → FAILED (worker trước bị ngắt)."""
@@ -138,6 +159,7 @@ class ReportExportWorker:
         )
         while stop_event is None or not stop_event.is_set():
             self.reset_stale_exports()
+            self.maybe_sweep_old_exports()
             self.poll_once()
             if stop_event is not None:
                 if stop_event.wait(timeout=self.poll_interval):

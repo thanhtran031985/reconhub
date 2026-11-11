@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 import xlsxwriter
-from sqlalchemy import Connection, select
+from sqlalchemy import Connection, delete, select
 
 from app.core.audit import write_audit_log
 from app.core.config import get_settings
@@ -28,6 +28,8 @@ from app.services.perm import is_admin, requires_menu
 from app.services.report_run import (
     _prepare_query_binds,
     build_run_query,
+    create_report_run,
+    execute_report_run,
     load_version_detail,
     map_oracle_error,
     stable_order_by,
@@ -45,6 +47,11 @@ def _now() -> datetime:
 
 def _export_dir(export_id: int) -> Path:
     return Path(get_settings().RECON_STORAGE_DIR) / "report_exports" / str(export_id)
+
+
+def _delete_export_files(export_id: int) -> None:
+    """Xóa thư mục file của 1 export (cả file đơn lẫn các part ZIP)."""
+    shutil.rmtree(_export_dir(export_id), ignore_errors=True)
 
 
 def _export_dict(row: Any) -> dict[str, Any]:
@@ -160,6 +167,64 @@ def request_export(ctx: Ctx, run_id: int, format: str, force: bool = False) -> d
         )
         row = _load_export_row(conn, export_id)
         return _export_dict(row)
+
+
+@service
+@requires_menu("report_center")
+def rerun_and_export(ctx: Ctx, run_id: int) -> dict[str, Any]:
+    """Xuất lại (task 52): chạy lại báo cáo với cùng tham số (run mới,
+    dữ liệu mới) rồi đưa export mới vào hàng đợi chạy ngầm.
+
+    Run của viewer chạy đồng bộ trong web process (count + 1 trang) nên
+    tạo → chạy → xuất làm liền trong một lần gọi, không cần cột cờ hay
+    hook worker. Version theo ACTIVE như "Chạy lại" (task 43). Định dạng
+    export theo export mới nhất của run gốc (ZIP → XLSX), mặc định XLSX.
+    """
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    with engine.begin() as conn:
+        orig = _load_run_row_owned(conn, run_id, ctx, admin)
+        latest = (
+            conn.execute(
+                select(recon_rpt_export)
+                .where(recon_rpt_export.c.RUN_ID == run_id)
+                .order_by(recon_rpt_export.c.CREATED_AT.desc(), recon_rpt_export.c.ID.desc())
+            )
+            .mappings()
+            .first()
+        )
+    fmt = "XLSX"
+    if latest is not None:
+        fmt = str(latest["FORMAT"] or "XLSX")
+        if fmt == "ZIP":
+            fmt = "XLSX"
+    params = dict(orig["PARAMS_JSON"]) if isinstance(orig["PARAMS_JSON"], dict) else {}
+    created = create_report_run(
+        ctx, int(orig["REPORT_ID"]), template_id=int(orig["TEMPLATE_ID"]), values=params
+    )
+    if not created.ok or not isinstance(created.data, dict):
+        raise ServiceError(ErrorCode.INTERNAL_ERROR, created.message or "Không tạo được run mới.")
+    new_run_id = int(created.data["id"])
+    executed = execute_report_run(ctx, new_run_id)
+    if not executed.ok or not isinstance(executed.data, dict):
+        raise ServiceError(ErrorCode.INTERNAL_ERROR, executed.message or "Chạy báo cáo lỗi.")
+    run = executed.data.get("run") or {}
+    if run.get("status") != "DONE":
+        detail = run.get("error_message") or "Run lỗi, chưa rõ nguyên nhân."
+        raise ServiceError(ErrorCode.INTERNAL_ERROR, f"Chạy báo cáo lỗi: {detail}")
+    exp = request_export(ctx, new_run_id, fmt)
+    if not exp.ok or not isinstance(exp.data, dict):
+        raise ServiceError(ErrorCode.INTERNAL_ERROR, exp.message or "Không tạo được export.")
+    with engine.begin() as conn:
+        write_audit_log(
+            conn,
+            "RECON_REPORT_RUN",
+            new_run_id,
+            "RERUN_AND_EXPORT",
+            ctx.username,
+            new_data={"from_run_id": run_id, "export_id": int(exp.data["id"]), "format": fmt},
+        )
+    return {"run_id": new_run_id, "export": exp.data}
 
 
 # ─── Bước 4: Download/history/cache/security ────────────────────────────────
@@ -319,6 +384,30 @@ def cancel_export(ctx: Ctx, export_id: int) -> dict[str, Any]:
         )
         write_audit_log(conn, "RECON_RPT_EXPORT", export_id, "CANCEL_EXPORT", ctx.username)
         return _export_dict(_load_export_row(conn, export_id))
+
+
+@service
+@requires_menu("report_admin")
+def delete_export(ctx: Ctx, export_id: int) -> dict[str, Any]:
+    """Xóa hẳn export đã kết thúc (DONE/FAILED/CANCELLED) — chỉ ADMIN (task 52).
+
+    Xóa file trên đĩa + dòng export, ghi audit. Không xóa export đang
+    QUEUED/RUNNING (worker có thể đang ghi file) và không xóa run.
+    """
+    engine = get_recon_engine()
+    if not is_admin(ctx, engine):
+        raise ServiceError(ErrorCode.FORBIDDEN, "Chỉ ADMIN xóa được file export.")
+    with engine.begin() as conn:
+        export = _load_export_row(conn, export_id)
+        if export["STATUS"] not in ("DONE", "FAILED", "CANCELLED"):
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                "Chỉ xóa được export đã kết thúc (DONE/FAILED/CANCELLED).",
+            )
+        _delete_export_files(export_id)
+        conn.execute(delete(recon_rpt_export).where(recon_rpt_export.c.ID == export_id))
+        write_audit_log(conn, "RECON_RPT_EXPORT", export_id, "DELETE_EXPORT", ctx.username)
+        return {"id": export_id, "deleted": True}
 
 
 def _is_cancelled(engine: Any, export_id: int) -> bool:

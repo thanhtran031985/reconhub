@@ -12,17 +12,25 @@ from typing import Any
 
 import dash
 import dash_mantine_components as dmc
-from dash import Input, Output, State, callback, dcc, html
+from dash import ALL, Input, Output, State, callback, dcc, html
 from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
-from app.services.perm import page_gate
-from app.services.report_export import list_exports
+from app.db.engine import get_recon_engine
+from app.services.perm import is_admin, page_gate
+from app.services.report_export import (
+    cancel_export,
+    delete_export,
+    list_exports,
+    rerun_and_export,
+    retry_export,
+)
 from app.services.report_run import list_report_runs, list_run_creators
 from app.ui.components.alert_box import alert_box
 from app.ui.components.command_bar import command_bar
 from app.ui.components.empty_state import empty_state
+from app.ui.components.notification import notify_error, notify_success
 from app.ui.components.page_header import page_header
 from app.ui.formatters import format_datetime
 
@@ -121,7 +129,62 @@ def _status_badge(status: str) -> dmc.Badge:
     return dmc.Badge(label, color=color, variant="light")
 
 
-def render_runs_table(runs: list[dict[str, Any]], exports_by_run: dict[int, list[dict[str, Any]]]) -> Any:
+def _export_action_cell(
+    label: str,
+    export: dict[str, Any],
+    retry: bool = False,
+    cancel: bool = False,
+    can_delete: bool = False,
+) -> Any:
+    """Ô File khi export chưa xong (task 52): trạng thái + nút Thử lại/Hủy/Xóa."""
+    children: list[Any] = [dmc.Text(label, size="xs", c="red" if retry else "dimmed")]
+    if retry:
+        children.append(
+            dmc.Button(
+                "Thử lại",
+                id={"type": "report-runs-export-retry", "index": int(export["id"])},
+                size="xs",
+                variant="subtle",
+            )
+        )
+    if cancel:
+        children.append(
+            dmc.Button(
+                "Hủy",
+                id={"type": "report-runs-export-cancel", "index": int(export["id"])},
+                size="xs",
+                variant="subtle",
+            )
+        )
+    if can_delete:
+        children.append(
+            dmc.Button(
+                "Xóa",
+                id={"type": "report-runs-export-delete", "index": int(export["id"])},
+                size="xs",
+                variant="subtle",
+                color="red",
+            )
+        )
+    return dmc.Group(children, gap=4)
+
+
+def _export_delete_button(export_id: int) -> Any:
+    """Nút Xóa file export (chỉ ADMIN, task 52)."""
+    return dmc.Button(
+        "Xóa",
+        id={"type": "report-runs-export-delete", "index": int(export_id)},
+        size="xs",
+        variant="subtle",
+        color="red",
+    )
+
+
+def render_runs_table(
+    runs: list[dict[str, Any]],
+    exports_by_run: dict[int, list[dict[str, Any]]],
+    can_delete: bool = False,
+) -> Any:
     """Bảng lịch sử run + file export + hành động."""
     if not runs:
         return empty_state(
@@ -157,26 +220,43 @@ def render_runs_table(runs: list[dict[str, Any]], exports_by_run: dict[int, list
     for run in runs:
         run_id = int(run["id"])
         exports = exports_by_run.get(run_id, [])
-        done = [e for e in exports if e["status"] == "DONE"]
+        # Task 52: hiện trạng thái export mới nhất (không chỉ file DONE).
         file_cell: Any = "—"
-        if done:
-            latest = done[0]
-            file_cell = dmc.Tooltip(
-                label="Tải file Excel",
-                children=dcc.Link(
-                    dmc.Group(
-                        [
-                            DashIconify(icon="lucide:file-spreadsheet", width=18, color="green"),
-                            DashIconify(icon="lucide:arrow-down", width=14),
-                        ],
-                        gap=2,
+        if exports:
+            latest = exports[0]
+            latest_status = str(latest.get("status") or "")
+            if latest_status == "DONE":
+                download = dmc.Tooltip(
+                    label="Tải file Excel",
+                    children=dcc.Link(
+                        dmc.Group(
+                            [
+                                DashIconify(icon="lucide:file-spreadsheet", width=18, color="green"),
+                                DashIconify(icon="lucide:arrow-down", width=14),
+                            ],
+                            gap=2,
+                        ),
+                        href=f"/download/report-export/{latest['id']}",
+                        target="_blank",
+                        # Giữ vùng bấm tối thiểu khi icon chưa tải xong (CDN chậm).
+                        style={"display": "inline-flex", "minWidth": "36px", "minHeight": "28px", "alignItems": "center"},
                     ),
-                    href=f"/download/report-export/{latest['id']}",
-                    target="_blank",
-                    # Giữ vùng bấm tối thiểu khi icon chưa tải xong (CDN chậm).
-                    style={"display": "inline-flex", "minWidth": "36px", "minHeight": "28px", "alignItems": "center"},
-                ),
-            )
+                )
+                file_cell = (
+                    dmc.Group([download, _export_delete_button(int(latest["id"]))], gap=4)
+                    if can_delete
+                    else download
+                )
+            elif latest_status == "QUEUED":
+                file_cell = _export_action_cell("Đang chờ", latest, cancel=True)
+            elif latest_status == "RUNNING":
+                file_cell = _export_action_cell(
+                    f"Đang xuất {int(latest.get('progress_pct') or 0)}%", latest, cancel=True
+                )
+            elif latest_status == "FAILED":
+                file_cell = _export_action_cell("Lỗi", latest, retry=True, can_delete=can_delete)
+            elif latest_status == "CANCELLED":
+                file_cell = dmc.Text("Đã hủy", size="xs", c="dimmed")
         params_text = _fmt_params(run.get("params"))
         body.append(
             dmc.TableTr(
@@ -215,14 +295,26 @@ def render_runs_table(runs: list[dict[str, Any]], exports_by_run: dict[int, list
                     ),
                     dmc.TableTd(file_cell, style={"height": "34px"}),
                     dmc.TableTd(
-                        dcc.Link(
-                            dmc.Button(
-                                "Chạy lại",
-                                size="xs",
-                                variant="subtle",
-                                leftSection=DashIconify(icon="lucide:play-circle", width=14),
-                            ),
-                            href=f"/reports/{run['report_id']}?rerun_from={run_id}",
+                        dmc.Group(
+                            [
+                                dcc.Link(
+                                    dmc.Button(
+                                        "Chạy lại",
+                                        size="xs",
+                                        variant="subtle",
+                                        leftSection=DashIconify(icon="lucide:play-circle", width=14),
+                                    ),
+                                    href=f"/reports/{run['report_id']}?rerun_from={run_id}",
+                                ),
+                                dmc.Button(
+                                    "Xuất lại",
+                                    id={"type": "report-runs-rerun-export", "index": run_id},
+                                    size="xs",
+                                    variant="subtle",
+                                    leftSection=DashIconify(icon="lucide:download", width=14),
+                                ),
+                            ],
+                            gap=4,
                         ),
                         style={"height": "34px"},
                     ),
@@ -323,6 +415,10 @@ def layout() -> Any:
     return dmc.Box(
         [
             dcc.Store(id="report-runs-page-store", data=1),
+            dcc.Store(id="report-runs-refresh-store", data=0),
+            dcc.Store(id="report-runs-action-clicks", data={}),
+            # Task 52: tự làm mới mỗi 10s để thấy export chạy ngầm xong.
+            dcc.Interval(id="report-runs-auto-refresh", interval=10000, n_intervals=0),
             html.Div(id="report-runs-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
             page_header(
                 title="Lịch sử báo cáo",
@@ -372,6 +468,12 @@ def layout() -> Any:
                 ],
                 actions=[
                     dmc.Button(
+                        "Làm mới",
+                        id="report-runs-refresh-btn",
+                        size="xs",
+                        variant="subtle",
+                    ),
+                    dmc.Button(
                         "Xóa lọc",
                         id="report-runs-clear-btn",
                         size="xs",
@@ -390,7 +492,11 @@ def layout() -> Any:
                 children=html.Div(
                     id="report-runs-table-container",
                     style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
-                    children=render_runs_table(runs, exports_by_run),
+                    children=render_runs_table(
+                        runs,
+                        exports_by_run,
+                        can_delete=bool(ctx and is_admin(ctx, get_recon_engine())),
+                    ),
                 ),
             ),
             dmc.Group(
@@ -449,6 +555,9 @@ def layout() -> Any:
     Input("report-runs-filter-name", "value"),
     Input("report-runs-filter-runner", "value"),
     Input("report-runs-clear-btn", "n_clicks"),
+    Input("report-runs-auto-refresh", "n_intervals"),
+    Input("report-runs-refresh-btn", "n_clicks"),
+    Input("report-runs-refresh-store", "data"),
     State("report-runs-page-store", "data"),
 )
 def handle_runs_refresh(
@@ -461,6 +570,9 @@ def handle_runs_refresh(
     runner: str | None,
     _clear_clicks: int | None,
     _current: int | None,
+    _auto_n: int | None = None,
+    _refresh_clicks: int | None = None,
+    _refresh_store: int | None = None,
 ) -> tuple[Any, int, str, int, Any, Any, str, str, str]:
     """Chuyển trang / đổi cỡ trang / lọc lịch sử (đổi lọc → về trang 1)."""
     ctx = get_current_ctx()
@@ -502,7 +614,11 @@ def handle_runs_refresh(
             runner or "all",
         )
     return (
-        render_runs_table(runs, exports_by_run),
+        render_runs_table(
+            runs,
+            exports_by_run,
+            can_delete=is_admin(ctx, get_recon_engine()),
+        ),
         max(1, (total + size - 1) // size),
         f"Tổng {total} run",
         page,
@@ -512,3 +628,97 @@ def handle_runs_refresh(
         name or "",
         runner or "all",
     )
+
+
+def _do_export_action(ctx: Any, kind: str, item_id: int, refresh: int | None) -> tuple[Any, Any]:
+    """Logic thuần cho 4 nút hành động export (task 52) — không phụ thuộc
+    callback context nên test gọi trực tiếp được."""
+    if kind == "report-runs-export-retry":
+        res = retry_export(ctx, item_id)
+        ok_msg, err_msg = "Đã đưa export vào hàng đợi.", "Không thử lại được export."
+    elif kind == "report-runs-export-cancel":
+        res = cancel_export(ctx, item_id)
+        ok_msg, err_msg = "Đã hủy export.", "Không hủy được export."
+    elif kind == "report-runs-export-delete":
+        res = delete_export(ctx, item_id)
+        ok_msg, err_msg = "Đã xóa file export.", "Không xóa được file export."
+    elif kind == "report-runs-rerun-export":
+        res = rerun_and_export(ctx, item_id)
+        if res.ok and isinstance(res.data, dict):
+            ok_msg = (
+                f"Đã tạo run mới #{res.data['run_id']} và đưa export vào hàng đợi chạy ngầm."
+            )
+        else:
+            ok_msg = "Đã tạo run mới và đưa export vào hàng đợi chạy ngầm."
+        err_msg = "Không xuất lại được."
+    else:
+        raise PreventUpdate
+    if not res.ok:
+        return notify_error(res.message or err_msg), dash.no_update
+    return notify_success(ok_msg), (refresh or 0) + 1
+
+
+def _action_click_map() -> dict[str, int]:
+    """Map nút hành động → số lần bấm hiện tại (đọc từ inputs_list).
+
+    Dùng để phân biệt bấm thật với callback bị kích lại do bảng render lại
+    (ALL inputs đổi khi tập nút thay đổi): chỉ bấm thật mới tăng count.
+    Ngoài callback context thì trả map rỗng.
+    """
+    current: dict[str, int] = {}
+    try:
+        groups = dash.callback_context.inputs_list
+    except Exception:
+        return current
+    for group in groups or []:
+        items = group if isinstance(group, list) else [group]
+        for item in items:
+            btn_id = (item or {}).get("id")
+            if isinstance(btn_id, dict):
+                key = f"{btn_id.get('type')}:{btn_id.get('index')}"
+                current[key] = int((item or {}).get("value") or 0)
+    return current
+
+
+@callback(
+    Output("report-runs-alert", "children"),
+    Output("report-runs-refresh-store", "data"),
+    Output("report-runs-action-clicks", "data"),
+    Input({"type": "report-runs-export-retry", "index": ALL}, "n_clicks"),
+    Input({"type": "report-runs-export-cancel", "index": ALL}, "n_clicks"),
+    Input({"type": "report-runs-export-delete", "index": ALL}, "n_clicks"),
+    Input({"type": "report-runs-rerun-export", "index": ALL}, "n_clicks"),
+    State("report-runs-refresh-store", "data"),
+    State("report-runs-action-clicks", "data"),
+    prevent_initial_call=True,
+)
+def handle_export_action(
+    _retry_clicks: list[int | None] | None,
+    _cancel_clicks: list[int | None] | None,
+    _delete_clicks: list[int | None] | None,
+    _rerun_clicks: list[int | None] | None,
+    refresh: int | None,
+    last_clicks: dict[str, int] | None,
+) -> tuple[Any, Any, dict[str, int]]:
+    """Một callback duy nhất cho 4 nút hành động export (task 52, D8).
+
+    Dùng ALL + triggered_id thay vì 4 callback MATCH riêng: Dash không cho
+    nhiều callback MATCH cùng ghi 1 output ("Overlapping wildcard callback
+    outputs" khiến cả app không mount được). Guard bằng map số lần bấm:
+    ALL inputs đổi mỗi khi bảng render lại (tập nút thay đổi) nên callback
+    bị kích lại mà không có bấm thật — chỉ hành động khi nút trigger tăng
+    count so với lần trước; lần kích lại chỉ reset map về count hiện tại.
+    """
+    current_map = _action_click_map()
+    triggered = dash.callback_context.triggered_id
+    if isinstance(triggered, dict):
+        key = f"{triggered.get('type')}:{triggered.get('index')}"
+        prev = (last_clicks or {}).get(key, 0)
+        if current_map.get(key, 0) > prev:
+            ctx = get_current_ctx()
+            if ctx is not None:
+                alert, new_refresh = _do_export_action(
+                    ctx, str(triggered.get("type")), int(triggered["index"]), refresh
+                )
+                return alert, new_refresh, current_map
+    return dash.no_update, dash.no_update, current_map

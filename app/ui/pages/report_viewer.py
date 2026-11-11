@@ -315,6 +315,18 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
                                         clearable=False,
                                         **{"aria-label": "Số dòng mỗi trang"},
                                     ),
+                                    dmc.Select(
+                                        id="viewer-export-mode",
+                                        data=[
+                                            {"label": "Xuất ngay", "value": "now"},
+                                            {"label": "Chạy ngầm", "value": "background"},
+                                        ],
+                                        value="now",
+                                        w=130,
+                                        size="xs",
+                                        clearable=False,
+                                        **{"aria-label": "Chế độ xuất Excel"},
+                                    ),
                                     dmc.Button(
                                         "Xuất Excel",
                                         id="viewer-export-btn",
@@ -672,6 +684,33 @@ def _export_progress(pct: int = 0, step: str = "") -> Any:
     )
 
 
+def _background_status(export: dict[str, Any]) -> Any:
+    """Trạng thái sau khi submit chạy ngầm (task 52): không poll, không tự tải.
+
+    File đã DONE sẵn thì hiện link tải; còn lại hiện link tới Lịch sử báo
+    cáo để user theo dõi tiến trình và tải khi xong.
+    """
+    if str(export.get("status") or "") == "DONE":
+        return dmc.Group(
+            [
+                dmc.Text("File Excel đã có sẵn.", size="sm"),
+                dcc.Link(
+                    "Tải file Excel",
+                    href=f"/download/report-export/{int(export['id'])}",
+                    target="_blank",
+                ),
+            ],
+            gap="xs",
+        )
+    return dmc.Group(
+        [
+            dmc.Text("Đã đưa export vào hàng đợi chạy ngầm.", size="sm"),
+            dcc.Link("Mở Lịch sử báo cáo", href="/report-runs"),
+        ],
+        gap="xs",
+    )
+
+
 def _auto_download(ctx: Any, export_id: int) -> tuple[Any, Any]:
     """Tải file export tự động khi DONE (task 40, bỏ link "Tải file Excel").
 
@@ -704,6 +743,7 @@ def _auto_download(ctx: Any, export_id: int) -> tuple[Any, Any]:
     State({"type": "viewer-param", "index": dash.ALL}, "value"),
     State({"type": "viewer-param", "index": dash.ALL}, "id"),
     State("viewer-page-store", "data"),
+    State("viewer-export-mode", "value"),
     prevent_initial_call=True,
 )
 def handle_export_click(
@@ -714,6 +754,7 @@ def handle_export_click(
     param_values: list[Any] | None,
     param_ids: list[dict[str, Any]] | None,
     page_no: int | None,
+    mode: str | None = "now",
 ) -> tuple[dict[str, Any], Any, bool, Any, dict[str, Any], int, bool]:
     """Xuất Excel theo điều kiện tìm kiếm hiện tại (không cần xem trước).
 
@@ -722,6 +763,8 @@ def handle_export_click(
     bấm Xuất cũng query dữ liệu và grid hiện dữ liệu sẽ xuất (task 39).
     Giai đoạn chạy báo cáo chưa có % thật (chưa biết tổng dòng) nên chỉ
     hiện loading trên nút; % thật bắt đầu khi worker export chạy.
+    Chế độ "Chạy ngầm" (task 52): chỉ đưa vào hàng đợi, không poll, không
+    tự tải — user theo dõi và tải file trong Lịch sử báo cáo.
     """
     if not n_clicks:
         raise PreventUpdate
@@ -768,6 +811,16 @@ def handle_export_click(
     if not res.ok or not isinstance(res.data, dict):
         return {}, notify_error(res.message or "Không tạo được export."), True, dash.no_update, current, page, False
     export = res.data
+    if (mode or "now") == "background":
+        return (
+            {"export_id": export["id"]},
+            _background_status(export),
+            True,
+            dash.no_update,
+            current,
+            page,
+            False,
+        )
     if export["status"] == "DONE":
         download, status = _auto_download(ctx, int(export["id"]))
         return (
