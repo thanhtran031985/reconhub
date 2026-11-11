@@ -71,7 +71,7 @@ dagcomp.reconRunsFileCell = function (props) {
   if (exp.status === 'DONE') {
     return React.createElement(
       'a',
-      { href: '/download/report-export/' + exp.id, target: '_blank' },
+      { href: '/download/report-export/' + exp.id, target: '_blank', className: 'rh-grid-link' },
       'Tải file'
     );
   }
@@ -104,13 +104,14 @@ dagcomp.reconRunsActionCell = function (props) {
   else if (action === 'rerun') show = true;
   if (!show) return null;
   var labels = { cancel: 'Hủy', retry: 'Thử lại', delete: 'Xóa', rerun: 'Xuất lại' };
-  return React.createElement('button', { type: 'button' }, labels[action] || action);
+  var cls = 'rh-grid-btn' + (action === 'delete' ? ' danger' : '');
+  return React.createElement('button', { type: 'button', className: cls }, labels[action] || action);
 };
 
 dagcomp.reconRunsRerunLink = function (props) {
   return React.createElement(
     'a',
-    { href: '/reports/' + props.data._report_id + '?rerun_from=' + props.data.id },
+    { href: '/reports/' + props.data._report_id + '?rerun_from=' + props.data.id, className: 'rh-grid-link' },
     'Chạy lại'
   );
 };

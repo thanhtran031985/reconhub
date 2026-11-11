@@ -334,3 +334,43 @@ main > div > div,
 .rh-viewer-grid {
   --ag-font-size: 13px;
 }
+
+/* Task 56: grid Lịch sử báo cáo — font 12px + nút/link trong cell giống
+   nút Mantine subtle xs của bảng cũ (nền trong suốt, không viền, chữ
+   xanh; Xóa chữ đỏ; hover nền nhạt). */
+.rh-runs-grid {
+  --ag-font-size: 12px;
+}
+
+.rh-runs-grid .rh-grid-btn {
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--mantine-color-blue-6, #1971c2);
+  cursor: pointer;
+}
+
+.rh-runs-grid .rh-grid-btn:hover {
+  background: var(--mantine-color-blue-0, #e7f5ff);
+}
+
+.rh-runs-grid .rh-grid-btn.danger {
+  color: var(--mantine-color-red-6, #fa5252);
+}
+
+.rh-runs-grid .rh-grid-btn.danger:hover {
+  background: var(--mantine-color-red-0, #fff5f5);
+}
+
+.rh-runs-grid .rh-grid-link {
+  color: var(--mantine-color-blue-6, #1971c2);
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.rh-runs-grid .rh-grid-link:hover {
+  text-decoration: underline;
+}

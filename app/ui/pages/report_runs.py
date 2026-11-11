@@ -175,19 +175,22 @@ def _runs_grid_column_defs(can_delete: bool) -> list[dict[str, Any]]:
     giữ tên riêng để cellClicked phân biệt nút nào được bấm.
     Cột Báo cáo/Tham số dùng flex để tổng chiều rộng vừa khung 1440px
     (nút hành động ở cuối vẫn thấy được, không phải cuộn ngang).
+    Task 56: Tham số về cuối (sau Chạy lại); Bắt đầu/Kết thúc 140px
+    (đủ "11/11/2026 13:09:56" ở font 12), Nhóm 80, Trạng thái 90 —
+    tổng các cột trước Tham số ~1160px, vừa khung nội dung ~1208px ở
+    viewport 1440 (nút cuối thấy được không cần cuộn ngang).
     """
     base: dict[str, Any] = {"sortable": False, "filter": False, "resizable": True}
     cols: list[dict[str, Any]] = [
         {"field": "run", "headerName": "Run", "width": 60, **base},
-        {"field": "report", "headerName": "Báo cáo", "flex": 1, "minWidth": 120, **base},
+        {"field": "report", "headerName": "Báo cáo", "flex": 1, "minWidth": 130, **base},
         {"field": "category", "headerName": "Nhóm", "width": 80, **base},
-        {"field": "runner", "headerName": "Người chạy", "width": 80, **base},
-        {"field": "rows", "headerName": "Dòng", "width": 70, "cellStyle": {"textAlign": "right"}, **base},
-        {"field": "params", "headerName": "Tham số", "flex": 2, "minWidth": 140, **base},
+        {"field": "runner", "headerName": "Người chạy", "width": 70, **base},
+        {"field": "rows", "headerName": "Dòng", "width": 60, "cellStyle": {"textAlign": "right"}, **base},
         {"field": "status", "headerName": "Trạng thái", "width": 90, "cellRenderer": "reconRunsStatusCell", **base},
-        {"field": "started", "headerName": "Bắt đầu", "width": 110, **base},
-        {"field": "finished", "headerName": "Kết thúc", "width": 110, **base},
-        {"field": "duration", "headerName": "Tổng", "width": 60, "cellStyle": {"textAlign": "right"}, **base},
+        {"field": "started", "headerName": "Bắt đầu", "width": 140, **base},
+        {"field": "finished", "headerName": "Kết thúc", "width": 140, **base},
+        {"field": "duration", "headerName": "Tổng", "width": 70, "cellStyle": {"textAlign": "right"}, **base},
         {"field": "_export", "colId": "file", "headerName": "File", "width": 110, "cellRenderer": "reconRunsFileCell", **base},
         {"field": "_export", "colId": "cancel", "headerName": "", "width": 60, "cellRenderer": "reconRunsActionCell", "cellRendererParams": {"action": "cancel"}, **base},
         {"field": "_export", "colId": "retry", "headerName": "", "width": 70, "cellRenderer": "reconRunsActionCell", "cellRendererParams": {"action": "retry"}, **base},
@@ -200,6 +203,7 @@ def _runs_grid_column_defs(can_delete: bool) -> list[dict[str, Any]]:
         [
             {"field": "_export", "colId": "rerun", "headerName": "", "width": 70, "cellRenderer": "reconRunsActionCell", "cellRendererParams": {"action": "rerun"}, **base},
             {"field": "id", "colId": "rerun_link", "headerName": "", "width": 70, "cellRenderer": "reconRunsRerunLink", **base},
+            {"field": "params", "headerName": "Tham số", "flex": 2, "minWidth": 140, **base},
         ]
     )
     return cols
@@ -386,6 +390,8 @@ def layout() -> Any:
                 ),
                 rowData=_runs_row_data(runs, exports_by_run),
                 getRowId="params.data.id.toString()",
+                # Task 56: class rh-runs-grid → font 12px (pattern task 40).
+                className="ag-theme-quartz-auto-dark rh-runs-grid",
                 dashGridOptions={
                     "overlayNoRowsTemplate": "Chưa có run nào. Chạy một báo cáo ở Trung tâm báo cáo để xem lịch sử tại đây."
                 },

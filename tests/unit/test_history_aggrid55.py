@@ -131,6 +131,54 @@ class TestJsRenderers:
         assert "Hủy" in js and "Thử lại" in js and "Xuất lại" in js
 
 
+class TestUi56:
+    """Task 56: font 12px, Tham số về cuối, width đã rà, nút/link có CSS."""
+
+    def test_params_column_is_last(self):
+        import app.ui.pages.report_runs as page
+
+        defs = page._runs_grid_column_defs(can_delete=True)
+        order = [c.get("colId", c["field"]) for c in defs]
+        assert order[-1] == "params"
+        assert order.index("params") > order.index("rerun_link")
+        assert order[:5] == ["run", "report", "category", "runner", "rows"]
+
+    def test_reviewed_column_widths(self):
+        import app.ui.pages.report_runs as page
+
+        by_col = {c.get("colId", c["field"]): c for c in page._runs_grid_column_defs(can_delete=True)}
+        assert by_col["category"]["width"] == 80
+        assert by_col["status"]["width"] == 90
+        assert by_col["started"]["width"] == 140
+        assert by_col["finished"]["width"] == 140
+        assert by_col["report"]["flex"] == 1
+        assert by_col["report"]["minWidth"] == 130
+        assert by_col["params"]["flex"] == 2
+        assert by_col["params"]["minWidth"] == 140
+
+    def test_layout_grid_has_runs_class(self, export_env, operator_ctx, monkeypatch):
+        import app.ui.pages.report_runs as page
+        from tests.unit.test_report_viewer_fixes40 import _find_by_id
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        grid = _find_by_id(page.layout(), "report-runs-grid")
+        assert grid is not None
+        assert "rh-runs-grid" in str(getattr(grid, "className", ""))
+
+    def test_css_has_runs_font_and_button_classes(self):
+        css = Path("app/ui/assets/custom.css").read_text(encoding="utf-8")
+        assert ".rh-runs-grid" in css
+        assert "--ag-font-size: 12px" in css
+        for cls in (".rh-grid-btn", ".rh-grid-btn.danger", ".rh-grid-link"):
+            assert cls in css
+
+    def test_js_renderers_use_css_classes(self):
+        js = JS_PATH.read_text(encoding="utf-8")
+        assert "rh-grid-btn" in js
+        assert "rh-grid-link" in js
+        assert "danger" in js
+
+
 class TestCellClicked:
     def _rows(self, run_id, export):
         import app.ui.pages.report_runs as page
