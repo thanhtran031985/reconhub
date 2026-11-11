@@ -167,7 +167,7 @@ class TestRunsTable43:
         defs = page._runs_grid_column_defs(can_delete=True)
         by_col = {c.get("colId", c["field"]): c for c in defs}
         assert by_col["file"]["cellRenderer"] == "reconRunsFileCell"
-        assert by_col["rerun_link"]["cellRenderer"] == "reconRunsRerunLink"
+        assert by_col["actions"]["cellRenderer"] == "reconRunsActionsCell"
         assert "view" not in by_col  # bỏ nút Xem
 
     def test_layout_has_filters_and_page_size(self, export_env, operator_ctx, monkeypatch):

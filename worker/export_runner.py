@@ -18,19 +18,29 @@ from app.core.config import get_settings
 from app.db.dialect import get_dialect
 from app.db.engine import get_db_engine
 from app.db.metadata import recon_rpt_export
-from app.services.export_retention import SWEEP_INTERVAL_SECONDS, sweep_old_exports
+from app.services.export_retention import (
+    SWEEP_INTERVAL_SECONDS,
+    get_export_max_concurrent,
+    sweep_old_exports,
+)
 from app.services.report_export import MAX_RUNNING_PER_USER, execute_export
 
 logger = structlog.get_logger("export-worker")
 
 
 class ReportExportWorker:
-    """Worker xử lý hàng đợi RECON_RPT_EXPORT."""
+    """Worker xử lý hàng đợi RECON_RPT_EXPORT.
+
+    Task 57: chạy song song tối đa N export (mặc định 10, theo setting
+    EXPORT_MAX_CONCURRENT) — mỗi export chạy trong 1 thread riêng, vòng
+    poll claim thêm việc tới khi đủ N. Giới hạn mỗi user trong claim
+    cũng = N (cùng 1 con số, tránh 2 cài đặt lệch nhau).
+    """
 
     def __init__(
         self,
         poll_interval: float | None = None,
-        max_per_user: int = MAX_RUNNING_PER_USER,
+        max_per_user: int | None = None,
         engine: Any | None = None,
     ) -> None:
         settings = get_settings()
@@ -39,11 +49,16 @@ class ReportExportWorker:
             if poll_interval is not None
             else float(settings.WORKER_POLL_SECONDS)
         )
+        # None = đọc setting EXPORT_MAX_CONCURRENT mỗi vòng poll; số
+        # truyền vào (chủ yếu cho test) thắng setting.
         self.max_per_user = max_per_user
         self.engine = engine or get_db_engine()
         self.dialect = get_dialect(self.engine)
         self.worker_id = f"export-worker-{int(time.time())}"
         self._last_sweep_at: datetime | None = None
+        # Thread đang chạy export — chỉ vòng poll chính động vào list
+        # này (prune + thêm), thread con không chạm tới nên không cần lock.
+        self._threads: list[threading.Thread] = []
 
     def maybe_sweep_old_exports(self) -> int:
         """Dọn file export quá hạn (task 52): tối đa 1 lần/giờ, chỉ khi
@@ -123,32 +138,75 @@ class ReportExportWorker:
         t.start()
         return t
 
+    def _current_limit(self) -> int:
+        """Giới hạn song song hiện tại: tham số khởi tạo (nếu có), rồi
+        tới setting EXPORT_MAX_CONCURRENT, lỗi đọc thì về mặc định 10."""
+        if self.max_per_user is not None:
+            return max(1, int(self.max_per_user))
+        try:
+            return get_export_max_concurrent(self.engine)
+        except Exception as exc:
+            logger.warn("Không đọc được cài đặt song song export", error=str(exc))
+            return MAX_RUNNING_PER_USER
+
+    def _prune_threads(self) -> None:
+        self._threads = [t for t in self._threads if t.is_alive()]
+
+    def _run_export(self, export_id: int) -> None:
+        """Chạy 1 export trong thread riêng (heartbeat + execute)."""
+        stop_hb = threading.Event()
+        hb_thread = self._start_heartbeat(export_id, stop_hb)
+        try:
+            execute_export(export_id, engine=self.engine)
+        finally:
+            stop_hb.set()
+            hb_thread.join(timeout=1.0)
+
     def poll_once(self) -> bool:
-        """Nhận 1 export từ hàng đợi nếu có (tôn trọng giới hạn mỗi user)."""
+        """Nhận 1 export từ hàng đợi và chạy trong thread riêng (task 57).
+
+        Trả True nếu đã nhận việc (thread đang chạy); False nếu không có
+        việc trong hàng đợi hoặc đã đủ số luồng song song. Lỗi claim thì
+        False (ghi log, vòng sau thử lại).
+        """
+        self._prune_threads()
+        limit = self._current_limit()
+        if len(self._threads) >= limit:
+            return False
         try:
             export_id = self.dialect.claim_next_queued_export(
-                locked_by=self.worker_id, max_per_user=self.max_per_user
+                locked_by=self.worker_id, max_per_user=limit
             )
-            if export_id is not None:
-                logger.info(
-                    "Nhận export từ hàng đợi",
-                    export_id=export_id,
-                    worker_id=self.worker_id,
-                )
-                stop_hb = threading.Event()
-                hb_thread = self._start_heartbeat(export_id, stop_hb)
-                try:
-                    execute_export(export_id, engine=self.engine)
-                finally:
-                    stop_hb.set()
-                    hb_thread.join(timeout=1.0)
-                return True
+            if export_id is None:
+                return False
+            logger.info(
+                "Nhận export từ hàng đợi",
+                export_id=export_id,
+                worker_id=self.worker_id,
+            )
+            thread = threading.Thread(
+                target=self._run_export, args=(export_id,), daemon=True
+            )
+            thread.start()
+            self._threads.append(thread)
+            return True
         except Exception as exc:
             logger.error(
                 "Lỗi khi kiểm tra hoặc thực thi export từ hàng đợi",
                 error=str(exc),
             )
         return False
+
+    def wait_for_idle(self, timeout: float = 30.0) -> bool:
+        """Chờ mọi thread export xong (cho test). Trả False nếu hết giờ."""
+        deadline = time.monotonic() + timeout
+        while True:
+            self._prune_threads()
+            if not self._threads:
+                return True
+            if time.monotonic() > deadline:
+                return False
+            time.sleep(0.1)
 
     def run(self, stop_event: threading.Event | None = None) -> None:
         """Vòng lặp chính của worker export."""
@@ -160,7 +218,9 @@ class ReportExportWorker:
         while stop_event is None or not stop_event.is_set():
             self.reset_stale_exports()
             self.maybe_sweep_old_exports()
-            self.poll_once()
+            # Task 57: claim thêm việc tới khi đủ N luồng (hoặc hết hàng).
+            while self.poll_once():
+                pass
             if stop_event is not None:
                 if stop_event.wait(timeout=self.poll_interval):
                     break

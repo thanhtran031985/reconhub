@@ -95,6 +95,8 @@ class TestExecuteExportQueuedRun:
             "app.services.report_source.open_source_connection", return_value=conn
         ):
             assert worker.poll_once() is True
+            # Task 57: poll_once chạy trong thread riêng nên chờ xong mới assert.
+            assert worker.wait_for_idle(timeout=30) is True
         engine = export_env["engine"]
         with engine.connect() as db:
             export_row = db.execute(
@@ -121,6 +123,8 @@ class TestExecuteExportQueuedRun:
             "app.services.report_source.open_source_connection", return_value=conn
         ):
             assert worker.poll_once() is True
+            # Task 57: poll_once chạy trong thread riêng nên chờ xong mới assert.
+            assert worker.wait_for_idle(timeout=30) is True
         after = _run_row(export_env["engine"], run["id"])
         assert after["STATUS"] == "DONE"
         assert after["ROW_COUNT"] == before["ROW_COUNT"]

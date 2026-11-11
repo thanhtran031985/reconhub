@@ -36,7 +36,9 @@ from app.services.report_run import (
 )
 from app.services.report_source import open_checked_connection
 
-MAX_RUNNING_PER_USER = 2
+MAX_RUNNING_PER_USER = 10  # Task 57: mặc định song song (setting
+# EXPORT_MAX_CONCURRENT, trang Cài đặt hệ thống) cũng là 10 — 1 con số
+# duy nhất cho cả code và setting.
 FETCH_BATCH_SIZE = 5000
 MAX_ROWS_PER_FILE = 1_000_000
 

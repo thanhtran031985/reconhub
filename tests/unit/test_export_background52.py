@@ -162,15 +162,15 @@ class TestReportRunsExportStatus:
     def test_queued_shows_waiting_and_cancel(self):
         import app.ui.pages.report_runs as page
 
-        # Task 55: trạng thái + nút bấm do renderer JS vẽ theo _export;
-        # assert dữ liệu đầu vào của renderer.
+        # Task 57: trạng thái + nút bấm do renderer JS vẽ theo _export;
+        # assert dữ liệu đầu vào của renderer + cột Hành động.
         rows = page._runs_row_data(
             [_hist_run()], {19: [{"id": 7, "status": "QUEUED", "progress_pct": 0}]}
         )
         assert rows[0]["_export"] == {"id": 7, "status": "QUEUED", "progress_pct": 0}
         defs = page._runs_grid_column_defs(can_delete=True)
         by_col = {c.get("colId", c["field"]): c for c in defs}
-        assert by_col["cancel"]["cellRendererParams"] == {"action": "cancel"}
+        assert by_col["actions"]["cellRenderer"] == "reconRunsActionsCell"
         assert by_col["file"]["cellRenderer"] == "reconRunsFileCell"
 
     def test_running_shows_pct_and_cancel(self):
@@ -191,7 +191,7 @@ class TestReportRunsExportStatus:
         assert rows[0]["_export"] == {"id": 7, "status": "FAILED", "progress_pct": 0}
         defs = page._runs_grid_column_defs(can_delete=True)
         by_col = {c.get("colId", c["field"]): c for c in defs}
-        assert by_col["retry"]["cellRendererParams"] == {"action": "retry"}
+        assert by_col["actions"]["cellRenderer"] == "reconRunsActionsCell"
 
     def test_cancelled_shows_cancelled(self):
         import app.ui.pages.report_runs as page
@@ -237,8 +237,8 @@ class TestReportRunsExportStatus:
         assert refresh == 1
         assert get_export(operator_ctx, exp["id"]).data["status"] == "CANCELLED"
 
-    # Task 55: handle_export_action (ALL buttons) đã bỏ — nút trong cell
-    # AG Grid đi qua handle_grid_cell_clicked; xem test_history_aggrid55.
+    # Task 57: nút trong cell AG Grid đi qua handle_renderer_action
+    # (cellRendererData); xem test_history_aggrid55.
 
     def test_layout_has_auto_refresh(self, export_env, operator_ctx, monkeypatch):
         """Layout có Interval tự làm mới 10s + nút Làm mới tay."""
@@ -305,11 +305,10 @@ class TestRerunAndExport:
         """Bảng Lịch sử có nút 'Xuất lại' (khác 'Chạy lại' mở viewer)."""
         import app.ui.pages.report_runs as page
 
-        # Task 55: nút là renderer JS trong cell — assert columnDefs +
-        # nội dung JS (xem test_history_aggrid55).
+        # Task 57: nút là renderer JS trong cột Hành động — assert
+        # columnDefs + nội dung JS (xem test_history_aggrid55).
         by_col = {c.get("colId", c["field"]): c for c in page._runs_grid_column_defs(can_delete=True)}
-        assert by_col["rerun"]["cellRendererParams"] == {"action": "rerun"}
-        assert by_col["rerun_link"]["cellRenderer"] == "reconRunsRerunLink"
+        assert by_col["actions"]["cellRenderer"] == "reconRunsActionsCell"
 
     def test_rerun_button_handler(self, export_env, operator_ctx, monkeypatch):
         """Bấm 'Xuất lại' trong Lịch sử: run mới + export QUEUED + tải lại bảng."""
@@ -459,22 +458,27 @@ class TestSettingsPage:
         from app.services.export_retention import get_export_retention_settings
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
-        alert = page.handle_settings_save(1, "scheduler", 14)
+        alert = page.handle_settings_save(1, "scheduler", 14, 5)
         assert "scheduler" in _dump(alert) or True
         assert get_export_retention_settings(admin_ctx).data["mode"] == "scheduler"
         assert get_export_retention_settings(admin_ctx).data["days"] == 14
+        from app.services.export_retention import get_export_concurrency_settings
+
+        assert get_export_concurrency_settings(admin_ctx).data["max_concurrent"] == 5
 
 
 class TestHistoryDeleteButton:
     def test_delete_button_only_for_admin(self):
         import app.ui.pages.report_runs as page
 
-        # Task 55: cột Xóa chỉ có trong columnDefs khi ADMIN (renderer JS
-        # chỉ vẽ nút khi export đã kết thúc).
-        admin_cols = {c.get("colId", c["field"]) for c in page._runs_grid_column_defs(can_delete=True)}
-        op_cols = {c.get("colId", c["field"]) for c in page._runs_grid_column_defs(can_delete=False)}
-        assert "delete" in admin_cols
-        assert "delete" not in op_cols
+        # Task 57: nút Xóa chỉ vẽ trong cột Hành động khi ADMIN — qua
+        # cellRendererParams canDelete + width cột (340 có Xóa, 280 không).
+        admin = {c.get("colId", c["field"]): c for c in page._runs_grid_column_defs(can_delete=True)}
+        op = {c.get("colId", c["field"]): c for c in page._runs_grid_column_defs(can_delete=False)}
+        assert admin["actions"]["cellRendererParams"] == {"canDelete": True}
+        assert admin["actions"]["width"] == 340
+        assert op["actions"]["cellRendererParams"] == {"canDelete": False}
+        assert op["actions"]["width"] == 280
 
     def test_delete_handler(self, export_env, admin_ctx, monkeypatch):
         import app.ui.pages.report_runs as page

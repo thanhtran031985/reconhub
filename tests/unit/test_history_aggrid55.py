@@ -1,11 +1,13 @@
-"""Tests task 55 — Lịch sử báo cáo sang AG Grid.
+"""Tests task 55 — Lịch sử báo cáo sang AG Grid (sửa task 57).
 
 - rowData: 1 run → 1 dòng, trường hiển thị đã format sẵn, `_export`
   là export mới nhất để renderer JS vẽ.
-- columnDefs: cột Xóa chỉ có khi ADMIN; sort/filter trong grid tắt.
-- JS: 4 renderer trong dashAgGridFunctions.js tồn tại + đúng nội dung.
-- cellClicked: click nút trong cell dispatch sang _do_export_action;
-  bấm ô không phải nút / nút không áp dụng thì im lặng.
+- columnDefs: 1 cột "Hành động" (nút DMC có icon) thay 5 cột nút cũ;
+  sort/filter trong grid tắt.
+- JS: renderer reconRunsFileCell/StatusCell/ActionsCell trong
+  dashAgGridFunctions.js tồn tại + đúng nội dung.
+- cellRendererData: bấm nút trong cell dispatch sang _do_export_action;
+  action lạ / nút không áp dụng thì im lặng.
 """
 
 from __future__ import annotations
@@ -79,19 +81,24 @@ class TestRowData:
 
 
 class TestColumnDefs:
-    def test_delete_column_admin_only(self):
+    def test_actions_column_width_by_role(self):
         import app.ui.pages.report_runs as page
 
-        admin_cols = {c.get("colId", c["field"]) for c in page._runs_grid_column_defs(can_delete=True)}
-        op_cols = {c.get("colId", c["field"]) for c in page._runs_grid_column_defs(can_delete=False)}
-        assert "delete" in admin_cols
-        assert "delete" not in op_cols
+        admin = {c.get("colId", c["field"]): c for c in page._runs_grid_column_defs(can_delete=True)}
+        op = {c.get("colId", c["field"]): c for c in page._runs_grid_column_defs(can_delete=False)}
+        assert admin["actions"]["width"] == 340
+        assert admin["actions"]["cellRendererParams"] == {"canDelete": True}
+        assert op["actions"]["width"] == 280
+        assert op["actions"]["cellRendererParams"] == {"canDelete": False}
+        # Task 57: không còn cột nút riêng (cancel/retry/delete/rerun/rerun_link).
+        for gone in ("cancel", "retry", "delete", "rerun", "rerun_link"):
+            assert gone not in admin and gone not in op
 
     def test_columns_no_sort_no_filter(self):
         import app.ui.pages.report_runs as page
 
         defs = page._runs_grid_column_defs(can_delete=True)
-        assert len(defs) == 16
+        assert len(defs) == 12
         assert all(c.get("sortable") is False for c in defs)
         assert all(c.get("filter") is False for c in defs)
 
@@ -102,13 +109,9 @@ class TestColumnDefs:
         assert by_col["status"]["cellRenderer"] == "reconRunsStatusCell"
         assert by_col["file"]["cellRenderer"] == "reconRunsFileCell"
         assert by_col["file"]["field"] == "_export"  # cell vẽ lại khi export đổi
-        assert by_col["cancel"]["cellRenderer"] == "reconRunsActionCell"
-        assert by_col["cancel"]["field"] == "_export"
-        assert by_col["cancel"]["cellRendererParams"] == {"action": "cancel"}
-        assert by_col["retry"]["cellRendererParams"] == {"action": "retry"}
-        assert by_col["delete"]["cellRendererParams"] == {"action": "delete"}
-        assert by_col["rerun"]["cellRendererParams"] == {"action": "rerun"}
-        assert by_col["rerun_link"]["cellRenderer"] == "reconRunsRerunLink"
+        assert by_col["actions"]["cellRenderer"] == "reconRunsActionsCell"
+        assert by_col["actions"]["field"] == "_export"
+        assert by_col["actions"]["headerName"] == "Hành động"
 
 
 class TestJsRenderers:
@@ -117,10 +120,11 @@ class TestJsRenderers:
         for name in (
             "reconRunsFileCell",
             "reconRunsStatusCell",
-            "reconRunsActionCell",
-            "reconRunsRerunLink",
+            "reconRunsActionsCell",
         ):
             assert name in js
+        assert "reconRunsActionCell" not in js
+        assert "reconRunsRerunLink" not in js
         # Nội dung renderer vẽ: trạng thái file, link tải, link chạy lại.
         assert "Đang chờ" in js
         assert "Đang xuất " in js
@@ -129,6 +133,18 @@ class TestJsRenderers:
         assert "Chạy lại" in js
         assert "?rerun_from=" in js
         assert "Hủy" in js and "Thử lại" in js and "Xuất lại" in js
+        # Task 57: nút DMC thật có icon, bấm gọi setData(action).
+        assert "dash_mantine_components.Button" in js
+        assert "dash_iconify.DashIconify" in js
+        assert "setData" in js
+        for icon in (
+            "lucide:x",
+            "lucide:rotate-ccw",
+            "lucide:trash-2",
+            "lucide:file-spreadsheet",
+            "lucide:play-circle",
+        ):
+            assert icon in js
 
 
 class TestUi56:
@@ -140,7 +156,7 @@ class TestUi56:
         defs = page._runs_grid_column_defs(can_delete=True)
         order = [c.get("colId", c["field"]) for c in defs]
         assert order[-1] == "params"
-        assert order.index("params") > order.index("rerun_link")
+        assert order.index("params") > order.index("actions")
         assert order[:5] == ["run", "report", "category", "runner", "rows"]
 
     def test_reviewed_column_widths(self):
@@ -165,27 +181,30 @@ class TestUi56:
         assert grid is not None
         assert "rh-runs-grid" in str(getattr(grid, "className", ""))
 
-    def test_css_has_runs_font_and_button_classes(self):
+    def test_css_has_runs_font(self):
         css = Path("app/ui/assets/custom.css").read_text(encoding="utf-8")
         assert ".rh-runs-grid" in css
         assert "--ag-font-size: 12px" in css
-        for cls in (".rh-grid-btn", ".rh-grid-btn.danger", ".rh-grid-link"):
-            assert cls in css
 
-    def test_js_renderers_use_css_classes(self):
+    def test_js_renderers_use_dmc_buttons(self):
         js = JS_PATH.read_text(encoding="utf-8")
-        assert "rh-grid-btn" in js
-        assert "rh-grid-link" in js
-        assert "danger" in js
+        assert "dash_mantine_components.Button" in js
+        assert "setData" in js
 
 
-class TestCellClicked:
+class TestRendererAction:
+    """Task 57: bấm nút trong cột Hành động → cellRendererData dispatch."""
+
     def _rows(self, run_id, export):
         import app.ui.pages.report_runs as page
 
         return page._runs_row_data(
             [_hist_run(run_id)], {run_id: [export]} if export else {}
         )
+
+    @staticmethod
+    def _payload(value: str, run_id: int) -> dict[str, object]:
+        return {"value": value, "colId": "actions", "rowId": str(run_id), "timestamp": 1}
 
     def test_cancel_dispatches(self, export_env, operator_ctx, monkeypatch):
         import app.ui.pages.report_runs as page
@@ -196,8 +215,8 @@ class TestCellClicked:
         exp = _request(operator_ctx, export_env, run["id"], "XLSX").data
         assert exp["status"] == "QUEUED"
         rows = self._rows(run["id"], {"id": exp["id"], "status": "QUEUED", "progress_pct": 0})
-        alert, refresh = page.handle_grid_cell_clicked(
-            {"colId": "cancel", "rowId": str(run["id"])}, rows, 0
+        alert, refresh = page.handle_renderer_action(
+            self._payload("cancel", run["id"]), rows, 0
         )
         assert refresh == 1
         assert get_export(operator_ctx, exp["id"]).data["status"] == "CANCELLED"
@@ -217,19 +236,19 @@ class TestCellClicked:
                 {"i": exp["id"]},
             )
         rows = self._rows(run["id"], {"id": exp["id"], "status": "FAILED", "progress_pct": 0})
-        alert, refresh = page.handle_grid_cell_clicked(
-            {"colId": "retry", "rowId": str(run["id"])}, rows, 0
+        alert, refresh = page.handle_renderer_action(
+            self._payload("retry", run["id"]), rows, 0
         )
         assert refresh == 1
         assert get_export(operator_ctx, exp["id"]).data["status"] == "QUEUED"
 
-    def test_click_on_text_column_noop(self, export_env, operator_ctx, monkeypatch):
+    def test_unknown_action_noop(self, export_env, operator_ctx, monkeypatch):
         import app.ui.pages.report_runs as page
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         rows = self._rows(19, {"id": 7, "status": "QUEUED", "progress_pct": 0})
         with pytest.raises(PreventUpdate):
-            page.handle_grid_cell_clicked({"colId": "report", "rowId": "19"}, rows, 0)
+            page.handle_renderer_action(self._payload("report", 19), rows, 0)
 
     def test_cancel_on_done_export_noop(self, export_env, operator_ctx, monkeypatch):
         import app.ui.pages.report_runs as page
@@ -239,8 +258,8 @@ class TestCellClicked:
         exp = _request(operator_ctx, export_env, run["id"], "XLSX").data
         rows = self._rows(run["id"], {"id": exp["id"], "status": "DONE", "progress_pct": 100})
         with pytest.raises(PreventUpdate):
-            page.handle_grid_cell_clicked(
-                {"colId": "cancel", "rowId": str(run["id"])}, rows, 0
+            page.handle_renderer_action(
+                self._payload("cancel", run["id"]), rows, 0
             )
 
     def test_unknown_row_noop(self, export_env, operator_ctx, monkeypatch):
@@ -249,4 +268,4 @@ class TestCellClicked:
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         rows = self._rows(19, {"id": 7, "status": "QUEUED", "progress_pct": 0})
         with pytest.raises(PreventUpdate):
-            page.handle_grid_cell_clicked({"colId": "cancel", "rowId": "999"}, rows, 0)
+            page.handle_renderer_action(self._payload("cancel", 999), rows, 0)

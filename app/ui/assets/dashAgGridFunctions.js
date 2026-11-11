@@ -54,14 +54,16 @@ dagfuncs.reconViewerDateCompare = function (a, b) {
 };
 
 /**
- * Cell renderer cho bảng Lịch sử báo cáo (task 55).
+ * Cell renderer cho bảng Lịch sử báo cáo (task 55, sửa task 57).
  *
  * Đăng ký vào window.dashAgGridComponentFunctions để columnDefs tham
- * chiếu bằng tên ({"cellRenderer": "reconRunsFileCell"}). Nút bấm trong
- * cell KHÔNG cần onClick: click nổi bọt lên cell, Dash nhận qua prop
- * cellClicked với colId + rowId (spike ~/workspace/spike-aggrid-button/
- * đã chứng minh; ngược lại props.setData / rowData KHÔNG đồng bộ về
- * Dash nên không dùng đường đó).
+ * chiếu bằng tên. Nút bấm là DMC Button thật có icon (task 57, theo
+ * tài liệu DMC Dash AG Grid): mỗi nút bấm gọi props.setData(action)
+ * → Dash nhận qua prop cellRendererData {"value", "colId", "rowIndex",
+ * "rowId", "timestamp"} (spike ~/workspace/spike-aggrid-dmc/ đã chứng
+ * minh; cellClicked chỉ báo colId nên không phân biệt được nhiều nút
+ * trong cùng 1 cột). "Chạy lại"/"Tải file" là điều hướng thuần túy nên
+ * renderer chuyển trang trực tiếp bằng JS, không qua Dash.
  */
 var dagcomp = window.dashAgGridComponentFunctions = window.dashAgGridComponentFunctions || {};
 
@@ -70,8 +72,13 @@ dagcomp.reconRunsFileCell = function (props) {
   if (!exp) return React.createElement('span', null, '—');
   if (exp.status === 'DONE') {
     return React.createElement(
-      'a',
-      { href: '/download/report-export/' + exp.id, target: '_blank', className: 'rh-grid-link' },
+      window.dash_mantine_components.Button,
+      {
+        size: 'xs',
+        variant: 'subtle',
+        leftSection: React.createElement(window.dash_iconify.DashIconify, { icon: 'lucide:file-spreadsheet', width: 14 }),
+        onClick: function () { window.open('/download/report-export/' + exp.id, '_blank'); },
+      },
       'Tải file'
     );
   }
@@ -94,24 +101,52 @@ dagcomp.reconRunsStatusCell = function (props) {
   );
 };
 
-dagcomp.reconRunsActionCell = function (props) {
-  var action = props.action;
+dagcomp.reconRunsActionsCell = function (props) {
+  var Button = window.dash_mantine_components.Button;
+  var Icon = window.dash_iconify.DashIconify;
   var exp = (props.data && props.data._export) || null;
-  var show = false;
-  if (action === 'cancel') show = !!exp && (exp.status === 'QUEUED' || exp.status === 'RUNNING');
-  else if (action === 'retry') show = !!exp && exp.status === 'FAILED';
-  else if (action === 'delete') show = !!exp && (exp.status === 'DONE' || exp.status === 'FAILED' || exp.status === 'CANCELLED');
-  else if (action === 'rerun') show = true;
-  if (!show) return null;
-  var labels = { cancel: 'Hủy', retry: 'Thử lại', delete: 'Xóa', rerun: 'Xuất lại' };
-  var cls = 'rh-grid-btn' + (action === 'delete' ? ' danger' : '');
-  return React.createElement('button', { type: 'button', className: cls }, labels[action] || action);
-};
-
-dagcomp.reconRunsRerunLink = function (props) {
-  return React.createElement(
-    'a',
-    { href: '/reports/' + props.data._report_id + '?rerun_from=' + props.data.id, className: 'rh-grid-link' },
+  var canDelete = !!props.canDelete;
+  function mk(action, label, icon, color) {
+    return React.createElement(
+      Button,
+      {
+        key: action,
+        size: 'xs',
+        variant: 'subtle',
+        color: color || undefined,
+        leftSection: React.createElement(Icon, { icon: icon, width: 14 }),
+        onClick: function () { props.setData(action); },
+      },
+      label
+    );
+  }
+  var buttons = [];
+  if (exp && (exp.status === 'QUEUED' || exp.status === 'RUNNING')) {
+    buttons.push(mk('cancel', 'Hủy', 'lucide:x', undefined));
+  }
+  if (exp && exp.status === 'FAILED') {
+    buttons.push(mk('retry', 'Thử lại', 'lucide:rotate-ccw', undefined));
+  }
+  if (canDelete && exp && (exp.status === 'DONE' || exp.status === 'FAILED' || exp.status === 'CANCELLED')) {
+    buttons.push(mk('delete', 'Xóa', 'lucide:trash-2', 'red'));
+  }
+  buttons.push(mk('rerun', 'Xuất lại', 'lucide:file-spreadsheet', undefined));
+  buttons.push(React.createElement(
+    Button,
+    {
+      key: 'rerun_link',
+      size: 'xs',
+      variant: 'subtle',
+      leftSection: React.createElement(Icon, { icon: 'lucide:play-circle', width: 14 }),
+      onClick: function () {
+        window.location.href = '/reports/' + props.data._report_id + '?rerun_from=' + props.data.id;
+      },
+    },
     'Chạy lại'
+  ));
+  return React.createElement(
+    'div',
+    { style: { display: 'flex', gap: '2px', alignItems: 'center' } },
+    buttons
   );
 };

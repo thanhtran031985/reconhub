@@ -195,6 +195,8 @@ class TestWorkerPoll:
         ):
             assert worker.poll_once() is True
             assert worker.poll_once() is False
+            # Task 57: poll_once chạy trong thread riêng nên chờ xong mới assert.
+            assert worker.wait_for_idle(timeout=30) is True
         engine = export_env["engine"]
         with engine.connect() as db:
             row = db.execute(

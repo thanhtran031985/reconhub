@@ -97,7 +97,7 @@ class TestRunsTable:
         defs = page._runs_grid_column_defs(can_delete=True)
         by_col = {c.get("colId", c["field"]): c for c in defs}
         assert by_col["file"]["cellRenderer"] == "reconRunsFileCell"
-        assert by_col["rerun_link"]["cellRenderer"] == "reconRunsRerunLink"
+        assert by_col["actions"]["cellRenderer"] == "reconRunsActionsCell"
         assert "view" not in by_col  # Task 43: bỏ nút Xem
 
     def test_no_file_when_no_done_export(self, export_env, operator_ctx):
@@ -120,11 +120,12 @@ class TestRerun:
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         orig = _done_run(operator_ctx, export_env)
-        # Task 55: link "Chạy lại" do renderer JS vẽ — assert columnDefs
-        # + công thức ghép URL trong JS (dùng _report_id + id của dòng).
+        # Task 57: nút "Chạy lại" nằm trong cột Hành động (renderer JS
+        # reconRunsActionsCell) — assert columnDefs + công thức ghép URL
+        # trong JS (dùng _report_id + id của dòng).
         defs = page._runs_grid_column_defs(can_delete=True)
         by_col = {c.get("colId", c["field"]): c for c in defs}
-        assert by_col["rerun_link"]["cellRenderer"] == "reconRunsRerunLink"
+        assert by_col["actions"]["cellRenderer"] == "reconRunsActionsCell"
         rows = page._runs_row_data(
             [{"id": orig["id"], "report_id": orig["report_id"], "report_code": "X",
               "created_by": "operator", "row_count": 3, "status": "DONE",

@@ -41,10 +41,11 @@ class TestFitOneScreen:
                 "finished_at": "2026-11-10 13:10:08",
             }
         ]
-        # Task 55: "Chạy lại" là link do renderer JS vẽ (reconRunsRerunLink);
-        # assert columnDefs có cột đó + rowData đủ _report_id để ghép URL.
+        # Task 57: "Chạy lại" là nút trong cột Hành động (renderer JS
+        # reconRunsActionsCell); assert columnDefs có cột đó + rowData
+        # đủ _report_id để ghép URL.
         rows = page._runs_row_data(runs, {})
         assert rows[0]["_report_id"] == 5
         defs = page._runs_grid_column_defs(can_delete=True)
         by_col = {c.get("colId", c["field"]): c for c in defs}
-        assert by_col["rerun_link"]["cellRenderer"] == "reconRunsRerunLink"
+        assert by_col["actions"]["cellRenderer"] == "reconRunsActionsCell"

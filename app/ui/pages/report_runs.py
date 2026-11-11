@@ -5,6 +5,8 @@ dòng format dấu phẩy, icon tải file, bỏ nút Xem, chạy lại qua view
 (?rerun_from=), lọc theo ngày/nhóm/tên/người chạy, chọn cỡ trang.
 Task 55: bảng chuyển sang AG Grid (getRowId + rowData) — tick chỉ cập
 nhật dòng đổi tại chỗ, nút bấm trong cell đi qua cellClicked.
+Task 57: các nút gom vào 1 cột "Hành động" (nút DMC có icon, bấm qua
+cellRendererData); cột File giữ riêng (hiện tiến trình export).
 """
 
 from __future__ import annotations
@@ -168,17 +170,20 @@ def _runs_row_data(
 def _runs_grid_column_defs(can_delete: bool) -> list[dict[str, Any]]:
     """columnDefs cho grid Lịch sử (task 55).
 
-    ``field`` của cột File/nút bấm là `_export` (dict export mới nhất):
+    ``field`` của cột File/Hành động là `_export` (dict export mới nhất):
     AG Grid chỉ vẽ lại cell khi giá trị của cột đổi — field "file" không
     có trong rowData nên cell không bao giờ đổi (task 55: đã kiểm chứng
-    live, tick cập nhật rowData mà cell File vẫn "Đang chờ"). `colId`
-    giữ tên riêng để cellClicked phân biệt nút nào được bấm.
+    live, tick cập nhật rowData mà cell File vẫn "Đang chờ").
+    Task 57: 5 cột nút riêng (cancel/retry/delete/rerun/rerun_link) gom
+    thành 1 cột "Hành động" (renderer reconRunsActionsCell: nút DMC có
+    icon, bấm gọi setData(action) → Dash đọc qua cellRendererData;
+    "Chạy lại" chuyển trang trực tiếp bằng JS). Nút Xóa chỉ hiện khi
+    can_delete (qua cellRendererParams). Width cột Hành động: 340 khi
+    có Xóa (tối đa 4 nút: Thử lại+Xóa+Xuất lại+Chạy lại), 280 khi không.
     Cột Báo cáo/Tham số dùng flex để tổng chiều rộng vừa khung 1440px
     (nút hành động ở cuối vẫn thấy được, không phải cuộn ngang).
-    Task 56: Tham số về cuối (sau Chạy lại); Bắt đầu/Kết thúc 140px
-    (đủ "11/11/2026 13:09:56" ở font 12), Nhóm 80, Trạng thái 90 —
-    tổng các cột trước Tham số ~1160px, vừa khung nội dung ~1208px ở
-    viewport 1440 (nút cuối thấy được không cần cuộn ngang).
+    Task 56: Tham số về cuối (sau Hành động); Bắt đầu/Kết thúc 140px
+    (đủ "11/11/2026 13:09:56" ở font 12), Nhóm 80, Trạng thái 90.
     """
     base: dict[str, Any] = {"sortable": False, "filter": False, "resizable": True}
     cols: list[dict[str, Any]] = [
@@ -192,20 +197,17 @@ def _runs_grid_column_defs(can_delete: bool) -> list[dict[str, Any]]:
         {"field": "finished", "headerName": "Kết thúc", "width": 140, **base},
         {"field": "duration", "headerName": "Tổng", "width": 70, "cellStyle": {"textAlign": "right"}, **base},
         {"field": "_export", "colId": "file", "headerName": "File", "width": 110, "cellRenderer": "reconRunsFileCell", **base},
-        {"field": "_export", "colId": "cancel", "headerName": "", "width": 60, "cellRenderer": "reconRunsActionCell", "cellRendererParams": {"action": "cancel"}, **base},
-        {"field": "_export", "colId": "retry", "headerName": "", "width": 70, "cellRenderer": "reconRunsActionCell", "cellRendererParams": {"action": "retry"}, **base},
+        {
+            "field": "_export",
+            "colId": "actions",
+            "headerName": "Hành động",
+            "width": 340 if can_delete else 280,
+            "cellRenderer": "reconRunsActionsCell",
+            "cellRendererParams": {"canDelete": can_delete},
+            **base,
+        },
+        {"field": "params", "headerName": "Tham số", "flex": 2, "minWidth": 140, **base},
     ]
-    if can_delete:
-        cols.append(
-            {"field": "_export", "colId": "delete", "headerName": "", "width": 60, "cellRenderer": "reconRunsActionCell", "cellRendererParams": {"action": "delete"}, **base}
-        )
-    cols.extend(
-        [
-            {"field": "_export", "colId": "rerun", "headerName": "", "width": 70, "cellRenderer": "reconRunsActionCell", "cellRendererParams": {"action": "rerun"}, **base},
-            {"field": "id", "colId": "rerun_link", "headerName": "", "width": 70, "cellRenderer": "reconRunsRerunLink", **base},
-            {"field": "params", "headerName": "Tham số", "flex": 2, "minWidth": 140, **base},
-        ]
-    )
     return cols
 
 
@@ -446,7 +448,7 @@ def layout() -> Any:
     Output("report-runs-filter-name", "value"),
     Output("report-runs-filter-runner", "value"),
     Output("report-runs-fingerprint", "data"),
-    # Task 55: alert cũng do handle_grid_cell_clicked ghi — cho phép trùng
+    # Task 55: alert cũng do handle_renderer_action ghi — cho phép trùng
     # output (Dash sẽ gọi callback nào trigger trước).
     Output("report-runs-alert", "children", allow_duplicate=True),
     Input("report-runs-pagination", "value"),
@@ -462,7 +464,7 @@ def layout() -> Any:
     Input("report-runs-refresh-store", "data"),
     State("report-runs-page-store", "data"),
     State("report-runs-fingerprint", "data"),
-    # Task 55: output alert trùng với handle_grid_cell_clicked nên phải
+    # Task 55: output alert trùng với handle_renderer_action nên phải
     # cho phép duplicate; "initial_duplicate" giữ nguyên lần gọi đầu
     # (tải bảng lúc mở trang).
     prevent_initial_call="initial_duplicate",
@@ -591,7 +593,7 @@ def _do_export_action(ctx: Any, kind: str, item_id: int, refresh: int | None) ->
     return notify_success(ok_msg), (refresh or 0) + 1
 
 
-_CELL_CLICK_ACTIONS: dict[str, str] = {
+_RENDERER_ACTIONS: dict[str, str] = {
     "cancel": "report-runs-export-cancel",
     "retry": "report-runs-export-retry",
     "delete": "report-runs-export-delete",
@@ -602,30 +604,31 @@ _CELL_CLICK_ACTIONS: dict[str, str] = {
 @callback(
     Output("report-runs-alert", "children", allow_duplicate=True),
     Output("report-runs-refresh-store", "data"),
-    Input("report-runs-grid", "cellClicked"),
+    Input("report-runs-grid", "cellRendererData"),
     State("report-runs-grid", "rowData"),
     State("report-runs-refresh-store", "data"),
     prevent_initial_call=True,
 )
-def handle_grid_cell_clicked(
-    clicked: dict[str, Any] | None,
+def handle_renderer_action(
+    data: dict[str, Any] | None,
     row_data: list[dict[str, Any]] | None,
     refresh: int | None,
 ) -> tuple[Any, Any]:
-    """Click vào nút trong cell AG Grid (task 55) → hành động export.
+    """Bấm nút trong cột Hành động (task 57) → hành động export.
 
-    Spike đã chứng minh: cellClicked về được Dash với colId + rowId;
-    setData/rowData KHÔNG đồng bộ về nên không dùng. Nút trong cell chỉ
-    là hình thức — click nổi bọt lên cell. Guard theo trạng thái export
-    để bấm vào ô trống (nút không hiện) thì im lặng, không báo lỗi.
+    Renderer DMC gọi props.setData(action) → Dash nhận cellRendererData
+    {"value": action, "colId": "actions", "rowId": run_id, "timestamp"}
+    (spike ~/workspace/spike-aggrid-dmc/ đã chứng minh). "Chạy lại"
+    không qua đây (renderer chuyển trang trực tiếp bằng JS). Guard theo
+    trạng thái export để bấm vào nút không còn phù hợp thì im lặng.
     """
-    if not isinstance(clicked, dict):
+    if not isinstance(data, dict):
         raise PreventUpdate
-    kind = _CELL_CLICK_ACTIONS.get(str(clicked.get("colId") or ""))
+    kind = _RENDERER_ACTIONS.get(str(data.get("value") or ""))
     if kind is None:
         raise PreventUpdate
     try:
-        run_id = int(clicked.get("rowId") or 0)
+        run_id = int(data.get("rowId") or 0)
     except (TypeError, ValueError):
         raise PreventUpdate from None
     ctx = get_current_ctx()

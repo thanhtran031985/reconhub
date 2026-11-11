@@ -2,6 +2,7 @@
 
 Cài đặt dọn file export chạy ngầm: chế độ manual (mặc định, không tự
 xóa) hoặc scheduler (worker tự xóa file export đã kết thúc quá N ngày).
+Task 57: số export chạy song song tối đa (mặc định 10).
 """
 
 from __future__ import annotations
@@ -15,7 +16,9 @@ from dash.exceptions import PreventUpdate
 
 from app.core.session import get_current_ctx
 from app.services.export_retention import (
+    get_export_concurrency_settings,
     get_export_retention_settings,
+    set_export_concurrency,
     set_export_retention,
 )
 from app.services.perm import page_gate
@@ -43,11 +46,15 @@ def layout(**kwargs: Any) -> Any:
             ]
         )
     mode, days = "manual", 30
+    max_concurrent = 10
     if ctx is not None:
         res = get_export_retention_settings(ctx)
         if res.ok and isinstance(res.data, dict):
             mode = str(res.data.get("mode") or "manual")
             days = int(res.data.get("days") or 30)
+        c_res = get_export_concurrency_settings(ctx)
+        if c_res.ok and isinstance(c_res.data, dict):
+            max_concurrent = int(c_res.data.get("max_concurrent") or 10)
     return dmc.Box(
         [
             html.Div(id="settings-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
@@ -88,15 +95,34 @@ def layout(**kwargs: Any) -> Any:
                             w=320,
                             description="Chỉ dùng khi chế độ là Scheduler.",
                         ),
-                        dmc.Group(
-                            [
-                                dmc.Button(
-                                    "Lưu cài đặt",
-                                    id="settings-save-btn",
-                                    variant="filled",
-                                    size="sm",
-                                ),
-                            ],
+                    ],
+                    gap="md",
+                ),
+                withBorder=True,
+                radius="sm",
+                p="md",
+                maw=640,
+            ),
+            dmc.Paper(
+                dmc.Stack(
+                    [
+                        dmc.Title("Export chạy song song", order=4, size="sm"),
+                        dmc.Text(
+                            "Worker xử lý tối đa từng này export cùng lúc "
+                            "(mỗi người dùng tối đa từng này export đang chạy). "
+                            "Đổi xong có hiệu lực ở vòng poll tiếp theo, "
+                            "không cần khởi động lại worker.",
+                            size="sm",
+                            c="dimmed",
+                        ),
+                        dmc.NumberInput(
+                            id="settings-concurrent-input",
+                            label="Số export chạy song song tối đa",
+                            value=max_concurrent,
+                            min=1,
+                            max=50,
+                            step=1,
+                            w=320,
                         ),
                     ],
                     gap="md",
@@ -105,6 +131,16 @@ def layout(**kwargs: Any) -> Any:
                 radius="sm",
                 p="md",
                 maw=640,
+            ),
+            dmc.Group(
+                [
+                    dmc.Button(
+                        "Lưu cài đặt",
+                        id="settings-save-btn",
+                        variant="filled",
+                        size="sm",
+                    ),
+                ],
             ),
         ],
         style={"padding": "12px 16px", "display": "flex", "flexDirection": "column", "gap": "10px"},
@@ -116,12 +152,16 @@ def layout(**kwargs: Any) -> Any:
     Input("settings-save-btn", "n_clicks"),
     State("settings-mode-select", "value"),
     State("settings-days-input", "value"),
+    State("settings-concurrent-input", "value"),
     prevent_initial_call=True,
 )
 def handle_settings_save(
-    n_clicks: int | None, mode: str | None, days: int | float | None
+    n_clicks: int | None,
+    mode: str | None,
+    days: int | float | None,
+    max_concurrent: int | float | None,
 ) -> Any:
-    """Lưu cài đặt dọn file export (task 52)."""
+    """Lưu cài đặt dọn file + song song export (task 52, 57)."""
     if not n_clicks:
         raise PreventUpdate
     ctx = get_current_ctx()
@@ -131,10 +171,19 @@ def handle_settings_save(
         days_int = int(days) if days is not None else 30
     except (TypeError, ValueError):
         return notify_error("Số ngày phải là số nguyên.")
+    try:
+        concurrent_int = int(max_concurrent) if max_concurrent is not None else 10
+    except (TypeError, ValueError):
+        return notify_error("Số export song song phải là số nguyên.")
     res = set_export_retention(ctx, mode or "manual", days_int)
     if not res.ok:
         return notify_error(res.message or "Không lưu được cài đặt.")
+    c_res = set_export_concurrency(ctx, concurrent_int)
+    if not c_res.ok:
+        return notify_error(c_res.message or "Không lưu được cài đặt song song.")
     data = res.data or {}
+    c_data = c_res.data or {}
     return notify_success(
-        f"Đã lưu: chế độ {data.get('mode')}, giữ file {data.get('days')} ngày."
+        f"Đã lưu: chế độ {data.get('mode')}, giữ file {data.get('days')} ngày, "
+        f"tối đa {c_data.get('max_concurrent')} export chạy song song."
     )
