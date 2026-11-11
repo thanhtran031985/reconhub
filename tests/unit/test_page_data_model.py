@@ -135,7 +135,7 @@ def test_get_data_model_returns_manifest_and_drift(dm_env):
     assert res.data["drift"]["status"] == "SYNCED"
     assert res.data["drift"]["drifts"] == []
     assert isinstance(res.data["history"], list)
-    assert len(res.data["history"]) == 60
+    assert len(res.data["history"]) == 61  # task 63: +1 COLUMN_ADDED CHECKLIST_JSON
 
 
 def test_get_data_model_forbidden_without_menu(dm_env):
@@ -844,7 +844,7 @@ def test_filter_history_by_type_table_query(dm_manifest):
     import app.ui.pages.data_model as page
 
     history = dm_manifest["history"]
-    assert len(page.filter_history(history, "", "COLUMN_ADDED", None)) == 13
+    assert len(page.filter_history(history, "", "COLUMN_ADDED", None)) == 14  # task 63: +CHECKLIST_JSON
     assert len(page.filter_history(history, "", "all", "RECON_RUN")) == 3
     assert len(page.filter_history(history, "0006", "all", None)) == 12
     assert len(page.filter_history(history, "menu_permission", "all", None)) == 9

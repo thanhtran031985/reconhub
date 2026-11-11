@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,18 @@ from app.db.metadata import (
 )
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
+from app.services.migration_checklist import (
+    BACKFILL_ITEM_ID,
+    checklist_from_json,
+    checklist_item,
+    mark_item_done,
+    mark_items_done,
+    mark_step_error,
+    new_checklist,
+    refresh_status,
+    save_checklist,
+    set_step_items,
+)
 from app.services.perm import require_admin, requires_menu
 
 RECON_TABLES_ORDER = [
@@ -293,8 +306,16 @@ def start_migration(
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     src_engine = get_recon_engine()
 
-    # Bước 1: Precheck
-    precheck(ctx, target_ds_id, mode=mode, mock_target_engine=mock_target_engine)
+    # Bước 1: Precheck (D3 — task 63: tôn trọng kết quả. precheck qua
+    # decorator @service nên trả ServiceResult; lỗi thì dừng trước khi bật
+    # bảo trì hay tạo phiên. Trước đây kết quả bị bỏ qua và migration
+    # vẫn chạy tiếp.)
+    pre_res = precheck(ctx, target_ds_id, mode=mode, mock_target_engine=mock_target_engine)
+    if not pre_res.ok:
+        raise ServiceError(
+            pre_res.code or ErrorCode.VALIDATION_ERROR,
+            pre_res.message or "Kiểm tra trước thất bại.",
+        )
 
     with src_engine.connect() as conn:
         ds_row = (
@@ -305,7 +326,12 @@ def start_migration(
     target_engine = mock_target_engine or create_engine_for_ds(ds_row)
 
     # Bước 2: Bật chế độ bảo trì
-    set_maintenance_mode(ctx, enabled=True)
+    maint_res = set_maintenance_mode(ctx, enabled=True)
+    if not maint_res.ok:
+        raise ServiceError(
+            maint_res.code or ErrorCode.INTERNAL_ERROR,
+            maint_res.message or "Không bật được chế độ bảo trì.",
+        )
 
     # Ghi nhận RECON_METADATA_MIGRATION
     with src_engine.begin() as conn:
@@ -329,6 +355,24 @@ def start_migration(
     elif mode == "NO_TEMP":
         tables_to_copy = [t for t in RECON_TABLES_ORDER if t not in ("RECON_EXCEL_LOAD", "RECON_EXCEL_ROW")]
 
+    # Checklist 6 bước (task 63): bước 1–2 đã xong, còn lại chờ. Số dòng
+    # ước tính lấy từ precheck để nhãn dòng copy có số liệu.
+    pre_tables = pre_res.data.get("tables", []) if isinstance(pre_res.data, dict) else []
+    checklist = new_checklist(
+        mode="real",
+        target_ds_id=target_ds_id,
+        target_name=str(ds_row["NAME"]),
+        mode_label=mode,
+        tables=[{"table": str(t.get("table")), "rows": int(t.get("rows", 0))} for t in pre_tables],
+        top_tables=[],
+    )
+    checklist["migration_id"] = migration_id
+    mark_items_done(checklist, "precheck")
+    mark_items_done(checklist, "maintenance")
+    refresh_status(checklist)
+    save_checklist(src_engine, migration_id, checklist)
+    current_step = "create_schema"
+
     report_rows: dict[str, Any] = {}
     total_tables = len(tables_to_copy)
     # Liên kết vòng RECON_RUN <-> RECON_BATCH_RUN_ITEM (spec 10 §12):
@@ -339,6 +383,10 @@ def start_migration(
     try:
         # Bước 3: Tạo bảng trên đích
         metadata.create_all(target_engine)
+        mark_items_done(checklist, "create_schema")
+        refresh_status(checklist)
+        save_checklist(src_engine, migration_id, checklist)
+        current_step = "copy"
 
         with src_engine.connect() as src_conn, target_engine.begin() as tgt_conn:
             for idx, t_name in enumerate(tables_to_copy, 1):
@@ -403,6 +451,9 @@ def start_migration(
                             f"Số liên kết RECON_RUN.BATCH_RUN_ITEM_ID không khớp: "
                             f"nguồn {len(run_item_links)}, đích {linked}.",
                         )
+                    mark_item_done(
+                        checklist, "copy", BACKFILL_ITEM_ID, detail=f"Đã nối {linked} liên kết"
+                    )
 
                 # Cập nhật tiến độ
                 pct = int(10 + (idx / total_tables) * 70)
@@ -437,10 +488,30 @@ def start_migration(
                     "target_rows": tgt_cnt,
                     "matched": True,
                 }
+                mark_item_done(
+                    checklist, "copy", t_name, detail=f"Đích: {tgt_cnt:,} dòng".replace(",", ".")
+                )
+                refresh_status(checklist)
+                save_checklist(src_engine, migration_id, checklist)
+
+        # Không có liên kết vòng thì đánh dấu dòng backfill xong luôn (D6).
+        if not run_item_links:
+            mark_item_done(
+                checklist, "copy", BACKFILL_ITEM_ID, detail="Không có liên kết vòng cần nối lại"
+            )
+            refresh_status(checklist)
+            save_checklist(src_engine, migration_id, checklist)
 
         # Bước 4: Checksum trên 3 bảng lớn nhất
+        current_step = "verify"
         with src_engine.connect() as src_conn, target_engine.connect() as tgt_conn:
             sorted_tables = sorted(report_rows.items(), key=lambda item: item[1]["source_rows"], reverse=True)[:3]
+            set_step_items(
+                checklist,
+                "verify",
+                [checklist_item(t, f"Checksum SHA256 bảng {t}") for t, _ in sorted_tables],
+            )
+            save_checklist(src_engine, migration_id, checklist)
             for t_name, _ in sorted_tables:
                 tbl = metadata.tables[t_name]
                 cs_src = _calculate_table_checksum(src_conn, tbl)
@@ -451,11 +522,23 @@ def start_migration(
                         f"Checksum SHA256 bảng {t_name} không khớp giữa nguồn và đích.",
                     )
                 report_rows[t_name]["checksum_matched"] = True
+                mark_item_done(checklist, "verify", t_name, detail="Khớp SHA256")
+                refresh_status(checklist)
+                save_checklist(src_engine, migration_id, checklist)
 
         # Hoàn tất thành công
+        current_step = "finish"
         fin_now = datetime.now(timezone.utc).replace(tzinfo=None)
         settings = get_settings()
         old_sqlite_file = settings.RECON_DB_URL.replace("sqlite:///", "")
+
+        new_dsn = f"oracle+oracledb://{ds_row['USERNAME']}:***@{ds_row['HOST']}:{ds_row['PORT']}/?service_name={ds_row['SERVICE_NAME']}"
+        next_steps = [
+            "1. Dừng ứng dụng web ReconHub và background worker.",
+            f"2. Cập nhật biến môi trường RECON_DB_URL trong file .env: {new_dsn}",
+            "3. Chạy lệnh kiểm tra schema: uv run poe db-migrate",
+            "4. Khởi động lại dịch vụ web và worker để chạy hoàn toàn trên Oracle.",
+        ]
 
         with src_engine.begin() as conn:
             conn.execute(
@@ -470,24 +553,28 @@ def start_migration(
                     FINISHED_AT=fin_now,
                 )
             )
-
-        new_dsn = f"oracle+oracledb://{ds_row['USERNAME']}:***@{ds_row['HOST']}:{ds_row['PORT']}/?service_name={ds_row['SERVICE_NAME']}"
+        mark_items_done(checklist, "finish")
+        # Lưu cả 4 bước làm tay vào checklist để modal poll vẽ báo cáo cuối.
+        checklist["next_steps"] = next_steps
+        refresh_status(checklist)
+        save_checklist(src_engine, migration_id, checklist)
 
         return {
             "migration_id": migration_id,
             "status": "DONE",
             "report": report_rows,
             "old_sqlite_path": old_sqlite_file,
-            "next_steps": [
-                "1. Dừng ứng dụng web ReconHub và background worker.",
-                f"2. Cập nhật biến môi trường RECON_DB_URL trong file .env: {new_dsn}",
-                "3. Chạy lệnh kiểm tra schema: uv run poe db-migrate",
-                "4. Khởi động lại dịch vụ web và worker để chạy hoàn toàn trên Oracle.",
-            ],
+            "next_steps": next_steps,
         }
 
     except Exception as exc:
-        # Nếu gặp lỗi, SQLite nguồn giữ nguyên, ghi FAILED
+        # Nếu gặp lỗi, SQLite nguồn giữ nguyên, ghi FAILED + đánh dấu bước lỗi
+        # trong checklist để modal dừng đúng bước đó.
+        try:
+            mark_step_error(checklist, current_step, str(exc))
+            save_checklist(src_engine, migration_id, checklist)
+        except Exception:
+            pass
         with src_engine.begin() as conn:
             conn.execute(
                 update(recon_metadata_migration)
@@ -563,6 +650,122 @@ def get_migration_status(ctx: Ctx, migration_id: int) -> dict[str, Any]:
     if not row:
         raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy phiên chuyển dữ liệu.")
     return dict(row)
+
+
+@service
+@requires_menu("data_source")
+def get_active_migration(ctx: Ctx) -> dict[str, Any] | None:
+    """Phiên migration đang PROCESSING (nếu có), kèm checklist đã parse.
+
+    Modal mở lại giữa chừng dùng hàm này để khôi phục đúng tiến độ.
+    """
+    engine = get_recon_engine()
+    require_admin(ctx, engine)
+    with engine.connect() as conn:
+        row = (
+            conn.execute(
+                select(recon_metadata_migration)
+                .where(recon_metadata_migration.c.STATUS == "PROCESSING")
+                .order_by(recon_metadata_migration.c.ID.desc())
+            )
+            .mappings()
+            .first()
+        )
+    if not row:
+        return None
+    data = dict(row)
+    data["checklist"] = checklist_from_json(data.get("CHECKLIST_JSON"))
+    return data
+
+
+@service
+@requires_menu("data_source")
+def get_migration_for_poll(
+    ctx: Ctx,
+    target_ds_id: int,
+    started_at: str | datetime,
+) -> dict[str, Any] | None:
+    """Phiên migration mới nhất của đích, tạo từ `started_at` trở đi.
+
+    Modal poll real mode dùng hàm này: chỉ nhận phiên do lần bấm "Bắt đầu"
+    hiện tại tạo ra, không nhầm với phiên cũ của cùng đích.
+    """
+    engine = get_recon_engine()
+    require_admin(ctx, engine)
+    started_dt = datetime.fromisoformat(started_at) if isinstance(started_at, str) else started_at
+    with engine.connect() as conn:
+        row = (
+            conn.execute(
+                select(recon_metadata_migration)
+                .where(
+                    recon_metadata_migration.c.TARGET_DS_ID == target_ds_id,
+                    recon_metadata_migration.c.CREATED_AT >= started_dt,
+                )
+                .order_by(recon_metadata_migration.c.ID.desc())
+            )
+            .mappings()
+            .first()
+        )
+    if not row:
+        return None
+    data = dict(row)
+    data["checklist"] = checklist_from_json(data.get("CHECKLIST_JSON"))
+    return data
+
+
+# Kết quả chạy nền theo run_token (chỉ sống trong tiến trình app; modal poll
+# đọc để biết thread chết trước khi kịp tạo phiên — trường hợp hiếm).
+_MIGRATION_RUN_RESULTS: dict[str, dict[str, Any]] = {}
+_MIGRATION_RUN_RESULTS_LOCK = threading.Lock()
+_MIGRATION_RUN_RESULT_TTL_SECONDS = 3600
+
+
+def _prune_migration_run_results_locked() -> None:
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None).timestamp() - _MIGRATION_RUN_RESULT_TTL_SECONDS
+    stale = [
+        token
+        for token, outcome in _MIGRATION_RUN_RESULTS.items()
+        if datetime.fromisoformat(str(outcome.get("finished_at", ""))).timestamp() < cutoff
+    ]
+    for token in stale:
+        _MIGRATION_RUN_RESULTS.pop(token, None)
+
+
+def run_migration_background(
+    ctx: Ctx,
+    target_ds_id: int,
+    mode: str,
+    run_token: str,
+    mock_target_engine: Engine | None = None,
+) -> None:
+    """Chạy start_migration trong luồng nền, ghi kết quả vào registry.
+
+    start_migration đã qua decorator @service nên không raise; except ngoài
+    chỉ phòng trường hợp lọt exception (ví dụ lỗi import trong thread).
+    """
+    try:
+        res = start_migration(ctx, target_ds_id, mode=mode, mock_target_engine=mock_target_engine)
+        outcome: dict[str, Any] = {
+            "ok": bool(res.ok),
+            "message": res.message or "",
+            "migration_id": res.data.get("migration_id") if isinstance(res.data, dict) else None,
+        }
+    except Exception as exc:  # noqa: BLE001 — ghi lại để modal báo lỗi thay vì treo
+        outcome = {"ok": False, "message": str(exc), "migration_id": None}
+    outcome["finished_at"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    with _MIGRATION_RUN_RESULTS_LOCK:
+        try:
+            _prune_migration_run_results_locked()
+        except (ValueError, TypeError):
+            pass
+        _MIGRATION_RUN_RESULTS[run_token] = outcome
+
+
+def get_migration_run_result(run_token: str) -> dict[str, Any] | None:
+    """Đọc (không xóa) kết quả chạy nền của một run_token."""
+    with _MIGRATION_RUN_RESULTS_LOCK:
+        result = _MIGRATION_RUN_RESULTS.get(run_token)
+        return dict(result) if result is not None else None
 
 
 @service

@@ -1,7 +1,7 @@
 {
   "database": "sqlite",
   "generated": true,
-  "generated_at": "2026-11-10T10:54:32.462261+00:00",
+  "generated_at": "2026-11-11T14:58:23.615566+00:00",
   "generator": "schema-introspect",
   "schema": "main",
   "tables": [
@@ -2815,6 +2815,15 @@
           "default": null,
           "foreign_key": null,
           "name": "REPORT_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CHECKLIST_JSON",
           "nullable": true,
           "primary_key": false,
           "type": "TEXT",
@@ -6079,6 +6088,6 @@
       "unique_constraints": []
     }
   ],
-  "version": "0007_export_progress",
+  "version": "0008_migration_checklist",
   "warnings": []
 }

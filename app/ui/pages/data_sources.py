@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
-from datetime import datetime, timedelta
+import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import dash
@@ -32,8 +34,23 @@ from app.services.data_source import (
 from app.services.metadata_migration import (
     clean_target_schema,
     delete_old_sqlite,
+    get_active_migration,
+    get_migration_for_poll,
+    get_migration_run_result,
     precheck,
-    start_migration,
+    run_migration_background,
+)
+from app.services.migration_checklist import (
+    MIGRATION_STEP_KEYS,
+    MIGRATION_STEP_LABELS,
+    advance_fake_checklist,
+    build_fake_checklist,
+    mark_items_done,
+    mark_step_error,
+    new_checklist,
+    overall_status,
+    refresh_status,
+    step_status,
 )
 from app.services.oracle_admin import generate_target_user_sql
 from app.services.perm import is_admin, page_gate
@@ -808,6 +825,49 @@ def layout() -> Any:
                 confirm_label="Xác nhận xóa file SQLite",
                 danger=True,
             ),
+            # Modal chuyển dữ liệu sang Oracle (Task 63): stepper 6 bước +
+            # switch thật/fake. Nút "Chuyển sang Oracle" chỉ mở modal, chạy
+            # thật bắt đầu từ nút "Bắt đầu" bên trong.
+            dmc.Modal(
+                id="ds-mig-modal",
+                title=dmc.Text("Chuyển dữ liệu sang Oracle", fw=700, size="md"),
+                size="lg",
+                opened=False,
+                children=dmc.Stack(
+                    [
+                        html.Div(id="ds-mig-modal-summary"),
+                        dmc.Switch(
+                            id="ds-mig-real-switch",
+                            label="Migration thật",
+                            checked=False,
+                            size="sm",
+                        ),
+                        html.Div(id="ds-mig-real-warning"),
+                        dmc.ScrollArea(
+                            html.Div(id="ds-mig-stepper"),
+                            h=380,
+                        ),
+                        html.Div(id="ds-mig-modal-result"),
+                        dmc.Group(
+                            [
+                                button_subtle("Đóng", id="ds-mig-modal-close-btn"),
+                                button_primary("Bắt đầu", id="ds-mig-run-btn", icon="lucide:play"),
+                            ],
+                            justify="flex-end",
+                            gap="sm",
+                        ),
+                    ],
+                    gap="md",
+                ),
+                radius="lg",
+                withCloseButton=True,
+            ),
+            dcc.Store(id="ds-mig-fake-store"),
+            dcc.Store(id="ds-mig-real-run-store"),
+            dcc.Store(id="ds-mig-last-checklist-store"),
+            dcc.Store(id="ds-mig-done-store"),
+            dcc.Interval(id="ds-mig-fake-tick", interval=400, n_intervals=0, disabled=True),
+            dcc.Interval(id="ds-mig-real-tick", interval=1500, n_intervals=0, disabled=True),
             dcc.Store(id="ds-purge-preview-store"),
         ],
     )
@@ -921,6 +981,8 @@ def update_sources_table(store_data: Any) -> Any:
     Input("ds-refresh-btn", "n_clicks"),
     Input("ds-purge-confirm-modal-confirm", "n_clicks"),
     Input("ds-mig-delete-sqlite-modal-confirm", "n_clicks"),
+    # Task 63: nạp lại sau khi migration thật xong (khối SQLite cũ đổi trạng thái).
+    Input("ds-mig-done-store", "data"),
 )
 def load_storage_data(*args: Any) -> Any:
     ctx = get_current_ctx()
@@ -1464,29 +1526,173 @@ def handle_migration_precheck(n_clicks: Any, target_ds_id: Any, mode: str | None
     )
 
 
-@callback(
-    Output("ds-mig-result-container", "children", allow_duplicate=True),
-    Input("ds-mig-start-btn", "n_clicks"),
-    State("ds-mig-target-select", "value"),
-    State("ds-mig-mode-select", "value"),
-    prevent_initial_call=True,
-)
-def handle_migration_start(n_clicks: Any, target_ds_id: Any, mode: str | None) -> Any:
-    if not target_ds_id:
-        return alert_box("Lưu ý", "Vui lòng chọn Data Source Oracle đích trước khi chuyển.", tone="warn")
+# --- Stepper chuyển Oracle trong modal (Task 63) ---
 
-    ctx = get_current_ctx()
-    if ctx is None or not is_admin(ctx):
-        return alert_box("Từ chối", "Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện.", tone="crit")
 
-    res = start_migration(ctx, int(target_ds_id), mode=mode or "NO_TEMP")
-    if not res.ok or not res.data:
-        return alert_box("Chuyển dữ liệu thất bại", res.message or "Có lỗi xảy ra trong quá trình chuyển.", tone="crit")
+def _empty_mig_state() -> dict[str, Any]:
+    """Khung stepper 6 bước chưa chạy (chưa có dòng con)."""
+    return {
+        "mode": "fake",
+        "migration_id": None,
+        "target_ds_id": 0,
+        "target_name": "",
+        "mode_label": "NO_TEMP",
+        "status": "idle",
+        "error": None,
+        "steps": [
+            {"key": key, "label": label, "error": None, "items": []}
+            for key, label in zip(MIGRATION_STEP_KEYS, MIGRATION_STEP_LABELS, strict=True)
+        ],
+        "report": None,
+        "next_steps": None,
+    }
 
-    d = res.data
-    report = d.get("report", {})
-    comp_rows = []
-    for t_name, info in report.items():
+
+_MIG_CIRCLE_BASE: dict[str, Any] = {
+    "display": "inline-flex",
+    "alignItems": "center",
+    "justifyContent": "center",
+    "width": "20px",
+    "height": "20px",
+    "borderRadius": "50%",
+    "fontSize": "11px",
+    "fontWeight": 600,
+    "flexShrink": 0,
+}
+
+
+def _render_mig_stepper(state: dict[str, Any] | None) -> Any:
+    """Stepper dọc 6 bước + checklist dòng con.
+
+    Kiểu vòng tròn đánh số của wizard báo cáo: bước đang chạy nền primary,
+    xong dấu ✓ xanh, lỗi dấu ✗ đỏ, chưa chạy vòng xám.
+    """
+    if not state or not state.get("steps"):
+        state = _empty_mig_state()
+    steps = state["steps"]
+    current_idx = -1
+    for i, step in enumerate(steps):
+        if step_status(step) in ("running", "error"):
+            current_idx = i
+            break
+    if current_idx < 0:
+        for i, step in enumerate(steps):
+            if step_status(step) == "pending":
+                current_idx = i
+                break
+
+    blocks: list[Any] = []
+    for i, step in enumerate(steps):
+        st = step_status(step)
+        is_current = i == current_idx
+        if st == "done":
+            circle_text = "✓"
+            circle_style = {
+                **_MIG_CIRCLE_BASE,
+                "border": "1px solid var(--success, #107c10)",
+                "color": "var(--success, #107c10)",
+                "backgroundColor": "var(--bg-surface, #fff)",
+            }
+            status_node = dmc.Text("Xong", size="xs", c="green")
+        elif st == "error":
+            circle_text = "✗"
+            circle_style = {
+                **_MIG_CIRCLE_BASE,
+                "border": "1px solid var(--danger, #c50f1f)",
+                "color": "var(--danger, #c50f1f)",
+                "backgroundColor": "var(--bg-surface, #fff)",
+            }
+            status_node = dmc.Text(step.get("error") or "Lỗi", size="xs", c="red")
+        elif is_current:
+            circle_text = str(i + 1)
+            circle_style = {
+                **_MIG_CIRCLE_BASE,
+                "backgroundColor": "var(--primary, #0f6cbd)",
+                "border": "1px solid var(--primary, #0f6cbd)",
+                "color": "#fff",
+            }
+            status_node = dmc.Text("Đang chạy…", size="xs", c="blue")
+        else:
+            circle_text = str(i + 1)
+            circle_style = {
+                **_MIG_CIRCLE_BASE,
+                "border": "1px solid var(--border, #e0e0e0)",
+                "color": "var(--text-muted, #616161)",
+                "backgroundColor": "var(--bg-surface, #fff)",
+            }
+            status_node = dmc.Text("Chờ", size="xs", c="dimmed")
+
+        item_rows: list[Any] = []
+        for item in step.get("items", []):
+            ist = item.get("status")
+            if ist == "done":
+                icon, color = "✓", "green"
+            elif ist == "error":
+                icon, color = "✗", "red"
+            else:
+                icon, color = "○", "dimmed"
+            item_rows.append(
+                dmc.Group(
+                    [
+                        dmc.Text(icon, size="xs", c=color, style={"width": "14px", "flexShrink": 0}),
+                        dmc.Text(item.get("label", ""), size="xs"),
+                        dmc.Text(item.get("detail") or "", size="xs", c="dimmed"),
+                    ],
+                    gap="xs",
+                    align="center",
+                )
+            )
+        items_node: Any = (
+            dmc.Stack(
+                item_rows,
+                gap=2,
+                style={
+                    "marginLeft": "10px",
+                    "paddingLeft": "18px",
+                    "borderLeft": "1px solid var(--border, #e0e0e0)",
+                    "marginTop": "4px",
+                    "marginBottom": "8px",
+                },
+            )
+            if item_rows
+            else html.Div()
+        )
+        blocks.append(
+            dmc.Box(
+                [
+                    dmc.Group(
+                        [
+                            html.Span(circle_text, style=circle_style),
+                            dmc.Text(
+                                step.get("label", f"Bước {i + 1}"),
+                                size="sm",
+                                fw=600 if is_current else 500,
+                            ),
+                            status_node,
+                        ],
+                        gap="xs",
+                        align="center",
+                    ),
+                    items_node,
+                ]
+            )
+        )
+    return dmc.Stack(blocks, gap="sm")
+
+
+def _render_mig_report(
+    report: dict[str, Any] | None,
+    next_steps: list[str] | None,
+    migration_id: int | None = None,
+    fake: bool = False,
+) -> Any:
+    """Bảng đối chiếu từng bảng + 4 bước làm tay sau khi migration xong.
+
+    D10: đọc đúng khóa source_rows/target_rows của REPORT_JSON (code cũ đọc
+    nhầm src_rows/tgt_rows nên bảng luôn hiện 0).
+    """
+    comp_rows: list[Any] = []
+    for t_name, info in (report or {}).items():
         comp_rows.append(
             dmc.TableTr(
                 [
@@ -1495,11 +1701,11 @@ def handle_migration_start(n_clicks: Any, target_ds_id: Any, mode: str | None) -
                         style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
                     ),
                     dmc.TableTd(
-                        dmc.Text(f"{info.get('src_rows', 0):,}".replace(",", "."), size="xs"),
+                        dmc.Text(f"{info.get('source_rows', 0):,}".replace(",", "."), size="xs"),
                         style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
                     ),
                     dmc.TableTd(
-                        dmc.Text(f"{info.get('tgt_rows', 0):,}".replace(",", "."), size="xs"),
+                        dmc.Text(f"{info.get('target_rows', 0):,}".replace(",", "."), size="xs"),
                         style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
                     ),
                     dmc.TableTd(
@@ -1511,7 +1717,6 @@ def handle_migration_start(n_clicks: Any, target_ds_id: Any, mode: str | None) -
                 ]
             )
         )
-
     t_report = dmc.Table(
         striped=False,
         highlightOnHover=True,
@@ -1530,11 +1735,15 @@ def handle_migration_start(n_clicks: Any, target_ds_id: Any, mode: str | None) -
             dmc.TableTbody(comp_rows),
         ],
     )
-
-    steps_list = [dmc.Text(s, size="xs") for s in d.get("next_steps", [])]
-
+    steps_list = [dmc.Text(s, size="xs") for s in (next_steps or [])]
+    if migration_id:
+        title = f"Chuyển dữ liệu thành công! (Phiên #{migration_id})"
+    elif fake:
+        title = "Chuyển dữ liệu thành công (mô phỏng)!"
+    else:
+        title = "Chuyển dữ liệu thành công!"
     return alert_box(
-        title=f"Chuyển dữ liệu thành công! (Phiên #{d.get('migration_id')})",
+        title=title,
         message=dmc.Stack(
             [
                 dmc.Text("Tất cả các bảng đã được sao chép và đối chiếu toàn vẹn dữ liệu:", size="sm", fw=600),
@@ -1548,6 +1757,360 @@ def handle_migration_start(n_clicks: Any, target_ds_id: Any, mode: str | None) -
         tone="ok",
         icon="lucide:check-circle-2",
     )
+
+
+def _mig_target_name(ctx: Any, ds_id: Any) -> str:
+    """Tên Data Source đích theo id (fallback 'ID <id>' khi không tìm thấy)."""
+    try:
+        res = list_data_sources(ctx)
+        if res.ok and res.data:
+            for item in res.data:
+                data = item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
+                if int(data.get("id", -1)) == int(ds_id):
+                    return str(data.get("name", ""))
+    except Exception:
+        pass
+    return f"ID {ds_id}"
+
+
+@callback(
+    Output("ds-mig-modal", "opened"),
+    Output("ds-mig-modal-summary", "children"),
+    Output("ds-mig-real-switch", "checked"),
+    Output("ds-mig-real-warning", "children", allow_duplicate=True),
+    Output("ds-mig-stepper", "children", allow_duplicate=True),
+    Output("ds-mig-fake-store", "data", allow_duplicate=True),
+    Output("ds-mig-real-run-store", "data", allow_duplicate=True),
+    Output("ds-mig-fake-tick", "disabled", allow_duplicate=True),
+    Output("ds-mig-real-tick", "disabled", allow_duplicate=True),
+    Output("ds-mig-run-btn", "disabled", allow_duplicate=True),
+    Output("ds-mig-modal-result", "children", allow_duplicate=True),
+    Output("ds-mig-result-container", "children", allow_duplicate=True),
+    Input("ds-mig-start-btn", "n_clicks"),
+    Input("ds-mig-modal-close-btn", "n_clicks"),
+    State("ds-mig-modal", "opened"),
+    State("ds-mig-target-select", "value"),
+    State("ds-mig-mode-select", "value"),
+    prevent_initial_call=True,
+)
+def toggle_mig_modal(
+    open_clicks: Any, close_clicks: Any, is_opened: bool, target_ds_id: Any, mode: str | None
+) -> tuple[Any, ...]:
+    """Mở modal chuyển Oracle / đóng modal (task 63).
+
+    Mở: tóm tắt đích + chế độ, reset switch về fake, khôi phục phiên
+    PROCESSING nếu có. Đóng: dừng cả 2 tick (migration thật vẫn chạy nền,
+    mở lại sẽ thấy đúng tiến độ).
+    """
+    no_update_12 = (dash.no_update,) * 12
+    if not open_clicks and not close_clicks:
+        return no_update_12
+    triggered = dash.callback_context.triggered_id
+    if triggered == "ds-mig-modal-close-btn":
+        return (False, *(dash.no_update,) * 6, True, True, dash.no_update, dash.no_update, dash.no_update)
+    if triggered != "ds-mig-start-btn":
+        return no_update_12
+    if not target_ds_id:
+        return (
+            False,
+            *(dash.no_update,) * 10,
+            alert_box("Lưu ý", "Vui lòng chọn Data Source Oracle đích trước khi chuyển.", tone="warn"),
+        )
+    ctx = get_current_ctx()
+    if ctx is None or not is_admin(ctx):
+        return (
+            False,
+            *(dash.no_update,) * 10,
+            alert_box("Từ chối", "Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện.", tone="crit"),
+        )
+    mode_label = mode or "NO_TEMP"
+    active = get_active_migration(ctx)
+    if active.ok and active.data:
+        target_name = _mig_target_name(ctx, active.data.get("TARGET_DS_ID"))
+        summary = dmc.Stack(
+            [
+                dmc.Text(f"Đang có phiên #{active.data.get('ID')} chạy dở.", size="sm", fw=600),
+                dmc.Text(
+                    f"Đích: {target_name} · Chế độ: {active.data.get('MODE')} · Mở lại để theo dõi tiến độ.",
+                    size="sm",
+                    c="dimmed",
+                ),
+            ],
+            gap=2,
+        )
+        checklist = active.data.get("checklist") or _empty_mig_state()
+        started_at = active.data.get("CREATED_AT")
+        run_store = {
+            "run_token": None,
+            "target_ds_id": int(active.data.get("TARGET_DS_ID") or 0),
+            "mode": str(active.data.get("MODE") or "NO_TEMP"),
+            "started_at": started_at.isoformat() if hasattr(started_at, "isoformat") else str(started_at or ""),
+            "migration_id": int(active.data.get("ID") or 0),
+        }
+        return (
+            True,
+            summary,
+            False,
+            html.Div(),
+            _render_mig_stepper(checklist),
+            None,
+            run_store,
+            True,
+            False,
+            True,
+            html.Div(),
+            dash.no_update,
+        )
+    target_name = _mig_target_name(ctx, target_ds_id)
+    summary = dmc.Stack(
+        [
+            dmc.Text(f"Đích: {target_name} · Chế độ: {mode_label}", size="sm", fw=600),
+            dmc.Text(
+                "Mặc định chạy giả lập để kiểm tra trước — không ghi gì sang Oracle. "
+                "Gạt switch 'Migration thật' để chạy thật.",
+                size="sm",
+                c="dimmed",
+            ),
+        ],
+        gap=2,
+    )
+    return (
+        True,
+        summary,
+        False,
+        html.Div(),
+        _render_mig_stepper(_empty_mig_state()),
+        None,
+        None,
+        True,
+        True,
+        False,
+        html.Div(),
+        dash.no_update,
+    )
+
+
+@callback(
+    Output("ds-mig-fake-store", "data", allow_duplicate=True),
+    Output("ds-mig-real-run-store", "data", allow_duplicate=True),
+    Output("ds-mig-fake-tick", "disabled", allow_duplicate=True),
+    Output("ds-mig-real-tick", "disabled", allow_duplicate=True),
+    Output("ds-mig-stepper", "children", allow_duplicate=True),
+    Output("ds-mig-run-btn", "disabled", allow_duplicate=True),
+    Output("ds-mig-modal-result", "children", allow_duplicate=True),
+    Input("ds-mig-run-btn", "n_clicks"),
+    State("ds-mig-target-select", "value"),
+    State("ds-mig-mode-select", "value"),
+    State("ds-mig-real-switch", "checked"),
+    prevent_initial_call=True,
+)
+def handle_mig_run(
+    n_clicks: Any, target_ds_id: Any, mode: str | None, real_checked: Any
+) -> tuple[Any, ...]:
+    """Bắt đầu chạy trong modal: fake = precheck thật + mô phỏng; real =
+    precheck thật + migration thật trong luồng nền."""
+    if not n_clicks:
+        return (dash.no_update,) * 7
+    ctx = get_current_ctx()
+    if ctx is None or not is_admin(ctx):
+        return (
+            None,
+            None,
+            True,
+            True,
+            _render_mig_stepper(_empty_mig_state()),
+            False,
+            alert_box("Từ chối", "Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện.", tone="crit"),
+        )
+    if not target_ds_id:
+        return (
+            None,
+            None,
+            True,
+            True,
+            _render_mig_stepper(_empty_mig_state()),
+            False,
+            alert_box("Lưu ý", "Vui lòng chọn Data Source Oracle đích trước khi chuyển.", tone="warn"),
+        )
+    mode_label = mode or "NO_TEMP"
+    res = precheck(ctx, int(target_ds_id), mode=mode_label)
+    if not res.ok or not res.data:
+        err_state = _empty_mig_state()
+        mark_step_error(err_state, "precheck", res.message or "Kiểm tra trước thất bại.")
+        return (
+            err_state,
+            None,
+            True,
+            True,
+            _render_mig_stepper(err_state),
+            False,
+            alert_box("Kiểm tra thất bại", res.message or "Không thể kiểm tra đích.", tone="crit"),
+        )
+    if not real_checked:
+        state = build_fake_checklist(res.data)
+        return (state, None, False, True, _render_mig_stepper(state), True, html.Div())
+    active = get_active_migration(ctx)
+    if active.ok and active.data:
+        return (
+            None,
+            None,
+            True,
+            True,
+            _render_mig_stepper(_empty_mig_state()),
+            False,
+            alert_box(
+                "Đang chạy",
+                f"Đang có phiên #{active.data.get('ID')} chạy. Hãy mở lại modal để theo dõi.",
+                tone="warn",
+            ),
+        )
+    run_token = uuid.uuid4().hex
+    started_at = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    thread = threading.Thread(
+        target=run_migration_background,
+        args=(ctx, int(target_ds_id), mode_label, run_token),
+        daemon=True,
+    )
+    thread.start()
+    run_store = {
+        "run_token": run_token,
+        "target_ds_id": int(target_ds_id),
+        "mode": mode_label,
+        "started_at": started_at,
+    }
+    init_state = new_checklist(
+        mode="real",
+        target_ds_id=int(target_ds_id),
+        target_name=str(res.data.get("target_name", "")),
+        mode_label=mode_label,
+        tables=list(res.data.get("tables", [])),
+        top_tables=[],
+    )
+    mark_items_done(init_state, "precheck")
+    refresh_status(init_state)
+    return (None, run_store, True, False, _render_mig_stepper(init_state), True, html.Div())
+
+
+@callback(
+    Output("ds-mig-fake-store", "data", allow_duplicate=True),
+    Output("ds-mig-stepper", "children", allow_duplicate=True),
+    Output("ds-mig-fake-tick", "disabled", allow_duplicate=True),
+    Output("ds-mig-modal-result", "children", allow_duplicate=True),
+    Output("ds-mig-run-btn", "disabled", allow_duplicate=True),
+    Input("ds-mig-fake-tick", "n_intervals"),
+    State("ds-mig-fake-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_mig_fake_tick(n_intervals: Any, state: Any) -> tuple[Any, ...]:
+    """Mỗi tick mô phỏng xong thêm 4 dòng checklist (task 63, D8)."""
+    if not state:
+        return (dash.no_update, dash.no_update, True, dash.no_update, dash.no_update)
+    new_state = advance_fake_checklist(state, per_tick=4)
+    if overall_status(new_state) == "done":
+        result = _render_mig_report(new_state.get("report"), new_state.get("next_steps"), fake=True)
+        return (new_state, _render_mig_stepper(new_state), True, result, False)
+    return (new_state, _render_mig_stepper(new_state), False, dash.no_update, True)
+
+
+@callback(
+    Output("ds-mig-stepper", "children", allow_duplicate=True),
+    Output("ds-mig-real-tick", "disabled", allow_duplicate=True),
+    Output("ds-mig-run-btn", "disabled", allow_duplicate=True),
+    Output("ds-mig-modal-result", "children", allow_duplicate=True),
+    Output("ds-mig-done-store", "data"),
+    Output("ds-mig-last-checklist-store", "data"),
+    Input("ds-mig-real-tick", "n_intervals"),
+    State("ds-mig-real-run-store", "data"),
+    State("ds-mig-last-checklist-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_mig_real_tick(n_intervals: Any, run_store: Any, last_raw: Any) -> tuple[Any, ...]:
+    """Poll phiên migration thật mỗi 1,5s: vẽ stepper từ CHECKLIST_JSON,
+    dừng khi DONE/FAILED, không vẽ lại khi checklist không đổi."""
+    if not run_store:
+        return (dash.no_update, True, dash.no_update, dash.no_update, dash.no_update, dash.no_update)
+    ctx = get_current_ctx()
+    if ctx is None or not is_admin(ctx):
+        return (dash.no_update, True, False, dash.no_update, dash.no_update, dash.no_update)
+    token = run_store.get("run_token")
+    if token:
+        outcome = get_migration_run_result(token)
+        if outcome is not None and not outcome.get("ok") and not outcome.get("migration_id"):
+            err_state = _empty_mig_state()
+            mark_step_error(err_state, "precheck", str(outcome.get("message") or "Chuyển dữ liệu thất bại."))
+            return (
+                _render_mig_stepper(err_state),
+                True,
+                False,
+                alert_box(
+                    "Chuyển dữ liệu thất bại",
+                    str(outcome.get("message") or "Có lỗi xảy ra trong quá trình chuyển."),
+                    tone="crit",
+                ),
+                dash.no_update,
+                dash.no_update,
+            )
+    row_res = get_migration_for_poll(ctx, int(run_store["target_ds_id"]), str(run_store.get("started_at") or ""))
+    if not row_res.ok or not row_res.data:
+        started = str(run_store.get("started_at") or "")
+        try:
+            elapsed = (
+                datetime.now(timezone.utc).replace(tzinfo=None) - datetime.fromisoformat(started)
+            ).total_seconds()
+        except (ValueError, TypeError):
+            elapsed = 0
+        if elapsed > 30:
+            return (
+                _render_mig_stepper(_empty_mig_state()),
+                True,
+                False,
+                alert_box(
+                    "Chuyển dữ liệu thất bại",
+                    "Không thấy phiên migration sau 30 giây — có thể kiểm tra trước thất bại. Hãy thử lại.",
+                    tone="crit",
+                ),
+                dash.no_update,
+                dash.no_update,
+            )
+        return (dash.no_update,) * 6
+    row = row_res.data
+    checklist = row.get("checklist") or _empty_mig_state()
+    raw = json.dumps(checklist, sort_keys=True, ensure_ascii=False)
+    if raw == (last_raw or ""):
+        return (dash.no_update,) * 6
+    stepper = _render_mig_stepper(checklist)
+    status = str(row.get("STATUS") or "")
+    if status == "DONE":
+        result = _render_mig_report(
+            row.get("REPORT_JSON"), checklist.get("next_steps"), migration_id=int(row.get("ID") or 0)
+        )
+        return (stepper, True, False, result, {"migration_id": int(row.get("ID") or 0)}, raw)
+    if status == "FAILED":
+        result = alert_box(
+            "Chuyển dữ liệu thất bại",
+            f"{row.get('ERROR_MSG') or 'Có lỗi xảy ra trong quá trình chuyển.'} Hãy xóa schema đích rồi chạy lại.",
+            tone="crit",
+        )
+        return (stepper, True, False, result, dash.no_update, raw)
+    return (stepper, False, True, dash.no_update, dash.no_update, raw)
+
+
+@callback(
+    Output("ds-mig-real-warning", "children", allow_duplicate=True),
+    Input("ds-mig-real-switch", "checked"),
+    prevent_initial_call=True,
+)
+def handle_mig_real_switch(checked: Any) -> Any:
+    """Bật switch 'Migration thật' thì hiện cảnh báo rõ (task 63)."""
+    if not checked:
+        return html.Div()
+    return alert_box(
+        title="Migration thật",
+        message="Hệ thống sẽ ghi dữ liệu thật sang Oracle đích và bật chế độ bảo trì — không ai chạy đối soát mới được trong lúc chuyển. Chỉ bật khi đã kiểm tra kỹ bằng chế độ giả lập.",
+        tone="warn",
+        icon="lucide:alert-triangle",
+    )
+
 
 
 @callback(

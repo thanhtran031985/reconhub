@@ -538,5 +538,14 @@
     "migration_id": "0007_export_progress",
     "task_id": null,
     "timestamp": "2026-11-10T10:54:32.488492+00:00"
+  },
+  {
+    "after": "TEXT, nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_METADATA_MIGRATION.CHECKLIST_JSON",
+    "migration_id": "0008_migration_checklist",
+    "task_id": null,
+    "timestamp": "2026-11-11T14:58:23.641984+00:00"
   }
 ]

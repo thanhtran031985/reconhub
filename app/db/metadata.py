@@ -769,6 +769,8 @@ recon_metadata_migration = Table(
     Column("STAGE", String(30), nullable=True),
     Column("PROGRESS_PCT", Integer, nullable=False, default=0),
     Column("REPORT_JSON", JsonText, nullable=True),
+    # Task 63: tiến độ checklist từng bước con của phiên migration (JSON).
+    Column("CHECKLIST_JSON", JsonText, nullable=True),
     Column("OLD_SQLITE_PATH", String(400), nullable=True),
     Column("OLD_SQLITE_DELETED_AT", DateTime, nullable=True),
     Column("ERROR_MSG", Text, nullable=True),
