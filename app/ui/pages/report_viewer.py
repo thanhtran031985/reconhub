@@ -728,6 +728,23 @@ def _auto_download(ctx: Any, export_id: int) -> tuple[Any, Any]:
     )
 
 
+def _queued_run_id_from_export_store(
+    export_store: dict[str, Any] | None, values: dict[str, Any]
+) -> int | None:
+    """Run đã nộp chạy ngầm trước đó với cùng tham số (task 54, D3).
+
+    Chống bấm Xuất 2 lần sinh 2 run: export-store lưu run_id + values
+    của lần nộp trước; khớp thì dùng lại run đó, request_export dedup
+    trả export đang chờ sẵn.
+    """
+    if not isinstance(export_store, dict):
+        return None
+    run_id = export_store.get("run_id")
+    if run_id is None or export_store.get("values") != values:
+        return None
+    return int(run_id)
+
+
 @callback(
     Output("viewer-export-store", "data"),
     Output("viewer-export-status", "children"),
@@ -744,6 +761,7 @@ def _auto_download(ctx: Any, export_id: int) -> tuple[Any, Any]:
     State({"type": "viewer-param", "index": dash.ALL}, "id"),
     State("viewer-page-store", "data"),
     State("viewer-export-mode", "value"),
+    State("viewer-export-store", "data"),
     prevent_initial_call=True,
 )
 def handle_export_click(
@@ -755,16 +773,21 @@ def handle_export_click(
     param_ids: list[dict[str, Any]] | None,
     page_no: int | None,
     mode: str | None = "now",
+    export_store: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], Any, bool, Any, dict[str, Any], int, bool]:
     """Xuất Excel theo điều kiện tìm kiếm hiện tại (không cần xem trước).
 
     Run hiện tại đúng điều kiện thì xuất lại run đó; khác (hoặc chưa có
-    run, hoặc mở từ ?run=) thì tạo + chạy run mới từ form rồi xuất — vì vậy
-    bấm Xuất cũng query dữ liệu và grid hiện dữ liệu sẽ xuất (task 39).
+    run, hoặc mở từ ?run=) thì tạo run mới từ form rồi xuất.
+    - Chế độ "Xuất ngay": tạo + chạy run mới (đếm tổng + tải trang 1)
+      rồi xuất — vì vậy bấm Xuất cũng query dữ liệu và grid hiện dữ liệu
+      sẽ xuất (task 39).
+    - Chế độ "Chạy ngầm" (task 54): chỉ tạo run QUEUED rồi đưa export
+      vào hàng đợi luôn — KHÔNG chạy báo cáo trước (worker tự chạy query
+      ở nền), grid và run-store giữ nguyên. Bấm lại cùng tham số thì
+      dùng lại run đã nộp (export-store lưu run_id + values).
     Giai đoạn chạy báo cáo chưa có % thật (chưa biết tổng dòng) nên chỉ
     hiện loading trên nút; % thật bắt đầu khi worker export chạy.
-    Chế độ "Chạy ngầm" (task 52): chỉ đưa vào hàng đợi, không poll, không
-    tự tải — user theo dõi và tải file trong Lịch sử báo cáo.
     """
     if not n_clicks:
         raise PreventUpdate
@@ -777,6 +800,37 @@ def handle_export_click(
     page = int(page_no or 1)
     run_id = current.get("run_id")
     if not run_id or current.get("values") != values:
+        if (mode or "now") == "background":
+            # Task 54: chạy ngầm — vào hàng đợi luôn, không chạy báo cáo
+            # trước (không đếm tổng, không tải trang 1). Bấm lại cùng tham
+            # số thì dùng lại run đã nộp (export-store, D3).
+            run_id = _queued_run_id_from_export_store(export_store, values)
+            if run_id is None:
+                created = create_report_run(ctx, report_id, template_id=int(template_id), values=values)
+                if not created.ok or not isinstance(created.data, dict):
+                    return (
+                        {},
+                        notify_error(created.message or "Không tạo được run."),
+                        True,
+                        dash.no_update,
+                        current,
+                        page,
+                        False,
+                    )
+                run_id = int(created.data["id"])
+            res = request_export(ctx, int(run_id), "XLSX")
+            if not res.ok or not isinstance(res.data, dict):
+                return {}, notify_error(res.message or "Không tạo được export."), True, dash.no_update, current, page, False
+            export = res.data
+            return (
+                {"export_id": export["id"], "run_id": int(run_id), "values": values},
+                _background_status(export),
+                True,
+                dash.no_update,
+                current,
+                page,
+                False,
+            )
         created = create_report_run(ctx, report_id, template_id=int(template_id), values=values)
         if not created.ok or not isinstance(created.data, dict):
             return (
@@ -813,7 +867,7 @@ def handle_export_click(
     export = res.data
     if (mode or "now") == "background":
         return (
-            {"export_id": export["id"]},
+            {"export_id": export["id"], "run_id": int(run_id), "values": values},
             _background_status(export),
             True,
             dash.no_update,

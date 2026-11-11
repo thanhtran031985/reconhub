@@ -105,7 +105,13 @@ def _file_hash(path: Path) -> str:
 @service
 @requires_menu("report_center")
 def request_export(ctx: Ctx, run_id: int, format: str, force: bool = False) -> dict[str, Any]:
-    """Đưa run DONE vào hàng đợi export (T26-01, Q7 cache)."""
+    """Đưa run DONE hoặc QUEUED vào hàng đợi export (T26-01, Q7 cache).
+
+    Task 54: run QUEUED (vừa tạo, chưa chạy báo cáo) cũng được phép —
+    worker tự chạy query theo PARAMS_JSON đã lưu và stream, không cần
+    run DONE trước; chỉ mất % thật khi chưa biết tổng dòng (worker ước
+    lượng theo batch). RUNNING/FAILED/CANCELLED vẫn bị từ chối.
+    """
     fmt = (format or "").strip().upper()
     if fmt not in ("XLSX", "CSV"):
         raise ServiceError(
@@ -116,10 +122,10 @@ def request_export(ctx: Ctx, run_id: int, format: str, force: bool = False) -> d
     admin = is_admin(ctx, engine)
     with engine.begin() as conn:
         run = _load_run_row_owned(conn, run_id, ctx, admin)
-        if run["STATUS"] != "DONE":
+        if run["STATUS"] not in ("QUEUED", "DONE"):
             raise ServiceError(
                 ErrorCode.VALIDATION_ERROR,
-                "Chỉ export được run DONE; run chưa chạy xong.",
+                "Chỉ export được run đã chạy xong hoặc đang chờ chạy.",
             )
         if not force:
             # Cache (Q7): DONE export cùng run+format (file đơn) được trả lại;
@@ -708,13 +714,14 @@ def execute_export(
                     written += len(chunk)
                     written_in_part += len(chunk)
                     offset += len(chunk)
-                # Tiến độ ghi file: 10–85% theo số dòng đã ghi / tổng dòng
-                # của run DONE (biết trước tổng nên % là thật, không ước
-                # lượng theo thời gian). Chỉ ghi DB khi % đổi.
                 if total_rows > 0:
                     pct = 10 + int(75 * written / total_rows)
+                    step = f"Đang ghi file Excel: {written} / {total_rows} dòng"
                 else:
+                    # Task 54: run QUEUED chưa có tổng dòng — % ước lượng
+                    # theo batch, text không hiện "/ 0 dòng".
                     pct = min(85, 10 + batch_no * 5)
+                    step = f"Đang ghi file Excel: {written} dòng"
                 pct = min(85, pct)
                 if pct != last_pct:
                     last_pct = pct
@@ -722,7 +729,7 @@ def execute_export(
                         eng,
                         export_id,
                         pct,
-                        f"Đang ghi file Excel: {written} / {total_rows} dòng",
+                        step,
                     )
         finally:
             writer.close()
@@ -764,6 +771,16 @@ def execute_export(
                     PROGRESS_STEP="Hoàn tất",
                     FINISHED_AT=_now(),
                 )
+            )
+            # Task 54: run QUEUED (nộp chạy ngầm khi chưa Xem) thì chốt
+            # luôn thành DONE + tổng dòng đã ghi — Lịch sử hiện "Hoàn
+            # tất" thay vì "Đang chờ" mãi. UPDATE có điều kiện nên không
+            # đụng run DONE đã có ROW_COUNT từ viewer.
+            conn.execute(
+                recon_report_run.update()
+                .where(recon_report_run.c.ID == int(run["ID"]))
+                .where(recon_report_run.c.STATUS == "QUEUED")
+                .values(STATUS="DONE", ROW_COUNT=written, FINISHED_AT=_now())
             )
             write_audit_log(
                 conn,

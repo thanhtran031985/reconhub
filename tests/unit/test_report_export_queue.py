@@ -99,7 +99,8 @@ class TestRequestExport:
     def test_request_validation(self, export_env, operator_ctx):
         from app.services.report_run import create_report_run
 
-        # Run chưa DONE
+        # Task 54: run QUEUED (vừa tạo, chưa chạy) được phép export —
+        # worker tự chạy query ở nền.
         run = create_report_run(
             operator_ctx,
             export_env["report_id"],
@@ -107,6 +108,20 @@ class TestRequestExport:
             values={"p_org": "HN"},
         ).data
         res = _request(operator_ctx, export_env, run["id"], "CSV")
+        assert res.ok, res.message
+        assert res.data["status"] == "QUEUED"
+        # Run RUNNING vẫn bị từ chối.
+        from sqlalchemy import update
+
+        from app.db.metadata import recon_report_run
+
+        with export_env["engine"].begin() as conn:
+            conn.execute(
+                update(recon_report_run)
+                .where(recon_report_run.c.ID == run["id"])
+                .values(STATUS="RUNNING")
+            )
+        res = _request(operator_ctx, export_env, run["id"], "CSV", force=True)
         assert not res.ok and res.code == "VALIDATION_ERROR"
         # Format lạ
         done = _done_run(operator_ctx, export_env)
