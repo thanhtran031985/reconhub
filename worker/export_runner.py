@@ -24,6 +24,7 @@ from app.services.export_retention import (
     sweep_old_exports,
 )
 from app.services.report_export import MAX_RUNNING_PER_USER, execute_export
+from app.services.worker_health import write_worker_heartbeat
 
 logger = structlog.get_logger("export-worker")
 
@@ -216,6 +217,12 @@ class ReportExportWorker:
             poll_interval=self.poll_interval,
         )
         while stop_event is None or not stop_event.is_set():
+            # Task 62: nhịp tim worker — ghi mỗi vòng poll để dashboard
+            # biết worker còn sống; lỗi ghi không được làm chết worker.
+            try:
+                write_worker_heartbeat(self.engine, self.worker_id, "export")
+            except Exception as exc:  # noqa: BLE001 - nhịp tim là phụ
+                logger.warn("Không ghi được nhịp tim worker", error=str(exc))
             self.reset_stale_exports()
             self.maybe_sweep_old_exports()
             # Task 57: claim thêm việc tới khi đủ N luồng (hoặc hết hàng).

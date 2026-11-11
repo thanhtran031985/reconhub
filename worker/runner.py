@@ -13,6 +13,7 @@ from app.db.dialect import get_dialect
 from app.db.engine import get_db_engine
 from app.db.metadata import recon_run, recon_run_queue
 from app.services.run_executor import execute_run
+from app.services.worker_health import write_worker_heartbeat
 
 logger = structlog.get_logger("worker")
 
@@ -122,6 +123,12 @@ class ReconWorker:
 
         heartbeat_counter = 0
         while stop_event is None or not stop_event.is_set():
+            # Task 62: nhịp tim worker — ghi mỗi vòng poll để dashboard
+            # biết worker còn sống; lỗi ghi không được làm chết worker.
+            try:
+                write_worker_heartbeat(self.engine, self.worker_id, "recon")
+            except Exception as exc:  # noqa: BLE001 - nhịp tim là phụ
+                logger.warn("Không ghi được nhịp tim worker", error=str(exc))
             self.reset_stale_jobs()
             self.poll_once()
 
