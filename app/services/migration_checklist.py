@@ -213,6 +213,51 @@ def count_pending(state: dict[str, Any]) -> int:
     )
 
 
+def step_counts(step: dict[str, Any]) -> tuple[int, int]:
+    """(số dòng xong, tổng số dòng) của một bước (task 64)."""
+    items = step.get("items", [])
+    done = sum(1 for i in items if i.get("status") == "done")
+    return done, len(items)
+
+
+def running_item(step: dict[str, Any]) -> dict[str, Any] | None:
+    """Dòng đang làm của một bước = dòng chờ đầu tiên (task 64, D1).
+
+    Bảng chép theo đúng thứ tự nên dòng chờ đầu tiên chính là item đang
+    làm. Người gọi chỉ dùng cho bước đang chạy; trả None khi bước không
+    còn dòng chờ (đã xong hết).
+    """
+    for item in step.get("items", []):
+        if item.get("status") == "pending":
+            return cast("dict[str, Any]", item)
+    return None
+
+
+def running_step_index(state: dict[str, Any]) -> int:
+    """Index bước đang chạy/lỗi; nếu chưa có thì bước chờ đầu tiên; nếu
+    mọi bước xong thì bước cuối (Hoàn tất). Dùng làm bước chọn mặc định.
+
+    Bước chưa có dòng con nào (vd bước đối chiếu trước khi biết top-3
+    bảng) được bỏ qua khi tìm bước chờ — nó không có việc gì để làm.
+    """
+    steps = state.get("steps", [])
+    for i, step in enumerate(steps):
+        if step_status(step) in ("running", "error"):
+            return i
+    for i, step in enumerate(steps):
+        if step_status(step) == "pending" and step.get("items"):
+            return i
+    return len(steps) - 1 if steps else 0
+
+
+def error_step_index(state: dict[str, Any]) -> int | None:
+    """Index bước lỗi đầu tiên, None nếu không có bước nào lỗi."""
+    for i, step in enumerate(state.get("steps", [])):
+        if step_status(step) == "error":
+            return i
+    return None
+
+
 def _find_step(state: dict[str, Any], step_key: str) -> dict[str, Any] | None:
     steps: list[dict[str, Any]] = state.get("steps", [])
     for step in steps:

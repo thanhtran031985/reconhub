@@ -45,11 +45,15 @@ from app.services.migration_checklist import (
     MIGRATION_STEP_LABELS,
     advance_fake_checklist,
     build_fake_checklist,
+    error_step_index,
     mark_items_done,
     mark_step_error,
     new_checklist,
     overall_status,
     refresh_status,
+    running_item,
+    running_step_index,
+    step_counts,
     step_status,
 )
 from app.services.oracle_admin import generate_target_user_sql
@@ -825,14 +829,25 @@ def layout() -> Any:
                 confirm_label="Xác nhận xóa file SQLite",
                 danger=True,
             ),
-            # Modal chuyển dữ liệu sang Oracle (Task 63): stepper 6 bước +
-            # switch thật/fake. Nút "Chuyển sang Oracle" chỉ mở modal, chạy
-            # thật bắt đầu từ nút "Bắt đầu" bên trong.
+            # Modal chuyển dữ liệu sang Oracle (Task 63, layout 2 card
+            # task 64): stepper 6 bước + switch thật/fake. Nút "Chuyển sang
+            # Oracle" chỉ mở modal, chạy thật bắt đầu từ nút "Bắt đầu".
+            # Modal vừa trang (~88vh), footer cố định; chỉ card detail
+            # cuộn riêng khi checklist dài.
             dmc.Modal(
                 id="ds-mig-modal",
                 title=dmc.Text("Chuyển dữ liệu sang Oracle", fw=700, size="md"),
-                size="lg",
+                size="1100px",
                 opened=False,
+                styles={
+                    "content": {"height": "88vh", "display": "flex", "flexDirection": "column"},
+                    "body": {
+                        "flex": "1",
+                        "minHeight": "0",
+                        "display": "flex",
+                        "flexDirection": "column",
+                    },
+                },
                 children=dmc.Stack(
                     [
                         html.Div(id="ds-mig-modal-summary"),
@@ -843,11 +858,49 @@ def layout() -> Any:
                             size="sm",
                         ),
                         html.Div(id="ds-mig-real-warning"),
-                        dmc.ScrollArea(
-                            html.Div(id="ds-mig-stepper"),
-                            h=380,
+                        html.Div(
+                            style={"display": "flex", "gap": "10px", "flex": "1", "minHeight": "0"},
+                            children=[
+                                dmc.Paper(
+                                    [
+                                        dmc.Text("Tiến trình", size="xs", fw=600, c="dimmed"),
+                                        html.Div(id="ds-mig-stepper"),
+                                    ],
+                                    withBorder=True,
+                                    radius="sm",
+                                    p="sm",
+                                    style={
+                                        "width": "330px",
+                                        "flexShrink": "0",
+                                        "display": "flex",
+                                        "flexDirection": "column",
+                                        "minHeight": "0",
+                                    },
+                                ),
+                                dmc.Paper(
+                                    [
+                                        html.Div(
+                                            id="ds-mig-detail",
+                                            style={
+                                                "display": "flex",
+                                                "flexDirection": "column",
+                                                "flex": "1",
+                                                "minHeight": "0",
+                                            },
+                                        )
+                                    ],
+                                    withBorder=True,
+                                    radius="sm",
+                                    p="sm",
+                                    style={
+                                        "flex": "1",
+                                        "minHeight": "0",
+                                        "display": "flex",
+                                        "flexDirection": "column",
+                                    },
+                                ),
+                            ],
                         ),
-                        html.Div(id="ds-mig-modal-result"),
                         dmc.Group(
                             [
                                 button_subtle("Đóng", id="ds-mig-modal-close-btn"),
@@ -857,12 +910,14 @@ def layout() -> Any:
                             gap="sm",
                         ),
                     ],
-                    gap="md",
+                    gap="xs",
+                    style={"flex": "1", "minHeight": "0"},
                 ),
                 radius="lg",
                 withCloseButton=True,
             ),
-            dcc.Store(id="ds-mig-fake-store"),
+            dcc.Store(id="ds-mig-state"),
+            dcc.Store(id="ds-mig-selected-step"),
             dcc.Store(id="ds-mig-real-run-store"),
             dcc.Store(id="ds-mig-last-checklist-store"),
             dcc.Store(id="ds-mig-done-store"),
@@ -1552,24 +1607,42 @@ _MIG_CIRCLE_BASE: dict[str, Any] = {
     "display": "inline-flex",
     "alignItems": "center",
     "justifyContent": "center",
-    "width": "20px",
-    "height": "20px",
+    "width": "28px",
+    "height": "28px",
     "borderRadius": "50%",
-    "fontSize": "11px",
+    "fontSize": "13px",
     "fontWeight": 600,
     "flexShrink": 0,
 }
 
 
-def _render_mig_stepper(state: dict[str, Any] | None) -> Any:
-    """Stepper dọc 6 bước + checklist dòng con.
+def _mig_selected_index(state: dict[str, Any] | None, selected_idx: Any) -> int:
+    """Bước đang chọn: giá trị store nếu hợp lệ, ngược lại bước đang chạy."""
+    state = state or _empty_mig_state()
+    steps = state.get("steps", [])
+    if isinstance(selected_idx, int) and 0 <= selected_idx < len(steps):
+        return selected_idx
+    return running_step_index(state)
 
-    Kiểu vòng tròn đánh số của wizard báo cáo: bước đang chạy nền primary,
-    xong dấu ✓ xanh, lỗi dấu ✗ đỏ, chưa chạy vòng xám.
+
+def _mig_count_unit(step_key: str) -> str:
+    """Đơn vị đếm dòng phụ của stepper: bước sao chép đếm theo bảng."""
+    return "bảng" if step_key == "copy" else "việc"
+
+
+def _render_mig_stepper(state: dict[str, Any] | None, selected_idx: Any = None) -> Any:
+    """Stepper dọc 6 bước (task 64, Master–Detail): chỉ tên bước + dòng phụ
+    trạng thái, bấm được để chọn bước (detail nằm ở card phải).
+
+    Dòng phụ: xong "✓ n/n việc xong" (xanh); đang chạy "Đang: <item đang
+    làm>" + "n/m bảng xong"; chờ "Chờ • 0/m việc"; lỗi hiện thông báo lỗi.
+    Vòng tròn đánh số kiểu wizard: xong ✓ xanh, đang chạy nền primary,
+    lỗi ✗ đỏ, chưa chạy vòng xám.
     """
     if not state or not state.get("steps"):
         state = _empty_mig_state()
     steps = state["steps"]
+    selected = _mig_selected_index(state, selected_idx)
     current_idx = -1
     for i, step in enumerate(steps):
         if step_status(step) in ("running", "error"):
@@ -1581,10 +1654,14 @@ def _render_mig_stepper(state: dict[str, Any] | None) -> Any:
                 current_idx = i
                 break
 
+    ellipsis = {"whiteSpace": "nowrap", "overflow": "hidden", "textOverflow": "ellipsis"}
     blocks: list[Any] = []
     for i, step in enumerate(steps):
         st = step_status(step)
         is_current = i == current_idx
+        is_selected = i == selected
+        done, total = step_counts(step)
+        unit = _mig_count_unit(str(step.get("key", "")))
         if st == "done":
             circle_text = "✓"
             circle_style = {
@@ -1593,7 +1670,7 @@ def _render_mig_stepper(state: dict[str, Any] | None) -> Any:
                 "color": "var(--success, #107c10)",
                 "backgroundColor": "var(--bg-surface, #fff)",
             }
-            status_node = dmc.Text("Xong", size="xs", c="green")
+            sub_lines: list[Any] = [dmc.Text(f"✓ {done}/{total} {unit} xong", size="xs", c="green")]
         elif st == "error":
             circle_text = "✗"
             circle_style = {
@@ -1602,7 +1679,7 @@ def _render_mig_stepper(state: dict[str, Any] | None) -> Any:
                 "color": "var(--danger, #c50f1f)",
                 "backgroundColor": "var(--bg-surface, #fff)",
             }
-            status_node = dmc.Text(step.get("error") or "Lỗi", size="xs", c="red")
+            sub_lines = [dmc.Text(step.get("error") or "Lỗi", size="xs", c="red", style=ellipsis)]
         elif is_current:
             circle_text = str(i + 1)
             circle_style = {
@@ -1611,7 +1688,14 @@ def _render_mig_stepper(state: dict[str, Any] | None) -> Any:
                 "border": "1px solid var(--primary, #0f6cbd)",
                 "color": "#fff",
             }
-            status_node = dmc.Text("Đang chạy…", size="xs", c="blue")
+            run_item = running_item(step)
+            if run_item is not None:
+                sub_lines = [
+                    dmc.Text(f"Đang: {run_item.get('label', '')}", size="xs", c="blue", style=ellipsis),
+                    dmc.Text(f"{done}/{total} {unit} xong", size="xs", c="dimmed"),
+                ]
+            else:
+                sub_lines = [dmc.Text("Đang chạy…", size="xs", c="blue")]
         else:
             circle_text = str(i + 1)
             circle_style = {
@@ -1620,64 +1704,173 @@ def _render_mig_stepper(state: dict[str, Any] | None) -> Any:
                 "color": "var(--text-muted, #616161)",
                 "backgroundColor": "var(--bg-surface, #fff)",
             }
-            status_node = dmc.Text("Chờ", size="xs", c="dimmed")
-
-        item_rows: list[Any] = []
-        for item in step.get("items", []):
-            ist = item.get("status")
-            if ist == "done":
-                icon, color = "✓", "green"
-            elif ist == "error":
-                icon, color = "✗", "red"
-            else:
-                icon, color = "○", "dimmed"
-            item_rows.append(
-                dmc.Group(
-                    [
-                        dmc.Text(icon, size="xs", c=color, style={"width": "14px", "flexShrink": 0}),
-                        dmc.Text(item.get("label", ""), size="xs"),
-                        dmc.Text(item.get("detail") or "", size="xs", c="dimmed"),
-                    ],
-                    gap="xs",
-                    align="center",
-                )
-            )
-        items_node: Any = (
-            dmc.Stack(
-                item_rows,
-                gap=2,
+            sub_lines = [dmc.Text(f"Chờ • 0/{total} {unit}" if total else "Chờ", size="xs", c="dimmed")]
+        connector = (
+            html.Div(
                 style={
-                    "marginLeft": "10px",
-                    "paddingLeft": "18px",
-                    "borderLeft": "1px solid var(--border, #e0e0e0)",
-                    "marginTop": "4px",
-                    "marginBottom": "8px",
-                },
+                    "width": "1px",
+                    "flex": "1",
+                    "minHeight": "12px",
+                    "backgroundColor": "var(--border, #e0e0e0)",
+                }
             )
-            if item_rows
+            if i < len(steps) - 1
             else html.Div()
         )
         blocks.append(
-            dmc.Box(
-                [
-                    dmc.Group(
-                        [
-                            html.Span(circle_text, style=circle_style),
+            html.Div(
+                id={"type": "mig-step", "index": i},
+                n_clicks=0,
+                style={
+                    "display": "flex",
+                    "gap": "10px",
+                    "padding": "4px 8px",
+                    "borderRadius": "6px",
+                    "cursor": "pointer",
+                    **({"backgroundColor": "var(--mantine-color-blue-0)"} if is_selected else {}),
+                },
+                children=[
+                    html.Div(
+                        style={
+                            "display": "flex",
+                            "flexDirection": "column",
+                            "alignItems": "center",
+                            "flexShrink": "0",
+                        },
+                        children=[html.Span(circle_text, style=circle_style), connector],
+                    ),
+                    html.Div(
+                        style={"paddingTop": "4px", "minWidth": "0", "flex": "1"},
+                        children=[
                             dmc.Text(
                                 step.get("label", f"Bước {i + 1}"),
                                 size="sm",
                                 fw=600 if is_current else 500,
                             ),
-                            status_node,
+                            *sub_lines,
                         ],
-                        gap="xs",
-                        align="center",
                     ),
-                    items_node,
-                ]
+                ],
             )
         )
-    return dmc.Stack(blocks, gap="sm")
+    return dmc.Stack(blocks, gap=0)
+
+
+def _render_mig_detail(state: dict[str, Any] | None, selected_idx: Any = None, alert: Any = None) -> Any:
+    """Card chi tiết bước (task 64, Master–Detail): header (tên bước +
+    badge trạng thái + "n/m việc xong") + checklist dòng con của bước
+    đang chọn (cuộn riêng khi dài) + báo cáo đối chiếu ở bước Hoàn tất
+    khi chạy xong.
+    """
+    if not state or not state.get("steps"):
+        state = _empty_mig_state()
+    steps = state["steps"]
+    idx = _mig_selected_index(state, selected_idx)
+    step = steps[idx]
+    st = step_status(step)
+    done, total = step_counts(step)
+    is_current = idx == running_step_index(state)
+    if st == "done":
+        badge = dmc.Badge("Xong", color="green", variant="light", size="xs")
+    elif st == "error":
+        badge = dmc.Badge("Lỗi", color="red", variant="light", size="xs")
+    elif is_current:
+        badge = dmc.Badge("Đang chạy", color="blue", variant="light", size="xs")
+    else:
+        badge = dmc.Badge("Chờ", color="gray", variant="light", size="xs")
+    header = dmc.Group(
+        [
+            dmc.Text(step.get("label", f"Bước {idx + 1}"), size="sm", fw=700),
+            badge,
+            dmc.Text(
+                f"{done}/{total} việc xong",
+                size="xs",
+                c="dimmed",
+                style={"marginLeft": "auto"},
+            ),
+        ],
+        gap="xs",
+        align="center",
+    )
+    run_item = running_item(step) if (is_current and st not in ("done", "error")) else None
+    item_rows: list[Any] = []
+    for item in step.get("items", []):
+        ist = item.get("status")
+        is_run = run_item is not None and item.get("id") == run_item.get("id")
+        if ist == "done":
+            icon, color = "✓", "green"
+            row_style: dict[str, Any] = {}
+            label_style: dict[str, Any] = {}
+            extra: Any = html.Div()
+        elif is_run:
+            icon, color = "●", "blue"
+            row_style = {
+                "backgroundColor": "var(--mantine-color-blue-0)",
+                "borderRadius": "6px",
+                "padding": "4px 6px",
+            }
+            label_style = {"fontWeight": 600, "color": "var(--primary, #0f6cbd)"}
+            extra = dmc.Badge("Đang chạy", color="blue", variant="light", size="xs")
+        elif ist == "error":
+            icon, color = "✗", "red"
+            row_style = {}
+            label_style = {}
+            extra = html.Div()
+        else:
+            icon, color = "○", "dimmed"
+            row_style = {}
+            label_style = {"color": "var(--text-muted, #616161)"}
+            extra = html.Div()
+        item_rows.append(
+            dmc.Group(
+                [
+                    dmc.Text(icon, size="xs", c=color, style={"width": "14px", "flexShrink": 0}),
+                    dmc.Text(item.get("label", ""), size="xs", style=label_style),
+                    dmc.Text(item.get("detail") or "", size="xs", c="dimmed"),
+                    extra,
+                ],
+                gap="xs",
+                align="center",
+                style=row_style,
+            )
+        )
+    content: list[Any] = []
+    if alert is not None:
+        content.append(alert)
+    if step.get("error"):
+        content.append(alert_box("Bước này lỗi", str(step.get("error")), tone="crit"))
+    if not item_rows:
+        content.append(
+            dmc.Text(
+                "Chưa có dữ liệu — bấm “Bắt đầu” để chạy.",
+                size="sm",
+                c="dimmed",
+                py="md",
+                ta="center",
+            )
+        )
+    else:
+        content.extend(item_rows)
+    if idx == len(steps) - 1 and overall_status(state) == "done":
+        content.append(
+            _render_mig_report(
+                state.get("report"),
+                state.get("next_steps"),
+                migration_id=state.get("migration_id"),
+                fake=str(state.get("mode")) == "fake",
+            )
+        )
+    return dmc.Stack(
+        [
+            header,
+            dmc.ScrollArea(
+                dmc.Stack(content, gap="xs"),
+                style={"flex": "1", "minHeight": "0"},
+            ),
+        ],
+        gap="xs",
+        style={"flex": "1", "minHeight": "0"},
+    )
 
 
 def _render_mig_report(
@@ -1779,12 +1972,13 @@ def _mig_target_name(ctx: Any, ds_id: Any) -> str:
     Output("ds-mig-real-switch", "checked"),
     Output("ds-mig-real-warning", "children", allow_duplicate=True),
     Output("ds-mig-stepper", "children", allow_duplicate=True),
-    Output("ds-mig-fake-store", "data", allow_duplicate=True),
+    Output("ds-mig-detail", "children", allow_duplicate=True),
+    Output("ds-mig-selected-step", "data", allow_duplicate=True),
+    Output("ds-mig-state", "data", allow_duplicate=True),
     Output("ds-mig-real-run-store", "data", allow_duplicate=True),
     Output("ds-mig-fake-tick", "disabled", allow_duplicate=True),
     Output("ds-mig-real-tick", "disabled", allow_duplicate=True),
     Output("ds-mig-run-btn", "disabled", allow_duplicate=True),
-    Output("ds-mig-modal-result", "children", allow_duplicate=True),
     Output("ds-mig-result-container", "children", allow_duplicate=True),
     Input("ds-mig-start-btn", "n_clicks"),
     Input("ds-mig-modal-close-btn", "n_clicks"),
@@ -1796,31 +1990,31 @@ def _mig_target_name(ctx: Any, ds_id: Any) -> str:
 def toggle_mig_modal(
     open_clicks: Any, close_clicks: Any, is_opened: bool, target_ds_id: Any, mode: str | None
 ) -> tuple[Any, ...]:
-    """Mở modal chuyển Oracle / đóng modal (task 63).
+    """Mở modal chuyển Oracle / đóng modal (task 63, layout 2 card task 64).
 
     Mở: tóm tắt đích + chế độ, reset switch về fake, khôi phục phiên
-    PROCESSING nếu có. Đóng: dừng cả 2 tick (migration thật vẫn chạy nền,
-    mở lại sẽ thấy đúng tiến độ).
+    PROCESSING nếu có (bước chọn mặc định = bước đang chạy). Đóng: dừng
+    cả 2 tick (migration thật vẫn chạy nền, mở lại sẽ thấy đúng tiến độ).
     """
-    no_update_12 = (dash.no_update,) * 12
+    no_update_13 = (dash.no_update,) * 13
     if not open_clicks and not close_clicks:
-        return no_update_12
+        return no_update_13
     triggered = dash.callback_context.triggered_id
     if triggered == "ds-mig-modal-close-btn":
-        return (False, *(dash.no_update,) * 6, True, True, dash.no_update, dash.no_update, dash.no_update)
+        return (False, *(dash.no_update,) * 8, True, True, dash.no_update, dash.no_update)
     if triggered != "ds-mig-start-btn":
-        return no_update_12
+        return no_update_13
     if not target_ds_id:
         return (
             False,
-            *(dash.no_update,) * 10,
+            *(dash.no_update,) * 11,
             alert_box("Lưu ý", "Vui lòng chọn Data Source Oracle đích trước khi chuyển.", tone="warn"),
         )
     ctx = get_current_ctx()
     if ctx is None or not is_admin(ctx):
         return (
             False,
-            *(dash.no_update,) * 10,
+            *(dash.no_update,) * 11,
             alert_box("Từ chối", "Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện.", tone="crit"),
         )
     mode_label = mode or "NO_TEMP"
@@ -1839,6 +2033,7 @@ def toggle_mig_modal(
             gap=2,
         )
         checklist = active.data.get("checklist") or _empty_mig_state()
+        selected = running_step_index(checklist)
         started_at = active.data.get("CREATED_AT")
         run_store = {
             "run_token": None,
@@ -1852,13 +2047,14 @@ def toggle_mig_modal(
             summary,
             False,
             html.Div(),
-            _render_mig_stepper(checklist),
-            None,
+            _render_mig_stepper(checklist, selected),
+            _render_mig_detail(checklist, selected),
+            selected,
+            checklist,
             run_store,
             True,
             False,
             True,
-            html.Div(),
             dash.no_update,
         )
     target_name = _mig_target_name(ctx, target_ds_id)
@@ -1874,53 +2070,64 @@ def toggle_mig_modal(
         ],
         gap=2,
     )
+    empty = _empty_mig_state()
     return (
         True,
         summary,
         False,
         html.Div(),
-        _render_mig_stepper(_empty_mig_state()),
+        _render_mig_stepper(empty, 0),
+        _render_mig_detail(empty, 0),
+        0,
         None,
         None,
         True,
         True,
         False,
-        html.Div(),
         dash.no_update,
     )
 
 
 @callback(
-    Output("ds-mig-fake-store", "data", allow_duplicate=True),
+    Output("ds-mig-state", "data", allow_duplicate=True),
     Output("ds-mig-real-run-store", "data", allow_duplicate=True),
     Output("ds-mig-fake-tick", "disabled", allow_duplicate=True),
     Output("ds-mig-real-tick", "disabled", allow_duplicate=True),
     Output("ds-mig-stepper", "children", allow_duplicate=True),
+    Output("ds-mig-detail", "children", allow_duplicate=True),
+    Output("ds-mig-selected-step", "data", allow_duplicate=True),
     Output("ds-mig-run-btn", "disabled", allow_duplicate=True),
-    Output("ds-mig-modal-result", "children", allow_duplicate=True),
     Input("ds-mig-run-btn", "n_clicks"),
     State("ds-mig-target-select", "value"),
     State("ds-mig-mode-select", "value"),
     State("ds-mig-real-switch", "checked"),
     prevent_initial_call=True,
 )
-def handle_mig_run(
-    n_clicks: Any, target_ds_id: Any, mode: str | None, real_checked: Any
-) -> tuple[Any, ...]:
+def handle_mig_run(n_clicks: Any, target_ds_id: Any, mode: str | None, real_checked: Any) -> tuple[Any, ...]:
     """Bắt đầu chạy trong modal: fake = precheck thật + mô phỏng; real =
     precheck thật + migration thật trong luồng nền."""
     if not n_clicks:
-        return (dash.no_update,) * 7
+        return (dash.no_update,) * 8
     ctx = get_current_ctx()
+    empty = _empty_mig_state()
     if ctx is None or not is_admin(ctx):
         return (
             None,
             None,
             True,
             True,
-            _render_mig_stepper(_empty_mig_state()),
+            _render_mig_stepper(empty, 0),
+            _render_mig_detail(
+                empty,
+                0,
+                alert=alert_box(
+                    "Từ chối",
+                    "Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện.",
+                    tone="crit",
+                ),
+            ),
+            0,
             False,
-            alert_box("Từ chối", "Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện.", tone="crit"),
         )
     if not target_ds_id:
         return (
@@ -1928,9 +2135,18 @@ def handle_mig_run(
             None,
             True,
             True,
-            _render_mig_stepper(_empty_mig_state()),
+            _render_mig_stepper(empty, 0),
+            _render_mig_detail(
+                empty,
+                0,
+                alert=alert_box(
+                    "Lưu ý",
+                    "Vui lòng chọn Data Source Oracle đích trước khi chuyển.",
+                    tone="warn",
+                ),
+            ),
+            0,
             False,
-            alert_box("Lưu ý", "Vui lòng chọn Data Source Oracle đích trước khi chuyển.", tone="warn"),
         )
     mode_label = mode or "NO_TEMP"
     res = precheck(ctx, int(target_ds_id), mode=mode_label)
@@ -1942,27 +2158,53 @@ def handle_mig_run(
             None,
             True,
             True,
-            _render_mig_stepper(err_state),
+            _render_mig_stepper(err_state, 0),
+            _render_mig_detail(
+                err_state,
+                0,
+                alert=alert_box(
+                    "Kiểm tra thất bại",
+                    res.message or "Không thể kiểm tra đích.",
+                    tone="crit",
+                ),
+            ),
+            0,
             False,
-            alert_box("Kiểm tra thất bại", res.message or "Không thể kiểm tra đích.", tone="crit"),
         )
     if not real_checked:
         state = build_fake_checklist(res.data)
-        return (state, None, False, True, _render_mig_stepper(state), True, html.Div())
+        selected = running_step_index(state)
+        return (
+            state,
+            None,
+            False,
+            True,
+            _render_mig_stepper(state, selected),
+            _render_mig_detail(state, selected),
+            selected,
+            True,
+        )
     active = get_active_migration(ctx)
     if active.ok and active.data:
+        checklist = active.data.get("checklist") or _empty_mig_state()
+        selected = running_step_index(checklist)
         return (
-            None,
+            checklist,
             None,
             True,
             True,
-            _render_mig_stepper(_empty_mig_state()),
-            False,
-            alert_box(
-                "Đang chạy",
-                f"Đang có phiên #{active.data.get('ID')} chạy. Hãy mở lại modal để theo dõi.",
-                tone="warn",
+            _render_mig_stepper(checklist, selected),
+            _render_mig_detail(
+                checklist,
+                selected,
+                alert=alert_box(
+                    "Đang chạy",
+                    f"Đang có phiên #{active.data.get('ID')} chạy. Hãy mở lại modal để theo dõi.",
+                    tone="warn",
+                ),
             ),
+            selected,
+            False,
         )
     run_token = uuid.uuid4().hex
     started_at = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
@@ -1988,50 +2230,103 @@ def handle_mig_run(
     )
     mark_items_done(init_state, "precheck")
     refresh_status(init_state)
-    return (None, run_store, True, False, _render_mig_stepper(init_state), True, html.Div())
+    selected = running_step_index(init_state)
+    return (
+        init_state,
+        run_store,
+        True,
+        False,
+        _render_mig_stepper(init_state, selected),
+        _render_mig_detail(init_state, selected),
+        selected,
+        True,
+    )
 
 
 @callback(
-    Output("ds-mig-fake-store", "data", allow_duplicate=True),
+    Output("ds-mig-state", "data", allow_duplicate=True),
     Output("ds-mig-stepper", "children", allow_duplicate=True),
     Output("ds-mig-fake-tick", "disabled", allow_duplicate=True),
-    Output("ds-mig-modal-result", "children", allow_duplicate=True),
+    Output("ds-mig-detail", "children", allow_duplicate=True),
+    Output("ds-mig-selected-step", "data", allow_duplicate=True),
     Output("ds-mig-run-btn", "disabled", allow_duplicate=True),
     Input("ds-mig-fake-tick", "n_intervals"),
-    State("ds-mig-fake-store", "data"),
+    State("ds-mig-state", "data"),
+    State("ds-mig-selected-step", "data"),
     prevent_initial_call=True,
 )
-def handle_mig_fake_tick(n_intervals: Any, state: Any) -> tuple[Any, ...]:
-    """Mỗi tick mô phỏng xong thêm 4 dòng checklist (task 63, D8)."""
+def handle_mig_fake_tick(n_intervals: Any, state: Any, selected: Any) -> tuple[Any, ...]:
+    """Mỗi tick mô phỏng xong thêm 4 dòng checklist (task 63, D8).
+
+    Bước chọn giữ nguyên lựa chọn của user (sticky); chỉ khi chạy xong
+    mới nhảy sang bước Hoàn tất để hiện báo cáo.
+    """
     if not state:
-        return (dash.no_update, dash.no_update, True, dash.no_update, dash.no_update)
+        return (dash.no_update, dash.no_update, True, dash.no_update, dash.no_update, dash.no_update)
     new_state = advance_fake_checklist(state, per_tick=4)
+    selected = _mig_selected_index(new_state, selected)
     if overall_status(new_state) == "done":
-        result = _render_mig_report(new_state.get("report"), new_state.get("next_steps"), fake=True)
-        return (new_state, _render_mig_stepper(new_state), True, result, False)
-    return (new_state, _render_mig_stepper(new_state), False, dash.no_update, True)
+        return (
+            new_state,
+            _render_mig_stepper(new_state, 5),
+            True,
+            _render_mig_detail(new_state, 5),
+            5,
+            False,
+        )
+    return (
+        new_state,
+        _render_mig_stepper(new_state, selected),
+        False,
+        _render_mig_detail(new_state, selected),
+        dash.no_update,
+        True,
+    )
 
 
 @callback(
+    Output("ds-mig-state", "data", allow_duplicate=True),
     Output("ds-mig-stepper", "children", allow_duplicate=True),
+    Output("ds-mig-detail", "children", allow_duplicate=True),
     Output("ds-mig-real-tick", "disabled", allow_duplicate=True),
     Output("ds-mig-run-btn", "disabled", allow_duplicate=True),
-    Output("ds-mig-modal-result", "children", allow_duplicate=True),
+    Output("ds-mig-selected-step", "data", allow_duplicate=True),
     Output("ds-mig-done-store", "data"),
     Output("ds-mig-last-checklist-store", "data"),
     Input("ds-mig-real-tick", "n_intervals"),
     State("ds-mig-real-run-store", "data"),
     State("ds-mig-last-checklist-store", "data"),
+    State("ds-mig-selected-step", "data"),
     prevent_initial_call=True,
 )
-def handle_mig_real_tick(n_intervals: Any, run_store: Any, last_raw: Any) -> tuple[Any, ...]:
-    """Poll phiên migration thật mỗi 1,5s: vẽ stepper từ CHECKLIST_JSON,
-    dừng khi DONE/FAILED, không vẽ lại khi checklist không đổi."""
+def handle_mig_real_tick(n_intervals: Any, run_store: Any, last_raw: Any, selected: Any) -> tuple[Any, ...]:
+    """Poll phiên migration thật mỗi 1,5s: vẽ stepper + detail từ
+    CHECKLIST_JSON, dừng khi DONE/FAILED, không vẽ lại khi checklist
+    không đổi. Bước chọn giữ nguyên lựa chọn của user; chỉ khi xong/lỗi
+    mới nhảy sang bước Hoàn tất / bước lỗi."""
     if not run_store:
-        return (dash.no_update, True, dash.no_update, dash.no_update, dash.no_update, dash.no_update)
+        return (
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            True,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+        )
     ctx = get_current_ctx()
     if ctx is None or not is_admin(ctx):
-        return (dash.no_update, True, False, dash.no_update, dash.no_update, dash.no_update)
+        return (
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            True,
+            False,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+        )
     token = run_store.get("run_token")
     if token:
         outcome = get_migration_run_result(token)
@@ -2039,14 +2334,20 @@ def handle_mig_real_tick(n_intervals: Any, run_store: Any, last_raw: Any) -> tup
             err_state = _empty_mig_state()
             mark_step_error(err_state, "precheck", str(outcome.get("message") or "Chuyển dữ liệu thất bại."))
             return (
-                _render_mig_stepper(err_state),
+                err_state,
+                _render_mig_stepper(err_state, 0),
+                _render_mig_detail(
+                    err_state,
+                    0,
+                    alert=alert_box(
+                        "Chuyển dữ liệu thất bại",
+                        str(outcome.get("message") or "Có lỗi xảy ra trong quá trình chuyển."),
+                        tone="crit",
+                    ),
+                ),
                 True,
                 False,
-                alert_box(
-                    "Chuyển dữ liệu thất bại",
-                    str(outcome.get("message") or "Có lỗi xảy ra trong quá trình chuyển."),
-                    tone="crit",
-                ),
+                0,
                 dash.no_update,
                 dash.no_update,
             )
@@ -2060,39 +2361,101 @@ def handle_mig_real_tick(n_intervals: Any, run_store: Any, last_raw: Any) -> tup
         except (ValueError, TypeError):
             elapsed = 0
         if elapsed > 30:
+            empty = _empty_mig_state()
             return (
-                _render_mig_stepper(_empty_mig_state()),
+                empty,
+                _render_mig_stepper(empty, 0),
+                _render_mig_detail(
+                    empty,
+                    0,
+                    alert=alert_box(
+                        "Chuyển dữ liệu thất bại",
+                        "Không thấy phiên migration sau 30 giây — có thể kiểm tra trước thất bại. Hãy thử lại.",
+                        tone="crit",
+                    ),
+                ),
                 True,
                 False,
-                alert_box(
-                    "Chuyển dữ liệu thất bại",
-                    "Không thấy phiên migration sau 30 giây — có thể kiểm tra trước thất bại. Hãy thử lại.",
-                    tone="crit",
-                ),
+                0,
                 dash.no_update,
                 dash.no_update,
             )
-        return (dash.no_update,) * 6
+        return (dash.no_update,) * 8
     row = row_res.data
     checklist = row.get("checklist") or _empty_mig_state()
     raw = json.dumps(checklist, sort_keys=True, ensure_ascii=False)
     if raw == (last_raw or ""):
-        return (dash.no_update,) * 6
-    stepper = _render_mig_stepper(checklist)
+        return (dash.no_update,) * 8
+    selected = _mig_selected_index(checklist, selected)
     status = str(row.get("STATUS") or "")
     if status == "DONE":
-        result = _render_mig_report(
-            row.get("REPORT_JSON"), checklist.get("next_steps"), migration_id=int(row.get("ID") or 0)
+        return (
+            checklist,
+            _render_mig_stepper(checklist, 5),
+            _render_mig_detail(checklist, 5),
+            True,
+            False,
+            5,
+            {"migration_id": int(row.get("ID") or 0)},
+            raw,
         )
-        return (stepper, True, False, result, {"migration_id": int(row.get("ID") or 0)}, raw)
     if status == "FAILED":
-        result = alert_box(
-            "Chuyển dữ liệu thất bại",
-            f"{row.get('ERROR_MSG') or 'Có lỗi xảy ra trong quá trình chuyển.'} Hãy xóa schema đích rồi chạy lại.",
-            tone="crit",
+        err_idx = error_step_index(checklist)
+        err_idx = err_idx if err_idx is not None else running_step_index(checklist)
+        return (
+            checklist,
+            _render_mig_stepper(checklist, err_idx),
+            _render_mig_detail(
+                checklist,
+                err_idx,
+                alert=alert_box(
+                    "Chuyển dữ liệu thất bại",
+                    f"{row.get('ERROR_MSG') or 'Có lỗi xảy ra trong quá trình chuyển.'} Hãy xóa schema đích rồi chạy lại.",
+                    tone="crit",
+                ),
+            ),
+            True,
+            False,
+            err_idx,
+            dash.no_update,
+            raw,
         )
-        return (stepper, True, False, result, dash.no_update, raw)
-    return (stepper, False, True, dash.no_update, dash.no_update, raw)
+    return (
+        checklist,
+        _render_mig_stepper(checklist, selected),
+        _render_mig_detail(checklist, selected),
+        False,
+        True,
+        dash.no_update,
+        dash.no_update,
+        raw,
+    )
+
+
+@callback(
+    Output("ds-mig-selected-step", "data", allow_duplicate=True),
+    Output("ds-mig-detail", "children", allow_duplicate=True),
+    Input({"type": "mig-step", "index": ALL}, "n_clicks"),
+    State("ds-mig-state", "data"),
+    State("ds-mig-selected-step", "data"),
+    prevent_initial_call=True,
+)
+def handle_mig_step_click(clicks: Any, state: Any, selected: Any) -> tuple[Any, ...]:
+    """Bấm một bước trong stepper thì chọn bước đó để xem detail (task 64).
+
+    Guard: lần vẽ lại stepper (tick/poll) tạo lại các div với n_clicks=0
+    sẽ kích hoạt callback — trả no_update khi không có click thật.
+    """
+    if not any(c for c in (clicks or [])):
+        return dash.no_update, dash.no_update
+    triggered = dash.callback_context.triggered_id
+    if not isinstance(triggered, dict) or triggered.get("type") != "mig-step":
+        return dash.no_update, dash.no_update
+    idx = triggered.get("index")
+    if not isinstance(idx, int):
+        return dash.no_update, dash.no_update
+    checklist = state or _empty_mig_state()
+    return idx, _render_mig_detail(checklist, idx)
 
 
 @callback(

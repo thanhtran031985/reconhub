@@ -446,7 +446,7 @@ def test_mig_modal_open_guard_no_clicks(monkeypatch) -> None:
 
     out = toggle_mig_modal(None, None, False, None, None)
     assert isinstance(out, tuple)
-    assert len(out) == 12
+    assert len(out) == 13
     assert all(v is dash.no_update for v in out)
     out2 = toggle_mig_modal(0, 0, False, None, None)
     assert all(v is dash.no_update for v in out2)
@@ -460,8 +460,8 @@ def test_mig_modal_close_returns_closed(monkeypatch) -> None:
     )
     out = toggle_mig_modal(None, 1, True, None, None)
     assert out[0] is False  # modal đóng
-    assert out[7] is True  # fake tick tắt
-    assert out[8] is True  # real tick tắt
+    assert out[9] is True  # fake tick tắt
+    assert out[10] is True  # real tick tắt
 
 
 def test_mig_run_guard_no_clicks() -> None:
@@ -469,7 +469,7 @@ def test_mig_run_guard_no_clicks() -> None:
 
     out = handle_mig_run(None, None, None, False)
     assert isinstance(out, tuple)
-    assert len(out) == 7
+    assert len(out) == 8
     assert all(v is dash.no_update for v in out)
     assert all(v is dash.no_update for v in handle_mig_run(0, None, None, False))
 
@@ -477,7 +477,7 @@ def test_mig_run_guard_no_clicks() -> None:
 def test_mig_fake_tick_guard_no_state() -> None:
     from app.ui.pages.data_sources import handle_mig_fake_tick
 
-    out = handle_mig_fake_tick(1, None)
+    out = handle_mig_fake_tick(1, None, None)
     assert out[2] is True  # tick tắt khi không có state
     assert out[0] is dash.no_update
 
@@ -491,8 +491,13 @@ def test_mig_stepper_renders_six_steps() -> None:
     blob = str(node)
     for label in MIGRATION_STEP_LABELS:
         assert label in blob
-    assert "RECON_RESULT_ROW" in blob
-    assert "Quyền ADMIN" in blob
+    # Dòng phụ: bước 1 xong, bước 2 đang chạy, bước 3 chờ (task 64).
+    assert "✓ 6/6 việc xong" in blob
+    assert "Đang: Ghi MAINTENANCE=Y vào RECON_APP_SETTING" in blob
+    assert "Chờ • 0/1 việc" in blob
+    # Checklist dòng con nằm ở detail (task 64), không gộp trong stepper.
+    assert "RECON_RESULT_ROW" not in blob
+    assert "Quyền ADMIN" not in blob
 
 
 def test_mig_run_fake_path_uses_real_precheck(mig63_env, monkeypatch) -> None:
@@ -503,14 +508,16 @@ def test_mig_run_fake_path_uses_real_precheck(mig63_env, monkeypatch) -> None:
     src_engine, _, admin_ctx, ds_id = mig63_env
     monkeypatch.setattr("app.ui.pages.data_sources.get_current_ctx", lambda: admin_ctx)
     out = handle_mig_run(1, str(ds_id), "NO_TEMP", False)
-    fake_store, real_store, fake_disabled, real_disabled, stepper, run_disabled, result = out
-    assert fake_store is not None
-    assert fake_store["mode"] == "fake"
-    assert step_status(fake_store["steps"][0]) == "done"
+    state, real_store, fake_disabled, real_disabled, stepper, detail, selected, run_disabled = out
+    assert state is not None
+    assert state["mode"] == "fake"
+    assert step_status(state["steps"][0]) == "done"
     assert real_store is None
     assert fake_disabled is False
     assert real_disabled is True
     assert run_disabled is True
+    assert selected == 1  # bước đang chạy: bảo trì
+    assert "Ghi MAINTENANCE=Y vào RECON_APP_SETTING" in str(detail)
     with src_engine.connect() as conn:
         assert conn.execute(select(recon_metadata_migration)).fetchall() == []
         from app.db.metadata import recon_app_setting
