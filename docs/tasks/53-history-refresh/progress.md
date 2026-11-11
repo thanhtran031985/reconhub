@@ -20,3 +20,9 @@
 - Bài học: React giữ lại DOM node khi vẽ lại cùng cấu trúc (không có
   key) nên không assert "dòng bị thay thế" được — check 53c đổi sang
   chèn run mới vào DB rồi bấm "Làm mới" và assert tổng tăng ngay.
+
+## Bước 5 — Full suite + patch (xong)
+- Full suite 1525 pass, 6 skipped (1511 + 14 test mới task 53).
+- Patch ~/workspace/reconhub-task53.patch, áp sau patch 52, không cần
+  db-migrate, chỉ khởi động lại app. Đang chờ user áp + kiểm chứng
+  trên app thật.
