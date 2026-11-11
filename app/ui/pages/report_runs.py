@@ -3,6 +3,8 @@
 Task 43: tên + nhóm báo cáo, cột tham số, bắt đầu/kết thúc/tổng (giây),
 dòng format dấu phẩy, icon tải file, bỏ nút Xem, chạy lại qua viewer
 (?rerun_from=), lọc theo ngày/nhóm/tên/người chạy, chọn cỡ trang.
+Task 55: bảng chuyển sang AG Grid (getRowId + rowData) — tick chỉ cập
+nhật dòng đổi tại chỗ, nút bấm trong cell đi qua cellClicked.
 """
 
 from __future__ import annotations
@@ -12,9 +14,8 @@ from typing import Any
 
 import dash
 import dash_mantine_components as dmc
-from dash import ALL, Input, Output, State, callback, dcc, html
+from dash import Input, Output, State, callback, dcc, html
 from dash.exceptions import PreventUpdate
-from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
 from app.db.engine import get_recon_engine
@@ -29,7 +30,7 @@ from app.services.report_export import (
 from app.services.report_run import list_report_runs, list_run_creators
 from app.ui.components.alert_box import alert_box
 from app.ui.components.command_bar import command_bar
-from app.ui.components.empty_state import empty_state
+from app.ui.components.data_grid import data_grid
 from app.ui.components.notification import notify_error, notify_success
 from app.ui.components.page_header import page_header
 from app.ui.formatters import format_datetime
@@ -111,232 +112,97 @@ def _fmt_params(params: Any) -> str:
     return " · ".join(f"{code}={_fmt_param_value(value)}" for code, value in params.items())
 
 
-def _status_badge(status: str) -> dmc.Badge:
-    color = {
-        "DONE": "green",
-        "FAILED": "red",
-        "RUNNING": "blue",
-        "QUEUED": "gray",
-        "CANCELLED": "gray",
-    }.get(status, "gray")
-    label = {
-        "DONE": "Hoàn tất",
-        "FAILED": "Lỗi",
-        "RUNNING": "Đang chạy",
-        "QUEUED": "Đang chờ",
-        "CANCELLED": "Đã hủy",
-    }.get(status, status)
-    return dmc.Badge(label, color=color, variant="light")
+_RUN_STATUS_LABELS: dict[str, str] = {
+    "DONE": "Hoàn tất",
+    "FAILED": "Lỗi",
+    "RUNNING": "Đang chạy",
+    "QUEUED": "Đang chờ",
+    "CANCELLED": "Đã hủy",
+}
 
 
-def _export_action_cell(
-    label: str,
-    export: dict[str, Any],
-    retry: bool = False,
-    cancel: bool = False,
-    can_delete: bool = False,
-) -> Any:
-    """Ô File khi export chưa xong (task 52): trạng thái + nút Thử lại/Hủy/Xóa."""
-    children: list[Any] = [dmc.Text(label, size="xs", c="red" if retry else "dimmed")]
-    if retry:
-        children.append(
-            dmc.Button(
-                "Thử lại",
-                id={"type": "report-runs-export-retry", "index": int(export["id"])},
-                size="xs",
-                variant="subtle",
-            )
-        )
-    if cancel:
-        children.append(
-            dmc.Button(
-                "Hủy",
-                id={"type": "report-runs-export-cancel", "index": int(export["id"])},
-                size="xs",
-                variant="subtle",
-            )
-        )
-    if can_delete:
-        children.append(
-            dmc.Button(
-                "Xóa",
-                id={"type": "report-runs-export-delete", "index": int(export["id"])},
-                size="xs",
-                variant="subtle",
-                color="red",
-            )
-        )
-    return dmc.Group(children, gap=4)
-
-
-def _export_delete_button(export_id: int) -> Any:
-    """Nút Xóa file export (chỉ ADMIN, task 52)."""
-    return dmc.Button(
-        "Xóa",
-        id={"type": "report-runs-export-delete", "index": int(export_id)},
-        size="xs",
-        variant="subtle",
-        color="red",
-    )
-
-
-def render_runs_table(
+def _runs_row_data(
     runs: list[dict[str, Any]],
     exports_by_run: dict[int, list[dict[str, Any]]],
-    can_delete: bool = False,
-) -> Any:
-    """Bảng lịch sử run + file export + hành động."""
-    if not runs:
-        return empty_state(
-            "Chưa có run nào.",
-            "Chạy một báo cáo ở Trung tâm báo cáo để xem lịch sử tại đây.",
-        )
-    th_style = {
-        "position": "sticky",
-        "top": 0,
-        "backgroundColor": "var(--p2, #FAFAFA)",
-        "zIndex": 1,
-        "height": "34px",
-        "fontSize": "12px",
-        "fontWeight": 600,
-    }
-    header = dmc.TableTr(
-        [
-            dmc.TableTh("Run", style=th_style),
-            dmc.TableTh("Báo cáo", style=th_style),
-            dmc.TableTh("Nhóm", style=th_style),
-            dmc.TableTh("Người chạy", style=th_style),
-            dmc.TableTh("Dòng", style=th_style),
-            dmc.TableTh("Tham số", style=th_style),
-            dmc.TableTh("Trạng thái", style=th_style),
-            dmc.TableTh("Bắt đầu", style=th_style),
-            dmc.TableTh("Kết thúc", style=th_style),
-            dmc.TableTh("Tổng", style=th_style),
-            dmc.TableTh("File", style=th_style),
-            dmc.TableTh("", style=th_style),
-        ]
-    )
-    body = []
+) -> list[dict[str, Any]]:
+    """1 run → 1 dòng rowData cho AG Grid (task 55).
+
+    Các trường hiển thị đã format sẵn như bảng cũ (dấu phẩy, DD/MM/YYYY);
+    `_export` là export mới nhất để renderer File/nút bấm đọc; `_report_id`
+    để renderer link "Chạy lại" ghép URL.
+    """
+    rows: list[dict[str, Any]] = []
     for run in runs:
         run_id = int(run["id"])
         exports = exports_by_run.get(run_id, [])
-        # Task 52: hiện trạng thái export mới nhất (không chỉ file DONE).
-        file_cell: Any = "—"
-        if exports:
-            latest = exports[0]
-            latest_status = str(latest.get("status") or "")
-            if latest_status == "DONE":
-                download = dmc.Tooltip(
-                    label="Tải file Excel",
-                    children=dcc.Link(
-                        dmc.Group(
-                            [
-                                DashIconify(icon="lucide:file-spreadsheet", width=18, color="green"),
-                                DashIconify(icon="lucide:arrow-down", width=14),
-                            ],
-                            gap=2,
-                        ),
-                        href=f"/download/report-export/{latest['id']}",
-                        target="_blank",
-                        # Giữ vùng bấm tối thiểu khi icon chưa tải xong (CDN chậm).
-                        style={"display": "inline-flex", "minWidth": "36px", "minHeight": "28px", "alignItems": "center"},
-                    ),
-                )
-                file_cell = (
-                    dmc.Group([download, _export_delete_button(int(latest["id"]))], gap=4)
-                    if can_delete
-                    else download
-                )
-            elif latest_status == "QUEUED":
-                file_cell = _export_action_cell("Đang chờ", latest, cancel=True)
-            elif latest_status == "RUNNING":
-                file_cell = _export_action_cell(
-                    f"Đang xuất {int(latest.get('progress_pct') or 0)}%", latest, cancel=True
-                )
-            elif latest_status == "FAILED":
-                file_cell = _export_action_cell("Lỗi", latest, retry=True, can_delete=can_delete)
-            elif latest_status == "CANCELLED":
-                file_cell = dmc.Text("Đã hủy", size="xs", c="dimmed")
-        params_text = _fmt_params(run.get("params"))
-        body.append(
-            dmc.TableTr(
-                [
-                    dmc.TableTd(f"#{run_id}", style={"height": "34px"}),
-                    dmc.TableTd(
-                        str(run.get("report_name") or run.get("report_code") or run["report_id"]),
-                        style={"height": "34px"},
-                    ),
-                    dmc.TableTd(_category_label(run.get("category_code")), style={"height": "34px"}),
-                    dmc.TableTd(str(run.get("created_by", "")), style={"height": "34px"}),
-                    dmc.TableTd(
-                        _fmt_row_count(run.get("row_count")),
-                        style={"textAlign": "right", "height": "34px"},
-                    ),
-                    dmc.TableTd(
-                        html.Div(
-                            params_text,
-                            title=params_text,
-                            style={
-                                "maxWidth": "260px",
-                                "overflow": "hidden",
-                                "textOverflow": "ellipsis",
-                                "whiteSpace": "nowrap",
-                                "fontSize": "12px",
-                            },
-                        ),
-                        style={"height": "34px"},
-                    ),
-                    dmc.TableTd(_status_badge(str(run["status"])), style={"height": "34px"}),
-                    dmc.TableTd(format_datetime(run.get("created_at")), style={"height": "34px"}),
-                    dmc.TableTd(format_datetime(run.get("finished_at")), style={"height": "34px"}),
-                    dmc.TableTd(
-                        _fmt_duration(run.get("created_at"), run.get("finished_at")),
-                        style={"textAlign": "right", "height": "34px"},
-                    ),
-                    dmc.TableTd(file_cell, style={"height": "34px"}),
-                    dmc.TableTd(
-                        dmc.Group(
-                            [
-                                dcc.Link(
-                                    dmc.Button(
-                                        "Chạy lại",
-                                        size="xs",
-                                        variant="subtle",
-                                        leftSection=DashIconify(icon="lucide:play-circle", width=14),
-                                    ),
-                                    href=f"/reports/{run['report_id']}?rerun_from={run_id}",
-                                ),
-                                dmc.Button(
-                                    "Xuất lại",
-                                    id={"type": "report-runs-rerun-export", "index": run_id},
-                                    size="xs",
-                                    variant="subtle",
-                                    leftSection=DashIconify(icon="lucide:download", width=14),
-                                ),
-                            ],
-                            gap=4,
-                        ),
-                        style={"height": "34px"},
-                    ),
-                ]
-            )
+        latest = exports[0] if exports else None
+        rows.append(
+            {
+                "id": run_id,
+                "run": f"#{run_id}",
+                "report": str(run.get("report_name") or run.get("report_code") or run["report_id"]),
+                "category": _category_label(run.get("category_code")),
+                "runner": str(run.get("created_by", "")),
+                "rows": _fmt_row_count(run.get("row_count")),
+                "params": _fmt_params(run.get("params")),
+                "status": _RUN_STATUS_LABELS.get(str(run["status"]), str(run["status"])),
+                "status_code": str(run["status"]),
+                "started": format_datetime(run.get("created_at")),
+                "finished": format_datetime(run.get("finished_at")),
+                "duration": _fmt_duration(run.get("created_at"), run.get("finished_at")),
+                "_export": (
+                    {
+                        "id": int(latest["id"]),
+                        "status": str(latest.get("status") or ""),
+                        "progress_pct": int(latest.get("progress_pct") or 0),
+                    }
+                    if latest
+                    else None
+                ),
+                "_report_id": int(run["report_id"]),
+            }
         )
-    return dmc.Paper(
-        dmc.TableScrollContainer(
-            minWidth=1100,
-            style={"height": "100%", "overflow": "auto"},
-            children=dmc.Table(
-                [dmc.TableThead(header), dmc.TableTbody(body)],
-                striped=True,
-                highlightOnHover=True,
-                withTableBorder=False,
-                style={"fontSize": "13px"},
-            ),
-        ),
-        withBorder=True,
-        radius="sm",
-        style={"flex": 1, "minHeight": 0, "overflow": "hidden", "display": "flex", "flexDirection": "column"},
+    return rows
+
+
+def _runs_grid_column_defs(can_delete: bool) -> list[dict[str, Any]]:
+    """columnDefs cho grid Lịch sử (task 55).
+
+    ``field`` của cột File/nút bấm là `_export` (dict export mới nhất):
+    AG Grid chỉ vẽ lại cell khi giá trị của cột đổi — field "file" không
+    có trong rowData nên cell không bao giờ đổi (task 55: đã kiểm chứng
+    live, tick cập nhật rowData mà cell File vẫn "Đang chờ"). `colId`
+    giữ tên riêng để cellClicked phân biệt nút nào được bấm.
+    Cột Báo cáo/Tham số dùng flex để tổng chiều rộng vừa khung 1440px
+    (nút hành động ở cuối vẫn thấy được, không phải cuộn ngang).
+    """
+    base: dict[str, Any] = {"sortable": False, "filter": False, "resizable": True}
+    cols: list[dict[str, Any]] = [
+        {"field": "run", "headerName": "Run", "width": 60, **base},
+        {"field": "report", "headerName": "Báo cáo", "flex": 1, "minWidth": 120, **base},
+        {"field": "category", "headerName": "Nhóm", "width": 80, **base},
+        {"field": "runner", "headerName": "Người chạy", "width": 80, **base},
+        {"field": "rows", "headerName": "Dòng", "width": 70, "cellStyle": {"textAlign": "right"}, **base},
+        {"field": "params", "headerName": "Tham số", "flex": 2, "minWidth": 140, **base},
+        {"field": "status", "headerName": "Trạng thái", "width": 90, "cellRenderer": "reconRunsStatusCell", **base},
+        {"field": "started", "headerName": "Bắt đầu", "width": 110, **base},
+        {"field": "finished", "headerName": "Kết thúc", "width": 110, **base},
+        {"field": "duration", "headerName": "Tổng", "width": 60, "cellStyle": {"textAlign": "right"}, **base},
+        {"field": "_export", "colId": "file", "headerName": "File", "width": 110, "cellRenderer": "reconRunsFileCell", **base},
+        {"field": "_export", "colId": "cancel", "headerName": "", "width": 60, "cellRenderer": "reconRunsActionCell", "cellRendererParams": {"action": "cancel"}, **base},
+        {"field": "_export", "colId": "retry", "headerName": "", "width": 70, "cellRenderer": "reconRunsActionCell", "cellRendererParams": {"action": "retry"}, **base},
+    ]
+    if can_delete:
+        cols.append(
+            {"field": "_export", "colId": "delete", "headerName": "", "width": 60, "cellRenderer": "reconRunsActionCell", "cellRendererParams": {"action": "delete"}, **base}
+        )
+    cols.extend(
+        [
+            {"field": "_export", "colId": "rerun", "headerName": "", "width": 70, "cellRenderer": "reconRunsActionCell", "cellRendererParams": {"action": "rerun"}, **base},
+            {"field": "id", "colId": "rerun_link", "headerName": "", "width": 70, "cellRenderer": "reconRunsRerunLink", **base},
+        ]
     )
+    return cols
 
 
 def _filters_to_kwargs(
@@ -442,7 +308,6 @@ def layout() -> Any:
         [
             dcc.Store(id="report-runs-page-store", data=1),
             dcc.Store(id="report-runs-refresh-store", data=0),
-            dcc.Store(id="report-runs-action-clicks", data={}),
             # Task 53: vân tay dữ liệu đang hiện — tick tự động chỉ vẽ lại
             # bảng khi vân tay đổi, không thì giữ nguyên (khỏi mất vị trí cuộn).
             dcc.Store(id="report-runs-fingerprint", data=""),
@@ -510,23 +375,21 @@ def layout() -> Any:
                     ),
                 ],
             ),
-            dcc.Loading(
-                id="report-runs-loading",
-                type="circle",
-                # Như viewer (task 39): style của Loading đi vào lớp phủ
-                # spinner, khung ngoài co giãn phải dùng parent_style —
-                # nếu không khối Loading cao theo nội dung và đẩy phân
-                # trang ra khỏi khung, bị overflow:hidden cắt mất.
-                parent_style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
-                children=html.Div(
-                    id="report-runs-table-container",
-                    style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
-                    children=render_runs_table(
-                        runs,
-                        exports_by_run,
-                        can_delete=bool(ctx and is_admin(ctx, get_recon_engine())),
-                    ),
+            # Task 55: AG Grid thay dmc.Table — tick chỉ đưa rowData mới,
+            # grid tự diff theo getRowId và cập nhật dòng đổi tại chỗ
+            # (không vẽ lại toàn bảng, không spinner, giữ vị trí cuộn).
+            # Bỏ dcc.Loading quanh bảng (task 52) vì lý do đó.
+            data_grid(
+                id="report-runs-grid",
+                columnDefs=_runs_grid_column_defs(
+                    can_delete=bool(ctx and is_admin(ctx, get_recon_engine()))
                 ),
+                rowData=_runs_row_data(runs, exports_by_run),
+                getRowId="params.data.id.toString()",
+                dashGridOptions={
+                    "overlayNoRowsTemplate": "Chưa có run nào. Chạy một báo cáo ở Trung tâm báo cáo để xem lịch sử tại đây."
+                },
+                container_style={"flex": 1, "minHeight": 0},
             ),
             dmc.Group(
                 [
@@ -567,7 +430,7 @@ def layout() -> Any:
 
 
 @callback(
-    Output("report-runs-table-container", "children"),
+    Output("report-runs-grid", "rowData"),
     Output("report-runs-pagination", "total"),
     Output("report-runs-total-text", "children"),
     Output("report-runs-pagination", "value"),
@@ -577,6 +440,9 @@ def layout() -> Any:
     Output("report-runs-filter-name", "value"),
     Output("report-runs-filter-runner", "value"),
     Output("report-runs-fingerprint", "data"),
+    # Task 55: alert cũng do handle_grid_cell_clicked ghi — cho phép trùng
+    # output (Dash sẽ gọi callback nào trigger trước).
+    Output("report-runs-alert", "children", allow_duplicate=True),
     Input("report-runs-pagination", "value"),
     Input("report-runs-page-size", "value"),
     Input("report-runs-filter-from", "value"),
@@ -590,6 +456,10 @@ def layout() -> Any:
     Input("report-runs-refresh-store", "data"),
     State("report-runs-page-store", "data"),
     State("report-runs-fingerprint", "data"),
+    # Task 55: output alert trùng với handle_grid_cell_clicked nên phải
+    # cho phép duplicate; "initial_duplicate" giữ nguyên lần gọi đầu
+    # (tải bảng lúc mở trang).
+    prevent_initial_call="initial_duplicate",
 )
 def handle_runs_refresh(
     page_no: int | None,
@@ -609,11 +479,13 @@ def handle_runs_refresh(
 ) -> tuple[Any, ...]:
     """Chuyển trang / đổi cỡ trang / lọc lịch sử (đổi lọc → về trang 1).
 
-    Task 53: tick tự động 10s chỉ vẽ lại bảng khi dữ liệu thật sự đổi
+    Task 53: tick tự động 10s chỉ cập nhật grid khi dữ liệu thật sự đổi
     (vân tay mới khác vân tay đã lưu) — không đổi thì trả no_update cho
-    toàn bộ output, bảng giữ nguyên, không mất vị trí cuộn. Mọi trigger
+    toàn bộ output, grid giữ nguyên, không mất vị trí cuộn. Mọi trigger
     khác (lọc, phân trang, "Làm mới", refresh-store sau hành động export)
-    luôn vẽ lại như cũ.
+    luôn tải lại như cũ.
+    Task 55: output đầu là rowData của AG Grid — grid tự diff theo
+    getRowId và chỉ cập nhật dòng đổi tại chỗ.
     """
     ctx = get_current_ctx()
     if ctx is None:
@@ -641,7 +513,7 @@ def handle_runs_refresh(
         runs, total, exports_by_run = _load_page_data(ctx, page, size, filters)
     except ValueError as exc:
         return (
-            alert_box(str(exc), tone="crit"),
+            [],
             1,
             "Tổng 0 run",
             page,
@@ -653,6 +525,7 @@ def handle_runs_refresh(
             name or "",
             runner or "all",
             dash.no_update,
+            alert_box(str(exc), tone="crit"),
         )
     fingerprint = _runs_fingerprint(runs, exports_by_run, total, page)
     if triggered == "report-runs-auto-refresh" and fingerprint == (last_fingerprint or ""):
@@ -667,13 +540,10 @@ def handle_runs_refresh(
             dash.no_update,
             dash.no_update,
             dash.no_update,
+            dash.no_update,
         )
     return (
-        render_runs_table(
-            runs,
-            exports_by_run,
-            can_delete=is_admin(ctx, get_recon_engine()),
-        ),
+        _runs_row_data(runs, exports_by_run),
         max(1, (total + size - 1) // size),
         f"Tổng {total} run",
         page,
@@ -683,6 +553,7 @@ def handle_runs_refresh(
         name or "",
         runner or "all",
         fingerprint,
+        dash.no_update,
     )
 
 
@@ -714,67 +585,58 @@ def _do_export_action(ctx: Any, kind: str, item_id: int, refresh: int | None) ->
     return notify_success(ok_msg), (refresh or 0) + 1
 
 
-def _action_click_map() -> dict[str, int]:
-    """Map nút hành động → số lần bấm hiện tại (đọc từ inputs_list).
-
-    Dùng để phân biệt bấm thật với callback bị kích lại do bảng render lại
-    (ALL inputs đổi khi tập nút thay đổi): chỉ bấm thật mới tăng count.
-    Ngoài callback context thì trả map rỗng.
-    """
-    current: dict[str, int] = {}
-    try:
-        groups = dash.callback_context.inputs_list
-    except Exception:
-        return current
-    for group in groups or []:
-        items = group if isinstance(group, list) else [group]
-        for item in items:
-            btn_id = (item or {}).get("id")
-            if isinstance(btn_id, dict):
-                key = f"{btn_id.get('type')}:{btn_id.get('index')}"
-                current[key] = int((item or {}).get("value") or 0)
-    return current
+_CELL_CLICK_ACTIONS: dict[str, str] = {
+    "cancel": "report-runs-export-cancel",
+    "retry": "report-runs-export-retry",
+    "delete": "report-runs-export-delete",
+    "rerun": "report-runs-rerun-export",
+}
 
 
 @callback(
-    Output("report-runs-alert", "children"),
+    Output("report-runs-alert", "children", allow_duplicate=True),
     Output("report-runs-refresh-store", "data"),
-    Output("report-runs-action-clicks", "data"),
-    Input({"type": "report-runs-export-retry", "index": ALL}, "n_clicks"),
-    Input({"type": "report-runs-export-cancel", "index": ALL}, "n_clicks"),
-    Input({"type": "report-runs-export-delete", "index": ALL}, "n_clicks"),
-    Input({"type": "report-runs-rerun-export", "index": ALL}, "n_clicks"),
+    Input("report-runs-grid", "cellClicked"),
+    State("report-runs-grid", "rowData"),
     State("report-runs-refresh-store", "data"),
-    State("report-runs-action-clicks", "data"),
     prevent_initial_call=True,
 )
-def handle_export_action(
-    _retry_clicks: list[int | None] | None,
-    _cancel_clicks: list[int | None] | None,
-    _delete_clicks: list[int | None] | None,
-    _rerun_clicks: list[int | None] | None,
+def handle_grid_cell_clicked(
+    clicked: dict[str, Any] | None,
+    row_data: list[dict[str, Any]] | None,
     refresh: int | None,
-    last_clicks: dict[str, int] | None,
-) -> tuple[Any, Any, dict[str, int]]:
-    """Một callback duy nhất cho 4 nút hành động export (task 52, D8).
+) -> tuple[Any, Any]:
+    """Click vào nút trong cell AG Grid (task 55) → hành động export.
 
-    Dùng ALL + triggered_id thay vì 4 callback MATCH riêng: Dash không cho
-    nhiều callback MATCH cùng ghi 1 output ("Overlapping wildcard callback
-    outputs" khiến cả app không mount được). Guard bằng map số lần bấm:
-    ALL inputs đổi mỗi khi bảng render lại (tập nút thay đổi) nên callback
-    bị kích lại mà không có bấm thật — chỉ hành động khi nút trigger tăng
-    count so với lần trước; lần kích lại chỉ reset map về count hiện tại.
+    Spike đã chứng minh: cellClicked về được Dash với colId + rowId;
+    setData/rowData KHÔNG đồng bộ về nên không dùng. Nút trong cell chỉ
+    là hình thức — click nổi bọt lên cell. Guard theo trạng thái export
+    để bấm vào ô trống (nút không hiện) thì im lặng, không báo lỗi.
     """
-    current_map = _action_click_map()
-    triggered = dash.callback_context.triggered_id
-    if isinstance(triggered, dict):
-        key = f"{triggered.get('type')}:{triggered.get('index')}"
-        prev = (last_clicks or {}).get(key, 0)
-        if current_map.get(key, 0) > prev:
-            ctx = get_current_ctx()
-            if ctx is not None:
-                alert, new_refresh = _do_export_action(
-                    ctx, str(triggered.get("type")), int(triggered["index"]), refresh
-                )
-                return alert, new_refresh, current_map
-    return dash.no_update, dash.no_update, current_map
+    if not isinstance(clicked, dict):
+        raise PreventUpdate
+    kind = _CELL_CLICK_ACTIONS.get(str(clicked.get("colId") or ""))
+    if kind is None:
+        raise PreventUpdate
+    try:
+        run_id = int(clicked.get("rowId") or 0)
+    except (TypeError, ValueError):
+        raise PreventUpdate from None
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    if kind == "report-runs-rerun-export":
+        return _do_export_action(ctx, kind, run_id, refresh)
+    row = next((r for r in (row_data or []) if int(r.get("id") or -1) == run_id), None)
+    export = (row or {}).get("_export") or {}
+    export_id = export.get("id")
+    status = str(export.get("status") or "")
+    if export_id is None:
+        raise PreventUpdate
+    if kind == "report-runs-export-cancel" and status not in ("QUEUED", "RUNNING"):
+        raise PreventUpdate
+    if kind == "report-runs-export-retry" and status != "FAILED":
+        raise PreventUpdate
+    if kind == "report-runs-export-delete" and status not in ("DONE", "FAILED", "CANCELLED"):
+        raise PreventUpdate
+    return _do_export_action(ctx, kind, int(export_id), refresh)

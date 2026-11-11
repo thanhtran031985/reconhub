@@ -20,7 +20,9 @@ class TestFitOneScreen:
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         text = _dump(page.layout())
         assert "calc(100vh - 48px)" in text
-        assert "height': '100%'" not in text
+        # Task 55: grid AG Grid tự lấp đầy khung flex (height 100% nằm
+        # TRONG data_grid, không đẩy phân trang ra ngoài như bảng cũ).
+        assert "report-runs-grid" in text
 
     def test_rerun_button_has_menu_icon(self, export_env, operator_ctx):
         import app.ui.pages.report_runs as page
@@ -39,6 +41,10 @@ class TestFitOneScreen:
                 "finished_at": "2026-11-10 13:10:08",
             }
         ]
-        text = _dump(page.render_runs_table(runs, {}))
-        assert "play-circle" in text
-        assert "Chạy lại" in text
+        # Task 55: "Chạy lại" là link do renderer JS vẽ (reconRunsRerunLink);
+        # assert columnDefs có cột đó + rowData đủ _report_id để ghép URL.
+        rows = page._runs_row_data(runs, {})
+        assert rows[0]["_report_id"] == 5
+        defs = page._runs_grid_column_defs(can_delete=True)
+        by_col = {c.get("colId", c["field"]): c for c in defs}
+        assert by_col["rerun_link"]["cellRenderer"] == "reconRunsRerunLink"

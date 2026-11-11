@@ -90,7 +90,7 @@ def _call_refresh(monkeypatch, triggered_id, last_fingerprint, loader=None):
 class TestRefreshGate:
     def test_interval_tick_unchanged_returns_no_update(self, monkeypatch):
         out = _call_refresh(monkeypatch, "report-runs-auto-refresh", _fingerprint())
-        assert len(out) == 10
+        assert len(out) == 11
         assert all(item is dash.no_update for item in out), out
 
     def test_interval_tick_changed_rerenders(self, monkeypatch):
@@ -121,4 +121,5 @@ class TestRefreshGate:
             monkeypatch, "report-runs-auto-refresh", _fingerprint(), loader=_raise
         )
         assert out[9] is dash.no_update
-        assert "Không tải được" in str(out[0])
+        assert out[0] == []  # task 55: grid rỗng khi lỗi
+        assert "Không tải được" in str(out[10])  # task 55: lỗi vào alert

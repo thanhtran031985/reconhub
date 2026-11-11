@@ -52,3 +52,65 @@ dagfuncs.reconViewerDateCompare = function (a, b) {
   if (y == null) return 1;
   return x < y ? -1 : (x > y ? 1 : 0);
 };
+
+/**
+ * Cell renderer cho bảng Lịch sử báo cáo (task 55).
+ *
+ * Đăng ký vào window.dashAgGridComponentFunctions để columnDefs tham
+ * chiếu bằng tên ({"cellRenderer": "reconRunsFileCell"}). Nút bấm trong
+ * cell KHÔNG cần onClick: click nổi bọt lên cell, Dash nhận qua prop
+ * cellClicked với colId + rowId (spike ~/workspace/spike-aggrid-button/
+ * đã chứng minh; ngược lại props.setData / rowData KHÔNG đồng bộ về
+ * Dash nên không dùng đường đó).
+ */
+var dagcomp = window.dashAgGridComponentFunctions = window.dashAgGridComponentFunctions || {};
+
+dagcomp.reconRunsFileCell = function (props) {
+  var exp = (props.data && props.data._export) || null;
+  if (!exp) return React.createElement('span', null, '—');
+  if (exp.status === 'DONE') {
+    return React.createElement(
+      'a',
+      { href: '/download/report-export/' + exp.id, target: '_blank' },
+      'Tải file'
+    );
+  }
+  var labels = {
+    QUEUED: 'Đang chờ',
+    RUNNING: 'Đang xuất ' + (exp.progress_pct || 0) + '%',
+    FAILED: 'Lỗi',
+    CANCELLED: 'Đã hủy'
+  };
+  return React.createElement('span', null, labels[exp.status] || exp.status);
+};
+
+dagcomp.reconRunsStatusCell = function (props) {
+  var colors = { DONE: 'green', FAILED: 'red', RUNNING: 'blue', QUEUED: 'gray', CANCELLED: 'gray' };
+  var code = props.data ? props.data.status_code : '';
+  return React.createElement(
+    'span',
+    { style: { color: colors[code] || 'gray', fontWeight: 600 } },
+    props.value
+  );
+};
+
+dagcomp.reconRunsActionCell = function (props) {
+  var action = props.action;
+  var exp = (props.data && props.data._export) || null;
+  var show = false;
+  if (action === 'cancel') show = !!exp && (exp.status === 'QUEUED' || exp.status === 'RUNNING');
+  else if (action === 'retry') show = !!exp && exp.status === 'FAILED';
+  else if (action === 'delete') show = !!exp && (exp.status === 'DONE' || exp.status === 'FAILED' || exp.status === 'CANCELLED');
+  else if (action === 'rerun') show = true;
+  if (!show) return null;
+  var labels = { cancel: 'Hủy', retry: 'Thử lại', delete: 'Xóa', rerun: 'Xuất lại' };
+  return React.createElement('button', { type: 'button' }, labels[action] || action);
+};
+
+dagcomp.reconRunsRerunLink = function (props) {
+  return React.createElement(
+    'a',
+    { href: '/reports/' + props.data._report_id + '?rerun_from=' + props.data.id },
+    'Chạy lại'
+  );
+};

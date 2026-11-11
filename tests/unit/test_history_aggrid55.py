@@ -1,0 +1,204 @@
+"""Tests task 55 — Lịch sử báo cáo sang AG Grid.
+
+- rowData: 1 run → 1 dòng, trường hiển thị đã format sẵn, `_export`
+  là export mới nhất để renderer JS vẽ.
+- columnDefs: cột Xóa chỉ có khi ADMIN; sort/filter trong grid tắt.
+- JS: 4 renderer trong dashAgGridFunctions.js tồn tại + đúng nội dung.
+- cellClicked: click nút trong cell dispatch sang _do_export_action;
+  bấm ô không phải nút / nút không áp dụng thì im lặng.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from dash.exceptions import PreventUpdate
+
+from tests.unit.test_report_export_queue import _done_run, _request, export_env
+from tests.unit.test_report_run_execute import operator_ctx, run_env
+
+__all__ = ["export_env", "operator_ctx", "run_env"]
+
+JS_PATH = Path("app/ui/assets/dashAgGridFunctions.js")
+
+
+def _hist_run(run_id=19):
+    return {
+        "id": run_id,
+        "report_id": 5,
+        "report_name": "Báo cáo hóa đơn",
+        "category_code": "FINANCE",
+        "created_by": "admin",
+        "row_count": 14585,
+        "status": "DONE",
+        "params": {"p_from": "2026-11-01", "p_org": None},
+        "created_at": "2026-11-10 13:09:56",
+        "finished_at": "2026-11-10 13:10:08",
+    }
+
+
+class TestRowData:
+    def test_row_data_fields(self):
+        import app.ui.pages.report_runs as page
+
+        rows = page._runs_row_data(
+            [_hist_run()], {19: [{"id": 7, "status": "RUNNING", "progress_pct": 45}]}
+        )
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["id"] == 19
+        assert row["run"] == "#19"
+        assert row["report"] == "Báo cáo hóa đơn"
+        assert row["category"] == "Tài chính"
+        assert row["runner"] == "admin"
+        assert row["rows"] == "14,585"
+        assert row["status"] == "Hoàn tất"
+        assert row["status_code"] == "DONE"
+        assert row["started"] == "10/11/2026 13:09:56"
+        assert row["finished"] == "10/11/2026 13:10:08"
+        assert row["duration"] == "12,0 giây"
+        assert row["params"] == "p_from=01/11/2026 · p_org=—"
+        assert row["_export"] == {"id": 7, "status": "RUNNING", "progress_pct": 45}
+        assert row["_report_id"] == 5
+
+    def test_row_data_picks_latest_export(self):
+        import app.ui.pages.report_runs as page
+
+        rows = page._runs_row_data(
+            [_hist_run()],
+            {19: [{"id": 9, "status": "FAILED"}, {"id": 8, "status": "DONE"}]},
+        )
+        assert rows[0]["_export"]["id"] == 9  # export mới nhất đứng đầu
+
+    def test_row_data_no_export(self):
+        import app.ui.pages.report_runs as page
+
+        rows = page._runs_row_data([_hist_run()], {})
+        assert rows[0]["_export"] is None
+
+
+class TestColumnDefs:
+    def test_delete_column_admin_only(self):
+        import app.ui.pages.report_runs as page
+
+        admin_cols = {c.get("colId", c["field"]) for c in page._runs_grid_column_defs(can_delete=True)}
+        op_cols = {c.get("colId", c["field"]) for c in page._runs_grid_column_defs(can_delete=False)}
+        assert "delete" in admin_cols
+        assert "delete" not in op_cols
+
+    def test_columns_no_sort_no_filter(self):
+        import app.ui.pages.report_runs as page
+
+        defs = page._runs_grid_column_defs(can_delete=True)
+        assert len(defs) == 16
+        assert all(c.get("sortable") is False for c in defs)
+        assert all(c.get("filter") is False for c in defs)
+
+    def test_action_columns_use_js_renderers(self):
+        import app.ui.pages.report_runs as page
+
+        by_col = {c.get("colId", c["field"]): c for c in page._runs_grid_column_defs(can_delete=True)}
+        assert by_col["status"]["cellRenderer"] == "reconRunsStatusCell"
+        assert by_col["file"]["cellRenderer"] == "reconRunsFileCell"
+        assert by_col["file"]["field"] == "_export"  # cell vẽ lại khi export đổi
+        assert by_col["cancel"]["cellRenderer"] == "reconRunsActionCell"
+        assert by_col["cancel"]["field"] == "_export"
+        assert by_col["cancel"]["cellRendererParams"] == {"action": "cancel"}
+        assert by_col["retry"]["cellRendererParams"] == {"action": "retry"}
+        assert by_col["delete"]["cellRendererParams"] == {"action": "delete"}
+        assert by_col["rerun"]["cellRendererParams"] == {"action": "rerun"}
+        assert by_col["rerun_link"]["cellRenderer"] == "reconRunsRerunLink"
+
+
+class TestJsRenderers:
+    def test_renderers_exist_in_js(self):
+        js = JS_PATH.read_text(encoding="utf-8")
+        for name in (
+            "reconRunsFileCell",
+            "reconRunsStatusCell",
+            "reconRunsActionCell",
+            "reconRunsRerunLink",
+        ):
+            assert name in js
+        # Nội dung renderer vẽ: trạng thái file, link tải, link chạy lại.
+        assert "Đang chờ" in js
+        assert "Đang xuất " in js
+        assert "Tải file" in js
+        assert "/download/report-export/" in js
+        assert "Chạy lại" in js
+        assert "?rerun_from=" in js
+        assert "Hủy" in js and "Thử lại" in js and "Xuất lại" in js
+
+
+class TestCellClicked:
+    def _rows(self, run_id, export):
+        import app.ui.pages.report_runs as page
+
+        return page._runs_row_data(
+            [_hist_run(run_id)], {run_id: [export]} if export else {}
+        )
+
+    def test_cancel_dispatches(self, export_env, operator_ctx, monkeypatch):
+        import app.ui.pages.report_runs as page
+        from app.services.report_export import get_export
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        run = _done_run(operator_ctx, export_env)
+        exp = _request(operator_ctx, export_env, run["id"], "XLSX").data
+        assert exp["status"] == "QUEUED"
+        rows = self._rows(run["id"], {"id": exp["id"], "status": "QUEUED", "progress_pct": 0})
+        alert, refresh = page.handle_grid_cell_clicked(
+            {"colId": "cancel", "rowId": str(run["id"])}, rows, 0
+        )
+        assert refresh == 1
+        assert get_export(operator_ctx, exp["id"]).data["status"] == "CANCELLED"
+
+    def test_retry_dispatches(self, export_env, operator_ctx, monkeypatch):
+        from sqlalchemy import text as sa_text
+
+        import app.ui.pages.report_runs as page
+        from app.services.report_export import get_export
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        run = _done_run(operator_ctx, export_env)
+        exp = _request(operator_ctx, export_env, run["id"], "XLSX").data
+        with export_env["engine"].begin() as conn:
+            conn.execute(
+                sa_text("UPDATE RECON_RPT_EXPORT SET STATUS='FAILED' WHERE ID=:i"),
+                {"i": exp["id"]},
+            )
+        rows = self._rows(run["id"], {"id": exp["id"], "status": "FAILED", "progress_pct": 0})
+        alert, refresh = page.handle_grid_cell_clicked(
+            {"colId": "retry", "rowId": str(run["id"])}, rows, 0
+        )
+        assert refresh == 1
+        assert get_export(operator_ctx, exp["id"]).data["status"] == "QUEUED"
+
+    def test_click_on_text_column_noop(self, export_env, operator_ctx, monkeypatch):
+        import app.ui.pages.report_runs as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        rows = self._rows(19, {"id": 7, "status": "QUEUED", "progress_pct": 0})
+        with pytest.raises(PreventUpdate):
+            page.handle_grid_cell_clicked({"colId": "report", "rowId": "19"}, rows, 0)
+
+    def test_cancel_on_done_export_noop(self, export_env, operator_ctx, monkeypatch):
+        import app.ui.pages.report_runs as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        run = _done_run(operator_ctx, export_env)
+        exp = _request(operator_ctx, export_env, run["id"], "XLSX").data
+        rows = self._rows(run["id"], {"id": exp["id"], "status": "DONE", "progress_pct": 100})
+        with pytest.raises(PreventUpdate):
+            page.handle_grid_cell_clicked(
+                {"colId": "cancel", "rowId": str(run["id"])}, rows, 0
+            )
+
+    def test_unknown_row_noop(self, export_env, operator_ctx, monkeypatch):
+        import app.ui.pages.report_runs as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        rows = self._rows(19, {"id": 7, "status": "QUEUED", "progress_pct": 0})
+        with pytest.raises(PreventUpdate):
+            page.handle_grid_cell_clicked({"colId": "cancel", "rowId": "999"}, rows, 0)

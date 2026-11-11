@@ -162,47 +162,45 @@ class TestReportRunsExportStatus:
     def test_queued_shows_waiting_and_cancel(self):
         import app.ui.pages.report_runs as page
 
-        text = _dump(
-            page.render_runs_table(
-                [_hist_run()], {19: [{"id": 7, "status": "QUEUED", "progress_pct": 0}]}
-            )
+        # Task 55: trạng thái + nút bấm do renderer JS vẽ theo _export;
+        # assert dữ liệu đầu vào của renderer.
+        rows = page._runs_row_data(
+            [_hist_run()], {19: [{"id": 7, "status": "QUEUED", "progress_pct": 0}]}
         )
-        assert "Đang chờ" in text
-        assert "Hủy" in text
+        assert rows[0]["_export"] == {"id": 7, "status": "QUEUED", "progress_pct": 0}
+        defs = page._runs_grid_column_defs(can_delete=True)
+        by_col = {c.get("colId", c["field"]): c for c in defs}
+        assert by_col["cancel"]["cellRendererParams"] == {"action": "cancel"}
+        assert by_col["file"]["cellRenderer"] == "reconRunsFileCell"
 
     def test_running_shows_pct_and_cancel(self):
         import app.ui.pages.report_runs as page
 
-        text = _dump(
-            page.render_runs_table(
-                [_hist_run()],
-                {19: [{"id": 7, "status": "RUNNING", "progress_pct": 45}]},
-            )
+        rows = page._runs_row_data(
+            [_hist_run()],
+            {19: [{"id": 7, "status": "RUNNING", "progress_pct": 45}]},
         )
-        assert "45%" in text
-        assert "Hủy" in text
+        assert rows[0]["_export"] == {"id": 7, "status": "RUNNING", "progress_pct": 45}
 
     def test_failed_shows_retry(self):
         import app.ui.pages.report_runs as page
 
-        text = _dump(
-            page.render_runs_table(
-                [_hist_run()], {19: [{"id": 7, "status": "FAILED", "progress_pct": 0}]}
-            )
+        rows = page._runs_row_data(
+            [_hist_run()], {19: [{"id": 7, "status": "FAILED", "progress_pct": 0}]}
         )
-        assert "Thử lại" in text
-        assert "/download/report-export/" not in text
+        assert rows[0]["_export"] == {"id": 7, "status": "FAILED", "progress_pct": 0}
+        defs = page._runs_grid_column_defs(can_delete=True)
+        by_col = {c.get("colId", c["field"]): c for c in defs}
+        assert by_col["retry"]["cellRendererParams"] == {"action": "retry"}
 
     def test_cancelled_shows_cancelled(self):
         import app.ui.pages.report_runs as page
 
-        text = _dump(
-            page.render_runs_table(
-                [_hist_run()],
-                {19: [{"id": 7, "status": "CANCELLED", "progress_pct": 0}]},
-            )
+        rows = page._runs_row_data(
+            [_hist_run()],
+            {19: [{"id": 7, "status": "CANCELLED", "progress_pct": 0}]},
         )
-        assert "Đã hủy" in text
+        assert rows[0]["_export"] == {"id": 7, "status": "CANCELLED", "progress_pct": 0}
 
     def test_retry_action_requeues(self, export_env, operator_ctx, monkeypatch):
         """Nút Thử lại: export FAILED → QUEUED lại, báo thành công, tăng refresh."""
@@ -239,23 +237,8 @@ class TestReportRunsExportStatus:
         assert refresh == 1
         assert get_export(operator_ctx, exp["id"]).data["status"] == "CANCELLED"
 
-    def test_action_handler_without_trigger_noop(self, monkeypatch):
-        """Không có trigger: không hành động, chỉ trả map rỗng (reset click)."""
-        from types import SimpleNamespace
-
-        import dash
-
-        import app.ui.pages.report_runs as page
-
-        monkeypatch.setattr(
-            "dash.callback_context",
-            SimpleNamespace(triggered_id=None, inputs_list=[[], [], [], []]),
-        )
-        alert, refresh, click_map = page.handle_export_action(
-            None, None, None, None, 0, {}
-        )
-        assert refresh is dash.no_update
-        assert click_map == {}
+    # Task 55: handle_export_action (ALL buttons) đã bỏ — nút trong cell
+    # AG Grid đi qua handle_grid_cell_clicked; xem test_history_aggrid55.
 
     def test_layout_has_auto_refresh(self, export_env, operator_ctx, monkeypatch):
         """Layout có Interval tự làm mới 10s + nút Làm mới tay."""
@@ -322,9 +305,11 @@ class TestRerunAndExport:
         """Bảng Lịch sử có nút 'Xuất lại' (khác 'Chạy lại' mở viewer)."""
         import app.ui.pages.report_runs as page
 
-        text = _dump(page.render_runs_table([_hist_run()], {}))
-        assert "Xuất lại" in text
-        assert "Chạy lại" in text
+        # Task 55: nút là renderer JS trong cell — assert columnDefs +
+        # nội dung JS (xem test_history_aggrid55).
+        by_col = {c.get("colId", c["field"]): c for c in page._runs_grid_column_defs(can_delete=True)}
+        assert by_col["rerun"]["cellRendererParams"] == {"action": "rerun"}
+        assert by_col["rerun_link"]["cellRenderer"] == "reconRunsRerunLink"
 
     def test_rerun_button_handler(self, export_env, operator_ctx, monkeypatch):
         """Bấm 'Xuất lại' trong Lịch sử: run mới + export QUEUED + tải lại bảng."""
@@ -484,9 +469,12 @@ class TestHistoryDeleteButton:
     def test_delete_button_only_for_admin(self):
         import app.ui.pages.report_runs as page
 
-        exports = {19: [{"id": 7, "status": "DONE"}]}
-        assert "Xóa" in _dump(page.render_runs_table([_hist_run()], exports, can_delete=True))
-        assert "Xóa" not in _dump(page.render_runs_table([_hist_run()], exports, can_delete=False))
+        # Task 55: cột Xóa chỉ có trong columnDefs khi ADMIN (renderer JS
+        # chỉ vẽ nút khi export đã kết thúc).
+        admin_cols = {c.get("colId", c["field"]) for c in page._runs_grid_column_defs(can_delete=True)}
+        op_cols = {c.get("colId", c["field"]) for c in page._runs_grid_column_defs(can_delete=False)}
+        assert "delete" in admin_cols
+        assert "delete" not in op_cols
 
     def test_delete_handler(self, export_env, admin_ctx, monkeypatch):
         import app.ui.pages.report_runs as page

@@ -87,14 +87,18 @@ class TestRunsTable:
                  "report_code": "FIN_REVENUE", "created_by": "operator",
                  "row_count": 3, "status": "DONE", "created_at": "2026-11-06"}]
         exports = {run["id"]: [{"id": exp.data["id"], "status": "DONE"}]}
-        text = _dump(page.render_runs_table(runs, exports))
-        assert "Chạy lại" in text
-        assert f"?rerun_from={run['id']}" in text
-        # Task 43: bỏ nút Xem, nút tải thành icon Excel + mũi tên xuống
-        # (tooltip "Tải file Excel" vẫn có, nhưng không còn link chữ).
-        assert "children='Tải file'" not in text
-        assert "file-spreadsheet" in text
-        assert f"/download/report-export/{exp.data['id']}" in text
+        # Task 55: bảng là AG Grid — assert trên rowData + columnDefs
+        # (link tải + "Chạy lại" do renderer JS vẽ, xem test_history_aggrid55).
+        rows = page._runs_row_data(runs, exports)
+        assert len(rows) == 1
+        assert rows[0]["_export"] == {"id": exp.data["id"], "status": "DONE", "progress_pct": 0}
+        assert rows[0]["_report_id"] == run["report_id"]
+        assert rows[0]["rows"] == "3"
+        defs = page._runs_grid_column_defs(can_delete=True)
+        by_col = {c.get("colId", c["field"]): c for c in defs}
+        assert by_col["file"]["cellRenderer"] == "reconRunsFileCell"
+        assert by_col["rerun_link"]["cellRenderer"] == "reconRunsRerunLink"
+        assert "view" not in by_col  # Task 43: bỏ nút Xem
 
     def test_no_file_when_no_done_export(self, export_env, operator_ctx):
         import app.ui.pages.report_runs as page
@@ -102,8 +106,9 @@ class TestRunsTable:
         runs = [{"id": 7, "report_id": 1, "report_code": "FIN_REVENUE",
                  "created_by": "operator", "row_count": None,
                  "status": "QUEUED", "created_at": "2026-11-06"}]
-        text = _dump(page.render_runs_table(runs, {}))
-        assert "—" in text
+        rows = page._runs_row_data(runs, {})
+        assert rows[0]["_export"] is None
+        assert rows[0]["rows"] == "—"
 
 
 class TestRerun:
@@ -115,6 +120,16 @@ class TestRerun:
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         orig = _done_run(operator_ctx, export_env)
-        text = _dump(page.layout())
-        assert f"/reports/{orig['report_id']}?rerun_from={orig['id']}" in text
+        # Task 55: link "Chạy lại" do renderer JS vẽ — assert columnDefs
+        # + công thức ghép URL trong JS (dùng _report_id + id của dòng).
+        defs = page._runs_grid_column_defs(can_delete=True)
+        by_col = {c.get("colId", c["field"]): c for c in defs}
+        assert by_col["rerun_link"]["cellRenderer"] == "reconRunsRerunLink"
+        rows = page._runs_row_data(
+            [{"id": orig["id"], "report_id": orig["report_id"], "report_code": "X",
+              "created_by": "operator", "row_count": 3, "status": "DONE",
+              "created_at": "2026-11-06"}],
+            {},
+        )
+        assert rows[0]["_report_id"] == orig["report_id"]
         assert not hasattr(page, "handle_rerun")

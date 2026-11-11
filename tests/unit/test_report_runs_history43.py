@@ -128,16 +128,19 @@ class TestRunsTable43:
     def test_new_columns_and_formats(self, export_env, operator_ctx):
         import app.ui.pages.report_runs as page
 
-        text = _dump(page.render_runs_table(self._runs(), {}))
-        assert "Báo cáo hóa đơn" in text  # tên, không phải mã 5
-        assert "Tài chính" in text  # nhóm FINANCE
-        assert "14,585" in text  # dòng format dấu phẩy
-        assert "10/11/2026 13:09:56" in text  # bắt đầu
-        assert "10/11/2026 13:10:08" in text  # kết thúc
-        assert "12,4 giây" in text  # tổng (12.4s, dấu phẩy thập phân)
-        assert "p_from=01/11/2026" in text  # tham số, ngày DD/MM/YYYY
-        assert "p_org=—" in text  # tham số trống
-        assert "—" in text  # run chưa xong: kết thúc/tổng/dòng trống
+        # Task 55: bảng là AG Grid — assert trên rowData (đã format sẵn).
+        rows = page._runs_row_data(self._runs(), {})
+        assert rows[0]["report"] == "Báo cáo hóa đơn"  # tên, không phải mã 5
+        assert rows[0]["category"] == "Tài chính"  # nhóm FINANCE
+        assert rows[0]["rows"] == "14,585"  # dòng format dấu phẩy
+        assert rows[0]["started"] == "10/11/2026 13:09:56"  # bắt đầu
+        assert rows[0]["finished"] == "10/11/2026 13:10:08"  # kết thúc
+        assert rows[0]["duration"] == "12,4 giây"  # tổng (12.4s, dấu phẩy thập phân)
+        assert "p_from=01/11/2026" in rows[0]["params"]  # tham số, ngày DD/MM/YYYY
+        assert "p_org=—" in rows[0]["params"]  # tham số trống
+        assert rows[1]["rows"] == "—"  # run chưa xong: dòng trống
+        assert rows[1]["finished"] == "—"  # run chưa xong: kết thúc trống
+        assert rows[1]["duration"] == "—"  # run chưa xong: tổng trống
 
     def test_file_icon_and_no_view_button(self, export_env, operator_ctx):
         import app.ui.pages.report_runs as page
@@ -156,14 +159,16 @@ class TestRunsTable43:
             )
         runs = [dict(self._runs()[0], id=run["id"], report_id=run["report_id"])]
         exports = {run["id"]: [{"id": exp.data["id"], "status": "DONE"}]}
-        text = _dump(page.render_runs_table(runs, exports))
-        assert "file-spreadsheet" in text  # icon Excel
-        assert "arrow-down" in text or "download" in text  # mũi tên xuống
-        assert f"/download/report-export/{exp.data['id']}" in text
-        assert "children='Tải file'" not in text  # không còn link chữ (tooltip vẫn có)
-        assert ">Xem<" not in text  # bỏ nút Xem
-        assert "Chạy lại" in text
-        assert f"?rerun_from={run['id']}" in text
+        # Task 55: link tải + icon Excel do renderer JS vẽ theo _export;
+        # assert dữ liệu đầu vào của renderer + columnDefs (xem thêm
+        # test_history_aggrid55 cho nội dung JS).
+        rows = page._runs_row_data(runs, exports)
+        assert rows[0]["_export"] == {"id": exp.data["id"], "status": "DONE", "progress_pct": 0}
+        defs = page._runs_grid_column_defs(can_delete=True)
+        by_col = {c.get("colId", c["field"]): c for c in defs}
+        assert by_col["file"]["cellRenderer"] == "reconRunsFileCell"
+        assert by_col["rerun_link"]["cellRenderer"] == "reconRunsRerunLink"
+        assert "view" not in by_col  # bỏ nút Xem
 
     def test_layout_has_filters_and_page_size(self, export_env, operator_ctx, monkeypatch):
         import app.ui.pages.report_runs as page
