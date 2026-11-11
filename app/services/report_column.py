@@ -23,7 +23,11 @@ from app.db.metadata import (
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
 from app.services.perm import is_admin, requires_menu
-from app.services.report_source import analyze_version_source, apply_source_diff
+from app.services.report_source import (
+    analyze_version_source,
+    apply_source_diff,
+    effective_column_label,
+)
 
 
 def _load_version_row(conn: Connection, version_id: int, admin: bool) -> Any:
@@ -82,7 +86,7 @@ def _column_dict(row: Any) -> dict[str, Any]:
     return {
         "id": int(row["ID"]),
         "field_name": str(row["FIELD_NAME"]),
-        "label": str(row["LABEL"]),
+        "label": effective_column_label(str(row["FIELD_NAME"]), str(row["LABEL"])),
         "data_type": str(row["DATA_TYPE"]),
         "display_order": int(row["DISPLAY_ORDER"]),
         "web_visible": row["WEB_VISIBLE"] == "Y",
@@ -494,7 +498,7 @@ def _result_layout(
     columns = [
         {
             "field_name": str(r["FIELD_NAME"]),
-            "label": str(r["LABEL"]),
+            "label": effective_column_label(str(r["FIELD_NAME"]), str(r["LABEL"])),
             "data_type": str(r["DATA_TYPE"]),
             "format_mask": r["FORMAT_MASK"],
             "alignment": str(r["ALIGNMENT"]),

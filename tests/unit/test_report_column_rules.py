@@ -175,8 +175,8 @@ class TestLabelUnique:
             c["field_name"]: c
             for c in list_columns(admin_ctx, rules_env["version_id"]).data
         }
-        assert by_field["AMOUNT"]["label"] == "AMOUNT"
-        assert by_field["ORG"]["label"] == "ORG"
+        assert by_field["AMOUNT"]["label"] == "Amount"  # Task 49: nhãn hiệu dụng Title Case
+        assert by_field["ORG"]["label"] == "Org"
 
 
 class TestFormatMask:

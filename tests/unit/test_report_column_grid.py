@@ -277,9 +277,9 @@ class TestUpdateColumnsBulk:
             c["field_name"]: c
             for c in list_columns(admin_ctx, grid_env["version_id"]).data
         }
-        # Không dòng nào được ghi
-        assert by_field["AMOUNT"]["label"] == "AMOUNT"
-        assert by_field["ORG"]["label"] == "ORG"
+        # Không dòng nào được ghi (nhãn hiệu dụng Title Case — task 49)
+        assert by_field["AMOUNT"]["label"] == "Amount"
+        assert by_field["ORG"]["label"] == "Org"
 
     def test_bulk_unknown_id(self, grid_env, admin_ctx):
         from app.services.report_column import update_columns

@@ -193,7 +193,7 @@ class TestWorkerPoll:
         assert row["FILE_SIZE"] is not None and row["FILE_SIZE"] > 0
         assert row["FILE_HASH"] is not None
         content = open(str(row["FILE_PATH"]), encoding="utf-8-sig").read()
-        assert "AMOUNT,ORG,TXN_DATE" in content
+        assert "Amount,Org,Txn Date" in content  # Task 49: header CSV = nhãn Title Case
         assert "1000,HN,2026-02-01" in content
 
     def test_reset_stale_exports(self, export_env, operator_ctx):

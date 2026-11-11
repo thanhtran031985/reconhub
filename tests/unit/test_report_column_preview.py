@@ -219,7 +219,7 @@ class TestPreviewResultLayout:
 
         res = preview_result_layout(admin_ctx, preview_env["version_id"])
         assert res.ok, res.message
-        assert res.data["columns"][0]["label"] == "AMOUNT"
+        assert res.data["columns"][0]["label"] == "Amount"  # Task 49: nhãn mặc định Title Case
         ids = _col_ids(preview_env["engine"], preview_env["version_id"])
         assert update_column(
             admin_ctx,

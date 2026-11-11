@@ -31,7 +31,11 @@ from app.services import service
 from app.services.perm import is_admin, requires_menu
 from app.services.report import load_report_row
 from app.services.report_param import resolve_param_values
-from app.services.report_source import build_report_query, open_checked_connection
+from app.services.report_source import (
+    build_report_query,
+    effective_column_label,
+    open_checked_connection,
+)
 
 
 def _now() -> datetime:
@@ -109,7 +113,7 @@ def load_version_detail(conn: Connection, version_id: int) -> dict[str, Any]:
         "columns": [
             {
                 "field_name": str(c["FIELD_NAME"]),
-                "label": str(c["LABEL"]),
+                "label": effective_column_label(str(c["FIELD_NAME"]), str(c["LABEL"])),
                 "data_type": str(c["DATA_TYPE"]),
                 "display_order": int(c["DISPLAY_ORDER"]),
                 "web_visible": c["WEB_VISIBLE"] == "Y",

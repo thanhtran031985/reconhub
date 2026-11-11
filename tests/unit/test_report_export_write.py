@@ -138,7 +138,7 @@ class TestXlsxWriter:
         wb = load_workbook(result["file_path"], read_only=True)
         ws = wb["Data"]
         rows = list(ws.iter_rows(values_only=True))
-        assert rows[0] == ("AMOUNT", "ORG", "TXN_DATE")
+        assert rows[0] == ("Amount", "Org", "Txn Date")  # Task 49: header = nhãn Title Case
         assert rows[1][0] == 1000 and rows[1][1] == "HN"
         assert rows[1][2] == datetime(2026, 2, 1)
         assert rows[2][0] == 2000 and rows[2][1] == "HN"
@@ -190,6 +190,6 @@ class TestXlsxWriter:
         assert raw.startswith(b"\xef\xbb\xbf")  # BOM UTF-8 (T26-05)
         text = raw.decode("utf-8-sig")  # BOM chỉ ở đầu file, không dính header
         parsed = list(csv.reader(text.splitlines()))
-        assert parsed[0] == ["AMOUNT", "ORG", "TXN_DATE"]
+        assert parsed[0] == ["Amount", "Org", "Txn Date"]  # Task 49: header = nhãn Title Case
         assert parsed[1] == ["1000", "Hà Nội", "2026-02-01"]
         assert parsed[2] == ["2000", "00123", "2026-02-02"]

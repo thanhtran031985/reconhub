@@ -84,6 +84,27 @@ def column_display_defaults(data_type: str) -> tuple[str, int]:
     return _COLUMN_ALIGNMENT.get(key, "LEFT"), _COLUMN_WIDTH.get(key, 180)
 
 
+def prettify_column_label(field_name: str) -> str:
+    """Nhãn mặc định của cột: tên DB UPPER_SNAKE_CASE → Title Case.
+
+    TRANSACTION_DATE → Transaction Date; AMOUNT → Amount. Chỉ tách theo `_`
+    (đường tạo cột đã .upper() tên nên giả định UPPER_SNAKE_CASE).
+    """
+    parts = [p for p in str(field_name or "").split("_") if p]
+    if not parts:
+        return ""
+    return " ".join(p[:1].upper() + p[1:].lower() for p in parts)
+
+
+def effective_column_label(field_name: str, stored_label: str | None) -> str:
+    """Nhãn hiển thị của cột: giá trị user đã lưu thắng; chưa sửa (nhãn lưu
+    bằng đúng tên cột) thì dùng dạng Title Case mặc định."""
+    stored = str(stored_label or "")
+    if stored and stored != str(field_name):
+        return stored
+    return prettify_column_label(field_name)
+
+
 # Operator filter cho phép (khớp check constraint RECON_RPT_PARAM, task 21).
 FILTER_OPERATORS = ("=", ">=", "<=", "BETWEEN", "IN", "LIKE_PREFIX", "IS_NULL")
 
@@ -563,7 +584,7 @@ def apply_source_diff(ctx: Ctx, version_id: int, diff: dict[str, Any]) -> dict[s
                 recon_rpt_column.insert().values(
                     VERSION_ID=version_id,
                     FIELD_NAME=name,
-                    LABEL=name,
+                    LABEL=prettify_column_label(name),
                     DATA_TYPE=data_type,
                     DISPLAY_ORDER=max_order,
                     WEB_VISIBLE="Y",

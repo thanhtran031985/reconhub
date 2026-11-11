@@ -38,6 +38,7 @@ from app.services.report_param import (
     invalidate_lov_cache_for_version,
     layout_violations,
 )
+from app.services.report_source import effective_column_label
 
 _CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,59}$")
 _LOCK_KEY = "REPORT_ACTIVATE_LOCK"
@@ -219,7 +220,7 @@ def _version_detail(conn: Connection, version_row: Any) -> dict[str, Any]:
         {
             "id": int(col["ID"]),
             "field_name": str(col["FIELD_NAME"]),
-            "label": str(col["LABEL"]),
+            "label": effective_column_label(str(col["FIELD_NAME"]), str(col["LABEL"])),
             "data_type": str(col["DATA_TYPE"]),
             "display_order": int(col["DISPLAY_ORDER"]),
             "web_visible": col["WEB_VISIBLE"] == "Y",
