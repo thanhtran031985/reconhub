@@ -413,6 +413,10 @@ def layout() -> Any:
                 ),
                 rowData=_runs_row_data(runs, exports_by_run),
                 getRowId="params.data.id.toString()",
+                # Task 61: grid truyền overlayNoRowsTemplate là chuỗi tĩnh
+                # qua dashGridOptions; dash-ag-grid 35.3.1 chặn chuỗi ở vị
+                # trí hàm khi thiếu cờ này (console.error mỗi lần mở trang).
+                dangerously_allow_code=True,
                 # Task 56: class rh-runs-grid → font 12px (pattern task 40).
                 className="ag-theme-quartz-auto-dark rh-runs-grid",
                 dashGridOptions={
