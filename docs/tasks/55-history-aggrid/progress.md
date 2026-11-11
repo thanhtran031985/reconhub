@@ -37,4 +37,8 @@
 - Unit: test mới test_history_aggrid55.py (12 test); cập nhật test
   53/43/44/52 theo rowData + columnDefs (bỏ render_runs_table).
 
-## Bước 4 — Full suite + patch (đang làm)
+## Bước 4 — Full suite + patch (xong)
+- Full suite 1543 pass, 6 skipped (1532 + 11 test mới ròng).
+- Patch ~/workspace/reconhub-task55.patch, áp sau patch 54, không cần
+  db-migrate, chỉ khởi động lại app. Đang chờ user áp + kiểm chứng
+  trên app thật.
