@@ -165,3 +165,99 @@ class TestUserLabelWins:
         by_field = {c["field_name"]: c for c in cols}
         assert by_field["AMOUNT"]["label"] == "Số tiền"
         assert by_field["TXN_DATE"]["label"] == "Txn Date"
+
+
+class TestPreexistingEffectiveCollision:
+    """Hồi quy tab 4: trùng nhãn hiệu dụng có sẵn từ trước không được chặn
+    mọi lần Lưu cột (báo lỗi từ user 11/11/2026: sửa nhãn rồi lưu vẫn về cũ)."""
+
+    def _draft_with_columns(self, run_env, admin_ctx, monkeypatch):
+        import app.ui.pages.report_admin as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        _patch_describe(monkeypatch)
+        state = _draft_state(run_env)
+        state, alert = page.handle_analyze_sql(
+            1,
+            state,
+            "SELECT amount, org, txn_date FROM fin_revenue WHERE org = :p_org",
+        )
+        assert state["analyzed"] is True, _dump(alert)
+        return run_env["draft_version_id"]
+
+    def _grid_rows(self, cols, changed_field=None, changed_label=None):
+        keys = (
+            "id",
+            "label",
+            "format_mask",
+            "alignment",
+            "width",
+            "web_visible",
+            "excel_visible",
+            "is_total",
+        )
+        rows = []
+        for c in cols:
+            row = {k: c[k] for k in keys}
+            if c["field_name"] == changed_field:
+                row["label"] = changed_label
+            rows.append(row)
+        return rows
+
+    def test_bulk_save_with_preexisting_collision_succeeds(
+        self, run_env, admin_ctx, monkeypatch
+    ):
+        """TXN_DATE đã có nhãn 'Transaction Date' (user đặt tay) + cột
+        TRANSACTION_DATE mới (nhãn thô → hiệu dụng cùng 'Transaction Date'):
+        sửa 1 nhãn không liên quan vẫn lưu được."""
+        from sqlalchemy import update as sa_update
+
+        from app.db.metadata import recon_rpt_column
+        from app.services.report_column import list_columns, update_columns
+
+        vid = self._draft_with_columns(run_env, admin_ctx, monkeypatch)
+        engine = run_env["engine"]
+        with engine.begin() as conn:
+            conn.execute(
+                sa_update(recon_rpt_column)
+                .where(
+                    recon_rpt_column.c.VERSION_ID == vid,
+                    recon_rpt_column.c.FIELD_NAME == "TXN_DATE",
+                )
+                .values(LABEL="Transaction Date")
+            )
+            conn.execute(
+                recon_rpt_column.insert().values(
+                    VERSION_ID=vid,
+                    FIELD_NAME="TRANSACTION_DATE",
+                    LABEL="TRANSACTION_DATE",
+                    DATA_TYPE="DATE",
+                    DISPLAY_ORDER=40,
+                    WEB_VISIBLE="Y",
+                    EXCEL_VISIBLE="Y",
+                    ALIGNMENT="LEFT",
+                    WIDTH=180,
+                    IS_TOTAL="N",
+                )
+            )
+        cols = list_columns(admin_ctx, vid).data
+        rows = self._grid_rows(cols, "AMOUNT", "Số tiền")
+        res = update_columns(admin_ctx, vid, rows)
+        assert res.ok, res.message
+        cols = list_columns(admin_ctx, vid).data
+        assert next(c for c in cols if c["field_name"] == "AMOUNT")["label"] == "Số tiền"
+
+    def test_bulk_save_creating_new_duplicate_allowed(
+        self, run_env, admin_ctx, monkeypatch
+    ):
+        """Đổi nhãn thành giá trị trùng nhãn hiệu dụng của cột khác thì vẫn
+        lưu được (task 50: bỏ chặn trùng nhãn theo yêu cầu user)."""
+        from app.services.report_column import list_columns, update_columns
+
+        vid = self._draft_with_columns(run_env, admin_ctx, monkeypatch)
+        cols = list_columns(admin_ctx, vid).data
+        rows = self._grid_rows(cols, "AMOUNT", "Txn Date")
+        res = update_columns(admin_ctx, vid, rows)
+        assert res.ok, res.message
+        cols = list_columns(admin_ctx, vid).data
+        assert next(c for c in cols if c["field_name"] == "AMOUNT")["label"] == "Txn Date"

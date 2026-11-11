@@ -214,11 +214,9 @@ _FORMAT_MASKS: dict[str, set[str]] = {
 def _validate_column_rules(
     dto: ColumnUpdate,
     data_type: str,
-    final_label: str | None = None,
-    other_labels: set[str] | None = None,
 ) -> None:
-    """Rule nghiệp vụ sửa cột (bước 3): label duy nhất, format theo type,
-    total chỉ number, width 40..400."""
+    """Rule nghiệp vụ sửa cột (bước 3): format theo type, total chỉ number,
+    width 40..400. Nhãn cột được phép trùng (task 50, theo yêu cầu user)."""
     if "format_mask" in dto.model_fields_set and dto.format_mask is not None:
         mask = str(dto.format_mask).strip()
         allowed = _FORMAT_MASKS.get((data_type or "").upper())
@@ -250,12 +248,6 @@ def _validate_column_rules(
             ErrorCode.VALIDATION_ERROR,
             "WIDTH phải trong khoảng 40..400 (hoặc để trống = tự động).",
         )
-    if final_label is not None and other_labels is not None:
-        if final_label.strip().lower() in other_labels:
-            raise ServiceError(
-                ErrorCode.VALIDATION_ERROR,
-                f"LABEL {final_label!r} đã tồn tại trong version.",
-            )
 
 
 def _column_update_values(dto: ColumnUpdate) -> dict[str, Any]:
@@ -306,17 +298,7 @@ def update_column(
     with engine.begin() as conn:
         _load_version_draft(conn, version_id)
         row = _load_column_row(conn, version_id, column_id)
-        other_labels = {
-            str(c["label"]).strip().lower()
-            for c in _load_columns(conn, version_id)
-            if int(c["id"]) != column_id
-        }
-        final_label = (
-            str(dto.label).strip() if "label" in dto.model_fields_set else None
-        )
-        _validate_column_rules(
-            dto, str(row["DATA_TYPE"]), final_label, other_labels
-        )
+        _validate_column_rules(dto, str(row["DATA_TYPE"]))
         if values:
             conn.execute(
                 recon_rpt_column.update()
@@ -359,20 +341,7 @@ def update_columns(
         for column_id, _dto, _values in dtos:
             if column_id not in by_id:
                 raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy cột.")
-        # Label duy nhất trên trạng thái cuối sau khi áp toàn bộ (Q3).
-        merged = {cid: str(c["label"]) for cid, c in by_id.items()}
-        for column_id, dto, _values in dtos:
-            if "label" in dto.model_fields_set:
-                merged[column_id] = str(dto.label).strip()
-        seen: set[str] = set()
-        for label in merged.values():
-            key = label.strip().lower()
-            if key in seen:
-                raise ServiceError(
-                    ErrorCode.VALIDATION_ERROR,
-                    f"LABEL {label!r} đã tồn tại trong version.",
-                )
-            seen.add(key)
+        # Task 50: nhãn cột được phép trùng — không kiểm tra trùng nhãn.
         for column_id, dto, _values in dtos:
             _validate_column_rules(dto, str(by_id[column_id]["data_type"]))
         for column_id, _dto, values in dtos:

@@ -139,26 +139,32 @@ def _col_ids(engine, version_id):
     return {r["FIELD_NAME"]: int(r["ID"]) for r in rows}
 
 
-class TestLabelUnique:
-    def test_duplicate_label_rejected(self, rules_env, admin_ctx):
-        from app.services.report_column import update_column
+class TestLabelDuplicateAllowed:
+    """Task 50: nhãn cột được phép trùng — Lưu cột / sửa 1 cột không chặn."""
+
+    def test_duplicate_label_allowed(self, rules_env, admin_ctx):
+        from app.services.report_column import list_columns, update_column
 
         ids = _col_ids(rules_env["engine"], rules_env["version_id"])
         res = update_column(
             admin_ctx, rules_env["version_id"], ids["ORG"], {"label": "AMOUNT"}
         )
-        assert not res.ok and res.code == "VALIDATION_ERROR"
+        assert res.ok, res.message
+        cols = list_columns(admin_ctx, rules_env["version_id"]).data
+        assert next(c for c in cols if c["field_name"] == "ORG")["label"] == "AMOUNT"
 
-    def test_duplicate_label_case_insensitive(self, rules_env, admin_ctx):
-        from app.services.report_column import update_column
+    def test_duplicate_label_case_insensitive_allowed(self, rules_env, admin_ctx):
+        from app.services.report_column import list_columns, update_column
 
         ids = _col_ids(rules_env["engine"], rules_env["version_id"])
         res = update_column(
             admin_ctx, rules_env["version_id"], ids["ORG"], {"label": "amount"}
         )
-        assert not res.ok and res.code == "VALIDATION_ERROR"
+        assert res.ok, res.message
+        cols = list_columns(admin_ctx, rules_env["version_id"]).data
+        assert next(c for c in cols if c["field_name"] == "ORG")["label"] == "amount"
 
-    def test_bulk_duplicate_labels_rejected(self, rules_env, admin_ctx):
+    def test_bulk_duplicate_labels_allowed(self, rules_env, admin_ctx):
         from app.services.report_column import list_columns, update_columns
 
         ids = _col_ids(rules_env["engine"], rules_env["version_id"])
@@ -170,13 +176,13 @@ class TestLabelUnique:
                 {"id": ids["ORG"], "label": "chung"},
             ],
         )
-        assert not res.ok and res.code == "VALIDATION_ERROR"
+        assert res.ok, res.message
         by_field = {
             c["field_name"]: c
             for c in list_columns(admin_ctx, rules_env["version_id"]).data
         }
-        assert by_field["AMOUNT"]["label"] == "Amount"  # Task 49: nhãn hiệu dụng Title Case
-        assert by_field["ORG"]["label"] == "Org"
+        assert by_field["AMOUNT"]["label"] == "Chung"
+        assert by_field["ORG"]["label"] == "chung"
 
 
 class TestFormatMask:
