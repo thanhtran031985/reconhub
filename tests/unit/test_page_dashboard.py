@@ -438,3 +438,85 @@ def test_cards_default_page_size_20():
     assert "Hiển thị 1 – 20 trong tổng số 25 template" in ds
     dpagers = _find_all(dcard, dmc.Pagination)
     assert len(dpagers) == 1 and dpagers[0].total == 2 and dpagers[0].value == 1
+
+
+def test_update_recent_card_page_change():
+    """Task 60: sang trang chỉ đổi phần dòng + dòng 'Hiển thị x–y' + tổng
+    số trang; Pagination nằm ngoài vùng vẽ lại nên không có trong body."""
+    from app.ui.pages.dashboard import _update_diff_card, _update_recent_card
+
+    items = [_recent_item(i) for i in range(1, 26)]
+    body, showing, total_pages = _update_recent_card(2, items)
+    body_str = str(body)
+    assert "#321" in body_str and "#325" in body_str
+    assert "#301" not in body_str
+    assert showing == "Hiển thị 21 – 25 trong tổng số 25 run"
+    assert total_pages == 2
+    assert "dashboard-recent-pagination" not in body_str
+
+    diffs = [_diff_item(i) for i in range(1, 26)]
+    dbody, dshowing, dtotal = _update_diff_card(2, diffs)
+    dbody_str = str(dbody)
+    assert "Template 21" in dbody_str and "Template 25" in dbody_str
+    assert "Template 01" not in dbody_str
+    assert dshowing == "Hiển thị 21 – 25 trong tổng số 25 template"
+    assert dtotal == 2
+    assert "dashboard-diff-pagination" not in dbody_str
+
+
+def test_update_cards_empty():
+    """Task 60: card trống vẫn trả đúng dòng hiển thị 0 – 0, 1 trang."""
+    from app.ui.pages.dashboard import _update_diff_card, _update_recent_card
+
+    body, showing, total_pages = _update_recent_card(1, [])
+    assert "Chưa có run nào" in str(body)
+    assert showing == "Hiển thị 0 – 0 trong tổng số 0 run"
+    assert total_pages == 1
+
+    dbody, dshowing, dtotal = _update_diff_card(1, [])
+    assert "Chưa có dữ liệu theo template" in str(dbody)
+    assert dshowing == "Hiển thị 0 – 0 trong tổng số 0 template"
+    assert dtotal == 1
+
+
+def test_dashboard_layout_no_loading_spinner(monkeypatch):
+    """Task 60: bỏ dcc.Loading quanh nội dung dashboard (spinner hiện cả
+    khi bấm phân trang vì callback phân trang ghi vào vùng trong Loading);
+    lúc mở trang hiện trạng thái tải nhỏ trong vùng nội dung."""
+    from dash import dcc
+
+    from app.ui.pages.dashboard import layout
+
+    ctx = Ctx(user_id=1, username="admin", full_name="Quản trị", roles=["ADMIN"])
+    monkeypatch.setattr("app.ui.pages.dashboard.get_current_ctx", lambda: ctx)
+    monkeypatch.setattr("app.ui.pages.dashboard.page_gate", lambda _ctx, _code: None)
+    box = layout()
+    loadings = _find_all(box, dcc.Loading)
+    assert not any(getattr(ld, "id", None) == "dashboard-loading" for ld in loadings)
+    containers = [n for n in _find_all(box, object) if getattr(n, "id", None) == "dashboard-content-container"]
+    assert len(containers) == 1
+    assert "Đang tải" in str(containers[0])
+
+
+def test_render_cards_keep_fixed_pagination():
+    """Task 60: card vẫn chứa footer phân trang cố định (Pagination +
+    dòng hiển thị) — chỉ phần thân bảng nằm trong vùng callback vẽ lại."""
+    import dash_mantine_components as dmc
+
+    items = [_recent_item(i) for i in range(1, 13)]
+    card = render_recent_runs_card(items, page=1, page_size=10)
+    assert "Hiển thị 1 – 10 trong tổng số 12 run" in str(card)
+    pagers = _find_all(card, dmc.Pagination)
+    assert len(pagers) == 1 and pagers[0].id == "dashboard-recent-pagination"
+    bodies = [n for n in _find_all(card, object) if getattr(n, "id", None) == "dashboard-recent-card-body"]
+    assert len(bodies) == 1
+    assert "#301" in str(bodies[0])
+
+    diffs = [_diff_item(i) for i in range(1, 13)]
+    dcard = render_diff_rate_by_template(diffs, page=1, page_size=10)
+    assert "Hiển thị 1 – 10 trong tổng số 12 template" in str(dcard)
+    dpagers = _find_all(dcard, dmc.Pagination)
+    assert len(dpagers) == 1 and dpagers[0].id == "dashboard-diff-pagination"
+    dbodies = [n for n in _find_all(dcard, object) if getattr(n, "id", None) == "dashboard-diff-card-body"]
+    assert len(dbodies) == 1
+    assert "Template 01" in str(dbodies[0])

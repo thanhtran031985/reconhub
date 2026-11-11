@@ -411,10 +411,6 @@ class TestHistoryBatchChip:
             [self._history_item(batch_run_id=3, batch_def_code="DOANH_THU")],
             is_admin=False,
             selected_ids=set(),
-            total=1,
-            current_page=1,
-            page_size=20,
-            total_pages=1,
         )
         assert "Bộ DOANH_THU" in _texts(node)
 
@@ -425,10 +421,6 @@ class TestHistoryBatchChip:
             [self._history_item()],
             is_admin=False,
             selected_ids=set(),
-            total=1,
-            current_page=1,
-            page_size=20,
-            total_pages=1,
         )
         assert "Bộ DOANH_THU" not in _texts(node)
 

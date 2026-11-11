@@ -132,11 +132,18 @@ def _page_slice(items: list[dict[str, Any]], page: int, page_size: int) -> tuple
     return items[start : start + page_size], total_pages, page
 
 
-def _pagination_footer(total: int, page: int, page_size: int, noun: str, pagination_id: str) -> dmc.Group:
-    """Thanh phân trang ở chân card: dòng 'Hiển thị x – y…' + Pagination."""
-    total_pages = max(1, (total + page_size - 1) // page_size)
+def _showing_text(total: int, page: int, page_size: int, noun: str) -> str:
+    """Dòng 'Hiển thị x – y trong tổng số N <noun>' ở footer phân trang."""
     start_idx = (page - 1) * page_size + 1 if total > 0 else 0
     end_idx = min(page * page_size, total)
+    return f"Hiển thị {start_idx} – {end_idx} trong tổng số {total} {noun}"
+
+
+def _pagination_footer(
+    total: int, page: int, page_size: int, noun: str, pagination_id: str, showing_id: str | None = None
+) -> dmc.Group:
+    """Thanh phân trang ở chân card: dòng 'Hiển thị x – y…' + Pagination."""
+    total_pages = max(1, (total + page_size - 1) // page_size)
     return dmc.Group(
         justify="space-between",
         align="center",
@@ -150,7 +157,8 @@ def _pagination_footer(total: int, page: int, page_size: int, noun: str, paginat
         },
         children=[
             dmc.Text(
-                f"Hiển thị {start_idx} – {end_idx} trong tổng số {total} {noun}",
+                _showing_text(total, page, page_size, noun),
+                id=showing_id,
                 size="xs",
                 c="dimmed",
                 fw=500,
@@ -165,48 +173,19 @@ def _pagination_footer(total: int, page: int, page_size: int, noun: str, paginat
     )
 
 
-def render_diff_rate_by_template(diff_rates: list[dict[str, Any]], page: int = 1, page_size: int = 20) -> dmc.Card:
-    """Card thống kê tỉ lệ lệch theo template (PRD C1)."""
-    header_group = dmc.Group(
-        [
-            dmc.Text("Tỉ lệ lệch theo template", fw=600, size="sm"),
-            dmc.Anchor(
-                button_subtle("Quản lý template", size="xs", icon="lucide:layout-template"),
-                href="/templates",
-            ),
-        ],
-        justify="space-between",
-        align="center",
-        p="xs",
-    )
+def _diff_rate_table_content(diff_rates: list[dict[str, Any]], page: int = 1, page_size: int = 20) -> Any:
+    """Phần thân bảng của card Tỉ lệ lệch theo template (chỉ phần dòng).
 
+    Task 60: callback phân trang chỉ vẽ lại vùng này — header và footer
+    phân trang nằm ngoài vùng vẽ lại nên Pagination giữ được focus.
+    """
     if not diff_rates:
-        content: Any = dmc.Box(
+        return dmc.Box(
             empty_state(
                 title="Chưa có dữ liệu theo template",
                 description="Tỉ lệ lệch sẽ được tổng hợp khi có các lần chạy đối soát hoàn thành.",
             ),
             p="md",
-        )
-        return dmc.Card(
-            [
-                header_group,
-                dmc.Divider(),
-                html.Div(
-                    content,
-                    style={
-                        "flex": 1,
-                        "minHeight": 0,
-                        "overflow": "hidden",
-                        "display": "flex",
-                        "flexDirection": "column",
-                    },
-                ),
-            ],
-            withBorder=True,
-            padding=0,
-            radius="sm",
-            style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
         )
 
     shown, _total_pages, page = _page_slice(diff_rates, page, page_size)
@@ -305,16 +284,42 @@ def render_diff_rate_by_template(diff_rates: list[dict[str, Any]], page: int = 1
             style={"fontSize": "13px"},
         ),
     )
+    return content
 
+
+def render_diff_rate_by_template(diff_rates: list[dict[str, Any]], page: int = 1, page_size: int = 20) -> dmc.Card:
+    """Card thống kê tỉ lệ lệch theo template (PRD C1)."""
+    header_group = dmc.Group(
+        [
+            dmc.Text("Tỉ lệ lệch theo template", fw=600, size="sm"),
+            dmc.Anchor(
+                button_subtle("Quản lý template", size="xs", icon="lucide:layout-template"),
+                href="/templates",
+            ),
+        ],
+        justify="space-between",
+        align="center",
+        p="xs",
+    )
+    _shown, _total_pages, page = _page_slice(diff_rates, page, page_size)
     return dmc.Card(
         [
             header_group,
             dmc.Divider(),
             html.Div(
-                content,
-                style={"flex": 1, "minHeight": 0, "overflow": "hidden", "display": "flex", "flexDirection": "column"},
+                _diff_rate_table_content(diff_rates, page, page_size),
+                id="dashboard-diff-card-body",
+                style={
+                    "flex": 1,
+                    "minHeight": 0,
+                    "overflow": "hidden",
+                    "display": "flex",
+                    "flexDirection": "column",
+                },
             ),
-            _pagination_footer(len(diff_rates), page, page_size, "template", "dashboard-diff-pagination"),
+            _pagination_footer(
+                len(diff_rates), page, page_size, "template", "dashboard-diff-pagination", "dashboard-diff-showing"
+            ),
         ],
         withBorder=True,
         padding=0,
@@ -323,48 +328,19 @@ def render_diff_rate_by_template(diff_rates: list[dict[str, Any]], page: int = 1
     )
 
 
-def render_recent_runs_card(recent_items: list[dict[str, Any]], page: int = 1, page_size: int = 20) -> dmc.Card:
-    """Card danh sách các lần chạy gần đây nhất."""
-    header_group = dmc.Group(
-        [
-            dmc.Text("Run gần đây", fw=600, size="sm"),
-            dmc.Anchor(
-                button_subtle("Xem lịch sử", size="xs", icon="lucide:history"),
-                href="/history",
-            ),
-        ],
-        justify="space-between",
-        align="center",
-        p="xs",
-    )
+def _recent_runs_table_content(recent_items: list[dict[str, Any]], page: int = 1, page_size: int = 20) -> Any:
+    """Phần thân bảng của card Run gần đây (chỉ phần dòng).
 
+    Task 60: callback phân trang chỉ vẽ lại vùng này — header và footer
+    phân trang nằm ngoài vùng vẽ lại nên Pagination giữ được focus.
+    """
     if not recent_items:
-        table_content: Any = dmc.Box(
+        return dmc.Box(
             empty_state(
                 title="Chưa có run nào",
                 description="Bắt đầu chạy đối soát để theo dõi tiến độ và kết quả.",
             ),
             p="md",
-        )
-        return dmc.Card(
-            [
-                header_group,
-                dmc.Divider(),
-                html.Div(
-                    table_content,
-                    style={
-                        "flex": 1,
-                        "minHeight": 0,
-                        "overflow": "hidden",
-                        "display": "flex",
-                        "flexDirection": "column",
-                    },
-                ),
-            ],
-            withBorder=True,
-            padding=0,
-            radius="sm",
-            style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
         )
 
     shown, _total_pages, page = _page_slice(recent_items, page, page_size)
@@ -470,16 +446,42 @@ def render_recent_runs_card(recent_items: list[dict[str, Any]], page: int = 1, p
             style={"fontSize": "13px"},
         ),
     )
+    return table_content
 
+
+def render_recent_runs_card(recent_items: list[dict[str, Any]], page: int = 1, page_size: int = 20) -> dmc.Card:
+    """Card danh sách các lần chạy gần đây nhất."""
+    header_group = dmc.Group(
+        [
+            dmc.Text("Run gần đây", fw=600, size="sm"),
+            dmc.Anchor(
+                button_subtle("Xem lịch sử", size="xs", icon="lucide:history"),
+                href="/history",
+            ),
+        ],
+        justify="space-between",
+        align="center",
+        p="xs",
+    )
+    _shown, _total_pages, page = _page_slice(recent_items, page, page_size)
     return dmc.Card(
         [
             header_group,
             dmc.Divider(),
             html.Div(
-                table_content,
-                style={"flex": 1, "minHeight": 0, "overflow": "hidden", "display": "flex", "flexDirection": "column"},
+                _recent_runs_table_content(recent_items, page, page_size),
+                id="dashboard-recent-card-body",
+                style={
+                    "flex": 1,
+                    "minHeight": 0,
+                    "overflow": "hidden",
+                    "display": "flex",
+                    "flexDirection": "column",
+                },
             ),
-            _pagination_footer(len(recent_items), page, page_size, "run", "dashboard-recent-pagination"),
+            _pagination_footer(
+                len(recent_items), page, page_size, "run", "dashboard-recent-pagination", "dashboard-recent-showing"
+            ),
         ],
         withBorder=True,
         padding=0,
@@ -513,14 +515,23 @@ def layout() -> Any:
     return dmc.Box(
         [
             dcc.Store(id="dashboard-refresh-trigger", data=0),
-            dcc.Loading(
-                id="dashboard-loading",
-                type="circle",
-                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
-                children=html.Div(
-                    id="dashboard-content-container",
-                    style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
+            # Task 60: bỏ dcc.Loading quanh nội dung — spinner hiện cả khi
+            # bấm phân trang vì callback phân trang ghi vào vùng trong
+            # Loading (dữ liệu đã nằm trong store, không có server
+            # round-trip). Lúc mở trang, vùng nội dung hiện trạng thái tải
+            # nhỏ; render_dashboard thay bằng nội dung thật khi xong.
+            html.Div(
+                id="dashboard-content-container",
+                children=dmc.Group(
+                    [
+                        dmc.Loader(size="sm"),
+                        dmc.Text("Đang tải dashboard…", size="sm", c="dimmed"),
+                    ],
+                    justify="center",
+                    align="center",
+                    style={"flex": 1, "minHeight": 0},
                 ),
+                style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column"},
             ),
         ],
         style={"height": "100%", "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
@@ -650,22 +661,43 @@ def render_dashboard(_refresh: int) -> Any:
 
 
 @callback(
-    Output("dashboard-recent-card", "children"),
+    # Task 60: chỉ vẽ lại thân bảng + dòng "Hiển thị x–y" + tổng số trang
+    # của Pagination (prop, không trả lại component). Header, footer và
+    # node Pagination nằm ngoài vùng vẽ lại nên giữ được focus.
+    Output("dashboard-recent-card-body", "children"),
+    Output("dashboard-recent-showing", "children"),
+    Output("dashboard-recent-pagination", "total"),
     Input("dashboard-recent-pagination", "value"),
     State("dashboard-recent-store", "data"),
     prevent_initial_call=True,
 )
-def _update_recent_card(page: int | None, items: list[dict[str, Any]] | None) -> Any:
+def _update_recent_card(page: int | None, items: list[dict[str, Any]] | None) -> tuple[Any, str, int]:
     """Chuyển trang card Run gần đây (cắt 20 dòng/trang phía client)."""
-    return render_recent_runs_card(items or [], page=page or 1)
+    items = items or []
+    _shown, total_pages, clamped = _page_slice(items, page or 1, 20)
+    return (
+        _recent_runs_table_content(items, page=clamped),
+        _showing_text(len(items), clamped, 20, "run"),
+        total_pages,
+    )
 
 
 @callback(
-    Output("dashboard-diff-card", "children"),
+    # Task 60: như card Run gần đây — chỉ vẽ lại thân bảng + dòng hiển
+    # thị + tổng số trang; Pagination không bị hủy/vẽ lại.
+    Output("dashboard-diff-card-body", "children"),
+    Output("dashboard-diff-showing", "children"),
+    Output("dashboard-diff-pagination", "total"),
     Input("dashboard-diff-pagination", "value"),
     State("dashboard-diff-store", "data"),
     prevent_initial_call=True,
 )
-def _update_diff_card(page: int | None, rates: list[dict[str, Any]] | None) -> Any:
+def _update_diff_card(page: int | None, rates: list[dict[str, Any]] | None) -> tuple[Any, str, int]:
     """Chuyển trang card Tỉ lệ lệch theo template (cắt 20 dòng/trang phía client)."""
-    return render_diff_rate_by_template(rates or [], page=page or 1)
+    rates = rates or []
+    _shown, total_pages, clamped = _page_slice(rates, page or 1, 20)
+    return (
+        _diff_rate_table_content(rates, page=clamped),
+        _showing_text(len(rates), clamped, 20, "template"),
+        total_pages,
+    )

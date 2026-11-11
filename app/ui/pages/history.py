@@ -205,16 +205,65 @@ def render_bulk_alert(selected_count: int, is_admin: bool) -> html.Div:
     )
 
 
-def render_runs_table(
-    items: list[dict[str, Any]],
-    is_admin: bool,
-    selected_ids: set[int],
+def _history_showing_text(total: int, current_page: int, page_size: int) -> str:
+    """Dòng 'Hiển thị x – y trong tổng số N run' ở footer phân trang."""
+    start_idx = (current_page - 1) * page_size + 1 if total > 0 else 0
+    end_idx = min(current_page * page_size, total)
+    return f"Hiển thị {start_idx} – {end_idx} trong tổng số {total} run"
+
+
+def render_history_pagination_bar(
     total: int = 0,
     current_page: int = 1,
     page_size: int = 20,
     total_pages: int = 1,
 ) -> Any:
-    """Dựng bảng lịch sử run kèm phân trang theo thiết kế Screen07."""
+    """Footer phân trang cố định của /history (task 60).
+
+    Đặt ngoài vùng bảng bị callback vẽ lại nên node Pagination không bị
+    hủy/vẽ lại khi chuyển trang — giữ được focus, hết cảm giác reload.
+    """
+    return dmc.Paper(
+        dmc.Group(
+            justify="space-between",
+            align="center",
+            px="sm",
+            py=6,
+            style={"backgroundColor": "var(--p2, #FAFAFA)", "flexShrink": 0},
+            children=[
+                dmc.Text(
+                    _history_showing_text(total, current_page, page_size),
+                    id="history-showing-text",
+                    size="xs",
+                    c="dimmed",
+                    fw=500,
+                ),
+                dmc.Pagination(
+                    id="history-pagination",
+                    total=max(total_pages, 1),
+                    value=current_page,
+                    size="xs",
+                ),
+            ],
+        ),
+        withBorder=True,
+        radius="sm",
+        p=0,
+        style={"flexShrink": 0},
+    )
+
+
+def render_runs_table(
+    items: list[dict[str, Any]],
+    is_admin: bool,
+    selected_ids: set[int],
+) -> Any:
+    """Dựng bảng lịch sử run theo thiết kế Screen07 (chỉ phần bảng).
+
+    Task 60: thanh phân trang tách ra footer cố định
+    (render_history_pagination_bar) nên hàm này không còn nhận
+    total/current_page/page_size/total_pages.
+    """
     if not items:
         return empty_state(
             title="Chưa có run nào",
@@ -533,32 +582,6 @@ def render_runs_table(
         )
         rows.append(dmc.TableTr(tds))
 
-    # Thanh phân trang ở chân bảng
-    start_idx = (current_page - 1) * page_size + 1 if total > 0 else 0
-    end_idx = min(current_page * page_size, total)
-
-    pagination_bar = dmc.Group(
-        justify="space-between",
-        align="center",
-        px="sm",
-        py=6,
-        style={"borderTop": "1px solid var(--line, #E0E0E0)", "backgroundColor": "var(--p2, #FAFAFA)", "flexShrink": 0},
-        children=[
-            dmc.Text(
-                f"Hiển thị {start_idx} – {end_idx} trong tổng số {total} run",
-                size="xs",
-                c="dimmed",
-                fw=500,
-            ),
-            dmc.Pagination(
-                id="history-pagination",
-                total=max(total_pages, 1),
-                value=current_page,
-                size="xs",
-            ),
-        ],
-    )
-
     return dmc.Paper(
         [
             dmc.TableScrollContainer(
@@ -578,7 +601,6 @@ def render_runs_table(
                     style={"fontSize": "13px"},
                 ),
             ),
-            pagination_bar,
         ],
         withBorder=True,
         radius="sm",
@@ -730,29 +752,36 @@ def layout() -> Any:
                 id="history-bulk-alert-container",
                 children=render_bulk_alert(0, is_admin_user),
             ),
-            dcc.Loading(
-                id="history-loading",
-                type="circle",
-                children=html.Div(
-                    id="history-table-container",
-                    style={
-                        "flex": 1,
-                        "minHeight": 0,
-                        "display": "flex",
-                        "flexDirection": "column",
-                        "overflow": "hidden",
-                    },
+            # Task 60: bỏ dcc.Loading quanh bảng — spinner hiện cả khi bấm
+            # phân trang vì cùng 1 callback phục vụ cả lọc lẫn phân trang,
+            # không phân biệt được trigger. Lúc mở trang, vùng bảng hiện
+            # trạng thái tải nhỏ; khi đổi lọc, bảng cũ giữ nguyên tới khi
+            # dữ liệu mới về (không chớp, không spinner).
+            html.Div(
+                id="history-table-container",
+                children=dmc.Group(
+                    [
+                        dmc.Loader(size="sm"),
+                        dmc.Text("Đang tải lịch sử…", size="sm", c="dimmed"),
+                    ],
+                    justify="center",
+                    align="center",
+                    style={"flex": 1, "minHeight": 0},
                 ),
-                # style của Loading đi vào lớp phủ spinner; muốn khung ngoài co
-                # giãn theo Box phải dùng parent_style (nếu không khung cao
-                # bằng nội dung, phân trang bị đẩy khỏi viewport).
-                parent_style={
+                style={
                     "flex": 1,
                     "minHeight": 0,
                     "display": "flex",
                     "flexDirection": "column",
                     "overflow": "hidden",
                 },
+            ),
+            # Task 60: footer phân trang cố định ngoài vùng bảng bị vẽ lại
+            # — node Pagination không bị hủy nên giữ được focus.
+            html.Div(
+                id="history-pagination-container",
+                children=render_history_pagination_bar(0, 1, 20, 1),
+                style={"flexShrink": 0},
             ),
             render_bulk_purge_modal(),
         ],
@@ -773,6 +802,9 @@ def layout() -> Any:
 
 @callback(
     Output("history-page-store", "data"),
+    # Task 60: đồng bộ lại giá trị Pagination khi đổi lọc (về trang 1) —
+    # cùng pattern Input/Output một prop như handle_runs_refresh (task 55).
+    Output("history-pagination", "value"),
     Input("history-pagination", "value"),
     Input("history-filter-date-range", "value"),
     Input("history-filter-template", "value"),
@@ -794,20 +826,25 @@ def handle_history_page(
     _fn: Any,
     _batch: Any,
     current_page: int,
-) -> int:
+) -> tuple[int, int]:
     """Xử lý chuyển trang hoặc reset về trang 1 khi thay đổi bộ lọc."""
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
-        return 1
+        return 1, 1
     trigger_prop = ctx_dash.triggered[0]["prop_id"]
     if "history-pagination" in trigger_prop and page_val:
-        return int(page_val)
-    return 1
+        return int(page_val), int(page_val)
+    return 1, 1
 
 
 @callback(
     Output("history-table-container", "children"),
     Output("history-title", "children"),
+    # Task 60: footer phân trang cố định — callback chỉ cập nhật dòng
+    # "Hiển thị x–y" và tổng số trang của Pagination (prop, không trả lại
+    # component nên node Pagination không bị hủy/vẽ lại).
+    Output("history-showing-text", "children"),
+    Output("history-pagination", "total"),
     Input("history-filter-template", "value"),
     Input("history-filter-checked", "value"),
     Input("history-filter-purged", "value"),
@@ -830,7 +867,7 @@ def update_history_table(
     refresh_val: int = 0,
     selected_data: list[int] | None = None,
     batch_val: str | None = "ALL",
-) -> tuple[Any, str]:
+) -> tuple[Any, str, Any, Any]:
     """Cập nhật bảng danh sách run theo các bộ lọc tiêu chí và phân trang."""
     ctx = get_current_ctx()
     if ctx is None:
@@ -840,6 +877,8 @@ def update_history_table(
                 tone="crit",
             ),
             "Lịch sử run",
+            dash.no_update,
+            dash.no_update,
         )
 
     # Tương thích nếu hàm được gọi trực tiếp với 7 tham số từ test cũ:
@@ -929,6 +968,8 @@ def update_history_table(
                     action=button_subtle("Thử lại", id="history-retry-btn", size="sm"),
                 ),
                 "Lịch sử run",
+                dash.no_update,
+                dash.no_update,
             )
 
         items = res.data.get("items", []) if res.data else []
@@ -943,12 +984,13 @@ def update_history_table(
             items,
             is_admin=is_admin_user,
             selected_ids=selected_ids,
-            total=total,
-            current_page=current_page,
-            page_size=20,
-            total_pages=total_pages,
         )
-        return table_node, title_text
+        return (
+            table_node,
+            title_text,
+            _history_showing_text(total, current_page, 20),
+            max(total_pages, 1),
+        )
 
     except Exception as e:
         return (
@@ -958,6 +1000,8 @@ def update_history_table(
                 action=button_subtle("Thử lại", id="history-retry-btn", size="sm"),
             ),
             "Lịch sử run",
+            dash.no_update,
+            dash.no_update,
         )
 
 

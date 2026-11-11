@@ -223,6 +223,8 @@ def history_env(tmp_path, monkeypatch):
         "admin_ctx": Ctx(user_id=adm_id, username="admin_test", full_name="Quản Trị Viên", roles=[Role.ADMIN]),
         "op_ctx": Ctx(user_id=op_id, username="op_test", full_name="Vận Hành Viên", roles=[Role.OPERATOR]),
         "tpl_id": tpl_id,
+        "file_id": file_id,
+        "ds_id": ds_id,
         "run1_id": 101,
         "run2_id": 102,
     }
@@ -334,23 +336,28 @@ def test_bulk_purge_modal():
 def test_update_history_table_callback(history_env, monkeypatch):
     # Khi chưa đăng nhập (ctx is None)
     monkeypatch.setattr("app.ui.pages.history.get_current_ctx", lambda: None)
-    node, title = update_history_table("ALL", "ALL", "ALL", "ALL", "", 0, [])
+    node, title, showing, total_pages = update_history_table("ALL", "ALL", "ALL", "ALL", "", 0, [])
     assert "Bạn cần đăng nhập" in str(node)
 
     # Khi đăng nhập bằng Admin
     monkeypatch.setattr("app.ui.pages.history.get_current_ctx", lambda: history_env["admin_ctx"])
-    node, title = update_history_table("ALL", "ALL", "ALL", "ALL", "", 0, [])
+    node, title, showing, total_pages = update_history_table("ALL", "ALL", "ALL", "ALL", "", 0, [])
     assert "Lịch sử:" in title
     assert "#101" in str(node)
     assert "#102" in str(node)
+    # Task 60: callback trả thêm dòng "Hiển thị x–y" + tổng số trang để
+    # đồng bộ footer phân trang cố định (Pagination không còn trong bảng).
+    assert showing == "Hiển thị 1 – 2 trong tổng số 2 run"
+    assert total_pages == 1
 
     # Lọc chưa kiểm tra -> chỉ thấy run 101
-    node_chk, _ = update_history_table("ALL", "UNCHECKED", "ALL", "ALL", "", 0, [])
+    node_chk, _, showing_chk, _ = update_history_table("ALL", "UNCHECKED", "ALL", "ALL", "", 0, [])
     assert "#101" in str(node_chk)
     assert "#102" not in str(node_chk)
+    assert showing_chk == "Hiển thị 1 – 1 trong tổng số 1 run"
 
     # Lọc đã xóa tạm -> chỉ thấy run 102
-    node_purged, _ = update_history_table("ALL", "ALL", "PURGED", "ALL", "", 0, [])
+    node_purged, _, _, _ = update_history_table("ALL", "ALL", "PURGED", "ALL", "", 0, [])
     assert "#102" in str(node_purged)
     assert "#101" not in str(node_purged)
 
@@ -398,31 +405,92 @@ def test_bulk_purge_confirm_flow(history_env, monkeypatch):
 def test_history_pagination(history_env, monkeypatch):
     monkeypatch.setattr("app.ui.pages.history.get_current_ctx", lambda: history_env["admin_ctx"])
 
-    # Kiểm tra render_runs_table có thanh phân trang
-    items = [{"id": 101, "template_id": 1, "created_at": "2026-02-01T10:00:00", "status": "DONE"}]
-    table = render_runs_table(
-        items, is_admin=True, selected_ids=set(), total=25, current_page=1, page_size=20, total_pages=2
-    )
-    table_str = str(table)
-    assert "history-pagination" in table_str
-    assert "Hiển thị 1 – 20 trong tổng số 25 run" in table_str
+    # Task 60: bảng KHÔNG còn chứa phân trang — Pagination tách ra
+    # footer cố định trong layout, render riêng bằng
+    # render_history_pagination_bar.
+    from app.ui.pages.history import render_history_pagination_bar
 
-    # Kiểm tra callback handle_history_page
+    items = [{"id": 101, "template_id": 1, "created_at": "2026-02-01T10:00:00", "status": "DONE"}]
+    table = render_runs_table(items, is_admin=True, selected_ids=set())
+    table_str = str(table)
+    assert "history-pagination" not in table_str
+    assert "Hiển thị" not in table_str
+
+    bar = render_history_pagination_bar(total=25, current_page=1, page_size=20, total_pages=2)
+    bar_str = str(bar)
+    assert "history-pagination" in bar_str
+    assert "history-showing-text" in bar_str
+    assert "Hiển thị 1 – 20 trong tổng số 25 run" in bar_str
+    nodes = list(_walk(bar))
+    pagers = [n for n in nodes if type(n).__name__ == "Pagination"]
+    assert len(pagers) == 1 and pagers[0].total == 2 and pagers[0].value == 1
+
+    # Trang 2: dòng hiển thị đổi theo trang.
+    bar2 = render_history_pagination_bar(total=25, current_page=2, page_size=20, total_pages=2)
+    assert "Hiển thị 21 – 25 trong tổng số 25 run" in str(bar2)
+    # Không có run nào: 0 – 0, vẫn 1 trang.
+    bar0 = render_history_pagination_bar(total=0, current_page=1, page_size=20, total_pages=1)
+    assert "Hiển thị 0 – 0 trong tổng số 0 run" in str(bar0)
+
+    # Kiểm tra callback handle_history_page: trả cả page-store và giá trị
+    # Pagination (đồng bộ lại về trang 1 khi đổi lọc — pattern report-runs).
     # Khi đổi trang trên pagination
     monkeypatch.setattr(
         "dash.callback_context",
         SimpleNamespace(triggered=[{"prop_id": "history-pagination.value", "value": 2}]),
     )
     res_page = handle_history_page(2, None, "ALL", "ALL", "ALL", "ALL", "", "ALL", 1)
-    assert res_page == 2
+    assert res_page == (2, 2)
 
-    # Khi đổi bộ lọc -> reset về trang 1
+    # Khi đổi bộ lọc -> reset về trang 1 (cả store lẫn Pagination).
     monkeypatch.setattr(
         "dash.callback_context",
         SimpleNamespace(triggered=[{"prop_id": "history-filter-template.value", "value": "2"}]),
     )
     res_reset = handle_history_page(None, None, "2", "ALL", "ALL", "ALL", "", "ALL", 2)
-    assert res_reset == 1
+    assert res_reset == (1, 1)
+
+
+def test_update_history_table_page_2(history_env, monkeypatch):
+    """Task 60: sang trang 2 chỉ đổi dòng bảng + dòng 'Hiển thị x–y'."""
+    from datetime import timedelta
+
+    from app.db.metadata import recon_run
+
+    monkeypatch.setattr("app.ui.pages.history.get_current_ctx", lambda: history_env["admin_ctx"])
+    engine = history_env["engine"]
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # 23 run nữa (id 103..125), cũ hơn 2 run seed theo phút để thứ tự
+    # CREATED_AT desc xác định: trang 1 = 101, 102 + 103..120; trang 2 = 121..125.
+    with engine.begin() as conn:
+        for i, rid in enumerate(range(103, 126), start=1):
+            conn.execute(
+                recon_run.insert().values(
+                    ID=rid,
+                    TEMPLATE_ID=history_env["tpl_id"],
+                    TEMPLATE_VERSION=1,
+                    PROFILE_CODE="DEFAULT",
+                    FILE_ID=history_env["file_id"],
+                    DATA_SOURCE_ID=history_env["ds_id"],
+                    P_FROM=datetime(2026, 2, 1, 0, 0, 0),
+                    P_TO=datetime(2026, 2, 5, 23, 59, 59),
+                    STATUS="DONE",
+                    STAGE=5,
+                    PROGRESS_PCT=100,
+                    CREATED_BY="op_test",
+                    CREATED_AT=now - timedelta(minutes=i),
+                    FINISHED_AT=now - timedelta(minutes=i),
+                )
+            )
+    node, _title, showing, total_pages = update_history_table("ALL", "ALL", "ALL", "ALL", "", None, 2, 0, [], "ALL")
+    node_str = str(node)
+    assert total_pages == 2
+    assert showing == "Hiển thị 21 – 25 trong tổng số 25 run"
+    for rid in range(121, 126):
+        assert f"#{rid}" in node_str
+    assert "#101" not in node_str
+    # Bảng trang 2 không chứa Pagination (nằm ở footer cố định).
+    assert "history-pagination" not in node_str
 
 
 def test_history_date_range_filter(history_env, monkeypatch):
@@ -432,15 +500,20 @@ def test_history_date_range_filter(history_env, monkeypatch):
     last_day = now_dt.strftime("%Y-%m-%d")
 
     # Lọc trong khoảng tháng hiện tại (chứa run 101 và 102 được tạo lúc now)
-    node, title = update_history_table("ALL", "ALL", "ALL", "ALL", "", [first_day, last_day], 1, 0, [])
+    node, title, showing, total_pages = update_history_table(
+        "ALL", "ALL", "ALL", "ALL", "", [first_day, last_day], 1, 0, []
+    )
     assert "#101" in str(node)
     assert "#102" in str(node)
+    assert showing == "Hiển thị 1 – 2 trong tổng số 2 run"
 
     # Lọc khoảng ngày trong quá khứ không có run -> rỗng
-    node_empty, title_empty = update_history_table(
+    node_empty, title_empty, showing_empty, total_empty = update_history_table(
         "ALL", "ALL", "ALL", "ALL", "", ["2020-01-01", "2020-01-02"], 1, 0, []
     )
     assert "Chưa có run nào" in str(node_empty)
+    assert showing_empty == "Hiển thị 0 – 0 trong tổng số 0 run"
+    assert total_empty == 1
 
 
 def test_toggle_bulk_purge_modal_open_and_cancel(monkeypatch):
@@ -511,7 +584,7 @@ def _kebab_items():
 
 def test_history_actions_kebab_menu():
     """Cột Thao tác chỉ còn nút 3 chấm mở menu (kiểu /report-admin)."""
-    table = render_runs_table(_kebab_items(), is_admin=True, selected_ids=set(), total=2)
+    table = render_runs_table(_kebab_items(), is_admin=True, selected_ids=set())
     table_str = str(table)
     assert "more-vertical" in table_str
     assert "Xem" in table_str
@@ -540,7 +613,7 @@ def test_history_filter_bar_fits_one_line():
 
 def test_history_table_compact_widths():
     """Bảng thu gọn chiều ngang: cột hẹp, đệm ngang 8px, minWidth 1240."""
-    table = render_runs_table(_kebab_items(), is_admin=True, selected_ids=set(), total=2)
+    table = render_runs_table(_kebab_items(), is_admin=True, selected_ids=set())
     nodes = list(_walk(table))
     scroller = next(n for n in nodes if type(n).__name__ == "TableScrollContainer")
     assert scroller.minWidth <= 1240
@@ -571,8 +644,20 @@ def test_history_layout_fills_viewport(monkeypatch):
     )
     box = layout()
     assert box.style["height"] == "calc(100vh - 88px)"
-    # Khung Loading phải co giãn theo Box (parent_style, không phải style của
-    # lớp phủ spinner) thì bảng mới cuộn trong Paper và phân trang hiện ở chân.
-    loading = next(c for c in box.children if getattr(c, "id", None) == "history-loading")
-    assert loading.parent_style["flex"] == 1
-    assert loading.parent_style["minHeight"] == 0
+    # Task 60: bỏ dcc.Loading quanh bảng (spinner hiện cả khi bấm phân
+    # trang vì cùng 1 callback phục vụ cả lọc lẫn phân trang) — vùng bảng
+    # là Div thường, lúc mở trang hiện trạng thái tải nhỏ trong bảng.
+    assert not any(getattr(c, "id", None) == "history-loading" for c in box.children)
+    container = next(c for c in box.children if getattr(c, "id", None) == "history-table-container")
+    assert container.style["flex"] == 1
+    assert container.style["minHeight"] == 0
+    assert "Đang tải" in str(container)
+    # Task 60: Pagination cố định ngoài vùng bảng (không bị hủy/vẽ lại
+    # khi chuyển trang) — nằm trong footer riêng, sau container bảng.
+    nodes = list(_walk(box))
+    pagers = [n for n in nodes if type(n).__name__ == "Pagination"]
+    assert len(pagers) == 1 and getattr(pagers[0], "id", None) == "history-pagination"
+    container_nodes = set(map(id, _walk(container)))
+    assert all(id(p) not in container_nodes for p in pagers)
+    showing = [n for n in nodes if getattr(n, "id", None) == "history-showing-text"]
+    assert len(showing) == 1
