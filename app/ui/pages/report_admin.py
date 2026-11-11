@@ -1353,44 +1353,42 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
                         ),
                         dmc.Group(
                             [
-                                dmc.Group(
+                                dmc.Stack(
                                     [
                                         dmc.Text("Hàng", size="10px", c="dimmed"),
                                         dmc.NumberInput(
                                             value=int(p.get("display_row") or r),
                                             min=1,
                                             max=20,
-                                            w=46,
+                                            w=36,
                                             size="xs",
                                             debounce=500,
                                             styles={"input": {"height": "22px", "minHeight": "22px", "padding": "0 2px", "fontSize": "11px", "lineHeight": "22px", "textAlign": "center"}},
                                             id={"type": "admin-p-canvas-row", "index": p["id"]},
                                         ),
                                     ],
-                                    gap=2,
-                                    wrap="nowrap",
+                                    gap=0,
                                 ),
-                                dmc.Group(
+                                dmc.Stack(
                                     [
                                         dmc.Text("Cột", size="10px", c="dimmed"),
                                         dmc.NumberInput(
                                             value=span,
                                             min=1,
                                             max=12,
-                                            w=46,
+                                            w=36,
                                             size="xs",
                                             debounce=500,
                                             styles={"input": {"height": "22px", "minHeight": "22px", "padding": "0 2px", "fontSize": "11px", "lineHeight": "22px", "textAlign": "center"}},
                                             id={"type": "admin-p-canvas-span", "index": p["id"]},
                                         ),
                                     ],
-                                    gap=2,
-                                    wrap="nowrap",
+                                    gap=0,
                                 ),
                             ],
                             gap=4,
                             justify="flex-start",
-                            align="center",
+                            align="flex-start",
                             wrap="wrap",
                             mt=4,
                         ),
@@ -1403,7 +1401,7 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
                         "backgroundColor": "var(--surface-1, #FFFFFF)",
                         "border": "1px solid var(--line, #E0E0E0)",
                         "borderRadius": "4px",
-                        "padding": "6px 8px",
+                        "padding": "6px 6px",
                         "boxShadow": "0 1px 2px rgba(0, 0, 0, 0.04)",
                     },
                 )
