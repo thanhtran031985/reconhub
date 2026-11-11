@@ -31,4 +31,8 @@
   Thanh cuộn ngang của AG Grid nằm ở .ag-body-horizontal-scroll-viewport,
   set scrollLeft trên .ag-body-viewport không có tác dụng.
 
-## Bước 4 — Full suite + patch (đang làm)
+## Bước 4 — Full suite + patch (xong)
+- Full suite 1548 pass, 6 skipped (1543 + 5 test mới).
+- Patch ~/workspace/reconhub-task56.patch, áp sau patch 55, không cần
+  db-migrate, chỉ khởi động lại app. Đang chờ user áp + kiểm chứng
+  trên app thật.
