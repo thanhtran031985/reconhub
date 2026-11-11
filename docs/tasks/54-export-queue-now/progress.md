@@ -22,3 +22,9 @@
   sử hiện "Hoàn tất" + icon tải; không lỗi JS.
 - Bài học: Mantine Badge hiển thị chữ hoa (text-transform) nên
   innerText ra "HOÀN TẤT" — assert text badge phải dùng textContent.
+
+## Bước 5 — Full suite + patch (xong)
+- Full suite 1532 pass, 6 skipped (1525 + 7 test mới task 54).
+- Patch ~/workspace/reconhub-task54.patch, áp sau patch 53, không cần
+  db-migrate, khởi động lại app và worker. Đang chờ user áp + kiểm
+  chứng trên app thật.
