@@ -57,10 +57,15 @@ def layout(**kwargs: Any) -> Any:
             max_concurrent = int(c_res.data.get("max_concurrent") or 10)
     return dmc.Box(
         [
-            html.Div(id="settings-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
+            html.Div(
+                id="settings-alert",
+                style={"width": "100%", "maxWidth": 640},
+                **{"aria-live": "polite"},  # type: ignore[arg-type]
+            ),
             page_header(
                 title="Cài đặt hệ thống",
                 subtitle="Chỉ ADMIN. Áp dụng cho file export chạy ngầm của báo cáo.",
+                style={"width": "fit-content"},
             ),
             dmc.Paper(
                 dmc.Stack(
@@ -101,6 +106,7 @@ def layout(**kwargs: Any) -> Any:
                 withBorder=True,
                 radius="sm",
                 p="md",
+                w="100%",
                 maw=640,
             ),
             dmc.Paper(
@@ -130,6 +136,7 @@ def layout(**kwargs: Any) -> Any:
                 withBorder=True,
                 radius="sm",
                 p="md",
+                w="100%",
                 maw=640,
             ),
             dmc.Group(
@@ -141,9 +148,18 @@ def layout(**kwargs: Any) -> Any:
                         size="sm",
                     ),
                 ],
+                justify="center",
+                w="100%",
+                maw=640,
             ),
         ],
-        style={"padding": "12px 16px", "display": "flex", "flexDirection": "column", "gap": "10px"},
+        style={
+            "padding": "12px 16px",
+            "display": "flex",
+            "flexDirection": "column",
+            "alignItems": "center",
+            "gap": "10px",
+        },
     )
 
 

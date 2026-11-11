@@ -581,13 +581,16 @@ def _update_export_progress(engine: Any, export_id: int, pct: int, step: str) ->
 
 
 def _fail_export(engine: Any, export_id: int, error: ServiceError) -> None:
+    """Ghi FAILED — chỉ khi export còn QUEUED/RUNNING (task 58: lỗi xảy
+    ra sau khi user hủy thì không ghi đè CANCELLED thành FAILED)."""
     with engine.begin() as conn:
         actor = conn.execute(
             select(recon_rpt_export.c.CREATED_BY).where(recon_rpt_export.c.ID == export_id)
         ).scalar_one_or_none()
-        conn.execute(
+        failed_result = conn.execute(
             recon_rpt_export.update()
             .where(recon_rpt_export.c.ID == export_id)
+            .where(recon_rpt_export.c.STATUS.in_(("QUEUED", "RUNNING")))
             .values(
                 STATUS="FAILED",
                 ERROR_MESSAGE=error.message[:500],
@@ -595,6 +598,8 @@ def _fail_export(engine: Any, export_id: int, error: ServiceError) -> None:
                 FINISHED_AT=_now(),
             )
         )
+        if failed_result.rowcount == 0:
+            return
         write_audit_log(
             conn,
             "RECON_RPT_EXPORT",
@@ -696,8 +701,11 @@ def execute_export(
         try:
             for _col_names, batch in _iter_batches(detail, resolved):
                 batch_no += 1
-                # Checkpoint hủy (bước 4): kiểm tra mỗi 10 batch.
-                if batch_no % 10 == 0 and _is_cancelled(eng, export_id):
+                # Task 58: checkpoint hủy mỗi batch (1 SELECT đơn theo
+                # khóa chính) — checkpoint cũ mỗi 10 batch (50.000 dòng)
+                # để luồng đã hủy chạy thêm tới ~80s mới dừng, vẫn chiếm
+                # 1 slot trong nhóm 10 của worker.
+                if _is_cancelled(eng, export_id):
                     writer.close()
                     shutil.rmtree(out_dir, ignore_errors=True)
                     with eng.connect() as conn:
@@ -735,6 +743,13 @@ def execute_export(
                     )
         finally:
             writer.close()
+        # Task 58: kiểm tra hủy lần nữa ngay trước khi chốt — checkpoint
+        # trong vòng lặp không phủ được đoạn nén/chốt file; hủy rơi vào
+        # đoạn đó trước đây bị ghi đè thành DONE.
+        if _is_cancelled(eng, export_id):
+            shutil.rmtree(out_dir, ignore_errors=True)
+            with eng.connect() as conn:
+                return _export_dict(_load_export_row(conn, export_id))
         if part > 1:
             _update_export_progress(eng, export_id, 90, "Đang nén file")
         else:
@@ -758,9 +773,16 @@ def execute_export(
         file_size = final_path.stat().st_size
         file_hash = _file_hash(final_path)
         with eng.begin() as conn:
-            conn.execute(
+            # Task 58: chỉ chốt DONE khi export còn QUEUED/RUNNING
+            # (worker claim xong là RUNNING; gọi trực tiếp vẫn có thể
+            # là QUEUED) — hủy rơi vào đoạn nén/chốt (sau checkpoint
+            # cuối) không bị ghi đè thành DONE nữa. rowcount == 0 nghĩa
+            # là export đã đổi trạng thái (bị hủy) trong lúc chốt: giữ
+            # nguyên, không chốt run DONE, không ghi audit DONE.
+            done_result = conn.execute(
                 recon_rpt_export.update()
                 .where(recon_rpt_export.c.ID == export_id)
+                .where(recon_rpt_export.c.STATUS.in_(("QUEUED", "RUNNING")))
                 .values(
                     STATUS="DONE",
                     FORMAT=final_format,
@@ -774,6 +796,8 @@ def execute_export(
                     FINISHED_AT=_now(),
                 )
             )
+            if done_result.rowcount == 0:
+                return _export_dict(_load_export_row(conn, export_id))
             # Task 54: run QUEUED (nộp chạy ngầm khi chưa Xem) thì chốt
             # luôn thành DONE + tổng dòng đã ghi — Lịch sử hiện "Hoàn
             # tất" thay vì "Đang chờ" mãi. UPDATE có điều kiện nên không

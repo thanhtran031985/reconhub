@@ -106,44 +106,54 @@ dagcomp.reconRunsActionsCell = function (props) {
   var Icon = window.dash_iconify.DashIconify;
   var exp = (props.data && props.data._export) || null;
   var canDelete = !!props.canDelete;
-  function mk(action, label, icon, color) {
-    return React.createElement(
-      Button,
-      {
-        key: action,
-        size: 'xs',
-        variant: 'subtle',
-        color: color || undefined,
-        leftSection: React.createElement(Icon, { icon: icon, width: 14 }),
-        onClick: function () { props.setData(action); },
-      },
-      label
-    );
-  }
-  var buttons = [];
-  if (exp && (exp.status === 'QUEUED' || exp.status === 'RUNNING')) {
-    buttons.push(mk('cancel', 'Hủy', 'lucide:x', undefined));
-  }
-  if (exp && exp.status === 'FAILED') {
-    buttons.push(mk('retry', 'Thử lại', 'lucide:rotate-ccw', undefined));
-  }
-  if (canDelete && exp && (exp.status === 'DONE' || exp.status === 'FAILED' || exp.status === 'CANCELLED')) {
-    buttons.push(mk('delete', 'Xóa', 'lucide:trash-2', 'red'));
-  }
-  buttons.push(mk('rerun', 'Xuất lại', 'lucide:file-spreadsheet', undefined));
-  buttons.push(React.createElement(
-    Button,
-    {
-      key: 'rerun_link',
+  function mk(action, label, icon, color, show) {
+    var btnProps = {
+      key: action,
       size: 'xs',
       variant: 'subtle',
-      leftSection: React.createElement(Icon, { icon: 'lucide:play-circle', width: 14 }),
-      onClick: function () {
-        window.location.href = '/reports/' + props.data._report_id + '?rerun_from=' + props.data.id;
+      color: color || undefined,
+      leftSection: React.createElement(Icon, { icon: icon, width: 14 }),
+      onClick: function () { props.setData(action); },
+    };
+    if (!show) {
+      // Task 58: nút giữ chỗ — cùng kích thước với nút thật, ẩn khỏi
+      // màn hình, không bấm được — để Xuất lại/Chạy lại không bị đẩy
+      // khi nút trước đó biến mất (ví dụ bấm Xóa xong).
+      btnProps.style = { visibility: 'hidden' };
+      btnProps.disabled = true;
+    }
+    return React.createElement(Button, btnProps, label);
+  }
+  // Task 58: 4 vị trí cố định theo thứ tự [Hủy/Thử lại] [Xóa]
+  // [Xuất lại] [Chạy lại] — vị trí không phù hợp vẽ nút giữ chỗ nên
+  // mọi nút luôn đứng yên một chỗ trên mọi dòng. Lưu ý: nhãn "Thử
+  // lại" rộng hơn "Hủy" nên vị trí 1 hơi rộng hơn ở dòng FAILED so
+  // với dòng khác — chỉ khác nhau giữa các dòng, không nhảy khi bấm.
+  var showCancel = !!exp && (exp.status === 'QUEUED' || exp.status === 'RUNNING');
+  var showRetry = !!exp && exp.status === 'FAILED';
+  var showDelete = canDelete && !!exp && (exp.status === 'DONE' || exp.status === 'FAILED' || exp.status === 'CANCELLED');
+  var buttons = [
+    showCancel
+      ? mk('cancel', 'Hủy', 'lucide:x', undefined, true)
+      : showRetry
+        ? mk('retry', 'Thử lại', 'lucide:rotate-ccw', undefined, true)
+        : mk('cancel', 'Hủy', 'lucide:x', undefined, false),
+    mk('delete', 'Xóa', 'lucide:trash-2', 'red', showDelete),
+    mk('rerun', 'Xuất lại', 'lucide:file-spreadsheet', undefined, true),
+    React.createElement(
+      Button,
+      {
+        key: 'rerun_link',
+        size: 'xs',
+        variant: 'subtle',
+        leftSection: React.createElement(Icon, { icon: 'lucide:play-circle', width: 14 }),
+        onClick: function () {
+          window.location.href = '/reports/' + props.data._report_id + '?rerun_from=' + props.data.id;
+        },
       },
-    },
-    'Chạy lại'
-  ));
+      'Chạy lại'
+    ),
+  ];
   return React.createElement(
     'div',
     { style: { display: 'flex', gap: '2px', alignItems: 'center' } },

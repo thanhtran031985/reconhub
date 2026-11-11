@@ -83,31 +83,31 @@ def _call_refresh(monkeypatch, triggered_id, last_fingerprint, loader=None):
     )
     monkeypatch.setattr("dash.callback_context", SimpleNamespace(triggered_id=triggered_id))
     return handle_runs_refresh(
-        1, "50", None, None, "all", "", "all", None, 1, 1, None, 0, 1, last_fingerprint
+        1, "50", None, None, "all", "", "all", None, None, 1, 1, None, 0, 1, last_fingerprint
     )
 
 
 class TestRefreshGate:
     def test_interval_tick_unchanged_returns_no_update(self, monkeypatch):
         out = _call_refresh(monkeypatch, "report-runs-auto-refresh", _fingerprint())
-        assert len(out) == 11
+        assert len(out) == 12
         assert all(item is dash.no_update for item in out), out
 
     def test_interval_tick_changed_rerenders(self, monkeypatch):
         out = _call_refresh(monkeypatch, "report-runs-auto-refresh", "khac")
         assert out[0] is not dash.no_update
-        assert out[9] == _fingerprint()
+        assert out[10] == _fingerprint()
 
     def test_first_tick_rerenders(self, monkeypatch):
         # Store vân tay mới khởi tạo "" → tick đầu luôn vẽ lại.
         out = _call_refresh(monkeypatch, "report-runs-auto-refresh", "")
         assert out[0] is not dash.no_update
-        assert out[9] == _fingerprint()
+        assert out[10] == _fingerprint()
 
     def test_manual_refresh_button_forces_rerender(self, monkeypatch):
         out = _call_refresh(monkeypatch, "report-runs-refresh-btn", _fingerprint())
         assert out[0] is not dash.no_update
-        assert out[9] == _fingerprint()
+        assert out[10] == _fingerprint()
 
     def test_filter_change_rerenders(self, monkeypatch):
         out = _call_refresh(monkeypatch, "report-runs-filter-name", _fingerprint())
@@ -120,6 +120,6 @@ class TestRefreshGate:
         out = _call_refresh(
             monkeypatch, "report-runs-auto-refresh", _fingerprint(), loader=_raise
         )
-        assert out[9] is dash.no_update
+        assert out[10] is dash.no_update
         assert out[0] == []  # task 55: grid rỗng khi lỗi
-        assert "Không tải được" in str(out[10])  # task 55: lỗi vào alert
+        assert "Không tải được" in str(out[11])  # task 55: lỗi vào alert

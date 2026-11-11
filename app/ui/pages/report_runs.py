@@ -122,6 +122,16 @@ _RUN_STATUS_LABELS: dict[str, str] = {
     "CANCELLED": "Đã hủy",
 }
 
+# Task 58: lọc theo trạng thái run (thứ tự theo vòng đời run).
+_RUN_STATUS_OPTIONS: list[dict[str, str]] = [
+    {"label": "Tất cả trạng thái", "value": "all"},
+    {"label": "Đang chờ", "value": "QUEUED"},
+    {"label": "Đang chạy", "value": "RUNNING"},
+    {"label": "Hoàn tất", "value": "DONE"},
+    {"label": "Lỗi", "value": "FAILED"},
+    {"label": "Đã hủy", "value": "CANCELLED"},
+]
+
 
 def _runs_row_data(
     runs: list[dict[str, Any]],
@@ -217,6 +227,7 @@ def _filters_to_kwargs(
     category: str | None,
     name: str | None,
     runner: str | None,
+    status: str | None = None,
 ) -> dict[str, Any]:
     """Giá trị lọc từ form → tham số service ("all"/rỗng = không lọc)."""
     return {
@@ -225,6 +236,7 @@ def _filters_to_kwargs(
         "category_code": None if category in (None, "", "all") else category,
         "report_name": (name or "").strip() or None,
         "created_by": None if runner in (None, "", "all") else runner,
+        "status": None if status in (None, "", "all") else status,
     }
 
 
@@ -358,6 +370,15 @@ def layout() -> Any:
                         styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
                     ),
                     dmc.Select(
+                        id="report-runs-filter-status",
+                        data=_RUN_STATUS_OPTIONS,
+                        value="all",
+                        size="xs",
+                        w=150,
+                        **{"aria-label": "Lọc theo trạng thái"},
+                        styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+                    ),
+                    dmc.Select(
                         id="report-runs-filter-runner",
                         data=creators,
                         value="all",
@@ -447,6 +468,7 @@ def layout() -> Any:
     Output("report-runs-filter-category", "value"),
     Output("report-runs-filter-name", "value"),
     Output("report-runs-filter-runner", "value"),
+    Output("report-runs-filter-status", "value"),
     Output("report-runs-fingerprint", "data"),
     # Task 55: alert cũng do handle_renderer_action ghi — cho phép trùng
     # output (Dash sẽ gọi callback nào trigger trước).
@@ -458,6 +480,7 @@ def layout() -> Any:
     Input("report-runs-filter-category", "value"),
     Input("report-runs-filter-name", "value"),
     Input("report-runs-filter-runner", "value"),
+    Input("report-runs-filter-status", "value"),
     Input("report-runs-clear-btn", "n_clicks"),
     Input("report-runs-auto-refresh", "n_intervals"),
     Input("report-runs-refresh-btn", "n_clicks"),
@@ -477,6 +500,7 @@ def handle_runs_refresh(
     category: str | None,
     name: str | None,
     runner: str | None,
+    status: str | None,
     _clear_clicks: int | None,
     _current: int | None,
     _auto_n: int | None = None,
@@ -500,7 +524,7 @@ def handle_runs_refresh(
         raise PreventUpdate
     triggered = dash.callback_context.triggered_id
     if triggered == "report-runs-clear-btn":
-        from_date, to_date, category, name, runner = None, None, "all", "", "all"
+        from_date, to_date, category, name, runner, status = None, None, "all", "", "all", "all"
         page = 1
     elif triggered in (
         "report-runs-page-size",
@@ -509,6 +533,7 @@ def handle_runs_refresh(
         "report-runs-filter-category",
         "report-runs-filter-name",
         "report-runs-filter-runner",
+        "report-runs-filter-status",
     ):
         page = 1
     else:
@@ -516,7 +541,7 @@ def handle_runs_refresh(
     size = int(page_size or DEFAULT_PAGE_SIZE)
     if size not in PAGE_SIZE_OPTIONS:
         size = DEFAULT_PAGE_SIZE
-    filters = _filters_to_kwargs(from_date, to_date, category, name, runner)
+    filters = _filters_to_kwargs(from_date, to_date, category, name, runner, status=status)
     try:
         runs, total, exports_by_run = _load_page_data(ctx, page, size, filters)
     except ValueError as exc:
@@ -532,12 +557,14 @@ def handle_runs_refresh(
             category or "all",
             name or "",
             runner or "all",
+            status or "all",
             dash.no_update,
             alert_box(str(exc), tone="crit"),
         )
     fingerprint = _runs_fingerprint(runs, exports_by_run, total, page)
     if triggered == "report-runs-auto-refresh" and fingerprint == (last_fingerprint or ""):
         return (
+            dash.no_update,
             dash.no_update,
             dash.no_update,
             dash.no_update,
@@ -560,6 +587,7 @@ def handle_runs_refresh(
         category or "all",
         name or "",
         runner or "all",
+        status or "all",
         fingerprint,
         dash.no_update,
     )

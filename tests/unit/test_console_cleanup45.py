@@ -106,7 +106,7 @@ class TestRunsFilterDatesNoNone:
         monkeypatch.setattr("app.ui.pages.report_runs.get_current_ctx", lambda: ctx)
         monkeypatch.setattr("app.ui.pages.report_runs._load_page_data", lambda *a, **k: ([], 0, {}))
         monkeypatch.setattr("dash.callback_context", SimpleNamespace(triggered_id=None))
-        out = handle_runs_refresh(1, "50", None, None, "all", "", "all", None, 1)
+        out = handle_runs_refresh(1, "50", None, None, "all", "", "all", None, None, 1)
         assert out[4] == "" and out[5] == "", out[4:6]
 
     def test_clear_returns_empty_string_for_dates(self, monkeypatch):
@@ -119,5 +119,6 @@ class TestRunsFilterDatesNoNone:
         monkeypatch.setattr("app.ui.pages.report_runs.get_current_ctx", lambda: ctx)
         monkeypatch.setattr("app.ui.pages.report_runs._load_page_data", lambda *a, **k: ([], 0, {}))
         monkeypatch.setattr("dash.callback_context", SimpleNamespace(triggered_id="report-runs-clear-btn"))
-        out = handle_runs_refresh(1, "50", "2026-11-01", "2026-11-05", "FIN", "bc", "admin", 1, 1)
+        out = handle_runs_refresh(1, "50", "2026-11-01", "2026-11-05", "FIN", "bc", "admin", "FAILED", 1, 1)
         assert out[4] == "" and out[5] == "" and out[6] == "all" and out[7] == ""
+        assert out[9] == "all", out[9]  # task 58: "Xóa lọc" reset cả lọc trạng thái
