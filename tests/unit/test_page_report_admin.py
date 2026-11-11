@@ -1438,3 +1438,98 @@ class TestWizardNav:
         p_updated = next(p for p in updated_ver["params"] if p["id"] == target_param["id"])
         assert p_updated["lov"]["lov_type"] == "STATIC"
         assert len(p_updated["lov"]["static_json"]) == 3
+
+
+def _flat_reports(n: int) -> list[dict]:
+    """N báo cáo không template -> N dòng phẳng (1 dòng/báo cáo)."""
+    return [
+        {
+            "id": i,
+            "code": f"RPT_{i:02d}",
+            "name": f"Bao cao {i}",
+            "category_code": "FINANCE",
+            "owner": "admin",
+            "is_active": True,
+            "templates": [],
+        }
+        for i in range(1, n + 1)
+    ]
+
+
+class TestAdminPageSize:
+    """Task 59: chọn cỡ trang cho danh sách báo cáo /report-admin."""
+
+    def test_page_size_20_first_page(self):
+        import app.ui.pages.report_admin as page
+        from tests.unit.test_page_report_viewer import _dump, _find_by_id
+
+        content = page.render_report_list(_flat_reports(25), page=1, page_size=20)
+        text = _dump(content)
+        assert "Hiển thị 1 – 20 trong tổng số 25 mục" in text
+        assert "RPT_20" in text and "RPT_21" not in text
+        sel = _find_by_id(content, "admin-page-size")
+        assert sel is not None and str(sel.value) == "20"
+        assert "20 dòng/trang" in text
+
+    def test_page_size_50_single_page(self):
+        import app.ui.pages.report_admin as page
+        from tests.unit.test_page_report_viewer import _dump, _find_by_id
+
+        content = page.render_report_list(_flat_reports(25), page=1, page_size=50)
+        text = _dump(content)
+        assert "Hiển thị 1 – 25 trong tổng số 25 mục" in text
+        assert "RPT_25" in text
+        sel = _find_by_id(content, "admin-page-size")
+        assert sel is not None and str(sel.value) == "50"
+
+    def test_page_clamped_to_last_page(self):
+        import app.ui.pages.report_admin as page
+        from tests.unit.test_page_report_viewer import _dump
+
+        content = page.render_report_list(_flat_reports(25), page=99, page_size=10)
+        text = _dump(content)
+        assert "Hiển thị 21 – 25 trong tổng số 25 mục" in text
+        assert "RPT_21" in text and "RPT_20" not in text
+
+    def test_handle_admin_filter_page_size_change_resets_to_page1(self, monkeypatch):
+        """Đổi cỡ trang -> về trang 1 (dù đang ở trang 2)."""
+        from types import SimpleNamespace
+
+        import dash
+
+        import app.ui.pages.report_admin as page
+        from tests.unit.test_page_report_viewer import _dump
+
+        monkeypatch.setattr(dash, "callback_context", SimpleNamespace(triggered_id="admin-page-size"))
+        content, cnt = page.handle_admin_filter(_flat_reports(25), "", "", "all", page=2, page_size="20")
+        text = _dump(content)
+        assert "Hiển thị 1 – 20 trong tổng số 25 mục" in text
+        assert cnt == "25 mục"
+
+    def test_handle_admin_filter_pagination_keeps_page_with_page_size(self, monkeypatch):
+        """Bấm phân trang -> giữ trang đã chọn, áp cỡ trang hiện tại."""
+        from types import SimpleNamespace
+
+        import dash
+
+        import app.ui.pages.report_admin as page
+        from tests.unit.test_page_report_viewer import _dump
+
+        monkeypatch.setattr(dash, "callback_context", SimpleNamespace(triggered_id="admin-pagination"))
+        content, cnt = page.handle_admin_filter(_flat_reports(25), "", "", "all", page=2, page_size="20")
+        text = _dump(content)
+        assert "Hiển thị 21 – 25 trong tổng số 25 mục" in text
+        assert cnt == "25 mục"
+
+    def test_handle_admin_filter_invalid_page_size_falls_back_to_10(self, monkeypatch):
+        """Cỡ trang ngoài danh sách -> mặc định 10."""
+        from types import SimpleNamespace
+
+        import dash
+
+        import app.ui.pages.report_admin as page
+        from tests.unit.test_page_report_viewer import _dump
+
+        monkeypatch.setattr(dash, "callback_context", SimpleNamespace(triggered_id="admin-page-size"))
+        content, _cnt = page.handle_admin_filter(_flat_reports(25), "", "", "all", page=1, page_size="999")
+        assert "Hiển thị 1 – 10 trong tổng số 25 mục" in _dump(content)

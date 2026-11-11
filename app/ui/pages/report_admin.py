@@ -112,6 +112,11 @@ SOURCE_TYPE_OPTIONS = [
     {"label": "View (VIEW)", "value": "VIEW"},
     {"label": "Bảng (TABLE)", "value": "TABLE"},
 ]
+
+# Task 59: cỡ trang cho danh sách báo cáo (pattern report-runs-page-size).
+ADMIN_PAGE_SIZE_OPTIONS: list[int] = [10, 20, 50, 100]
+DEFAULT_ADMIN_PAGE_SIZE: int = 10
+
 DATA_TYPE_OPTIONS = [
     {"label": "DATE", "value": "DATE"},
     {"label": "TEXT", "value": "STRING"},
@@ -605,11 +610,27 @@ def render_report_list(
 
     pagination_bar = dmc.Group(
         [
-            dmc.Text(
-                f"Hiển thị {start_idx + 1 if total_items > 0 else 0} – {end_idx} trong tổng số {total_items} mục",
-                size="xs",
-                c="dimmed",
-                fw=500,
+            dmc.Group(
+                [
+                    dmc.Text(
+                        f"Hiển thị {start_idx + 1 if total_items > 0 else 0} – {end_idx} trong tổng số {total_items} mục",
+                        size="xs",
+                        c="dimmed",
+                        fw=500,
+                    ),
+                    # Task 59: chọn cỡ trang (10/20/50/100) — luôn hiện kể
+                    # cả khi chỉ 1 trang để đổi được ngay khi danh sách ngắn.
+                    dmc.Select(
+                        id="admin-page-size",
+                        data=[{"label": f"{n} dòng/trang", "value": str(n)} for n in ADMIN_PAGE_SIZE_OPTIONS],
+                        value=str(page_size),
+                        size="xs",
+                        w=130,
+                        styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+                    ),
+                ],
+                gap="sm",
+                align="center",
             ),
             dmc.Pagination(
                 id="admin-pagination",
@@ -3907,6 +3928,7 @@ def handle_mode_display(state: dict[str, Any] | None) -> tuple[dict[str, Any], d
     Input("admin-filter-status", "value"),
     Input("admin-filter-category", "value"),
     Input("admin-pagination", "value"),
+    Input("admin-page-size", "value"),
 )
 def handle_admin_filter(
     reports: list[dict[str, Any]] | None,
@@ -3914,15 +3936,26 @@ def handle_admin_filter(
     status: str | None,
     category: str | None,
     page: int | None = 1,
+    page_size: str | None = None,
 ) -> tuple[Any, str]:
-    """Lọc danh sách báo cáo theo tìm kiếm, trạng thái và nhóm, kèm phân trang."""
+    """Lọc danh sách báo cáo theo tìm kiếm, trạng thái và nhóm, kèm phân trang.
+
+    Task 59: thêm chọn cỡ trang (10/20/50/100, mặc định 10) — đổi cỡ
+    trang về trang 1 như đổi lọc; giá trị ngoài danh sách về mặc định.
+    """
     if reports is None:
         return render_report_list(None, loading=True), ""
     search_term = (search or "").strip()
     stat_val = "" if not status or status.upper() == "ALL" else status
     cat_val = "" if not category or category.upper() == "ALL" else category
+    try:
+        size = int(page_size or DEFAULT_ADMIN_PAGE_SIZE)
+    except (TypeError, ValueError):
+        size = DEFAULT_ADMIN_PAGE_SIZE
+    if size not in ADMIN_PAGE_SIZE_OPTIONS:
+        size = DEFAULT_ADMIN_PAGE_SIZE
 
-    # Nếu đổi filter -> về trang 1; nếu bấm pagination -> dùng trang được chọn
+    # Nếu đổi filter / cỡ trang -> về trang 1; nếu bấm pagination -> dùng trang được chọn
     try:
         triggered_id = dash.callback_context.triggered_id
     except Exception:
@@ -3935,7 +3968,7 @@ def handle_admin_filter(
         status_filter=stat_val,
         category_filter=cat_val,
         page=current_page,
-        page_size=10,
+        page_size=size,
     )
     cnt = 0
     st = search_term.lower()
