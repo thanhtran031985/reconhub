@@ -70,11 +70,120 @@ def _format_age(minutes: int) -> str:
     return f"{hours} giờ {mins} phút" if mins else f"{hours} giờ"
 
 
-def _health_card_body(health: dict[str, Any], note: str | None = None, note_tone: str = "ok") -> Any:
+def _health_item_row(item: dict[str, Any], status_label: str | None = None) -> dmc.TableTr:
+    """1 dòng trong bảng mục hàng đợi (dùng chung cho bảng Đang chạy /
+    Đang chờ và bảng Mục kẹt — follow-up task 66).
+
+    status_label ghi đè nhãn badge trạng thái (mặc định theo status_chip):
+    bảng đang chạy/chờ truyền "Đang chờ" cho QUEUED để khớp tiêu đề và
+    bộ lọc; bảng kẹt giữ mặc định ("Chờ chạy").
+    """
+    kind_label = "Export" if item["kind"] == "export" else "Run"
+    # Task 66: cả 2 kind đều về /report-runs. Trước đây run gắn
+    # /runs/<run_id> nhưng trang đó chỉ đọc run đối soát theo lô
+    # (RECON_RUN) nên run báo cáo (RECON_REPORT_RUN, vd #37) báo
+    # "Không tìm thấy dữ liệu lần chạy"; /report-runs mới là nơi
+    # run đó tồn tại (kèm đủ thao tác Xóa/Xuất lại/Chạy lại).
+    href = "/report-runs"
+    status_node: Any = (
+        status_chip(str(item["status"]), label=status_label)
+        if status_label
+        else status_chip(str(item["status"]))
+    )
+    if item.get("stale_heartbeat"):
+        status_node = dmc.Group(
+            [status_node, dmc.Text("quá hạn heartbeat", size="xs", c="red")],
+            gap="xs",
+        )
+    action: Any = (
+        button_subtle(
+            "Hủy",
+            id={"type": "health-cancel", "kind": item["kind"], "id": item["id"]},
+            icon="lucide:x",
+            size="xs",
+            color="red",
+        )
+        if item.get("can_cancel")
+        else dmc.Text("—", size="xs", c="dimmed")
+    )
+    return dmc.TableTr(
+        [
+            dmc.TableTd(dmc.Text(kind_label, size="xs"), style={"height": "32px"}),
+            dmc.TableTd(
+                dmc.Anchor(
+                    f"#{item['id']} · {item['report_name']}",
+                    href=href,
+                    size="xs",
+                    underline="hover",
+                ),
+                style={"height": "32px", "fontSize": "13px"},
+            ),
+            dmc.TableTd(
+                dmc.Text(str(item["created_by"]), size="xs"),
+                style={"height": "32px"},
+            ),
+            dmc.TableTd(
+                dmc.Text(
+                    format_short_dt(str(item["created_at"])),
+                    size="xs",
+                    className="rh-code",
+                ),
+                style={"height": "32px", "whiteSpace": "nowrap"},
+            ),
+            dmc.TableTd(
+                dmc.Text(_format_age(int(item["age_minutes"])), size="xs"),
+                style={"height": "32px"},
+            ),
+            dmc.TableTd(status_node, style={"height": "32px"}),
+            dmc.TableTd(action, style={"height": "32px"}),
+        ]
+    )
+
+
+def _health_items_table(rows: list[dmc.TableTr], age_header: str) -> dmc.TableScrollContainer:
+    """Bảng 7 cột cho các mục hàng đợi (dùng chung 2 section)."""
+    return dmc.TableScrollContainer(
+        minWidth=520,
+        style={"maxHeight": 132, "overflow": "auto"},
+        children=dmc.Table(
+            [
+                dmc.TableThead(
+                    dmc.TableTr(
+                        [
+                            dmc.TableTh("Loại"),
+                            dmc.TableTh("Mục"),
+                            dmc.TableTh("Người tạo"),
+                            dmc.TableTh("Tạo lúc"),
+                            dmc.TableTh(age_header),
+                            dmc.TableTh("Trạng thái"),
+                            dmc.TableTh(""),
+                        ]
+                    )
+                ),
+                dmc.TableTbody(rows),
+            ],
+            highlightOnHover=True,
+            withTableBorder=False,
+            withColumnBorders=False,
+            verticalSpacing=2,
+            style={"fontSize": "13px"},
+        ),
+    )
+
+
+def _health_card_body(
+    health: dict[str, Any],
+    note: str | None = None,
+    note_tone: str = "ok",
+    status_filter: str = "all",
+    kind_filter: str = "all",
+) -> Any:
     """Nội dung thẻ Sức khỏe hàng đợi & worker (task 62).
 
     Badge tổng + từng dòng trạng thái mỗi luồng worker, 4 con số hàng
-    đợi, danh sách mục kẹt + nút Hủy (chỉ khi có quyền hủy).
+    đợi, bảng Đang chạy / Đang chờ (follow-up task 66, lọc theo trạng
+    thái/loại qua status_filter/kind_filter) + bảng Mục kẹt; nút Hủy
+    (chỉ khi có quyền hủy) ở cả 2 bảng.
     """
     if not health:
         return alert_box(message="Không tải được trạng thái hàng đợi.", tone="crit")
@@ -127,98 +236,40 @@ def _health_card_body(health: dict[str, Any], note: str | None = None, note_tone
         )
     )
 
+    # Follow-up task 66: bảng Đang chạy / Đang chờ (mọi export QUEUED/
+    # RUNNING + run QUEUED) đặt TRÊN bảng Mục kẹt; 2 Select ở header tĩnh
+    # lọc riêng bảng này (bảng kẹt giữ nguyên).
+    active = health.get("active") or []
+    filtered = [
+        item
+        for item in active
+        if (status_filter == "all" or str(item["status"]) == status_filter)
+        and (kind_filter == "all" or str(item["kind"]) == kind_filter)
+    ]
+    children.append(dmc.Text(f"Đang chạy / Đang chờ ({len(filtered)})", size="sm", fw=600))
+    if not filtered:
+        children.append(dmc.Text("Không có mục nào đang chạy hoặc chờ.", size="sm", c="dimmed"))
+    else:
+        children.append(
+            _health_items_table(
+                [
+                    _health_item_row(
+                        item,
+                        status_label="Đang chờ" if str(item["status"]) == "QUEUED" else None,
+                    )
+                    for item in filtered
+                ],
+                age_header="Chờ bao lâu",
+            )
+        )
+
     stuck = health.get("stuck") or []
+    children.append(dmc.Text(f"Mục kẹt ({len(stuck)})", size="sm", fw=600))
     if not stuck:
         children.append(dmc.Text("Không có mục kẹt.", size="sm", c="dimmed"))
     else:
-        rows: list[Any] = []
-        for item in stuck:
-            kind_label = "Export" if item["kind"] == "export" else "Run"
-            # Task 66: cả 2 kind đều về /report-runs. Trước đây run gắn
-            # /runs/<run_id> nhưng trang đó chỉ đọc run đối soát theo lô
-            # (RECON_RUN) nên run báo cáo (RECON_REPORT_RUN, vd #37) báo
-            # "Không tìm thấy dữ liệu lần chạy"; /report-runs mới là nơi
-            # run đó tồn tại (kèm đủ thao tác Xóa/Xuất lại/Chạy lại).
-            href = "/report-runs"
-            status_node: Any = status_chip(str(item["status"]))
-            if item.get("stale_heartbeat"):
-                status_node = dmc.Group(
-                    [status_node, dmc.Text("quá hạn heartbeat", size="xs", c="red")],
-                    gap="xs",
-                )
-            action: Any = (
-                button_subtle(
-                    "Hủy",
-                    id={"type": "health-cancel", "kind": item["kind"], "id": item["id"]},
-                    icon="lucide:x",
-                    size="xs",
-                    color="red",
-                )
-                if item.get("can_cancel")
-                else dmc.Text("—", size="xs", c="dimmed")
-            )
-            rows.append(
-                dmc.TableTr(
-                    [
-                        dmc.TableTd(dmc.Text(kind_label, size="xs"), style={"height": "32px"}),
-                        dmc.TableTd(
-                            dmc.Anchor(
-                                f"#{item['id']} · {item['report_name']}",
-                                href=href,
-                                size="xs",
-                                underline="hover",
-                            ),
-                            style={"height": "32px", "fontSize": "13px"},
-                        ),
-                        dmc.TableTd(
-                            dmc.Text(str(item["created_by"]), size="xs"),
-                            style={"height": "32px"},
-                        ),
-                        dmc.TableTd(
-                            dmc.Text(
-                                format_short_dt(str(item["created_at"])),
-                                size="xs",
-                                className="rh-code",
-                            ),
-                            style={"height": "32px", "whiteSpace": "nowrap"},
-                        ),
-                        dmc.TableTd(
-                            dmc.Text(_format_age(int(item["age_minutes"])), size="xs"),
-                            style={"height": "32px"},
-                        ),
-                        dmc.TableTd(status_node, style={"height": "32px"}),
-                        dmc.TableTd(action, style={"height": "32px"}),
-                    ]
-                )
-            )
         children.append(
-            dmc.TableScrollContainer(
-                minWidth=520,
-                style={"maxHeight": 132, "overflow": "auto"},
-                children=dmc.Table(
-                    [
-                        dmc.TableThead(
-                            dmc.TableTr(
-                                [
-                                    dmc.TableTh("Loại"),
-                                    dmc.TableTh("Mục"),
-                                    dmc.TableTh("Người tạo"),
-                                    dmc.TableTh("Tạo lúc"),
-                                    dmc.TableTh("Kẹt bao lâu"),
-                                    dmc.TableTh("Trạng thái"),
-                                    dmc.TableTh(""),
-                                ]
-                            )
-                        ),
-                        dmc.TableTbody(rows),
-                    ],
-                    highlightOnHover=True,
-                    withTableBorder=False,
-                    withColumnBorders=False,
-                    verticalSpacing=2,
-                    style={"fontSize": "13px"},
-                ),
-            )
+            _health_items_table([_health_item_row(item) for item in stuck], age_header="Kẹt bao lâu")
         )
     return dmc.Stack(children, gap="xs", p="sm")
 
@@ -252,9 +303,44 @@ def render_health_card(health: dict[str, Any]) -> dmc.Card:
         align="center",
         p="xs",
     )
+    # Follow-up task 66: hàng filter nằm ở vùng tĩnh của card (ngoài
+    # queue-health-card-body) nên đổi filter không bị reset khi body vẽ
+    # lại (mẫu task 60); chỉ lọc bảng Đang chạy / Đang chờ.
+    filter_row = dmc.Group(
+        [
+            dmc.Select(
+                id="queue-health-filter-status",
+                data=[
+                    {"label": "Tất cả trạng thái", "value": "all"},
+                    {"label": "Đang chạy", "value": "RUNNING"},
+                    {"label": "Đang chờ", "value": "QUEUED"},
+                ],
+                value="all",
+                size="xs",
+                w=170,
+                **{"aria-label": "Lọc theo trạng thái"},
+            ),
+            dmc.Select(
+                id="queue-health-filter-kind",
+                data=[
+                    {"label": "Tất cả loại", "value": "all"},
+                    {"label": "Export", "value": "export"},
+                    {"label": "Run", "value": "run"},
+                ],
+                value="all",
+                size="xs",
+                w=140,
+                **{"aria-label": "Lọc theo loại"},
+            ),
+        ],
+        gap="xs",
+        p="xs",
+    )
     return dmc.Card(
         [
             header_group,
+            dmc.Divider(),
+            filter_row,
             dmc.Divider(),
             html.Div(
                 _health_card_body(health),
@@ -312,15 +398,23 @@ def layout(**kwargs: Any) -> Any:
     Output("queue-health-card-body", "children"),
     Input("queue-health-refresh-btn", "n_clicks"),
     Input({"type": "health-cancel", "kind": ALL, "id": ALL}, "n_clicks"),
+    Input("queue-health-filter-status", "value"),
+    Input("queue-health-filter-kind", "value"),
     prevent_initial_call=True,
 )
-def handle_health_actions(refresh_clicks: int | None, cancel_clicks: list[int | None] | None) -> Any:
-    """Làm mới thẻ sức khỏe hoặc hủy 1 mục kẹt (task 62, dời từ dashboard ở task 66).
+def handle_health_actions(
+    refresh_clicks: int | None,
+    cancel_clicks: list[int | None] | None,
+    status_filter: str | None,
+    kind_filter: str | None,
+) -> Any:
+    """Làm mới thẻ sức khỏe, hủy 1 mục kẹt/đang chạy, hoặc đổi bộ lọc
+    (task 62, dời từ dashboard ở task 66; filter thêm ở follow-up).
 
-    Một callback duy nhất cho cả nút Làm mới lẫn các nút Hủy (tránh 2
-    callback cùng ghi 1 Output — bài học task 52). Guard chặn re-fire
-    khi body vẽ lại (nút Hủy mới tạo có n_clicks=None/0) và khi trigger
-    không phải nút bấm (skill dash_callback_safety).
+    Một callback duy nhất cho cả nút Làm mới lẫn các nút Hủy lẫn 2 Select
+    lọc (tránh 2 callback cùng ghi 1 Output — bài học task 52). Guard
+    chặn re-fire khi body vẽ lại (nút Hủy mới tạo có n_clicks=None/0)
+    và khi trigger không phải nút bấm (skill dash_callback_safety).
     """
     ctx = get_current_ctx()
     if ctx is None:
@@ -328,6 +422,8 @@ def handle_health_actions(refresh_clicks: int | None, cancel_clicks: list[int | 
     triggered = dash.callback_context.triggered_id
     if triggered is None:
         return dash.no_update
+    status = str(status_filter) if status_filter in ("all", "RUNNING", "QUEUED") else "all"
+    kind = str(kind_filter) if kind_filter in ("all", "export", "run") else "all"
     note: str | None = None
     note_tone = "ok"
     if isinstance(triggered, dict) and triggered.get("type") == "health-cancel":
@@ -335,15 +431,15 @@ def handle_health_actions(refresh_clicks: int | None, cancel_clicks: list[int | 
         value = triggered_list[0]["value"] if triggered_list else None
         if not value:
             return dash.no_update
-        kind = str(triggered.get("kind") or "")
+        kind_value = str(triggered.get("kind") or "")
         try:
             item_id = int(triggered.get("id"))  # type: ignore[arg-type]
         except (TypeError, ValueError):
             return dash.no_update
-        if kind == "export":
+        if kind_value == "export":
             res = cancel_export(ctx, item_id)
             label = "export"
-        elif kind == "run":
+        elif kind_value == "run":
             res = cancel_report_run(ctx, item_id)
             label = "run"
         else:
@@ -356,6 +452,10 @@ def handle_health_actions(refresh_clicks: int | None, cancel_clicks: list[int | 
     elif triggered == "queue-health-refresh-btn":
         if not refresh_clicks:
             return dash.no_update
+    elif triggered in ("queue-health-filter-status", "queue-health-filter-kind"):
+        pass  # Đổi filter: chỉ vẽ lại body với filter mới.
     else:
         return dash.no_update
-    return _health_card_body(fetch_queue_health(ctx), note=note, note_tone=note_tone)
+    return _health_card_body(
+        fetch_queue_health(ctx), note=note, note_tone=note_tone, status_filter=status, kind_filter=kind
+    )

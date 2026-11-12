@@ -10,3 +10,11 @@
 - D6 (parent, 12/11/2026): check 66-2 FAIL lặp lại khi parent chạy lại (10/11) dù subagent báo 11/11 — KHÔNG phải lỗi app: Dash Pages vẽ lại layout 2 lần khi điều hướng SPA nên #queue-health-card-body có thể bị gỡ rồi gắn lại trong ~100ms sau khi hiện lần đầu (probe: count ngay sau wait_for = 0 ở 2/5 lần, 100ms sau luôn = 1, app chỉ dùng use_pages=True, không có display_page tự viết). Sửa check script (chờ nội dung ổn định qua wait_for_function thay vì đếm ngay sau wait_for) → 11/11. Bài học: check Playwright sau điều hướng SPA phải chờ nội dung/text ổn định, không assert count() ngay sau wait_for.
 
 - D7 (parent, 12/11/2026): full suite bắt 3 test test_role_service.py sót chưa cập nhật kỳ vọng menu OPERATOR (thêm queue_health) — sửa test, không sửa app (menu mới cho OPERATOR là đúng ý task).
+
+## Follow-up: bảng Đang chạy / Đang chờ + badge + filter (12/11/2026)
+
+- F1: bảng mới lấy từ cùng service (thêm key `"active"`), không thêm query mới.
+- F2: badge trạng thái bằng `status_chip` (RUNNING → Đang chạy, QUEUED → Đang chờ); cột Loại giữ chữ Export/Run như bảng kẹt, không thêm badge loại.
+- F3: 2 Select filter ở header tĩnh của card (ngoài vùng body vẽ lại); chỉ lọc bảng đang chạy/đang chờ, bảng kẹt giữ nguyên.
+- F4: không thêm cột tiến độ % cho export đang chạy (ngoài phạm vi).
+- F5: không migration; patch follow-up áp sau patch 66, chỉ khởi động lại app.

@@ -403,7 +403,7 @@ class TestHealthCancelCallback:
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         self._mock_ctx(monkeypatch, None, None)
-        assert page.handle_health_actions(None, []) is dash.no_update
+        assert page.handle_health_actions(None, [], "all", "all") is dash.no_update
 
     def test_guard_redraw_refire(self, health_env, operator_ctx, monkeypatch):
         import dash
@@ -412,7 +412,7 @@ class TestHealthCancelCallback:
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         self._mock_ctx(monkeypatch, {"type": "health-cancel", "kind": "export", "id": 5}, 0)
-        assert page.handle_health_actions(None, [0]) is dash.no_update
+        assert page.handle_health_actions(None, [0], "all", "all") is dash.no_update
 
     def test_refresh_button(self, health_env, operator_ctx, monkeypatch):
         import dash
@@ -421,7 +421,7 @@ class TestHealthCancelCallback:
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         self._mock_ctx(monkeypatch, "queue-health-refresh-btn", 1)
-        body = page.handle_health_actions(1, [])
+        body = page.handle_health_actions(1, [], "all", "all")
         assert body is not dash.no_update
         # health_env chưa từng ghi nhịp tim nên worker đang "Không phản hồi".
         assert "Không phản hồi" in str(body)
@@ -439,7 +439,7 @@ class TestHealthCancelCallback:
         )
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         self._mock_ctx(monkeypatch, {"type": "health-cancel", "kind": "export", "id": exp_id}, 1)
-        body = page.handle_health_actions(None, [1])
+        body = page.handle_health_actions(None, [1], "all", "all")
         assert body is not dash.no_update
         assert "Đã hủy" in str(body)
         with engine.connect() as conn:
@@ -459,7 +459,7 @@ class TestHealthCancelCallback:
         )
         monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
         self._mock_ctx(monkeypatch, {"type": "health-cancel", "kind": "export", "id": exp_id}, 1)
-        body = page.handle_health_actions(None, [1])
+        body = page.handle_health_actions(None, [1], "all", "all")
         assert body is not dash.no_update
         with engine.connect() as conn:
             status = conn.execute(select(recon_rpt_export.c.STATUS).where(recon_rpt_export.c.ID == exp_id)).scalar_one()
@@ -475,8 +475,32 @@ class TestHealthCancelCallback:
         )
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         self._mock_ctx(monkeypatch, {"type": "health-cancel", "kind": "run", "id": run_id}, 1)
-        body = page.handle_health_actions(None, [1])
+        body = page.handle_health_actions(None, [1], "all", "all")
         assert "Đã hủy" in str(body)
         with engine.connect() as conn:
             status = conn.execute(select(recon_report_run.c.STATUS).where(recon_report_run.c.ID == run_id)).scalar_one()
         assert status == "CANCELLED"
+
+    def test_filter_change_rerenders_with_filter(self, health_env, operator_ctx, monkeypatch):
+        """Follow-up task 66: đổi Select filter vẽ lại body theo filter mới."""
+        import dash
+
+        import app.ui.pages.queue_health as page
+
+        engine = health_env["engine"]
+        now = _now()
+        run_id = _insert_run(engine, health_env, status="QUEUED", created_by="operator", created_at=now)
+        _insert_export(
+            engine,
+            run_id,
+            status="RUNNING",
+            created_by="operator",
+            created_at=now,
+            heartbeat_at=now,
+            locked_at=now,
+        )
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        self._mock_ctx(monkeypatch, "queue-health-filter-status", "QUEUED")
+        body = page.handle_health_actions(None, [], "QUEUED", "all")
+        assert body is not dash.no_update
+        assert "Đang chạy / Đang chờ (1)" in str(body)

@@ -8,6 +8,8 @@
   (owner scope như list_exports/list_report_runs), danh sách kẹt gồm
   export/run QUEUED quá 30 phút chưa được nhận và export RUNNING quá
   hạn heartbeat 300s (chỉ liệt kê — reset_stale đã tự FAILED).
+  Follow-up task 66 trả thêm "active": mọi export QUEUED/RUNNING +
+  mọi run QUEUED (tối đa 50) để tab hiện hàng đợi đang hoạt động.
 """
 
 from __future__ import annotations
@@ -33,6 +35,8 @@ HEARTBEAT_STALE_SECONDS = 30
 STUCK_QUEUED_MINUTES = 30
 STALE_RUNNING_SECONDS = 300
 STUCK_LIST_LIMIT = 20
+# Follow-up task 66: bảng Đang chạy / Đang chờ liệt kê tối đa 50 mục.
+ACTIVE_LIST_LIMIT = 50
 
 HEARTBEAT_KEYS = {"recon": "WORKER_HEARTBEAT_RECON", "export": "WORKER_HEARTBEAT_EXPORT"}
 WORKER_KIND_LABELS = {"recon": "Đối soát", "export": "Export"}
@@ -120,6 +124,38 @@ def _counts_by_status(conn: Any, table: Any, owner: str | None) -> dict[str, int
     return {str(status): int(count) for status, count in conn.execute(stmt).all()}
 
 
+def _queue_item(
+    kind: str,
+    row: Any,
+    now: datetime,
+    *,
+    admin: bool,
+    username: str,
+    stale_heartbeat: bool = False,
+) -> dict[str, Any]:
+    """1 mục hàng đợi (export/run) theo đúng shape của danh sách kẹt.
+
+    Dùng chung cho cả "active" (mọi export QUEUED/RUNNING + run QUEUED,
+    follow-up task 66) và "stuck". can_cancel theo đúng luật service hủy:
+    export chỉ chủ mới hủy được (kể cả ADMIN cũng chỉ hủy của mình);
+    run thì ADMIN hoặc chủ mới hủy được.
+    """
+    return {
+        "kind": kind,
+        "id": int(row["ID"]),
+        "run_id": int(row["RUN_ID"]) if kind == "export" else int(row["ID"]),
+        "report_name": str(row["report_name"] or ""),
+        "created_by": str(row["CREATED_BY"]),
+        "created_at": row["CREATED_AT"].isoformat(),
+        "age_minutes": int((now - row["CREATED_AT"]).total_seconds() // 60),
+        "status": str(row["STATUS"]),
+        "stale_heartbeat": stale_heartbeat,
+        "can_cancel": bool(row["CREATED_BY"] == username)
+        if kind == "export"
+        else bool(admin or row["CREATED_BY"] == username),
+    }
+
+
 @service
 @requires_menu("queue_health")
 def get_queue_health(ctx: Ctx, now: datetime | None = None) -> dict[str, Any]:
@@ -131,9 +167,9 @@ def get_queue_health(ctx: Ctx, now: datetime | None = None) -> dict[str, Any]:
     - export/run QUEUED quá 30 phút chưa được nhận (theo CREATED_AT);
     - export RUNNING quá hạn heartbeat 300s (cùng điều kiện reset_stale).
     Run RUNNING không liệt kê kẹt vì RECON_REPORT_RUN không có cột
-    heartbeat để đánh giá. can_cancel theo đúng luật service hủy:
-    export chỉ chủ mới hủy được (kể cả ADMIN cũng chỉ hủy của mình);
-    run thì ADMIN hoặc chủ mới hủy được.
+    heartbeat để đánh giá. Follow-up task 66 trả thêm "active": mọi
+    export QUEUED/RUNNING + mọi run QUEUED (cũ nhất trước, tối đa 50),
+    để tab hiện cả hàng đợi đang hoạt động, không chỉ mục kẹt.
     """
     engine = get_recon_engine()
     admin = is_admin(ctx, engine)
@@ -168,6 +204,7 @@ def get_queue_health(ctx: Ctx, now: datetime | None = None) -> dict[str, Any]:
         run_rows = conn.execute(run_stmt).mappings().all()
 
     stuck: list[dict[str, Any]] = []
+    active: list[dict[str, Any]] = []
     for row in exp_rows:
         created = row["CREATED_AT"]
         heartbeat_at = row["HEARTBEAT_AT"]
@@ -180,47 +217,27 @@ def get_queue_health(ctx: Ctx, now: datetime | None = None) -> dict[str, Any]:
                 heartbeat_at is None and locked_at is not None and locked_at < stale_threshold
             )
             stale_hb = bool(is_stuck)
-        if not is_stuck:
-            continue
-        stuck.append(
-            {
-                "kind": "export",
-                "id": int(row["ID"]),
-                "run_id": int(row["RUN_ID"]),
-                "report_name": str(row["report_name"] or ""),
-                "created_by": str(row["CREATED_BY"]),
-                "created_at": created.isoformat(),
-                "age_minutes": int((now - created).total_seconds() // 60),
-                "status": str(row["STATUS"]),
-                "stale_heartbeat": stale_hb,
-                # cancel_export chỉ cho chủ (kể cả ADMIN cũng chỉ hủy của mình).
-                "can_cancel": bool(row["CREATED_BY"] == ctx.username),
-            }
+        item = _queue_item(
+            "export", row, now, admin=admin, username=ctx.username, stale_heartbeat=stale_hb
         )
+        if is_stuck:
+            stuck.append(item)
+        active.append(item)
     for row in run_rows:
         created = row["CREATED_AT"]
+        item = _queue_item("run", row, now, admin=admin, username=ctx.username)
         if created < queued_cutoff:
-            stuck.append(
-                {
-                    "kind": "run",
-                    "id": int(row["ID"]),
-                    "run_id": int(row["ID"]),
-                    "report_name": str(row["report_name"] or ""),
-                    "created_by": str(row["CREATED_BY"]),
-                    "created_at": created.isoformat(),
-                    "age_minutes": int((now - created).total_seconds() // 60),
-                    "status": str(row["STATUS"]),
-                    "stale_heartbeat": False,
-                    # cancel_report_run: ADMIN hoặc chủ.
-                    "can_cancel": bool(admin or row["CREATED_BY"] == ctx.username),
-                }
-            )
+            stuck.append(item)
+        active.append(item)
     stuck.sort(key=lambda item: item["created_at"])
     stuck = stuck[:STUCK_LIST_LIMIT]
+    active.sort(key=lambda item: item["created_at"])
+    active = active[:ACTIVE_LIST_LIMIT]
     return {
         "worker": get_worker_health(engine, now=now),
         "max_concurrent": get_export_max_concurrent(engine),
         "exports": export_counts,
         "runs": run_counts,
         "stuck": stuck,
+        "active": active,
     }
