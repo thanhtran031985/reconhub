@@ -341,8 +341,14 @@ class TestStep1:
         assert state["version_status"] == "DRAFT"
         assert alert is None or "Đã lưu" in _dump(alert)
 
-    def test_save_step1_duplicate_code_errors(self, run_env, admin_ctx, monkeypatch):
+    def test_save_step1_existing_report_code_reuses_report(self, run_env, admin_ctx, monkeypatch):
+        """Task 76: gõ lại mã báo cáo đã có thì dùng lại, không báo CONFLICT nữa.
+
+        Trước task 76, lưu bước 1 với mã báo cáo đã tồn tại thì lỗi
+        "đã tồn tại"; nay dùng lại báo cáo đó và tạo template mới dưới nó.
+        """
         import app.ui.pages.report_admin as page
+        from app.services.report_template import list_templates
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
         state, alert = page.handle_save_step1(
@@ -362,9 +368,11 @@ class TestStep1:
             preview_max_rows=100,
             export_max_rows=1000000,
         )
-        assert state["report_id"] is None
-        assert alert is not None
-        assert "đã tồn tại" in _dump(alert)
+        assert state["report_id"] == int(run_env["report_id"])
+        assert state["template_id"] is not None
+        assert state["step"] == 2
+        assert alert is None or "Đã lưu" in _dump(alert)
+        assert "X1" in [t["code"] for t in list_templates(admin_ctx, int(run_env["report_id"])).data]
 
     def test_s1_save_callback_keeps_state_on_failure(self, run_env, admin_ctx, monkeypatch):
         """Lưu lỗi thì callback trả no_update cho state-store (không render lại).
@@ -377,10 +385,12 @@ class TestStep1:
         import app.ui.pages.report_admin as page
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        # Task 76: mã báo cáo đã có thì dùng lại (không lỗi nữa) nên ca
+        # lỗi ở đây đổi sang mã sai định dạng (validation) để vẫn lỗi.
         state, alert = page.handle_s1_save(
             1,
             _fresh_state(),
-            "FIN_REVENUE",
+            "bad code!",
             "Trùng mã",
             "FINANCE",
             "FIN",
@@ -396,7 +406,7 @@ class TestStep1:
         )
         assert state is dash.no_update
         assert alert is not None
-        assert "đã tồn tại" in _dump(alert)
+        assert "chữ hoa" in _dump(alert)
 
     def test_err_alert_names_the_invalid_field(self):
         """Lỗi validate hiển thị đúng trường + lý do, không chỉ câu chung.

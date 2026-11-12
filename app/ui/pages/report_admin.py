@@ -3271,6 +3271,102 @@ def _step1_is_dirty(
         return True
 
 
+def _template_resume_state(
+    ctx: Ctx,
+    report_id: int,
+    tpl_code: str,
+) -> tuple[dict[str, Any] | None, Any]:
+    """Task 76 D5: template đã có dưới báo cáo thì trả (template_id,
+    version_id, version_status) của DRAFT version của nó; chưa có thì
+    (None, None); có mà không có DRAFT thì (None, alert lỗi như
+    handle_open_edit)."""
+    tpl_list = list_templates(ctx, report_id)
+    if not tpl_list.ok or not isinstance(tpl_list.data, list):
+        return None, _err_alert(tpl_list)
+    for t in tpl_list.data:
+        if isinstance(t, dict) and str(t.get("code") or "") == tpl_code:
+            draft = _draft_version_of(ctx, int(t["id"]))
+            if draft is None:
+                return None, notify_error("Template không có version DRAFT. Hãy Clone một version để sửa.")
+            return (
+                {
+                    "template_id": int(t["id"]),
+                    "version_id": int(draft["id"]),
+                    "version_status": str(draft.get("status") or "DRAFT"),
+                },
+                None,
+            )
+    return None, None
+
+
+def _resolve_new_step1_codes(
+    ctx: Ctx,
+    report_payload: dict[str, Any],
+    template_payload: dict[str, Any],
+) -> tuple[dict[str, Any] | None, Any]:
+    """Task 76: bước 1 luồng tạo mới (mã gõ tay) — gặp mã đã có thì dùng lại.
+
+    - Tìm báo cáo theo mã (list_reports, so khớp đúng mã sau strip);
+      chưa có thì create_report; đã có thì dùng lại report_id.
+    - Tìm template theo mã dưới báo cáo đó (list_templates); chưa có thì
+      create_template; đã có thì resume DRAFT version của nó
+      (_draft_version_of, như handle_open_edit); không có DRAFT thì trả
+      lỗi như handle_open_edit.
+    Trả (result, None) khi xong — result: report_id, template_id,
+    version_id, version_status, resumed, report_reused — hoặc
+    (None, alert) khi lỗi.
+    """
+    report_code = str(report_payload.get("code") or "").strip()
+    tpl_code = str(template_payload.get("code") or "").strip()
+    rep_list = list_reports(ctx)
+    if not rep_list.ok or not isinstance(rep_list.data, list):
+        return None, _err_alert(rep_list)
+    report_id: int | None = None
+    report_reused = False
+    for r in rep_list.data:
+        if isinstance(r, dict) and str(r.get("code") or "") == report_code:
+            report_id = int(r["id"])
+            report_reused = True
+            break
+    if report_id is None:
+        rep_res = create_report(ctx, report_payload)
+        if not rep_res.ok or not isinstance(rep_res.data, dict):
+            return None, _err_alert(rep_res)
+        report_id = int(rep_res.data["id"])
+    resumed_tpl, tpl_err = _template_resume_state(ctx, report_id, tpl_code)
+    if tpl_err is not None:
+        return None, tpl_err
+    if resumed_tpl is not None:
+        return (
+            {
+                "report_id": report_id,
+                "template_id": int(resumed_tpl["template_id"]),
+                "version_id": int(resumed_tpl["version_id"]),
+                "version_status": str(resumed_tpl.get("version_status") or "DRAFT"),
+                "resumed": True,
+                "report_reused": report_reused,
+            },
+            None,
+        )
+    tpl_res = create_template(ctx, report_id, template_payload)
+    if not tpl_res.ok or not isinstance(tpl_res.data, dict):
+        return None, _err_alert(tpl_res)
+    template_id = int(tpl_res.data["id"])
+    versions = tpl_res.data.get("versions") or []
+    version_id = int(versions[0]["id"]) if versions else None
+    return (
+        {
+            "report_id": report_id,
+            "template_id": template_id,
+            "version_id": version_id,
+            "version_status": "DRAFT",
+            "resumed": False,
+            "report_reused": report_reused,
+        },
+        None,
+    )
+
+
 def handle_save_step1(
     n_clicks: int | None,
     state: dict[str, Any],
@@ -3298,56 +3394,94 @@ def handle_save_step1(
     editing = bool(state.get("report_id") and state.get("template_id"))
     try:
         if not editing:
+            report_payload = {
+                "code": (report_code or "").strip(),
+                "name": (report_name or "").strip(),
+                "category_code": category_code or "FINANCE",
+                "owner": (owner or "").strip(),
+                "description": (description or "").strip() or None,
+                "default_favorite": bool(default_favorite),
+                "is_visible": bool(is_visible) if is_visible is not None else True,
+            }
+            template_payload = {
+                "code": (tpl_code or "").strip(),
+                "name": (tpl_name or "").strip(),
+                "display_order": int(display_order or 10),
+                "timeout_sec": int(timeout_sec or 300),
+                "preview_max_rows": int(preview_max_rows or 100),
+                "export_max_rows": int(export_max_rows or 1000000),
+            }
             # Task 74: báo cáo đã có sẵn (report_id có, template_id chưa
             # có) thì chỉ tạo template, bỏ qua create_report.
             if state.get("report_id"):
                 report_id = int(state["report_id"])
-            else:
-                rep_res = create_report(
-                    ctx,
-                    {
-                        "code": (report_code or "").strip(),
-                        "name": (report_name or "").strip(),
-                        "category_code": category_code or "FINANCE",
-                        "owner": (owner or "").strip(),
-                        "description": (description or "").strip() or None,
-                        "default_favorite": bool(default_favorite),
-                        "is_visible": bool(is_visible) if is_visible is not None else True,
-                    },
+                # Task 76 D5: mã template đã có dưới báo cáo thì mở lại
+                # template đó thay vì CONFLICT.
+                resumed_tpl, tpl_err = _template_resume_state(
+                    ctx, report_id, str(template_payload.get("code") or "").strip()
                 )
-                if not rep_res.ok or not isinstance(rep_res.data, dict):
-                    return state, _err_alert(rep_res)
-                report_id = int(rep_res.data["id"])
-            tpl_res = create_template(
-                ctx,
-                report_id,
-                {
-                    "code": (tpl_code or "").strip(),
-                    "name": (tpl_name or "").strip(),
-                    "display_order": int(display_order or 10),
-                    "timeout_sec": int(timeout_sec or 300),
-                    "preview_max_rows": int(preview_max_rows or 100),
-                    "export_max_rows": int(export_max_rows or 1000000),
-                },
-            )
-            if not tpl_res.ok or not isinstance(tpl_res.data, dict):
-                return state, _err_alert(tpl_res)
-            template_id = int(tpl_res.data["id"])
-            versions = tpl_res.data.get("versions") or []
-            version_id = int(versions[0]["id"]) if versions else None
-            state.update(
-                {
-                    "report_id": report_id,
-                    "template_id": template_id,
-                    "version_id": version_id,
-                    "version_status": "DRAFT",
-                    "step": 2,
-                    "max_step": 2,
-                    "analyzed": False,
-                    "dry_run_ok": False,
-                }
-            )
-            return state, notify_success("Đã lưu thông tin.")
+                if tpl_err is not None:
+                    return state, tpl_err
+                if resumed_tpl is not None:
+                    resumed = _state_from_version(ctx, int(resumed_tpl["template_id"]), int(resumed_tpl["version_id"]))
+                    if resumed is None:
+                        return state, notify_error("Không tải được version.")
+                    resumed["report_id"] = report_id
+                    state = resumed
+                    # Rơi xuống nhánh sửa bên dưới (bỏ qua helper mã gõ
+                    # tay vì state đã có template_id).
+                else:
+                    tpl_res = create_template(ctx, report_id, template_payload)
+                    if not tpl_res.ok or not isinstance(tpl_res.data, dict):
+                        return state, _err_alert(tpl_res)
+                    template_id = int(tpl_res.data["id"])
+                    versions = tpl_res.data.get("versions") or []
+                    version_id = int(versions[0]["id"]) if versions else None
+                    state.update(
+                        {
+                            "report_id": report_id,
+                            "template_id": template_id,
+                            "version_id": version_id,
+                            "version_status": "DRAFT",
+                            "step": 2,
+                            "max_step": 2,
+                            "analyzed": False,
+                            "dry_run_ok": False,
+                        }
+                    )
+                    return state, notify_success("Đã lưu thông tin.")
+            # Task 76: mã gõ tay — gặp mã đã có thì dùng lại (resume).
+            # Bỏ qua nếu nhánh D4 vừa resume (state đã có template_id).
+            if not state.get("template_id"):
+                resolved, err = _resolve_new_step1_codes(ctx, report_payload, template_payload)
+                if err is not None:
+                    return state, err
+                if resolved is None:
+                    return state, notify_error("Không tải được thông tin bước 1.")
+                if resolved["resumed"]:
+                    if resolved["version_id"] is None:
+                        return state, notify_error("Không tải được version.")
+                    resumed = _state_from_version(ctx, int(resolved["template_id"]), int(resolved["version_id"]))
+                    if resumed is None:
+                        return state, notify_error("Không tải được version.")
+                    resumed["report_id"] = int(resolved["report_id"])
+                    state = resumed
+                    # Rơi xuống nhánh sửa bên dưới: so sánh form với DB, cập
+                    # nhật nếu đổi rồi qua bước 2 (im lặng nếu không đổi gì).
+                else:
+                    state.update(
+                        {
+                            "report_id": int(resolved["report_id"]),
+                            "template_id": int(resolved["template_id"]),
+                            "version_id": resolved["version_id"],
+                            "version_status": "DRAFT",
+                            "step": 2,
+                            "max_step": 2,
+                            "analyzed": False,
+                            "dry_run_ok": False,
+                        }
+                    )
+                    return state, notify_success("Đã lưu thông tin.")
         report_id = int(state["report_id"])
         template_id = int(state["template_id"])
         # Task 37: không đổi gì thì qua bước 2 im lặng (không gọi update, không toast).
@@ -5305,50 +5439,96 @@ def handle_save_draft_click(
     if current_step == 1:
         editing = bool(state.get("report_id") and state.get("template_id"))
         if not editing:
-            rep_res = create_report(
-                ctx,
-                {
-                    "code": (report_code or "").strip(),
-                    "name": (report_name or "").strip(),
-                    "category_code": category_code or "FINANCE",
-                    "owner": (owner or "").strip(),
-                    "description": (description or "").strip() or None,
-                    "default_favorite": bool(default_favorite),
-                    "is_visible": bool(is_visible) if is_visible is not None else True,
-                },
-            )
-            if not rep_res.ok or not isinstance(rep_res.data, dict):
-                return state, _err_alert(rep_res)
-            report_id = int(rep_res.data["id"])
-            tpl_res = create_template(
-                ctx,
-                report_id,
-                {
-                    "code": (tpl_code or "").strip(),
-                    "name": (tpl_name or "").strip(),
-                    "display_order": int(display_order or 10),
-                    "timeout_sec": int(timeout_sec or 300),
-                    "preview_max_rows": int(preview_max_rows or 100),
-                    "export_max_rows": int(export_max_rows or 1000000),
-                },
-            )
-            if not tpl_res.ok or not isinstance(tpl_res.data, dict):
-                return state, _err_alert(tpl_res)
-            template_id = int(tpl_res.data["id"])
-            versions = tpl_res.data.get("versions") or []
-            version_id = int(versions[0]["id"]) if versions else None
-            new_state = dict(state)
-            new_state.update(
-                {
-                    "report_id": report_id,
-                    "template_id": template_id,
-                    "version_id": version_id,
-                    "version_status": "DRAFT",
-                    "step": 1,
-                    "max_step": max(int(state.get("max_step") or 1), 2),
-                }
-            )
-            return _bump(new_state), notify_success(f"Đã tạo và lưu nháp thông tin báo cáo thành công lúc {now_str}.")
+            report_payload = {
+                "code": (report_code or "").strip(),
+                "name": (report_name or "").strip(),
+                "category_code": category_code or "FINANCE",
+                "owner": (owner or "").strip(),
+                "description": (description or "").strip() or None,
+                "default_favorite": bool(default_favorite),
+                "is_visible": bool(is_visible) if is_visible is not None else True,
+            }
+            template_payload = {
+                "code": (tpl_code or "").strip(),
+                "name": (tpl_name or "").strip(),
+                "display_order": int(display_order or 10),
+                "timeout_sec": int(timeout_sec or 300),
+                "preview_max_rows": int(preview_max_rows or 100),
+                "export_max_rows": int(export_max_rows or 1000000),
+            }
+            # Task 76: báo cáo đã chọn qua Select (task 75) thì dùng lại
+            # report_id (kiểu nhánh D4 ở handle_save_step1), chỉ tạo template.
+            if state.get("report_id"):
+                report_id = int(state["report_id"])
+                # Task 76 D5: mã template đã có dưới báo cáo thì mở lại
+                # template đó thay vì CONFLICT.
+                resumed_tpl, tpl_err = _template_resume_state(
+                    ctx, report_id, str(template_payload.get("code") or "").strip()
+                )
+                if tpl_err is not None:
+                    return state, tpl_err
+                if resumed_tpl is not None:
+                    resumed = _state_from_version(ctx, int(resumed_tpl["template_id"]), int(resumed_tpl["version_id"]))
+                    if resumed is None:
+                        return state, notify_error("Không tải được version.")
+                    resumed["report_id"] = report_id
+                    state = resumed
+                    # Rơi xuống nhánh sửa bên dưới (bỏ qua helper mã gõ
+                    # tay vì state đã có template_id).
+                else:
+                    tpl_res = create_template(ctx, report_id, template_payload)
+                    if not tpl_res.ok or not isinstance(tpl_res.data, dict):
+                        return state, _err_alert(tpl_res)
+                    template_id = int(tpl_res.data["id"])
+                    versions = tpl_res.data.get("versions") or []
+                    version_id = int(versions[0]["id"]) if versions else None
+                    new_state = dict(state)
+                    new_state.update(
+                        {
+                            "report_id": report_id,
+                            "template_id": template_id,
+                            "version_id": version_id,
+                            "version_status": "DRAFT",
+                            "step": 1,
+                            "max_step": max(int(state.get("max_step") or 1), 2),
+                        }
+                    )
+                    return _bump(new_state), notify_success(
+                        f"Đã tạo và lưu nháp thông tin báo cáo thành công lúc {now_str}."
+                    )
+            # Task 76: mã gõ tay — gặp mã đã có thì dùng lại (resume).
+            # Bỏ qua nếu nhánh D4 vừa resume (state đã có template_id).
+            if not state.get("template_id"):
+                resolved, err = _resolve_new_step1_codes(ctx, report_payload, template_payload)
+                if err is not None:
+                    return state, err
+                if resolved is None:
+                    return state, notify_error("Không tải được thông tin bước 1.")
+                if resolved["resumed"]:
+                    if resolved["version_id"] is None:
+                        return state, notify_error("Không tải được version.")
+                    resumed = _state_from_version(ctx, int(resolved["template_id"]), int(resolved["version_id"]))
+                    if resumed is None:
+                        return state, notify_error("Không tải được version.")
+                    resumed["report_id"] = int(resolved["report_id"])
+                    state = resumed
+                    # Rơi xuống nhánh sửa bên dưới: cập nhật thông tin rồi
+                    # trả toast lưu nháp như thường.
+                else:
+                    new_state = dict(state)
+                    new_state.update(
+                        {
+                            "report_id": int(resolved["report_id"]),
+                            "template_id": int(resolved["template_id"]),
+                            "version_id": resolved["version_id"],
+                            "version_status": "DRAFT",
+                            "step": 1,
+                            "max_step": max(int(state.get("max_step") or 1), 2),
+                        }
+                    )
+                    return _bump(new_state), notify_success(
+                        f"Đã tạo và lưu nháp thông tin báo cáo thành công lúc {now_str}."
+                    )
 
         report_id = int(state["report_id"])
         template_id = int(state["template_id"])
