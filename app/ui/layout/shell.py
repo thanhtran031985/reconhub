@@ -15,7 +15,13 @@ from app.core.session import get_current_ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_app_setting, recon_notification
 from app.services.data_source import get_active_environment
-from app.services.notification import count_unread, list_notifications, mark_read, maybe_notify_worker_health
+from app.services.notification import (
+    count_unread,
+    list_notifications,
+    mark_all_read,
+    mark_read,
+    maybe_notify_worker_health,
+)
 from app.services.perm import effective_menus, get_perm_revision, is_admin, user_role_codes
 from app.services.temp_data import usage
 from app.ui.components.alert_box import alert_box
@@ -512,12 +518,40 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool
                 dmc.MenuDropdown(
                     [
                         dmc.MenuLabel("Thông báo"),
+                        # Task 79: tab Tất cả / Chưa đọc trong popover.
+                        dmc.Tabs(
+                            [
+                                dmc.TabsList(
+                                    [
+                                        dmc.TabsTab("Tất cả", value="all"),
+                                        dmc.TabsTab("Chưa đọc", value="unread"),
+                                    ]
+                                ),
+                            ],
+                            id="app-notif-tabs",
+                            value="all",
+                        ),
                         html.Div(id="app-notif-panel"),
                         dmc.MenuDivider(),
-                        dmc.MenuItem(
-                            "Xem tất cả thông báo",
-                            href="/notifications",
-                            leftSection=DashIconify(icon="lucide:bell", width=16),
+                        dmc.Group(
+                            [
+                                dmc.Button(
+                                    "Đánh dấu tất cả đã đọc",
+                                    id="app-notif-mark-all-read",
+                                    variant="subtle",
+                                    size="xs",
+                                    leftSection=DashIconify(icon="lucide:check", width=14),
+                                ),
+                                dmc.Anchor(
+                                    "Xem tất cả →",
+                                    href="/notifications",
+                                    size="sm",
+                                ),
+                            ],
+                            justify="space-between",
+                            gap="xs",
+                            px="xs",
+                            pb="xs",
                         ),
                     ],
                     style={"width": "360px"},
@@ -1059,9 +1093,9 @@ def _notif_badge(ctx: Ctx) -> tuple[str, bool]:
     return (str(unread) if unread > 0 else ""), unread == 0
 
 
-def _notif_panel_items(ctx: Ctx) -> list[Any]:
-    """5 thông báo mới nhất cho panel chuông."""
-    res = list_notifications(ctx, page=1, page_size=5)
+def _notif_panel_items(ctx: Ctx, unread_only: bool = False) -> list[Any]:
+    """5 thông báo mới nhất cho panel chuông (tab Tất cả / Chưa đọc)."""
+    res = list_notifications(ctx, page=1, page_size=5, unread_only=unread_only)
     if not res.ok or not res.data:
         return [dmc.Text("Chưa có thông báo.", size="sm", c="dimmed", px="sm", py="xs")]
     items = res.data.get("items") or []
@@ -1117,16 +1151,39 @@ def handle_notif_poll(_n_intervals: int, pathname: str | None) -> tuple[str, boo
     Output("app-notif-panel", "children"),
     Input("app-notif-bell", "n_clicks"),
     Input("app-notif-poll", "n_intervals"),
+    Input("app-notif-tabs", "value"),
     prevent_initial_call=True,
 )
-def handle_notif_panel(_n_clicks: int | None, _n_intervals: int) -> Any:
-    """Vẽ lại panel chuông khi bấm chuông (hoặc mỗi 60s nếu đang mở)."""
+def handle_notif_panel(_n_clicks: int | None, _n_intervals: int, tab_value: str | None) -> Any:
+    """Vẽ lại panel chuông khi bấm chuông (hoặc mỗi 60s nếu đang mở)
+    hoặc khi đổi tab Tất cả / Chưa đọc."""
     ctx = get_current_ctx()
     if ctx is None:
         raise dash.exceptions.PreventUpdate
     try:
-        return _notif_panel_items(ctx)
+        return _notif_panel_items(ctx, unread_only=(tab_value == "unread"))
     except Exception:  # noqa: BLE001 — panel lỗi không được vỡ header
+        raise dash.exceptions.PreventUpdate from None
+
+
+@callback(
+    Output("app-notif-indicator", "label", allow_duplicate=True),
+    Output("app-notif-indicator", "disabled", allow_duplicate=True),
+    Output("app-notif-panel", "children", allow_duplicate=True),
+    Input("app-notif-mark-all-read", "n_clicks"),
+    State("app-notif-tabs", "value"),
+    prevent_initial_call=True,
+)
+def handle_notif_popover_mark_all(_n_clicks: int | None, tab_value: str | None) -> tuple[str, bool, Any]:
+    """'Đánh dấu tất cả đã đọc' trong popover chuông (task 79)."""
+    ctx = get_current_ctx()
+    if ctx is None or not _n_clicks:
+        raise dash.exceptions.PreventUpdate
+    try:
+        mark_all_read(ctx)
+        label, disabled = _notif_badge(ctx)
+        return label, disabled, _notif_panel_items(ctx, unread_only=(tab_value == "unread"))
+    except Exception:  # noqa: BLE001 — lỗi đánh dấu không được vỡ header
         raise dash.exceptions.PreventUpdate from None
 
 

@@ -135,7 +135,9 @@ def test_get_data_model_returns_manifest_and_drift(dm_env):
     assert res.data["drift"]["status"] == "SYNCED"
     assert res.data["drift"]["drifts"] == []
     assert isinstance(res.data["history"], list)
-    assert len(res.data["history"]) == 63  # task 78: +2 TABLE_CREATED (RECON_NOTIFICATION*)
+    assert (
+        len(res.data["history"]) == 65
+    )  # task 78: +2 TABLE_CREATED (RECON_NOTIFICATION*); task 79: +2 COLUMN_ADDED (RELATED_*)
 
 
 def test_get_data_model_forbidden_without_menu(dm_env):
@@ -844,7 +846,9 @@ def test_filter_history_by_type_table_query(dm_manifest):
     import app.ui.pages.data_model as page
 
     history = dm_manifest["history"]
-    assert len(page.filter_history(history, "", "COLUMN_ADDED", None)) == 14  # task 63: +CHECKLIST_JSON
+    assert (
+        len(page.filter_history(history, "", "COLUMN_ADDED", None)) == 16
+    )  # task 63: +CHECKLIST_JSON; task 79: +RELATED_TYPE/RELATED_ID
     assert len(page.filter_history(history, "", "all", "RECON_RUN")) == 3
     assert len(page.filter_history(history, "0006", "all", None)) == 12
     assert len(page.filter_history(history, "menu_permission", "all", None)) == 9

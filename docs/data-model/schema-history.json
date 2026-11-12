@@ -565,5 +565,23 @@
     "migration_id": "0010_notifications",
     "task_id": null,
     "timestamp": "2026-11-12T13:33:57.060822+00:00"
+  },
+  {
+    "after": "INTEGER, nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_NOTIFICATION.RELATED_ID",
+    "migration_id": "0011_notification_related",
+    "task_id": null,
+    "timestamp": "2026-11-12T15:09:47.116083+00:00"
+  },
+  {
+    "after": "VARCHAR(40), nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_NOTIFICATION.RELATED_TYPE",
+    "migration_id": "0011_notification_related",
+    "task_id": null,
+    "timestamp": "2026-11-12T15:09:47.116083+00:00"
   }
 ]

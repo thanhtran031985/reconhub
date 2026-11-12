@@ -1,7 +1,7 @@
 {
   "database": "sqlite",
   "generated": true,
-  "generated_at": "2026-11-12T13:33:57.030607+00:00",
+  "generated_at": "2026-11-12T15:09:47.092366+00:00",
   "generator": "schema-introspect",
   "schema": "main",
   "tables": [
@@ -2971,6 +2971,24 @@
           "nullable": false,
           "primary_key": false,
           "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "RELATED_TYPE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(40)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "RELATED_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
           "unique": false
         }
       ],
@@ -6259,6 +6277,6 @@
       "unique_constraints": []
     }
   ],
-  "version": "0010_notifications",
+  "version": "0011_notification_related",
   "warnings": []
 }

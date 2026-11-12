@@ -367,3 +367,93 @@ main > div > div,
 .rh-runs-grid {
   --ag-font-size: 12px;
 }
+
+/* Task 79: Trung tâm thông báo — Master–Detail, không cuộn trang
+   ở ≥1366×768 (chỉ list/panel cuộn trong); dưới 900px xếp dọc,
+   trang được cuộn (quy tắc ui-dash). */
+.notif-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  height: 100%;
+  min-height: 0;
+}
+
+.notif-main {
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+  flex: 1;
+  min-height: 0;
+}
+
+.notif-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.notif-scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+.notif-detail {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-height: 0;
+}
+
+.notif-detail-scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+.notif-search-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.notif-row {
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  padding: 6px 12px;
+}
+
+.notif-row:hover {
+  background: var(--surface-2);
+}
+
+.notif-row-selected {
+  background: var(--surface-2);
+  border-left-color: var(--info);
+}
+
+.notif-unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--info);
+}
+
+@media (max-width: 900px) {
+  .notif-page {
+    height: auto;
+  }
+
+  .notif-main {
+    flex-direction: column;
+    flex: none;
+  }
+
+  .notif-detail {
+    width: 100% !important;
+  }
+
+  .notif-scroll,
+  .notif-detail-scroll {
+    flex: none;
+  }
+}

@@ -194,12 +194,26 @@ class TestSidebarDisplayValues:
         hrefs = _hrefs(_group(_sidebar(_operator(), engine, False), "ĐỐI SOÁT"))
         # Task 27 (Q8): 3 menu report đã hiện ở thanh bên (order 70/80).
         # Task 66: thêm menu Hàng đợi & worker (order 90) cuối nhóm.
-        assert hrefs == ["/runs/new", "/", "/history", "/batch-runs", "/issues", "/reports", "/report-runs", "/queue-health", "/notifications"]
+        # Task 79: menu Thông báo chuyển sang nhóm QUẢN TRỊ.
+        assert hrefs == [
+            "/runs/new",
+            "/",
+            "/history",
+            "/batch-runs",
+            "/issues",
+            "/reports",
+            "/report-runs",
+            "/queue-health",
+        ]
 
-    def test_sidebar_empty_group_hidden(self, display_env):
+    def test_sidebar_quan_tri_visible_for_viewer_via_notifications(self, display_env):
         engine, _ = display_env
-
-        assert "QUẢN TRỊ" not in _titles(_sidebar(_viewer(), engine, False))
+        # Task 79: menu Thông báo chuyển sang nhóm QUẢN TRỊ nên VIEWER
+        # (có quyền notifications) vẫn thấy nhóm QUẢN TRỊ, chỉ 1 mục.
+        # Trước task 79 nhóm này trống với VIEWER nên bị ẩn.
+        groups = _sidebar(_viewer(), engine, False)
+        assert "QUẢN TRỊ" in _titles(groups)
+        assert _labels(_group(groups, "QUẢN TRỊ")) == ["Thông báo"]
 
     def test_sidebar_reset_restores_source_label(self, display_env):
         engine, _ = display_env

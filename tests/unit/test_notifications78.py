@@ -52,20 +52,24 @@ def _seed_notifs(engine, user_id: int, n: int = 3) -> list[int]:
 
 
 class TestCreateListCount:
-    def test_list_unread_first_and_paging(self, _patch_engine, operator_ctx):
+    def test_list_newest_first_and_paging(self, _patch_engine, operator_ctx):
         engine = _patch_engine["engine"]
         ids = _seed_notifs(engine, 2, 3)
-        # Đánh dấu 1 cái đã đọc -> 2 chưa đọc phải lên trước.
+        # Task 79 (D12): sắp theo thời gian mới nhất (để nhóm theo ngày
+        # như thiết kế), không còn chưa-đọc-trước; trạng thái chưa đọc
+        # thể hiện bằng chấm xanh ở UI.
         assert notif.mark_read(operator_ctx, ids[2]).ok
         res = notif.list_notifications(operator_ctx, page=1, page_size=2)
         assert res.ok, res.message
         assert res.data["total"] == 3
         assert len(res.data["items"]) == 2
-        assert all(not item["is_read"] for item in res.data["items"])
+        assert [item["id"] for item in res.data["items"]] == [ids[2], ids[1]]
+        assert res.data["items"][0]["is_read"] is True
         res2 = notif.list_notifications(operator_ctx, page=2, page_size=2)
         assert len(res2.data["items"]) == 1
-        assert res2.data["items"][0]["is_read"] is True
-        # Chưa đọc trước: item đầu là chưa đọc, có đủ trường hiển thị.
+        assert res2.data["items"][0]["id"] == ids[0]
+        assert res2.data["items"][0]["is_read"] is False
+        # Item mới nhất có đủ trường hiển thị.
         first = res.data["items"][0]
         assert first["title"].startswith("Tiêu đề")
         assert first["link"].startswith("/runs/")

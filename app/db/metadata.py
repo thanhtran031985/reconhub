@@ -245,6 +245,9 @@ recon_notification = Table(
     Column("LINK", String(500), nullable=True),
     Column("IS_READ", String(1), nullable=False, default="N"),
     Column("CREATED_AT", DateTime, nullable=False),
+    # Task 79: tham chiếu entity gốc cho panel chi tiết.
+    Column("RELATED_TYPE", String(40), nullable=True),
+    Column("RELATED_ID", BigInteger().with_variant(Integer, "sqlite"), nullable=True),
     Index("ix_recon_notification_user_read_created", "USER_ID", "IS_READ", "CREATED_AT"),
 )
 

@@ -17,18 +17,22 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.core.context import Ctx
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
+    recon_batch_def,
     recon_batch_run,
     recon_notification,
     recon_notification_pref,
+    recon_report,
     recon_report_run,
+    recon_report_template,
     recon_role,
     recon_rpt_export,
     recon_run,
+    recon_template,
     recon_user,
     recon_user_role,
 )
@@ -85,6 +89,8 @@ def _notif_dict(row: Any) -> dict[str, Any]:
         "link": str(row["LINK"] or ""),
         "is_read": str(row["IS_READ"]) == "Y",
         "created_at": created.isoformat() if isinstance(created, datetime) else str(created),
+        "related_type": str(row["RELATED_TYPE"]) if row["RELATED_TYPE"] else None,
+        "related_id": int(row["RELATED_ID"]) if row["RELATED_ID"] is not None else None,
     }
 
 
@@ -95,6 +101,8 @@ def insert_notification(
     title: str,
     message: str,
     link: str | None = None,
+    related_type: str | None = None,
+    related_id: int | None = None,
 ) -> int | None:
     """Chèn 1 thông báo; trả id, None khi lỗi (không raise)."""
     if event_type not in EVENT_TYPES:
@@ -111,6 +119,8 @@ def insert_notification(
                     LINK=str(link or "")[:500] or None,
                     IS_READ="N",
                     CREATED_AT=_now(),
+                    RELATED_TYPE=str(related_type)[:40] if related_type else None,
+                    RELATED_ID=int(related_id) if related_id is not None else None,
                 )
             )
             return int(res.lastrowid)
@@ -119,17 +129,40 @@ def insert_notification(
         return None
 
 
-def is_enabled(engine: Any, user_id: int, event_type: str) -> bool:
-    """User có bật loại sự kiện này không (thiếu dòng = mặc định)."""
-    default = bool(EVENT_TYPES.get(event_type, {}).get("default", False))
+def _pref_row(engine: Any, user_id: int, event_type: str) -> str | None:
+    """Giá trị pref ('Y'/'N') hoặc None khi chưa có dòng."""
+    with engine.connect() as conn:
+        value = conn.execute(
+            select(recon_notification_pref.c.ENABLED).where(
+                recon_notification_pref.c.USER_ID == int(user_id),
+                recon_notification_pref.c.EVENT_TYPE == event_type,
+            )
+        ).scalar_one_or_none()
+    return str(value) if value is not None else None
+
+
+def _master_enabled(engine: Any, user_id: int) -> bool:
+    """Công tắc tổng 'ALL' (task 79): thiếu dòng = BẬT; lỗi đọc = BẬT."""
     try:
-        with engine.connect() as conn:
-            row = conn.execute(
-                select(recon_notification_pref.c.ENABLED).where(
-                    recon_notification_pref.c.USER_ID == int(user_id),
-                    recon_notification_pref.c.EVENT_TYPE == event_type,
-                )
-            ).scalar_one_or_none()
+        row = _pref_row(engine, user_id, "ALL")
+    except Exception as exc:  # noqa: BLE001 — lỗi đọc thì coi như bật
+        logger.warn("Không đọc được công tắc tổng thông báo", error=str(exc))
+        return True
+    if row is None:
+        return True
+    return str(row) == "Y"
+
+
+def is_enabled(engine: Any, user_id: int, event_type: str) -> bool:
+    """User có bật loại sự kiện này không (thiếu dòng = mặc định).
+
+    Task 79: công tắc tổng tắt thì mọi loại đều không tạo thông báo.
+    """
+    default = bool(EVENT_TYPES.get(event_type, {}).get("default", False))
+    if event_type != "ALL" and not _master_enabled(engine, user_id):
+        return False
+    try:
+        row = _pref_row(engine, user_id, event_type)
     except Exception as exc:  # noqa: BLE001 — lỗi đọc thì dùng mặc định
         logger.warn("Không đọc được pref thông báo", event_type=event_type, error=str(exc))
         return default
@@ -155,6 +188,8 @@ def notify_user(
     title: str,
     message: str,
     link: str | None = None,
+    related_type: str | None = None,
+    related_id: int | None = None,
 ) -> bool:
     """Báo cho 1 user theo username (kiểm tra pref); không raise."""
     try:
@@ -164,7 +199,19 @@ def notify_user(
             return False
         if not is_enabled(engine, user_id, event_type):
             return False
-        return insert_notification(engine, user_id, event_type, title, message, link) is not None
+        return (
+            insert_notification(
+                engine,
+                user_id,
+                event_type,
+                title,
+                message,
+                link,
+                related_type=related_type,
+                related_id=related_id,
+            )
+            is not None
+        )
     except Exception as exc:  # noqa: BLE001 — emit không được raise
         logger.warn("Không gửi được thông báo", username=username, event_type=event_type, error=str(exc))
         return False
@@ -218,7 +265,19 @@ def notify_admins(
         for user_id in admin_ids:
             if not is_enabled(engine, user_id, event_type):
                 continue
-            if insert_notification(engine, user_id, event_type, title, message, link) is not None:
+            if (
+                insert_notification(
+                    engine,
+                    user_id,
+                    event_type,
+                    title,
+                    message,
+                    link,
+                    related_type="SYSTEM",
+                    related_id=None,
+                )
+                is not None
+            ):
                 created += 1
         return created
     except Exception as exc:  # noqa: BLE001 — emit không được raise
@@ -250,7 +309,7 @@ def notify_for_run(engine: Any, run_id: int, event_type: str, title: str, messag
     if found is None:
         return False
     owner, link = found
-    return notify_user(engine, owner, event_type, title, message, link)
+    return notify_user(engine, owner, event_type, title, message, link, related_type="RUN", related_id=run_id)
 
 
 def notify_for_report_run(engine: Any, run_id: int, event_type: str, title: str, message: str) -> bool:
@@ -264,7 +323,9 @@ def notify_for_report_run(engine: Any, run_id: int, event_type: str, title: str,
     if row is None:
         return False
     link = f"/reports/{int(row['REPORT_ID'])}?run={int(run_id)}"
-    return notify_user(engine, str(row["CREATED_BY"]), event_type, title, message, link)
+    return notify_user(
+        engine, str(row["CREATED_BY"]), event_type, title, message, link, related_type="REPORT_RUN", related_id=run_id
+    )
 
 
 def notify_for_export(engine: Any, export_id: int, event_type: str, title: str, message: str) -> bool:
@@ -273,7 +334,7 @@ def notify_for_export(engine: Any, export_id: int, event_type: str, title: str, 
     if found is None:
         return False
     owner, link = found
-    return notify_user(engine, owner, event_type, title, message, link)
+    return notify_user(engine, owner, event_type, title, message, link, related_type="EXPORT", related_id=export_id)
 
 
 def notify_for_batch(engine: Any, batch_run_id: int, event_type: str, title: str, message: str) -> bool:
@@ -282,7 +343,7 @@ def notify_for_batch(engine: Any, batch_run_id: int, event_type: str, title: str
     if found is None:
         return False
     owner, link = found
-    return notify_user(engine, owner, event_type, title, message, link)
+    return notify_user(engine, owner, event_type, title, message, link, related_type="BATCH", related_id=batch_run_id)
 
 
 def count_unread(engine: Any, user_id: int) -> int:
@@ -384,6 +445,147 @@ def maybe_notify_worker_health(engine: Any) -> dict[str, Any]:
     return out
 
 
+# --- Chi tiết thông báo (task 79: panel chi tiết theo thiết kế) --------
+
+
+def _format_duration(start: Any, end: Any) -> str | None:
+    """'03 phút 41 giây' / '1 giờ 05 phút'; None khi thiếu mốc."""
+    if not isinstance(start, datetime) or not isinstance(end, datetime):
+        return None
+    secs = int((end - start).total_seconds())
+    if secs < 0:
+        secs = 0
+    if secs < 3600:
+        return f"{secs // 60:02d} phút {secs % 60:02d} giây"
+    return f"{secs // 3600} giờ {(secs % 3600) // 60:02d} phút"
+
+
+def _scalar(conn: Any, stmt: Any) -> Any:
+    return conn.execute(stmt).scalar_one_or_none()
+
+
+def _resolve_entity(
+    engine: Any, related_type: str | None, related_id: int | None
+) -> tuple[str | None, str | None, str, list[dict[str, str]], str | None]:
+    """(mã, nhãn mã, nhãn nút mở, trường chi tiết, lỗi) theo entity gốc.
+
+    Entity đã xóa / không có → mã vẫn suy ra từ id, trường rỗng.
+    Lỗi đọc DB → fallback SYSTEM (không raise).
+    """
+    if not related_type or related_type == "SYSTEM" or not related_id:
+        return None, None, "Mở liên kết", [], None
+    rid = int(related_id)
+    try:
+        with engine.connect() as conn:
+            if related_type == "RUN":
+                row = conn.execute(select(recon_run).where(recon_run.c.ID == rid)).mappings().first()
+                if row is None:
+                    return f"RUN_{rid:05d}", "Mã lần chạy", "Mở kết quả Run", [], None
+                fields: list[dict[str, str]] = []
+                if row["BATCH_RUN_ID"]:
+                    brow = (
+                        conn.execute(
+                            select(recon_batch_run.c.BATCH_DEF_ID).where(
+                                recon_batch_run.c.ID == int(row["BATCH_RUN_ID"])
+                            )
+                        )
+                        .mappings()
+                        .first()
+                    )
+                    if brow is not None:
+                        bname = _scalar(
+                            conn,
+                            select(recon_batch_def.c.NAME).where(recon_batch_def.c.ID == int(brow["BATCH_DEF_ID"])),
+                        )
+                        if bname:
+                            fields.append({"label": "Bộ đối soát", "value": str(bname)})
+                tname = _scalar(
+                    conn,
+                    select(recon_template.c.NAME).where(recon_template.c.ID == int(row["TEMPLATE_ID"])),
+                )
+                if tname:
+                    fields.append({"label": "Template", "value": str(tname)})
+                dur = _format_duration(row["STARTED_AT"], row["FINISHED_AT"])
+                if dur:
+                    fields.append({"label": "Thời gian chạy", "value": dur})
+                error = str(row["ERROR_MSG"] or "") or (str(row["ERROR_CODE"]) if row["ERROR_CODE"] else None)
+                return f"RUN_{rid:05d}", "Mã lần chạy", "Mở kết quả Run", fields, error
+            if related_type == "REPORT_RUN":
+                row = conn.execute(select(recon_report_run).where(recon_report_run.c.ID == rid)).mappings().first()
+                if row is None:
+                    return f"RPT_{rid:05d}", "Mã lần chạy", "Mở báo cáo", [], None
+                fields = []
+                rname = _scalar(conn, select(recon_report.c.NAME).where(recon_report.c.ID == int(row["REPORT_ID"])))
+                if rname:
+                    fields.append({"label": "Báo cáo", "value": str(rname)})
+                tname = _scalar(
+                    conn,
+                    select(recon_report_template.c.NAME).where(recon_report_template.c.ID == int(row["TEMPLATE_ID"])),
+                )
+                if tname:
+                    fields.append({"label": "Template", "value": str(tname)})
+                dur = _format_duration(row["CREATED_AT"], row["FINISHED_AT"])
+                if dur:
+                    fields.append({"label": "Thời gian chạy", "value": dur})
+                if row["ROW_COUNT"] is not None:
+                    fields.append({"label": "Số dòng", "value": f"{int(row['ROW_COUNT'])} dòng"})
+                error = str(row["ERROR_MESSAGE"] or "") or (str(row["ERROR_CODE"]) if row["ERROR_CODE"] else None)
+                return f"RPT_{rid:05d}", "Mã lần chạy", "Mở báo cáo", fields, error
+            if related_type == "EXPORT":
+                row = conn.execute(select(recon_rpt_export).where(recon_rpt_export.c.ID == rid)).mappings().first()
+                if row is None:
+                    return f"EXP_{rid:05d}", "Mã xuất file", "Mở lịch sử báo cáo", [], None
+                fields = []
+                rrow = (
+                    conn.execute(
+                        select(recon_report_run.c.REPORT_ID).where(recon_report_run.c.ID == int(row["RUN_ID"]))
+                    )
+                    .mappings()
+                    .first()
+                )
+                if rrow is not None:
+                    rname = _scalar(
+                        conn, select(recon_report.c.NAME).where(recon_report.c.ID == int(rrow["REPORT_ID"]))
+                    )
+                    if rname:
+                        fields.append({"label": "Báo cáo", "value": str(rname)})
+                if row["FILE_PATH"]:
+                    fname = str(row["FILE_PATH"]).replace("\\", "/").rsplit("/", 1)[-1]
+                    fields.append({"label": "Tên file", "value": fname})
+                dur = _format_duration(row["CREATED_AT"], row["FINISHED_AT"])
+                if dur:
+                    fields.append({"label": "Thời gian chạy", "value": dur})
+                if row["ROW_COUNT"] is not None:
+                    fields.append({"label": "Số dòng", "value": f"{int(row['ROW_COUNT'])} dòng"})
+                error = str(row["ERROR_MESSAGE"] or "") or None
+                return f"EXP_{rid:05d}", "Mã xuất file", "Mở lịch sử báo cáo", fields, error
+            if related_type == "BATCH":
+                row = conn.execute(select(recon_batch_run).where(recon_batch_run.c.ID == rid)).mappings().first()
+                if row is None:
+                    return f"BATCH_{rid:05d}", "Mã lần chạy bộ", "Mở kết quả bộ", [], None
+                fields = []
+                bname = _scalar(
+                    conn,
+                    select(recon_batch_def.c.NAME).where(recon_batch_def.c.ID == int(row["BATCH_DEF_ID"])),
+                )
+                if bname:
+                    fields.append({"label": "Bộ đối soát", "value": str(bname)})
+                if row["PERIOD"]:
+                    fields.append({"label": "Kỳ", "value": str(row["PERIOD"])})
+                counts = f"{int(row['CNT_DONE'] or 0)} mục xong, {int(row['CNT_FAILED'] or 0)} mục lỗi"
+                if int(row["CNT_SKIPPED"] or 0) > 0:
+                    counts += f", {int(row['CNT_SKIPPED'])} mục bỏ qua"
+                fields.append({"label": "Số mục", "value": counts})
+                dur = _format_duration(row["STARTED_AT"], row["FINISHED_AT"])
+                if dur:
+                    fields.append({"label": "Thời gian chạy", "value": dur})
+                error = f"Có {int(row['CNT_FAILED'])} mục lỗi." if int(row["CNT_FAILED"] or 0) > 0 else None
+                return f"BATCH_{rid:05d}", "Mã lần chạy bộ", "Mở kết quả bộ", fields, error
+    except Exception as exc:  # noqa: BLE001 — chi tiết lỗi thì fallback
+        logger.warn("Không đọc được entity của thông báo", event_type=related_type, error=str(exc))
+    return None, None, "Mở liên kết", [], None
+
+
 # --- API theo user (menu "notifications") ---------------------------------
 
 
@@ -407,26 +609,53 @@ def _effective_prefs(engine: Any, user_id: int) -> dict[str, bool]:
 
 @service
 @requires_menu("notifications")
-def list_notifications(ctx: Ctx, page: int = 1, page_size: int = 20, unread_only: bool = False) -> dict[str, Any]:
-    """Liệt kê thông báo của mình: chưa đọc trước, mới nhất trước."""
+def list_notifications(
+    ctx: Ctx,
+    page: int = 1,
+    page_size: int = 20,
+    unread_only: bool = False,
+    q: str | None = None,
+    event_type: str | None = None,
+    time_range: str = "all",
+    read_only: bool = False,
+) -> dict[str, Any]:
+    """Liệt kê thông báo của mình: mới nhất trước (task 79 — để nhóm
+    theo ngày như thiết kế; bỏ thứ tự chưa-đọc-trước của task 78,
+    trạng thái chưa đọc thể hiện bằng chấm xanh)."""
     if page < 1:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "page phải ≥ 1.")
     if page_size < 1 or page_size > 100:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "page_size phải trong khoảng 1..100.")
+    if event_type and event_type not in EVENT_TYPES:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, f"Loại thông báo không hỗ trợ: {event_type}.")
+    if time_range not in ("7d", "30d", "all"):
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "time_range phải là 7d, 30d hoặc all.")
     engine = get_recon_engine()
-    with engine.connect() as conn:
-        total_stmt = (
-            select(func.count()).select_from(recon_notification).where(recon_notification.c.USER_ID == ctx.user_id)
+    conditions: list[Any] = [recon_notification.c.USER_ID == ctx.user_id]
+    if unread_only:
+        conditions.append(recon_notification.c.IS_READ == "N")
+    if read_only:
+        conditions.append(recon_notification.c.IS_READ == "Y")
+    if q and str(q).strip():
+        needle = f"%{str(q).strip().lower()}%"
+        conditions.append(
+            or_(
+                func.lower(recon_notification.c.TITLE).like(needle),
+                func.lower(recon_notification.c.MESSAGE).like(needle),
+            )
         )
-        stmt = select(recon_notification).where(recon_notification.c.USER_ID == ctx.user_id)
-        if unread_only:
-            total_stmt = total_stmt.where(recon_notification.c.IS_READ == "N")
-            stmt = stmt.where(recon_notification.c.IS_READ == "N")
+    if event_type:
+        conditions.append(recon_notification.c.TYPE == event_type)
+    if time_range != "all":
+        days = 7 if time_range == "7d" else 30
+        conditions.append(recon_notification.c.CREATED_AT >= _now() - timedelta(days=days))
+    with engine.connect() as conn:
+        total_stmt = select(func.count()).select_from(recon_notification).where(*conditions)
+        stmt = select(recon_notification).where(*conditions)
         total = int(conn.execute(total_stmt).scalar_one())
         rows = (
             conn.execute(
                 stmt.order_by(
-                    recon_notification.c.IS_READ.asc(),
                     recon_notification.c.CREATED_AT.desc(),
                     recon_notification.c.ID.desc(),
                 )
@@ -507,11 +736,42 @@ def delete_notification(ctx: Ctx, notification_id: int) -> dict[str, Any]:
 
 @service
 @requires_menu("notifications")
+def get_notification_detail(ctx: Ctx, notification_id: int) -> dict[str, Any]:
+    """Chi tiết 1 thông báo của mình + entity gốc (panel chi tiết)."""
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        row = (
+            conn.execute(
+                select(recon_notification).where(
+                    recon_notification.c.ID == int(notification_id),
+                    recon_notification.c.USER_ID == ctx.user_id,
+                )
+            )
+            .mappings()
+            .first()
+        )
+    if row is None:
+        raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy thông báo.")
+    d = _notif_dict(row)
+    code, code_label, open_label, fields, error = _resolve_entity(engine, d.get("related_type"), d.get("related_id"))
+    return {
+        **d,
+        "code": code,
+        "code_label": code_label,
+        "open_label": open_label,
+        "fields": fields,
+        "error": error,
+    }
+
+
+@service
+@requires_menu("notifications")
 def get_prefs(ctx: Ctx) -> dict[str, Any]:
-    """Cài đặt nhận thông báo của mình (mọi loại + giá trị hiệu lực)."""
+    """Cài đặt nhận thông báo của mình (mọi loại + công tắc tổng + giá trị hiệu lực)."""
     engine = get_recon_engine()
     return {
         "prefs": _effective_prefs(engine, ctx.user_id),
+        "master": _master_enabled(engine, ctx.user_id),
         "types": [
             {"code": code, "label": str(info["label"]), "default": bool(info["default"]), "scope": str(info["scope"])}
             for code, info in EVENT_TYPES.items()
@@ -522,10 +782,12 @@ def get_prefs(ctx: Ctx) -> dict[str, Any]:
 
 @service
 @requires_menu("notifications")
-def set_prefs(ctx: Ctx, prefs: dict[str, Any]) -> dict[str, Any]:
-    """Lưu cài đặt nhận thông báo của mình (chỉ loại đã biết)."""
+def set_prefs(ctx: Ctx, prefs: dict[str, Any], master: bool | None = None) -> dict[str, Any]:
+    """Lưu cài đặt nhận thông báo của mình (chỉ loại đã biết + công tắc tổng)."""
     if not isinstance(prefs, dict):
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "prefs phải là dict.")
+    if master is not None and not isinstance(master, bool):
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Giá trị của công tắc tổng phải là true/false.")
     cleaned: dict[str, bool] = {}
     for code, value in prefs.items():
         if code not in EVENT_TYPES:
@@ -558,4 +820,26 @@ def set_prefs(ctx: Ctx, prefs: dict[str, Any]) -> dict[str, Any]:
                     )
                     .values(ENABLED="Y" if enabled else "N", UPDATED_AT=now)
                 )
-    return {"prefs": _effective_prefs(engine, ctx.user_id)}
+        if master is not None:
+            existing = conn.execute(
+                select(recon_notification_pref.c.USER_ID).where(
+                    recon_notification_pref.c.USER_ID == ctx.user_id,
+                    recon_notification_pref.c.EVENT_TYPE == "ALL",
+                )
+            ).scalar_one_or_none()
+            if existing is None:
+                conn.execute(
+                    recon_notification_pref.insert().values(
+                        USER_ID=ctx.user_id, EVENT_TYPE="ALL", ENABLED="Y" if master else "N", UPDATED_AT=now
+                    )
+                )
+            else:
+                conn.execute(
+                    recon_notification_pref.update()
+                    .where(
+                        recon_notification_pref.c.USER_ID == ctx.user_id,
+                        recon_notification_pref.c.EVENT_TYPE == "ALL",
+                    )
+                    .values(ENABLED="Y" if master else "N", UPDATED_AT=now)
+                )
+    return {"prefs": _effective_prefs(engine, ctx.user_id), "master": _master_enabled(engine, ctx.user_id)}
