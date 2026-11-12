@@ -12,11 +12,13 @@ from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
 from app.services.perm import effective_menus, page_gate
-from app.services.report import list_reports, set_report_favorite
+from app.services.report import create_report, list_reports, set_report_favorite
 from app.services.report_template import list_templates
 from app.ui.components.alert_box import alert_box
+from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.command_bar import command_bar
 from app.ui.components.empty_state import empty_state
+from app.ui.components.notification import notify_error, notify_success
 from app.ui.components.page_header import page_header
 
 try:
@@ -32,6 +34,12 @@ CATEGORY_LABELS: dict[str, str] = {
     "OPERATIONS": "Vận hành",
 }
 CATEGORY_OPTIONS: list[dict[str, str]] = [{"label": "Tất cả", "value": "all"}] + [
+    {"label": label, "value": code} for code, label in CATEGORY_LABELS.items()
+]
+
+# Task 75: options Nhóm báo cáo cho modal "Tạo mã báo cáo" (cùng nguồn
+# với Select nhóm ở wizard bước 1).
+NEW_REPORT_CATEGORY_OPTIONS: list[dict[str, str]] = [
     {"label": label, "value": code} for code, label in CATEGORY_LABELS.items()
 ]
 
@@ -318,10 +326,80 @@ def layout() -> Any:
                 href="/report-admin",
             )
         )
+        # Task 75: tạo mã báo cáo riêng (chỉ Report Master, chưa có template).
+        header_actions.append(
+            dmc.Button(
+                "Tạo mã báo cáo",
+                variant="light",
+                size="xs",
+                id="reports-new-report-btn",
+            )
+        )
 
     return dmc.Box(
         [
             dcc.Store(id="reports-store", data=reports),
+            # Task 75: modal tạo mã báo cáo — đặt ngoài container danh sách
+            # để lần vẽ lại hub không tạo lại modal (mẫu modal task 74).
+            # Chỉ ADMIN thấy (như nút mở modal).
+            (
+                dmc.Modal(
+                    id="reports-new-report-modal",
+                    title="Tạo mã báo cáo",
+                    opened=False,
+                    children=dmc.Stack(
+                        [
+                            dmc.TextInput(
+                                id="reports-new-report-code",
+                                label="Mã báo cáo *",
+                                placeholder="VD: FIN_REVENUE",
+                                style={"fontFamily": "var(--font-mono, Consolas, monospace)"},
+                                **{"aria-label": "Mã báo cáo mới"},
+                            ),
+                            dmc.TextInput(
+                                id="reports-new-report-name",
+                                label="Tên báo cáo *",
+                                placeholder="VD: Báo cáo doanh thu",
+                                **{"aria-label": "Tên báo cáo mới"},
+                            ),
+                            dmc.Select(
+                                id="reports-new-report-category",
+                                label="Nhóm báo cáo",
+                                data=NEW_REPORT_CATEGORY_OPTIONS,
+                                value="FINANCE",
+                                clearable=False,
+                                **{"aria-label": "Nhóm báo cáo mới"},
+                            ),
+                            dmc.TextInput(
+                                id="reports-new-report-owner",
+                                label="Chủ sở hữu nghiệp vụ",
+                                placeholder="VD: FIN",
+                                **{"aria-label": "Chủ sở hữu mới"},
+                            ),
+                            dmc.Textarea(
+                                id="reports-new-report-description",
+                                label="Mô tả báo cáo",
+                                autosize=True,
+                                minRows=2,
+                                placeholder="Mô tả ngắn về báo cáo.",
+                                **{"aria-label": "Mô tả báo cáo mới"},
+                            ),
+                            html.Div(id="reports-new-report-alert"),
+                            dmc.Group(
+                                [
+                                    button_subtle("Hủy", id="reports-new-report-cancel"),
+                                    button_primary("Lưu", id="reports-new-report-save"),
+                                ],
+                                justify="flex-end",
+                                gap="sm",
+                            ),
+                        ],
+                        gap="sm",
+                    ),
+                )
+                if can_admin
+                else html.Div()
+            ),
             page_header(
                 title="Trung tâm báo cáo",
                 subtitle="Báo cáo động cho FIN, kế toán và vận hành.",
@@ -432,3 +510,166 @@ def handle_favorite_toggle(
     if not res.ok:
         raise PreventUpdate
     return [{**r, "is_favorite": new_value} if int(r["id"]) == report_id else r for r in reports]
+
+
+def _new_report_field_error_text(err: dict[str, Any]) -> str:
+    """Text lỗi field cho modal tạo mã báo cáo (bản gọn của _field_error_text ở report_admin)."""
+    field = str(err.get("field") or "")
+    err_type = str(err.get("type") or "")
+    if err_type in ("missing", "string_too_short"):
+        return f"{field}: bắt buộc nhập."
+    if err_type == "string_too_long":
+        return f"{field}: quá dài."
+    if err_type == "string_pattern_mismatch":
+        return f"{field}: sai định dạng (viết hoa, không dấu)."
+    msg = str(err.get("message", "") or "")
+    return f"{field}: {msg}" if msg else f"{field}: không hợp lệ."
+
+
+def _new_report_err_alert(res: Any) -> Any:
+    """Alert lỗi cho modal tạo mã báo cáo (dạng toast như modal task 74)."""
+    if res is None:
+        return None
+    details = getattr(res, "details", None)
+    errors = details.get("errors") if isinstance(details, dict) else None
+    msg = getattr(res, "message", None) or "Có lỗi xảy ra."
+    if errors and isinstance(errors, list):
+        lines = [_new_report_field_error_text(e) for e in errors if isinstance(e, dict)]
+        if lines:
+            return notify_error(f"{msg}\n" + "\n".join(f"• {line}" for line in lines))
+    return notify_error(msg)
+
+
+def handle_new_report_save(
+    n_clicks: int | None,
+    code: str | None,
+    name: str | None,
+    category_code: str | None,
+    owner: str | None,
+    description: str | None,
+    reports: list[dict[str, Any]] | None,
+    query: str | None,
+    category: str | None,
+    fav_only: bool | None,
+) -> tuple[bool, Any, Any, Any, Any, Any]:
+    """Task 75: Lưu modal 'Tạo mã báo cáo' -> (mở, alert_modal, store, sections, meta, toast).
+
+    Chỉ gọi create_report (không tạo template): báo cáo mới hiện ở hub
+    với badge 0 template. Trùng mã báo cáo -> CONFLICT, modal ở lại mở.
+    """
+    if not n_clicks:
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    try:
+        rep_res = create_report(
+            ctx,
+            {
+                "code": (code or "").strip(),
+                "name": (name or "").strip(),
+                "category_code": category_code or "FINANCE",
+                "owner": (owner or "").strip(),
+                "description": (description or "").strip() or None,
+                "default_favorite": False,
+                "is_visible": True,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - service đã bọc, phòng thủ thêm
+        return (
+            True,
+            notify_error(f"Tạo mã báo cáo lỗi: {exc}"),
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+        )
+    if not rep_res.ok or not isinstance(rep_res.data, dict):
+        return (
+            True,
+            _new_report_err_alert(rep_res),
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+        )
+    new_store = list(reports or []) + [{**rep_res.data, "template_count": 0}]
+    filtered = _filter_reports(new_store, query, category, bool(fav_only))
+    return (
+        False,
+        None,
+        new_store,
+        render_reports_sections(filtered),
+        f"{len(filtered)} báo cáo",
+        notify_success(f"Đã tạo mã báo cáo {rep_res.data.get('code')}."),
+    )
+
+
+@callback(
+    Output("reports-new-report-modal", "opened"),
+    Output("reports-new-report-code", "value"),
+    Output("reports-new-report-name", "value"),
+    Output("reports-new-report-category", "value"),
+    Output("reports-new-report-owner", "value"),
+    Output("reports-new-report-description", "value"),
+    Output("reports-new-report-alert", "children"),
+    Input("reports-new-report-btn", "n_clicks"),
+    Input("reports-new-report-cancel", "n_clicks"),
+    prevent_initial_call=True,
+)
+def handle_new_report_modal_toggle(
+    open_clicks: int | None,
+    cancel_clicks: int | None,
+) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
+    """Task 75: mở modal 'Tạo mã báo cáo' (xóa trắng form) / Hủy đóng modal."""
+    triggered = dash.callback_context.triggered_id
+    if triggered == "reports-new-report-cancel":
+        return False, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    if not open_clicks:
+        return (
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+        )
+    return True, "", "", "FINANCE", "", "", None
+
+
+@callback(
+    Output("reports-new-report-modal", "opened", allow_duplicate=True),
+    Output("reports-new-report-alert", "children", allow_duplicate=True),
+    Output("reports-store", "data", allow_duplicate=True),
+    Output("reports-cards-container", "children", allow_duplicate=True),
+    Output("reports-catalog-meta", "children", allow_duplicate=True),
+    Output("reports-error-area", "children"),
+    Input("reports-new-report-save", "n_clicks"),
+    State("reports-store", "data"),
+    State("reports-new-report-code", "value"),
+    State("reports-new-report-name", "value"),
+    State("reports-new-report-category", "value"),
+    State("reports-new-report-owner", "value"),
+    State("reports-new-report-description", "value"),
+    State("reports-search", "value"),
+    State("reports-category", "value"),
+    State("reports-fav-only", "checked"),
+    prevent_initial_call=True,
+)
+def handle_new_report_save_click(
+    n_clicks: int | None,
+    reports: list[dict[str, Any]] | None,
+    code: str | None,
+    name: str | None,
+    category_code: str | None,
+    owner: str | None,
+    description: str | None,
+    query: str | None,
+    category: str | None,
+    fav_only: bool | None,
+) -> tuple[bool, Any, Any, Any, Any, Any]:
+    """Task 75: bấm Lưu trong modal -> tạo mã báo cáo, hub làm mới."""
+    return handle_new_report_save(
+        n_clicks, code, name, category_code, owner, description, reports, query, category, fav_only
+    )

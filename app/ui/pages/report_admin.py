@@ -1005,16 +1005,33 @@ def render_step1(state: dict[str, Any]) -> Any:
     template: dict[str, Any] = {}
     version: dict[str, Any] = {}
     editing = bool(state.get("report_id") and state.get("template_id"))
-    if ctx and editing:
+    # Task 75: đã chọn báo cáo có sẵn (report_id có, template_id chưa có)
+    # thì các ô báo cáo hiện đúng giá trị và khóa lại, chỉ ô template nhập được.
+    picked = bool(state.get("report_id")) and not state.get("template_id")
+    report_locked = editing or picked
+    if ctx and (editing or picked):
         rep_res = get_report(ctx, int(state["report_id"]))
         if rep_res.ok and isinstance(rep_res.data, dict):
             report = rep_res.data
+    if ctx and editing:
         tpl_res = get_template(ctx, int(state["template_id"]))
         if tpl_res.ok and isinstance(tpl_res.data, dict):
             template = tpl_res.data
         version = _version_detail(ctx, state.get("version_id"))
 
     tpl_status = str(template.get("status") or version.get("status") or "DRAFT")
+
+    # Task 75: luồng tạo mới có ô "Báo cáo *" (list có search các mã báo
+    # cáo đã có + option "Báo cáo mới" mặc định); luồng sửa không có.
+    report_options: list[dict[str, str]] = [{"value": "new", "label": "Báo cáo mới"}]
+    if ctx and not editing:
+        rep_list = list_reports(ctx)
+        if rep_list.ok and isinstance(rep_list.data, list):
+            report_options += [
+                {"value": str(r["id"]), "label": f"{r['code']} — {r['name']}"}
+                for r in rep_list.data
+                if isinstance(r, dict)
+            ]
 
     # Task 74: khi đang sửa, "Mã template" là list có search các template
     # của báo cáo đang mở (value = template id), kèm nút tạo mới.
@@ -1042,6 +1059,22 @@ def render_step1(state: dict[str, Any]) -> Any:
                     ),
                 ]
             ),
+            (
+                html.Div(
+                    dmc.Select(
+                        id="admin-s1-report-pick",
+                        label="Báo cáo *",
+                        data=report_options,
+                        value=str(state["report_id"]) if state.get("report_id") else "new",
+                        searchable=True,
+                        clearable=False,
+                        **{"aria-label": "Báo cáo"},
+                    ),
+                    style={"maxWidth": "480px"},
+                )
+                if not editing
+                else html.Div()
+            ),
             dmc.SimpleGrid(
                 cols={"base": 1, "sm": 2, "md": 4},
                 spacing="sm",
@@ -1050,7 +1083,7 @@ def render_step1(state: dict[str, Any]) -> Any:
                         id="admin-s1-report-code",
                         label="Mã báo cáo *",
                         value=str(report.get("code") or ""),
-                        disabled=editing,
+                        disabled=report_locked,
                         placeholder="VD: FIN_REVENUE",
                         description="Viết hoa, không dấu; không đổi sau khi tạo.",
                         inputWrapperOrder=["label", "input", "description"],
@@ -1061,6 +1094,7 @@ def render_step1(state: dict[str, Any]) -> Any:
                         id="admin-s1-report-name",
                         label="Tên báo cáo *",
                         value=str(report.get("name") or ""),
+                        disabled=report_locked,
                         placeholder="VD: Báo cáo doanh thu",
                         **{"aria-label": "Tên báo cáo"},
                     ),
@@ -1069,6 +1103,7 @@ def render_step1(state: dict[str, Any]) -> Any:
                         label="Nhóm báo cáo *",
                         data=_category_options_for(str(report.get("category_code") or "FINANCE")),
                         value=str(report.get("category_code") or "FINANCE"),
+                        disabled=report_locked,
                         clearable=False,
                     ),
                     (
@@ -1122,6 +1157,7 @@ def render_step1(state: dict[str, Any]) -> Any:
                         id="admin-s1-owner",
                         label="Chủ sở hữu nghiệp vụ",
                         value=str(report.get("owner") or ""),
+                        disabled=report_locked,
                         placeholder="VD: FIN",
                     ),
                     dmc.Select(
@@ -1141,6 +1177,7 @@ def render_step1(state: dict[str, Any]) -> Any:
                 id="admin-s1-description",
                 label="Mô tả báo cáo",
                 value=str(report.get("description") or ""),
+                disabled=report_locked,
                 autosize=True,
                 minRows=2,
                 placeholder="Báo cáo chi tiết và tổng hợp doanh thu theo đơn vị, khách hàng và dịch vụ.",
@@ -1152,11 +1189,13 @@ def render_step1(state: dict[str, Any]) -> Any:
                         id="admin-s1-default-fav",
                         label="Đánh dấu báo cáo yêu thích mặc định",
                         checked=bool(report.get("default_favorite", False)),
+                        disabled=report_locked,
                     ),
                     dmc.Checkbox(
                         id="admin-s1-visible",
                         label="Hiển thị trong Trung tâm báo cáo sau khi kích hoạt",
                         checked=bool(report.get("is_visible", True)),
+                        disabled=report_locked,
                     ),
                 ],
                 mt="xs",
@@ -3886,6 +3925,47 @@ def _state_or_no_update(old_state: dict[str, Any] | None, new_state: dict[str, A
     return new_state, alert
 
 
+def handle_report_pick(
+    pick_value: str | int | None,
+    state: dict[str, Any] | None,
+) -> tuple[dict[str, Any], Any]:
+    """Task 75: chọn mã báo cáo ở bước 1 (luồng tạo mới) -> khóa các ô báo cáo.
+
+    Guard kiểu switch task 74: chỉ chạy khi giá trị đổi và đang ở wizard
+    tạo mới (chưa có template_id) — callback cũng bắn khi layout vừa
+    chèn Select (giá trị khởi tạo) hoặc khi bước khác chèn placeholder
+    ẩn (giá trị rỗng).
+    """
+    if not state or state.get("template_id") or str(state.get("mode") or "wizard") != "wizard":
+        raise PreventUpdate
+    if pick_value is None or str(pick_value) == "":
+        raise PreventUpdate
+    if str(pick_value) == "new":
+        if not state.get("report_id"):
+            raise PreventUpdate
+        new_state = dict(state)
+        new_state["report_id"] = None
+        return new_state, None
+    try:
+        report_id = int(str(pick_value))
+    except (TypeError, ValueError):
+        raise PreventUpdate from None
+    if str(report_id) == str(state.get("report_id")):
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    rep_res = get_report(ctx, report_id)
+    if not rep_res.ok:
+        # Báo cáo không còn tồn tại: bump rev để wizard vẽ lại, Select
+        # quay về giá trị theo state hiện tại.
+        return _bump(dict(state)), notify_error("Không tìm thấy báo cáo.")
+    new_state = dict(state)
+    new_state["report_id"] = report_id
+    new_state["template_id"] = None
+    return new_state, None
+
+
 def handle_tpl_switch(
     tpl_value: str | int | None,
     state: dict[str, Any] | None,
@@ -4996,6 +5076,22 @@ def handle_new_tpl_save_click(
 ) -> tuple[bool, Any, Any, Any]:
     """Task 74: bấm Lưu trong modal -> tạo template rồi chuyển wizard sang template mới."""
     return handle_new_template_save(n_clicks, state, code, name, display_order)
+
+
+@callback(
+    Output("admin-state-store", "data", allow_duplicate=True),
+    Output("admin-alert", "children", allow_duplicate=True),
+    Input("admin-s1-report-pick", "value"),
+    State("admin-state-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_s1_report_pick(
+    pick_value: str | None,
+    state: dict[str, Any] | None,
+) -> tuple[dict[str, Any], Any]:
+    """Task 75: chọn mã báo cáo ở bước 1 (luồng tạo mới) -> khóa các ô báo cáo."""
+    new_state, alert = handle_report_pick(pick_value, state)
+    return _state_or_no_update(state, new_state, alert)
 
 
 @callback(
