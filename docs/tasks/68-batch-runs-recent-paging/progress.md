@@ -1,0 +1,4 @@
+# Task 68 — Progress
+
+- 12/11/2026: user yêu cầu thêm phân trang cho card 2 "Lần chạy gần đây của bộ" ở /batch-runs. Viết task.md + plan.md + decisions.md (mẫu task 59 + task 60; phân trang server-side qua list_batch_runs đã có, không đổi service).
+- Tests-first: 11 test mới trong tests/unit/test_batch_recent_paging68.py (đỏ trước khi code, xanh sau). Implement xong: render_recent_runs_card nhận total/page/page_size + footer phân trang ngoài vùng thân bảng; layout() lấy page 1 size 10 (was 5) + total; callback _update_recent_runs (đổi cỡ trang → trang 1, giá trị lạ → 10, kẹp trang vượt). Check live check-68-batch-recent-paging.py (port 8117): 6/6 pass. Test targeted rộng (batch pages/service + report-admin + dashboard): 151 pass. Typecheck + ruff sạch. tasks-dashboard đã chạy, dashboard.html đã revert. Chưa commit — chờ parent review.

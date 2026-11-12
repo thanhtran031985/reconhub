@@ -64,6 +64,17 @@ MENU_CODE = "batch_run"
 STEP_LABELS = ["Chọn bộ và kỳ", "Tải và ghép file", "Tham số", "Kiểm tra trước", "Thực thi"]
 PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
+# Task 68: cỡ trang cho card Lần chạy gần đây của bộ (mẫu task 59).
+BRW_RECENT_PAGE_SIZE_OPTIONS: list[int] = [10, 20, 50, 100]
+DEFAULT_BRW_RECENT_PAGE_SIZE: int = 10
+
+
+def _recent_showing_text(total: int, page: int, page_size: int) -> str:
+    """Dòng 'Hiển thị x – y trong tổng số N lần chạy' ở footer phân trang."""
+    start_idx = (page - 1) * page_size + 1 if total > 0 else 0
+    end_idx = min(page * page_size, total)
+    return f"Hiển thị {start_idx} – {end_idx} trong tổng số {total} lần chạy"
+
 
 def current_month_period() -> str:
     return datetime.now().strftime("%Y-%m")
@@ -1360,8 +1371,25 @@ def render_new_run_form(defs: list[dict[str, Any]], preselected_def: int | None)
     )
 
 
-def render_recent_runs_card(runs: list[dict[str, Any]]) -> dmc.Paper:
-    """Card hiển thị 5 lần chạy gần nhất của các bộ đối soát."""
+def render_recent_runs_card(
+    runs: list[dict[str, Any]],
+    total: int | None = None,
+    page: int = 1,
+    page_size: int = DEFAULT_BRW_RECENT_PAGE_SIZE,
+) -> dmc.Paper:
+    """Card hiển thị các lần chạy gần nhất của các bộ đối soát, có phân trang (task 68).
+
+    total=None thì dùng len(runs). Footer phân trang (dòng hiển thị + Select
+    cỡ trang + Pagination) nằm NGOÀI vùng thân bảng để bấm phân trang không
+    vẽ lại footer, Pagination giữ được focus (mẫu task 60). Card tự cắt
+    `runs` theo trang (mẫu dashboard) — khi gọi với dữ liệu đã phân trang
+    từ service thì phép cắt là no-op.
+    """
+    total = len(runs) if total is None else int(total)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    page = min(max(1, page), total_pages)
+    start = (page - 1) * page_size
+    shown = runs[start : start + page_size]
     return dmc.Paper(
         withBorder=True,
         p="md",
@@ -1389,8 +1417,49 @@ def render_recent_runs_card(runs: list[dict[str, Any]]) -> dmc.Paper:
                 type="auto",
                 offsetScrollbars=True,
                 children=[
-                    render_recent_runs(runs),
+                    html.Div(render_recent_runs(shown), id="brw-recent-card-body"),
                 ],
+            ),
+            dmc.Group(
+                [
+                    dmc.Group(
+                        [
+                            dmc.Text(
+                                _recent_showing_text(total, page, page_size),
+                                id="brw-recent-showing",
+                                size="xs",
+                                c="dimmed",
+                                fw=500,
+                            ),
+                            dmc.Select(
+                                id="brw-recent-page-size",
+                                data=[
+                                    {"label": f"{n} dòng/trang", "value": str(n)}
+                                    for n in BRW_RECENT_PAGE_SIZE_OPTIONS
+                                ],
+                                value=str(page_size),
+                                size="xs",
+                                w=130,
+                                **{"aria-label": "Cỡ trang lần chạy gần đây"},
+                            ),
+                        ],
+                        gap="sm",
+                        align="center",
+                    ),
+                    dmc.Pagination(
+                        id="brw-recent-pagination",
+                        total=total_pages,
+                        value=page,
+                        size="xs",
+                    ),
+                ],
+                justify="space-between",
+                align="center",
+                style={
+                    "borderTop": "1px solid var(--line, #E0E0E0)",
+                    "flexShrink": 0,
+                    "paddingTop": "8px",
+                },
             ),
         ],
     )
@@ -1481,9 +1550,11 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
                 defs = res.data
             else:
                 defs_error = res.message or "Không tải được danh sách bộ đối soát."
-            res_runs = list_batch_runs(ctx, page=1, page_size=5)
+            res_runs = list_batch_runs(ctx, page=1, page_size=DEFAULT_BRW_RECENT_PAGE_SIZE)
+            recent_total = 0
             if res_runs.ok and res_runs.data:
                 recent = res_runs.data.get("items", [])
+                recent_total = int(res_runs.data.get("total", len(recent)))
         preselected = kwargs.get("def")
         preselected_id = int(preselected) if preselected and str(preselected).isdigit() else None
         return html.Div(
@@ -1555,7 +1626,12 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
                                         "minHeight": "0",
                                         "overflow": "hidden",
                                     },
-                                    children=render_recent_runs_card(recent),
+                                    children=render_recent_runs_card(
+                                        recent,
+                                        total=recent_total,
+                                        page=1,
+                                        page_size=DEFAULT_BRW_RECENT_PAGE_SIZE,
+                                    ),
                                 ),
                             ],
                         ),
@@ -1753,6 +1829,63 @@ def _load_run(run_id: Any, _refresh: Any, _tick: Any) -> tuple[Any, bool]:
         return data, True
     status = str(data.get("status", ""))
     return data, status not in ("RUNNING", "QUEUED")
+
+
+@callback(
+    # Task 68: chỉ vẽ lại thân bảng + dòng hiển thị + total/value của
+    # Pagination (prop, không trả lại component). Footer nằm ngoài vùng vẽ
+    # lại nên Pagination giữ được focus (mẫu task 60).
+    Output("brw-recent-card-body", "children"),
+    Output("brw-recent-showing", "children"),
+    Output("brw-recent-pagination", "total"),
+    Output("brw-recent-pagination", "value"),
+    Input("brw-recent-pagination", "value"),
+    Input("brw-recent-page-size", "value"),
+    prevent_initial_call=True,
+)
+def _update_recent_runs(page: int | None, page_size: str | None) -> tuple[Any, Any, Any, Any]:
+    """Chuyển trang / đổi cỡ trang card Lần chạy gần đây của bộ (task 68).
+
+    Phân trang server-side qua list_batch_runs (đã có sẵn). Đổi cỡ trang
+    về trang 1; cỡ trang ngoài danh sách về mặc định 10 (mẫu task 59).
+    """
+    ctx = get_current_ctx()
+    if ctx is None:
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    try:
+        size = int(page_size or DEFAULT_BRW_RECENT_PAGE_SIZE)
+    except (TypeError, ValueError):
+        size = DEFAULT_BRW_RECENT_PAGE_SIZE
+    if size not in BRW_RECENT_PAGE_SIZE_OPTIONS:
+        size = DEFAULT_BRW_RECENT_PAGE_SIZE
+    try:
+        triggered_id = dash.callback_context.triggered_id
+    except Exception:
+        triggered_id = None
+    current_page = 1 if triggered_id != "brw-recent-pagination" else (page or 1)
+    res = list_batch_runs(ctx, page=current_page, page_size=size)
+    if not res.ok or not isinstance(res.data, dict):
+        return (
+            alert_box(res.message or "Không tải được danh sách lần chạy.", tone="crit"),
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+        )
+    data = res.data
+    total = int(data.get("total", 0))
+    items = data.get("items", []) or []
+    total_pages = max(1, (total + size - 1) // size)
+    if current_page > total_pages and total > 0:
+        current_page = total_pages
+        res = list_batch_runs(ctx, page=current_page, page_size=size)
+        if res.ok and isinstance(res.data, dict):
+            items = res.data.get("items", []) or []
+    return (
+        render_recent_runs(items),
+        _recent_showing_text(total, current_page, size),
+        total_pages,
+        current_page,
+    )
 
 
 @callback(
