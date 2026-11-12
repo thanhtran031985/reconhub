@@ -468,7 +468,7 @@ def test_mig_modal_open_guard_no_clicks(monkeypatch) -> None:
 
     out = toggle_mig_modal(None, None, False, None, None)
     assert isinstance(out, tuple)
-    assert len(out) == 13
+    assert len(out) == 14
     assert all(v is dash.no_update for v in out)
     out2 = toggle_mig_modal(0, 0, False, None, None)
     assert all(v is dash.no_update for v in out2)
@@ -491,7 +491,7 @@ def test_mig_run_guard_no_clicks() -> None:
 
     out = handle_mig_run(None, None, None, False)
     assert isinstance(out, tuple)
-    assert len(out) == 8
+    assert len(out) == 9
     assert all(v is dash.no_update for v in out)
     assert all(v is dash.no_update for v in handle_mig_run(0, None, None, False))
 
@@ -530,7 +530,7 @@ def test_mig_run_fake_path_uses_real_precheck(mig63_env, monkeypatch) -> None:
     src_engine, _, admin_ctx, ds_id = mig63_env
     monkeypatch.setattr("app.ui.pages.data_sources.get_current_ctx", lambda: admin_ctx)
     out = handle_mig_run(1, str(ds_id), "NO_TEMP", False)
-    state, real_store, fake_disabled, real_disabled, stepper, detail, selected, run_disabled = out
+    state, real_store, fake_disabled, real_disabled, stepper, detail, selected, run_disabled, progress = out
     assert state is not None
     assert state["mode"] == "fake"
     assert step_status(state["steps"][0]) == "done"
@@ -540,6 +540,14 @@ def test_mig_run_fake_path_uses_real_precheck(mig63_env, monkeypatch) -> None:
     assert run_disabled is True
     assert selected == 1  # bước đang chạy: bảo trì
     assert "Ghi MAINTENANCE=Y vào RECON_APP_SETTING" in str(detail)
+    # Follow-up task 65: progress bar hiện số việc theo precheck thật
+    # (DB seed của mig63_env có nhiều bảng hơn fixture _precheck_data
+    # nên tổng việc không cố định 20 — tính từ state).
+    from app.services.migration_checklist import progress_counts
+
+    done, total = progress_counts(state)
+    assert f"{done}/{total} việc" in str(progress)
+    assert "Đang chạy bước 2/6" in str(progress)
     with src_engine.connect() as conn:
         assert conn.execute(select(recon_metadata_migration)).fetchall() == []
         from app.db.metadata import recon_app_setting

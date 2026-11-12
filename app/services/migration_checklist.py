@@ -296,6 +296,19 @@ def step_counts(step: dict[str, Any]) -> tuple[int, int]:
     return done, len(items)
 
 
+def progress_counts(state: dict[str, Any]) -> tuple[int, int]:
+    """(số việc xong, tổng số việc) của 6 bước tự động — bỏ bước 7
+    manual, khớp overall_status (follow-up task 65)."""
+    done = total = 0
+    for step in state.get("steps", []):
+        if step.get("key") == MANUAL_STEP_KEY:
+            continue
+        d, t = step_counts(step)
+        done += d
+        total += t
+    return done, total
+
+
 def running_item(step: dict[str, Any]) -> dict[str, Any] | None:
     """Dòng đang làm của một bước = dòng chờ đầu tiên (task 64, D1).
 

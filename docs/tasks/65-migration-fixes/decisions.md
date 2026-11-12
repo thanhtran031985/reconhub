@@ -50,3 +50,18 @@ Sau real DONE, tab vẽ lại làm select đích reset về None; guard `if not 
 
 ## Ghi chú — lỗi lint có sẵn ngoài phạm vi task
 `uv run poe lint` toàn repo còn 1 lỗi I001 ở `tests/unit/test_export_concurrency57.py` (import chưa sort, file task 57, không đụng trong task này) — để nguyên, báo parent. Ruff sạch trên cả 6 file task 65 đổi.
+
+## Follow-up (12/11/2026, gộp vào task 65 — không tách task 66)
+- F1: tiến độ tính theo số việc (items), không tính theo số bước — mượt hơn (57 việc vs 6 bước), khớp dòng phụ stepper.
+- F2: bar đặt trên 2 card, hiện từ lúc bấm Bắt đầu; lúc idle không hiện (div trống) để modal gọn như cũ.
+- F3: click handler vẽ lại stepper (thay vì thêm callback riêng theo dõi store) — ít callback hơn, khớp pattern manual tick.
+- F4: bỏ khối next-steps khỏi `_render_mig_report` nhưng giữ nguồn dữ liệu `next_steps` trong state — vẫn là nguồn tạo item bước 7.
+
+## Follow-up — ghi chú triển khai (subagent, 12/11/2026)
+- F1 đã làm: helper `progress_counts(state)` trong `migration_checklist.py` cộng `step_counts` 6 bước tự động, bỏ key manual. Tổng việc phụ thuộc số bảng đích: fixture `_precheck_data` (4 bảng) = 20 việc; precheck thật trên DB seed (40 bảng) = 55 việc — test `test_mig_run_fake_path_uses_real_precheck` tính kỳ vọng từ `progress_counts(state)` thay vì hardcode 6/20.
+- F2 đã làm: `html.Div(id="ds-mig-progress")` đặt ngay trên hàng 2 card (dưới `ds-mig-real-warning`); renderer `_render_mig_progress(state)` — idle/total 0 → div trống; running → `dmc.Progress` + label "Đang chạy bước X/6 · <tên> — d/t việc (NN%)"; done → 100% "Hoàn tất t/t việc"; error → bar đỏ + "Lỗi ở bước X/6". Output `ds-mig-progress` được thêm CUỐI danh sách Output của cả 4 callback (toggle_mig_modal 13→14, handle_mig_run 8→9, handle_mig_fake_tick 6→7, handle_mig_real_tick 8→9) để index các output cũ không đổi; mọi nhánh return đều cập nhật (kể cả no_update).
+- F3 đã làm: `handle_mig_step_click` thêm Output thứ 3 `ds-mig-stepper` = `_render_mig_stepper(checklist, idx)`; guard no_update trả đủ 3 giá trị. Tick fake/real giữ `selected` từ store qua `_mig_selected_index` nên highlight sau click không bị tick đánh lại.
+- F4 đã làm: `_render_mig_report` bỏ tham số `next_steps` + khối Divider/Text/Stack; chỉ còn bảng đối chiếu + tiêu đề. Caller duy nhất ở `_render_mig_detail` đã cập nhật.
+- Test cũ phải sửa theo (hệ quả đổi số lượng output, không đổi hành vi): `test_detail_finish_step_shows_report_when_done` (layout64) bỏ assert "Dừng ứng dụng web ReconHub" ở detail bước 6; 4 test click ở layout64 unpack 3 giá trị; `test_mig_modal_open_guard_no_clicks` 13→14, `test_mig_run_guard_no_clicks` 8→9, `test_mig_run_fake_path_uses_real_precheck` unpack 9 giá trị; 2 test toggle ở fixes65 13→14.
+- Lỗi sửa trong lúc làm: `toggle_mig_modal` còn sót 2 chỗ `return no_update_13` (guard remount) sau khi đổi tên biến thành `no_update_14` — bắt được nhờ test `test_toggle_modal_ignores_remount_spurious_fire` (NameError).
+- Ruff format: chỉ format tay 2 dòng ternary mới trong `_render_mig_progress` (hunk 1828/1845); các hunk còn lại trong file đổi là drift có sẵn (checklist 98/121/229/281/477; data_sources 177/526/1919/2725/2770; test 63/65) — để nguyên theo quy tắc nhà.

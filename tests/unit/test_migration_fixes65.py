@@ -295,7 +295,7 @@ def test_toggle_modal_ignores_remount_spurious_fire(monkeypatch) -> None:
         SimpleNamespace(triggered_id="ds-mig-start-btn"),
     )
     out = toggle_mig_modal(0, 1, True, None, "NO_TEMP")
-    assert len(out) == 13
+    assert len(out) == 14
     assert all(v is dash.no_update for v in out)
 
 
@@ -324,7 +324,7 @@ def test_toggle_modal_reopen_without_target_restores_done_session(mig63_env, mon
     monkeypatch.setattr("app.ui.pages.data_sources.get_current_ctx", lambda: admin_ctx)
     # User đã bấm Đóng 1 lần (close_clicks=1), select đích reset -> None.
     out = toggle_mig_modal(1, 1, False, None, "NO_TEMP")
-    assert len(out) == 13
+    assert len(out) == 14
     assert out[0] is True
     assert _has_text(out[1], "còn 4/4 bước làm tay chưa đánh dấu")
     assert out[6] == _MIG_MANUAL_IDX

@@ -29,3 +29,15 @@
 
 ## Trạng thái
 - ✅ xong (chờ parent review + full suite + commit + xuất patch)
+- 12/11/2026: follow-up sau khi user áp patch 65 và gửi ảnh modal (fake xong, bước 7 đã chọn): bỏ next-steps ở bước 6, click bước đổi indicator, thêm progress bar. User bảo gộp vào task 65 luôn ("nhiều task quá rồi"), không tách task 66 — docs 66 đã dời thành followup-task.md / followup-plan.md trong thư mục task 65; đã giao subagent làm.
+
+## Follow-up — triển khai (subagent, 12/11/2026)
+- [x] Tests-first: `tests/unit/test_migration_followup65.py` mới (11 test) — đỏ toàn bộ trước khi code (report còn next-steps, click 2 output, chưa có progress_counts/_render_mig_progress)
+- [x] Bước 1: `_render_mig_report` bỏ tham số `next_steps` + khối Divider/Text/Stack; chỉ còn bảng đối chiếu + tiêu đề; caller `_render_mig_detail` cập nhật
+- [x] Bước 2: `handle_mig_step_click` thêm Output thứ 3 `ds-mig-stepper` vẽ lại theo bước vừa bấm; guard trả đủ 3 no_update
+- [x] Bước 3: helper `progress_counts` (migration_checklist.py) + renderer `_render_mig_progress` + `html.Div(id="ds-mig-progress")` trên 2 card; Output progress thêm cuối 4 callback (toggle 13→14, run 8→9, fake tick 6→7, real tick 8→9), mọi nhánh return cập nhật
+- [x] Test cũ sửa theo: layout64 (4 test click unpack 3 + bỏ assert next-steps ở detail bước 6), stepper63 (len 13→14, 8→9, unpack run 9 giá trị, kỳ vọng progress tính từ state), fixes65 (2 test toggle 13→14)
+- [x] Typecheck + lint: mypy sạch (145 file); ruff check sạch 6 file đổi; format tay 2 dòng ternary mới trong `_render_mig_progress` (drift có sẵn để nguyên)
+- [x] Test targeted xanh: 83 passed (followup65 11 + fixes65 + stepper63 + modal_layout64 + page_data_sources + metadata_migration)
+- [x] Check live `check-65followup-migration-progress.py`: **18/18 PASS** (port 8112) — 1a idle không bar; 1b–1d fake bar hiện, % tăng 18→40, label "Đang chạy bước 4/6 · Sao chép dữ liệu — 14/55 việc (25%)"; 1e–1f xong 100% "Hoàn tất"; 2a–2c detail bước 6 còn báo cáo + bảng, hết "Các bước tiếp theo"; 2d–2f click bước 6 highlight sang đúng bước 6 (bg rgb(231,245,255)), click bước 7 về đúng bước 7; 3a–3e real bar cập nhật qua tick thật (12%, bước 2/6), DB DONE, UI sang bước 7, bar 100%, modal vẫn mở; 4a không console error / pageerror. Lưu ý: lần chạy đầu 3a FAIL do lấy mẫu ở 5s thì real đã DONE (DB seed nhỏ, xong < 5s) — sửa script lấy mẫu mỗi 300ms, không sửa app. Tổng việc real lúc đầu 52 (verify chưa có item, top-3 chỉ biết sau khi chép) rồi lên 55 khi DONE — hành vi đúng, % tính trên tổng hiện tại.
+- [ ] Chưa chạy full suite (parent chạy sau review)

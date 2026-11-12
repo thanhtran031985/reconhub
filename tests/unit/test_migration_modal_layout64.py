@@ -204,7 +204,9 @@ def test_detail_finish_step_shows_report_when_done() -> None:
     assert overall_status(state) == "done"
     blob = str(_render_mig_detail(state, selected_idx=5))
     assert "Chuyển dữ liệu thành công (mô phỏng)!" in blob
-    assert "Dừng ứng dụng web ReconHub" in blob
+    # Follow-up task 65: 4 bước làm tay không còn ở detail bước 6 (đã có
+    # ở bước 7 "Các bước làm tay").
+    assert "Dừng ứng dụng web ReconHub" not in blob
     # Bước 6 chưa xong thì chưa có báo cáo.
     running = _copy_step_running()
     assert "Chuyển dữ liệu thành công" not in str(_render_mig_detail(running, selected_idx=5))
@@ -238,30 +240,35 @@ def test_step_click_selects_step(monkeypatch) -> None:
         "dash.callback_context",
         SimpleNamespace(triggered_id={"type": "mig-step", "index": 1}),
     )
-    selected, detail = handle_mig_step_click([0, 1, 0, 0, 0, 0], state, 3)
+    selected, detail, stepper = handle_mig_step_click([0, 1, 0, 0, 0, 0], state, 3)
     assert selected == 1
     assert "Ghi MAINTENANCE=Y vào RECON_APP_SETTING" in str(detail)
     assert "Sao chép bảng RECON_USER" not in str(detail)
+    # Follow-up task 65: stepper vẽ lại, bước 1 được chọn (highlight).
+    assert "Bật chế độ bảo trì" in str(stepper)
 
 
 def test_step_click_guard_no_clicks() -> None:
     from app.ui.pages.data_sources import handle_mig_step_click
 
-    selected, detail = handle_mig_step_click([0, 0, 0, 0, 0, 0], None, None)
+    selected, detail, stepper = handle_mig_step_click([0, 0, 0, 0, 0, 0], None, None)
     assert selected is dash.no_update
     assert detail is dash.no_update
-    selected2, detail2 = handle_mig_step_click([None] * 6, None, None)
+    assert stepper is dash.no_update
+    selected2, detail2, stepper2 = handle_mig_step_click([None] * 6, None, None)
     assert selected2 is dash.no_update
     assert detail2 is dash.no_update
+    assert stepper2 is dash.no_update
 
 
 def test_step_click_guard_wrong_trigger(monkeypatch) -> None:
     from app.ui.pages.data_sources import handle_mig_step_click
 
     monkeypatch.setattr("dash.callback_context", SimpleNamespace(triggered_id="ds-mig-run-btn"))
-    selected, detail = handle_mig_step_click([0, 1, 0, 0, 0, 0], None, None)
+    selected, detail, stepper = handle_mig_step_click([0, 1, 0, 0, 0, 0], None, None)
     assert selected is dash.no_update
     assert detail is dash.no_update
+    assert stepper is dash.no_update
 
 
 def test_step_click_falls_back_to_empty_state(monkeypatch) -> None:
@@ -271,6 +278,7 @@ def test_step_click_falls_back_to_empty_state(monkeypatch) -> None:
         "dash.callback_context",
         SimpleNamespace(triggered_id={"type": "mig-step", "index": 0}),
     )
-    selected, detail = handle_mig_step_click([1, 0, 0, 0, 0, 0], None, None)
+    selected, detail, stepper = handle_mig_step_click([1, 0, 0, 0, 0, 0], None, None)
     assert selected == 0
     assert "Kiểm tra trước" in str(detail)
+    assert "Kiểm tra trước" in str(stepper)
