@@ -768,8 +768,15 @@ def render_sql_tab_content(run_info: dict[str, Any], summary: dict[str, Any]) ->
         for b in bind_items
     ]
 
+    # Task 67 (D3): card lỗi khi run FAILED — trước đây ERROR_MSG chỉ nằm
+    # trong DB, không hiện ở đâu trên trang này.
+    error_msg = str(run_info.get("error_msg") or "") if str(run_info.get("status")) == "FAILED" else ""
+    stack_children: list[Any] = []
+    if error_msg:
+        stack_children.append(alert_box(title="Chi tiết lỗi", message=error_msg, tone="crit"))
     return dmc.Stack(
-        [
+        stack_children
+        + [
             dmc.SimpleGrid(
                 cols={"base": 1, "sm": 3},
                 spacing="md",

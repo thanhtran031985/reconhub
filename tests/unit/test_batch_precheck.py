@@ -73,6 +73,26 @@ class FakeConn:
     def close(self) -> None:
         pass
 
+    def cursor(self):
+        return FakeCursor()
+
+
+class FakeCursor:
+    # Task 67: precheck probe SQL dùng cursor.parse (describe_sql, nhánh Oracle).
+    description: list = []
+
+    def parse(self, sql: str) -> None:
+        pass
+
+    def execute(self, sql: str, binds=None) -> None:
+        pass
+
+    def fetchall(self):
+        return []
+
+    def close(self) -> None:
+        pass
+
 
 @pytest.fixture()
 def mock_ds_ok(monkeypatch):

@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import tempfile
 import threading
 import zipfile
@@ -821,9 +822,14 @@ def _collect_uploads(
     warnings); pending là các file chờ ghi dòng RECON_BATCH_RUN_FILE.
     """
     with engine.connect() as conn:
+        # Task 67 (D1): file đã bỏ (MATCH_STATE=IGNORED) được coi như chưa
+        # từng tải — không chặn upload lại cùng tên/nội dung, không tính vào
+        # giới hạn số file. Dòng IGNORED cũ giữ lại làm audit.
         existing_names = set(
             conn.execute(
-                select(recon_batch_run_file.c.ORIGINAL_NAME).where(recon_batch_run_file.c.BATCH_RUN_ID == run_id)
+                select(recon_batch_run_file.c.ORIGINAL_NAME)
+                .where(recon_batch_run_file.c.BATCH_RUN_ID == run_id)
+                .where(recon_batch_run_file.c.MATCH_STATE != "IGNORED")
             )
             .scalars()
             .all()
@@ -833,6 +839,7 @@ def _collect_uploads(
                 select(recon_file.c.SHA256)
                 .select_from(recon_batch_run_file.join(recon_file, recon_batch_run_file.c.FILE_ID == recon_file.c.ID))
                 .where(recon_batch_run_file.c.BATCH_RUN_ID == run_id)
+                .where(recon_batch_run_file.c.MATCH_STATE != "IGNORED")
             )
             .scalars()
             .all()
@@ -905,6 +912,62 @@ def _collect_uploads(
     return pending, skipped, warnings
 
 
+def _reusable_file_rows(conn: Connection, run_id: int) -> dict[str, int]:
+    """Map ORIGINAL_NAME -> id các dòng file có thể tái dùng khi upload lại.
+
+    Task 67 (D1): UNIQUE (BATCH_RUN_ID, ORIGINAL_NAME) cấm INSERT dòng mới
+    cùng tên, nên file đã bỏ (IGNORED) được upload lại bằng UPDATE tại chỗ.
+    """
+    rows = conn.execute(
+        select(recon_batch_run_file.c.ID, recon_batch_run_file.c.ORIGINAL_NAME)
+        .where(recon_batch_run_file.c.BATCH_RUN_ID == run_id)
+        .where(recon_batch_run_file.c.MATCH_STATE == "IGNORED")
+    ).all()
+    return {str(r[1]): int(r[0]) for r in rows}
+
+
+def _write_batch_run_file(
+    conn: Connection,
+    ctx: Ctx,
+    run_id: int,
+    entry: dict[str, Any],
+    reuse_row_id: int | None,
+    item_id: int | None,
+    state: str,
+    by: str | None,
+    candidates: list[int],
+) -> int:
+    """Ghi dòng RECON_BATCH_RUN_FILE: tái dùng dòng IGNORED cùng tên (UPDATE)
+    hoặc INSERT mới. Trả về id dòng."""
+    uploaded = entry["uploaded"]
+    values: dict[str, Any] = {
+        "BATCH_RUN_ITEM_ID": item_id,
+        "FILE_ID": int(uploaded["id"]),
+        "FROM_ZIP_FILE_ID": entry["from_zip_file_id"],
+        "NORMALIZED_NAME": normalize_name(entry["match_name"]),
+        "MATCH_STATE": state,
+        "MATCH_BY": by,
+        "CANDIDATE_ITEM_IDS": json.dumps(candidates, ensure_ascii=False),
+        "UPDATED_BY": ctx.username,
+        "UPDATED_AT": _now(),
+    }
+    if reuse_row_id is not None:
+        conn.execute(
+            update(recon_batch_run_file).where(recon_batch_run_file.c.ID == reuse_row_id).values(**values)
+        )
+        return int(reuse_row_id)
+    file_id = conn.execute(
+        insert(recon_batch_run_file).values(
+            BATCH_RUN_ID=run_id,
+            ORIGINAL_NAME=entry["display_name"],
+            CREATED_BY=ctx.username,
+            CREATED_AT=_now(),
+            **values,
+        )
+    ).lastrowid
+    return int(file_id)
+
+
 @service
 @requires_menu("batch_run")
 def add_files(ctx: Ctx, run_id: int, files: list[dict[str, Any]]) -> dict[str, Any]:
@@ -932,26 +995,13 @@ def add_files(ctx: Ctx, run_id: int, files: list[dict[str, Any]]) -> dict[str, A
     with engine.begin() as conn:
         run = _get_run(conn, run_id)
         _require_draft(run)
+        reuse_map = _reusable_file_rows(conn, run_id)
         for entry in pending:
             uploaded = entry["uploaded"]
             state, by, item_id, candidates = _match_item(conn, run_id, entry["match_name"], uploaded["storage_path"])
-            file_id = conn.execute(
-                insert(recon_batch_run_file).values(
-                    BATCH_RUN_ID=run_id,
-                    BATCH_RUN_ITEM_ID=item_id,
-                    FILE_ID=int(uploaded["id"]),
-                    FROM_ZIP_FILE_ID=entry["from_zip_file_id"],
-                    ORIGINAL_NAME=entry["display_name"],
-                    NORMALIZED_NAME=normalize_name(entry["match_name"]),
-                    MATCH_STATE=state,
-                    MATCH_BY=by,
-                    CANDIDATE_ITEM_IDS=json.dumps(candidates, ensure_ascii=False),
-                    CREATED_BY=ctx.username,
-                    CREATED_AT=_now(),
-                    UPDATED_BY=ctx.username,
-                    UPDATED_AT=_now(),
-                )
-            ).lastrowid
+            file_id = _write_batch_run_file(
+                conn, ctx, run_id, entry, reuse_map.get(entry["display_name"]), item_id, state, by, candidates
+            )
             added.append(
                 {
                     "id": int(file_id),
@@ -1190,13 +1240,23 @@ def sync_batch_status(engine: Engine, batch_run_id: int) -> dict[str, Any]:
         for item in items:
             if item["STATUS"] in ("QUEUED", "RUNNING") and item["CURRENT_RUN_ID"]:
                 child = conn.execute(
-                    select(recon_run.c.STATUS).where(recon_run.c.ID == int(item["CURRENT_RUN_ID"]))
+                    select(recon_run.c.STATUS, recon_run.c.ERROR_CODE, recon_run.c.ERROR_MSG).where(
+                        recon_run.c.ID == int(item["CURRENT_RUN_ID"])
+                    )
                 ).first()
                 if child is not None and child[0] in ("DONE", "FAILED", "RUNNING"):
+                    item_values: dict[str, Any] = {"STATUS": child[0], "UPDATED_BY": "system", "UPDATED_AT": _now()}
+                    # Task 67 (D3): copy lỗi thật từ run con sang mục để bước 5
+                    # hiện lỗi cụ thể thay cho chữ chung "Lỗi khi chạy"; khi
+                    # DONE thì xóa lỗi cũ (mục có thể đã lỗi ở lần chạy trước).
+                    if child[0] == "FAILED":
+                        item_values["ERROR_CODE"] = child[1]
+                        item_values["ERROR_MSG"] = child[2]
+                    elif child[0] == "DONE":
+                        item_values["ERROR_CODE"] = None
+                        item_values["ERROR_MSG"] = None
                     conn.execute(
-                        update(recon_batch_run_item)
-                        .where(recon_batch_run_item.c.ID == item["ID"])
-                        .values(STATUS=child[0], UPDATED_BY="system", UPDATED_AT=_now())
+                        update(recon_batch_run_item).where(recon_batch_run_item.c.ID == item["ID"]).values(**item_values)
                     )
                 elif child is not None and child[0] == "CANCELLED":
                     conn.execute(
@@ -1268,6 +1328,60 @@ def _check_data_source_cached(ds_id: int, cache: dict[int, tuple[bool, str]], lo
     return result
 
 
+class _ProbeSkipped(Exception):
+    """Probe SQL bỏ qua: không kết nối được Data Source (Oracle)."""
+
+
+def _probe_source_sql(
+    ds_id: int,
+    cfg: TemplateConfig,
+    profile_code: str,
+    params: dict[str, Any],
+    ds_ok: bool,
+) -> None:
+    """Chạy thử câu lệnh SQL nguồn với 0 dòng để bắt lỗi SQL trước khi thực thi.
+
+    Task 67 (D5): build câu SQL đúng như lúc chạy thật (build_source_sql +
+    check_sql) rồi describe qua SELECT * FROM (...) WHERE 1=0 (mẫu
+    describe_sql dùng cho validate SQL báo cáo). Chỉ đọc, không ghi dữ liệu
+    tạm. Oracle: cursor.parse (không thực thi), qua open_source_connection
+    của module này; SQLite: execute với bind thay bằng NULL trên kết nối thô
+    của engine. Khi Data Source Oracle không kết nối được (ds_ok False) thì
+    bỏ qua để tránh chờ timeout mỗi mục; riêng SQLite vẫn probe được vì bước
+    kiểm tra kết nối dùng helper chỉ hỗ trợ Oracle.
+    """
+    from app.engine.catalog import describe_sql
+    from app.engine.pipeline import resolve_profile
+    from app.engine.sql_guard import check_sql
+
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        ds_row = conn.execute(
+            select(recon_data_source.c.DB_TYPE).where(recon_data_source.c.ID == ds_id)
+        ).mappings().first()
+    is_sqlite = ds_row is not None and str(ds_row.get("DB_TYPE")).upper() == "SQLITE"
+    if not ds_ok and not is_sqlite:
+        raise _ProbeSkipped()
+    profile = resolve_profile(cfg, profile_code)
+    sql, binds = build_source_sql(cfg, profile, params)
+    ok, err_msg = check_sql(sql, list(binds.keys()))
+    if not ok:
+        raise ServiceError(ErrorCode.SQL_NOT_ALLOWED, err_msg or "Câu lệnh SQL nguồn không hợp lệ.")
+    if is_sqlite:
+        probe_sql = re.sub(r":[a-zA-Z0-9_]+", "NULL", sql)
+        raw_conn = engine.raw_connection()
+        try:
+            describe_sql(raw_conn, probe_sql)
+        finally:
+            raw_conn.close()
+    else:
+        ora_conn = open_source_connection(ds_id)
+        try:
+            describe_sql(ora_conn, sql)
+        finally:
+            ora_conn.close()
+
+
 def _precheck_one_item(
     item: dict[str, Any],
     snapshot: dict[str, Any],
@@ -1302,8 +1416,9 @@ def _precheck_one_item(
         checks.append({"key": "template", "level": "ok", "message": "Template đang hoạt động."})
 
     # 2. Tham số hợp lệ (tính lại với kỳ).
+    resolved_params: dict[str, Any] | None = None
     try:
-        resolve_params(
+        resolved_params = resolve_params(
             cfg.db_source.params,
             snapshot["def_override"],
             snapshot["run_override"],
@@ -1398,6 +1513,24 @@ def _precheck_one_item(
         checks.append({"key": "data_source", "level": "ok", "message": "Kết nối Data Source thành công."})
     else:
         checks.append({"key": "data_source", "level": "error", "message": ds_msg or "Không kết nối được Data Source."})
+
+    # 8. Chạy thử câu lệnh SQL nguồn (0 dòng) để bắt lỗi SQL trước khi thực thi.
+    if resolved_params is not None:
+        try:
+            _probe_source_sql(
+                int(item["DATA_SOURCE_ID"]), cfg, str(item["PROFILE_CODE"]), resolved_params, ds_ok
+            )
+            checks.append(
+                {"key": "source_sql", "level": "ok", "message": "Câu lệnh SQL nguồn chạy thử thành công."}
+            )
+        except _ProbeSkipped:
+            pass
+        except ServiceError as exc:
+            checks.append({"key": "source_sql", "level": "error", "message": exc.message})
+        except Exception as exc:  # noqa: BLE001 - mọi lỗi probe đều là ERROR precheck
+            checks.append(
+                {"key": "source_sql", "level": "error", "message": f"Không chạy thử được câu lệnh SQL nguồn: {exc}"}
+            )
 
     status = "READY"
     if any(c["level"] == "error" for c in checks):
@@ -1990,6 +2123,7 @@ def replace_files(ctx: Ctx, item_id: int, files: list[dict[str, Any]]) -> dict[s
             .values(MATCH_STATE="REPLACED", UPDATED_BY=ctx.username, UPDATED_AT=_now())
         )
         added: list[dict[str, Any]] = []
+        reuse_map = _reusable_file_rows(conn, run_id)
         for entry in pending:
             uploaded = entry["uploaded"]
             state, by, matched_id, candidates = _match_item(conn, run_id, entry["match_name"], uploaded["storage_path"])
@@ -2000,23 +2134,9 @@ def replace_files(ctx: Ctx, item_id: int, files: list[dict[str, Any]]) -> dict[s
                     state, by, matched_id = "UNMATCHED", None, None
                 else:
                     state, by, matched_id = "MATCHED", "MANUAL", int(item_id)
-            file_id = conn.execute(
-                insert(recon_batch_run_file).values(
-                    BATCH_RUN_ID=run_id,
-                    BATCH_RUN_ITEM_ID=matched_id,
-                    FILE_ID=int(uploaded["id"]),
-                    FROM_ZIP_FILE_ID=entry["from_zip_file_id"],
-                    ORIGINAL_NAME=entry["display_name"],
-                    NORMALIZED_NAME=normalize_name(entry["match_name"]),
-                    MATCH_STATE=state,
-                    MATCH_BY=by,
-                    CANDIDATE_ITEM_IDS=json.dumps(candidates, ensure_ascii=False),
-                    CREATED_BY=ctx.username,
-                    CREATED_AT=_now(),
-                    UPDATED_BY=ctx.username,
-                    UPDATED_AT=_now(),
-                )
-            ).lastrowid
+            file_id = _write_batch_run_file(
+                conn, ctx, run_id, entry, reuse_map.get(entry["display_name"]), matched_id, state, by, candidates
+            )
             added.append(
                 {
                     "id": int(file_id),

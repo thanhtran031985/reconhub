@@ -53,6 +53,23 @@ def _parse_datetime(val: Any) -> datetime | None:
     return None
 
 
+def resolve_profile(config: TemplateConfig, profile_code: str | None) -> ProfileSpec:
+    """Chọn Profile theo mã (mặc định: profile mặc định, rồi profile đầu tiên).
+
+    Dùng chung cho run_pipeline và run_executor (task 67: executor build trước
+    câu SQL nguồn để lưu lại khi chạy lỗi).
+    """
+    if profile_code:
+        for p in config.profiles:
+            if p.code == profile_code:
+                return p
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, f"Không tìm thấy profile '{profile_code}'.")
+    for p in config.profiles:
+        if p.is_default:
+            return p
+    return config.profiles[0]
+
+
 def run_pipeline(
     excel_path: str | Path | None = None,
     *,
@@ -71,23 +88,7 @@ def run_pipeline(
     params_dict = params or {}
 
     # 1. Chọn Profile phù hợp
-    target_profile: ProfileSpec | None = None
-    if profile_code:
-        for p in config.profiles:
-            if p.code == profile_code:
-                target_profile = p
-                break
-        if target_profile is None:
-            raise ServiceError(ErrorCode.VALIDATION_ERROR, f"Không tìm thấy profile '{profile_code}'.")
-    else:
-        for p in config.profiles:
-            if p.is_default:
-                target_profile = p
-                break
-        if target_profile is None:
-            target_profile = config.profiles[0]
-
-    profile = target_profile
+    profile = resolve_profile(config, profile_code)
 
     # 2–6. Đọc + lọc + control total + mapping + chuẩn hóa (Excel).
     # Gộp nhiều file (spec 10 §5.6): mỗi file xử lý riêng theo cùng

@@ -1013,6 +1013,30 @@ def render_step5(run: dict[str, Any]) -> Any:
         binds = it.get("source_binds") or {}
         bind_str = ", ".join(f":{k} = {v}" for k, v in binds.items()) if binds else "Không có bind param"
         ds_badge_text = f"{it.get('data_source_name') or 'DS #' + str(it.get('data_source_id') or '?')} ({it.get('data_source_env', '')})"
+        # Task 67 (D3): card lỗi bên phải câu SQL, chỉ hiện khi mục FAILED
+        # và đã có lỗi thật (sync_batch_status copy từ run con).
+        error_msg = str(it.get("error_msg") or "") if str(it.get("status")) == "FAILED" else ""
+        sql_node = dmc.Code(sql_code, block=True, style={"fontSize": "11px", "maxHeight": "200px", "overflow": "auto"})
+        panel_stack_children: list[Any] = [
+            dmc.Text(f"Tham số bind: {bind_str}", size="xs", className="rh-code", c="dimmed"),
+        ]
+        if error_msg:
+            panel_stack_children.append(
+                dmc.Group(
+                    [
+                        html.Div(sql_node, style={"flex": 1, "minWidth": 0}),
+                        html.Div(
+                            alert_box(title="Chi tiết lỗi", message=error_msg, tone="crit"),
+                            style={"width": "360px", "flexShrink": 0},
+                        ),
+                    ],
+                    gap="xs",
+                    align="flex-start",
+                    style={"flexWrap": "nowrap"},
+                )
+            )
+        else:
+            panel_stack_children.append(sql_node)
         accordion_items.append(
             dmc.AccordionItem(
                 [
@@ -1028,10 +1052,7 @@ def render_step5(run: dict[str, Any]) -> Any:
                     ),
                     dmc.AccordionPanel(
                         dmc.Stack(
-                            [
-                                dmc.Text(f"Tham số bind: {bind_str}", size="xs", className="rh-code", c="dimmed"),
-                                dmc.Code(sql_code, block=True, style={"fontSize": "11px", "maxHeight": "200px", "overflow": "auto"}),
-                            ],
+                            panel_stack_children,
                             gap=4,
                         )
                     ),
@@ -1605,6 +1626,14 @@ def layout(run_id: str | int | None = None, **kwargs: Any) -> Any:
                                         size="xs",
                                         styles={"label": {"fontSize": "11px", "cursor": "pointer"}},
                                     ),
+                                    # Task 67 (D6): chạy ngay (mặc định) / chạy ngầm.
+                                    dmc.Switch(
+                                        id="brw-run-mode-bg",
+                                        label="Chạy ngầm",
+                                        checked=False,
+                                        size="xs",
+                                        styles={"label": {"fontSize": "11px", "cursor": "pointer"}},
+                                    ),
                                 ],
                                 id="brw-footer-warn-wrapper",
                                 style={"display": "none"},
@@ -1834,6 +1863,7 @@ def _render_wizard(store_data: Any, step_data: Any) -> tuple[Any, Any, Any, str,
     State("brw-store", "data"),
     State("brw-run-id", "data"),
     State("brw-include-warn", "checked"),
+    State("brw-run-mode-bg", "checked"),
     prevent_initial_call=True,
 )
 def _navigate(
@@ -1843,6 +1873,7 @@ def _navigate(
     store_data: Any,
     run_id: Any,
     include_warn: Any,
+    run_bg: Any,
 ) -> tuple[Any, Any, Any, Any, Any, bool, Any]:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
@@ -1892,6 +1923,18 @@ def _navigate(
                     )
                     return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, True, body
                 return dash.no_update, dash.no_update, notify_error(res.message or "Không chạy được lần chạy bộ."), dash.no_update, dash.no_update, False, dash.no_update
+            # Task 67 (D6): chạy ngầm thì chuyển sang /batch-runs để theo dõi,
+            # không ở lại bước 5 chờ poll (hàng đợi + worker đã có sẵn).
+            if bool(run_bg):
+                return (
+                    _load_run_data(int(run_id)),
+                    5,
+                    notify_success("Đã bắt đầu chạy ngầm. Theo dõi tiến độ ở trang Lần chạy bộ."),
+                    "/batch-runs",
+                    True,
+                    False,
+                    dash.no_update,
+                )
             return _load_run_data(int(run_id)), 5, notify_success("Đã bắt đầu chạy các template."), dash.no_update, False, False, dash.no_update
 
         # Bấm ở bước 5 khi đã xong -> chuyển trang kết quả
@@ -2128,7 +2171,15 @@ def _save_params(_n: Any, values: Any, store_data: Any) -> tuple[Any, Any]:
 def _reset_param(_n: Any, store_data: Any) -> tuple[Any, Any]:
     triggered = dash.callback_context.triggered_id
     ctx = get_current_ctx()
-    if not isinstance(triggered, dict) or ctx is None or not isinstance(store_data, dict):
+    # Task 67 (D2): chỉ chạy khi nút reset được bấm thật. Không có guard này,
+    # Dash kích hoạt callback khi layout bước 3 chèn các nút reset (dù có
+    # prevent_initial_call) và đặt lại override thật của người dùng.
+    if (
+        not isinstance(triggered, dict)
+        or not any(c for c in (_n or []) if c)
+        or ctx is None
+        or not isinstance(store_data, dict)
+    ):
         return dash.no_update, dash.no_update
     idx_str = str(triggered["index"])
     # Reset toàn bộ override của item_id
@@ -2193,6 +2244,11 @@ def _replace_item_files(contents: Any, filenames: Any, run_id: Any) -> tuple[Any
                 idx = pos
     target_contents = contents_list[idx] if idx < len(contents_list) else None
     target_names = names_list[idx] if idx < len(names_list) else None
+    # Task 67 (D2): cùng lỗi thiếu guard như _reset_param — khi layout bước 2
+    # chèn các ô upload thay file, contents của ô chưa upload là None nhưng
+    # list ALL vẫn truthy; chỉ xử lý khi đúng ô được kích hoạt có nội dung.
+    if not target_contents:
+        return dash.no_update, dash.no_update
     files, errors = decode_uploads(target_contents, target_names)
     if not files:
         return dash.no_update, notify_warning("; ".join(errors) or "Không có file nào.")
@@ -2221,24 +2277,26 @@ def _save_draft(_n: Any, run_id: Any) -> tuple[Any, Any]:
     Output("brw-prod-modal", "opened", allow_duplicate=True),
     Output("brw-notifications", "children", allow_duplicate=True),
     Output("brw-interval", "disabled", allow_duplicate=True),
+    Output("brw-redirect", "href", allow_duplicate=True),
     Input("brw-prod-confirm", "n_clicks"),
     Input("brw-prod-cancel", "n_clicks"),
     State("brw-include-warn", "checked"),
     State("brw-run-id", "data"),
+    State("brw-run-mode-bg", "checked"),
     prevent_initial_call=True,
 )
-def _confirm_prod_start(_confirm: Any, _cancel: Any, include_warn: Any, run_id: Any) -> tuple[Any, Any, bool, Any, Any]:
+def _confirm_prod_start(_confirm: Any, _cancel: Any, include_warn: Any, run_id: Any, run_bg: Any) -> tuple[Any, Any, bool, Any, Any, Any]:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
-        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update, dash.no_update
     triggered = ctx_dash.triggered_id
     if triggered == "brw-prod-cancel":
-        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update, dash.no_update
     if triggered == "brw-prod-confirm" and not _confirm:
-        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update, dash.no_update
     ctx = get_current_ctx()
     if ctx is None or run_id is None:
-        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, False, dash.no_update, dash.no_update, dash.no_update
     res = start(ctx, int(run_id), include_warn=bool(include_warn), confirm_prod=True)
     if not res.ok:
         return (
@@ -2247,8 +2305,19 @@ def _confirm_prod_start(_confirm: Any, _cancel: Any, include_warn: Any, run_id: 
             False,
             notify_error(res.message or "Không chạy được lần chạy bộ."),
             dash.no_update,
+            dash.no_update,
         )
-    return _load_run_data(int(run_id)), 5, False, notify_success("Đã bắt đầu chạy các template."), False
+    # Task 67 (D6): chạy ngầm thì chuyển sang /batch-runs (như _navigate).
+    if bool(run_bg):
+        return (
+            _load_run_data(int(run_id)),
+            5,
+            False,
+            notify_success("Đã bắt đầu chạy ngầm. Theo dõi tiến độ ở trang Lần chạy bộ."),
+            True,
+            "/batch-runs",
+        )
+    return _load_run_data(int(run_id)), 5, False, notify_success("Đã bắt đầu chạy các template."), False, dash.no_update
 
 
 @callback(

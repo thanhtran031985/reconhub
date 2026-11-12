@@ -31,7 +31,8 @@ from app.db.metadata import (
     recon_template_version,
 )
 from app.engine.fetch import fetch_df
-from app.engine.pipeline import PipelineResult, run_pipeline
+from app.engine.pipeline import PipelineResult, resolve_profile, run_pipeline
+from app.engine.sql_builder import build_source_sql
 from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.template_config import TemplateConfig
 from app.services.excel_load import load_excel_to_temp
@@ -63,6 +64,25 @@ class SourceFetcherWrapper:
                 ora_conn.close()
             except Exception:
                 pass
+
+
+def _save_attempted_sql(engine: Engine, run_id: int, source_sql: str, duration_ms: int) -> None:
+    """Ghi dòng RECON_RUN_SUMMARY tối thiểu chỉ chứa câu SQL đã thử (task 67, D4).
+
+    Dùng khi run lỗi: trang /runs/<id> vẫn xem được câu SQL đã build/chạy,
+    thay vì "-- Không có câu lệnh SQL nguồn được lưu cho run này.". Các cột
+    đếm dùng default 0 của schema; đường SAVE thành công sẽ xóa và ghi lại
+    dòng summary đầy đủ.
+    """
+    with engine.begin() as conn:
+        conn.execute(delete(recon_run_summary).where(recon_run_summary.c.RUN_ID == run_id))
+        conn.execute(
+            recon_run_summary.insert().values(
+                RUN_ID=run_id,
+                SOURCE_SQL=source_sql,
+                DURATION_MS=int(duration_ms),
+            )
+        )
 
 
 def _serialize_val(v: Any) -> Any:
@@ -207,6 +227,10 @@ def execute_run(
             )
         )
 
+    # Task 67 (D4): câu SQL nguồn đã thử — khởi tạo ở đây để nhánh except
+    # luôn đọc được, kể cả khi lỗi xảy ra trước khi build xong.
+    attempted_source_sql: str | None = None
+
     try:
         # Giai đoạn 1 & 2: READ + FILTER (nạp Excel vào bảng tạm nếu có file)
         excel_load_id = None
@@ -285,6 +309,17 @@ def execute_run(
         params_combined["p_from"] = p_from
         params_combined["p_to"] = p_to
         params_combined["apply_range_excel"] = apply_range_excel
+
+        # Task 67 (D4): build trước câu SQL nguồn (best-effort — nếu build
+        # lỗi thì để pipeline báo lỗi đó khi chạy thật) và lưu ngay, trước
+        # khi chạy query, để run lỗi vẫn xem được SQL đã thử.
+        try:
+            _profile = resolve_profile(cfg, profile_code)
+            attempted_source_sql, _binds = build_source_sql(cfg, _profile, params_combined)
+        except Exception:
+            attempted_source_sql = None
+        if persist and attempted_source_sql:
+            _save_attempted_sql(engine, run_id, attempted_source_sql, 0)
 
         fetcher: Any = None
         if mock_fetcher is not None:
@@ -620,6 +655,12 @@ def execute_run(
                     HEARTBEAT_AT=finished_err_now,
                 )
             )
+
+        # Task 67 (D4): giữ lại câu SQL đã thử — nhánh dọn dẹp ở trên đã xóa
+        # dòng summary, ghi lại dòng tối thiểu chỉ chứa SOURCE_SQL.
+        if persist and attempted_source_sql:
+            duration_ms = int((datetime.now(timezone.utc).replace(tzinfo=None) - now).total_seconds() * 1000)
+            _save_attempted_sql(engine, run_id, attempted_source_sql, duration_ms)
 
         if batch_run_id is not None:
             _sync_batch_after_run(run_id, batch_run_id)
