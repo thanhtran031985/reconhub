@@ -52,7 +52,7 @@ def _run_store(export_env, run_id):
     }
 
 
-def _click(export_env, run_store, mode):
+def _click(export_env, run_store, run_bg: bool):
     import app.ui.pages.report_viewer as page
 
     return page.handle_export_click(
@@ -63,7 +63,7 @@ def _click(export_env, run_store, mode):
         ["HN"],
         [{"type": "viewer-param", "index": "p_org"}],
         1,
-        mode,
+        run_bg,
     )
 
 
@@ -79,7 +79,7 @@ class TestExportBackgroundMode:
         exp = _request(operator_ctx, export_env, run["id"], "XLSX").data
         assert exp["status"] == "QUEUED"
         store, status, poll_disabled, download, _new_run, _page_no, loading = _click(
-            export_env, _run_store(export_env, run["id"]), "background"
+            export_env, _run_store(export_env, run["id"]), True
         )
         assert store.get("export_id") == exp["id"]
         assert poll_disabled is True
@@ -106,7 +106,7 @@ class TestExportBackgroundMode:
         ):
             assert execute_export(exp["id"], engine=export_env["engine"])["status"] == "DONE"
         store, status, poll_disabled, download, _new_run, _page_no, loading = _click(
-            export_env, _run_store(export_env, run["id"]), "background"
+            export_env, _run_store(export_env, run["id"]), True
         )
         assert store.get("export_id") == exp["id"]
         assert poll_disabled is True
@@ -124,23 +124,25 @@ class TestExportBackgroundMode:
         exp = _request(operator_ctx, export_env, run["id"], "XLSX").data
         assert exp["status"] == "QUEUED"
         store, status, poll_disabled, download, _new_run, _page_no, loading = _click(
-            export_env, _run_store(export_env, run["id"]), "now"
+            export_env, _run_store(export_env, run["id"]), False
         )
         assert store.get("export_id") == exp["id"]
         assert poll_disabled is False
         assert loading is False
 
-    def test_layout_has_mode_select(self, export_env, operator_ctx, monkeypatch):
-        """Layout có Select chế độ xuất, mặc định 'Xuất ngay'."""
+    def test_layout_has_mode_switch(self, export_env, operator_ctx, monkeypatch):
+        """Layout có Switch chế độ xuất, mặc định tắt (= 'Xuất ngay')."""
+        import dash_mantine_components as dmc
+
         import app.ui.pages.report_viewer as page
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         tree = page.layout(export_env["report_id"])
-        select = _find_by_id(tree, "viewer-export-mode")
-        assert select is not None
-        assert select.value == "now"
-        values = [d["value"] for d in (select.data or [])]
-        assert values == ["now", "background"]
+        switch = _find_by_id(tree, "viewer-export-mode")
+        assert switch is not None
+        assert isinstance(switch, dmc.Switch)
+        assert switch.label == "Chạy ngầm"
+        assert switch.checked is False
 
 
 def _hist_run(run_id=19):

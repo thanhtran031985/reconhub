@@ -63,7 +63,8 @@ except Exception:
 
 MENU_CODE = "report_center"
 PAGE_SIZE_OPTIONS = [
-    # dmc.Select chỉ nhận value chuỗi (số gây lỗi Mantine ở trình duyệt).
+    # Cỡ trang dùng value chuỗi (Select cũ và SegmentedControl đều chỉ
+    # nhận chuỗi; số gây lỗi Mantine ở trình duyệt).
     {"label": "50 dòng/trang", "value": "50"},
     {"label": "100 dòng/trang", "value": "100"},
     {"label": "200 dòng/trang", "value": "200"},
@@ -306,25 +307,23 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
                             ),
                             dmc.Group(
                                 [
-                                    dmc.Select(
+                                    dmc.SegmentedControl(
                                         id="viewer-page-size",
                                         data=PAGE_SIZE_OPTIONS,
                                         value="50",
-                                        w=140,
                                         size="xs",
-                                        clearable=False,
+                                        radius="xl",
                                         **{"aria-label": "Số dòng mỗi trang"},
                                     ),
-                                    dmc.Select(
+                                    # Task 70: chế độ xuất dạng Switch thay cho
+                                    # Select — tắt = Xuất ngay (mặc định như cũ),
+                                    # bật = Chạy ngầm (mẫu switch task 67).
+                                    dmc.Switch(
                                         id="viewer-export-mode",
-                                        data=[
-                                            {"label": "Xuất ngay", "value": "now"},
-                                            {"label": "Chạy ngầm", "value": "background"},
-                                        ],
-                                        value="now",
-                                        w=130,
+                                        label="Chạy ngầm",
+                                        checked=False,
                                         size="xs",
-                                        clearable=False,
+                                        styles={"label": {"fontSize": "11px", "cursor": "pointer"}},
                                         **{"aria-label": "Chế độ xuất Excel"},
                                     ),
                                     dmc.Button(
@@ -760,7 +759,7 @@ def _queued_run_id_from_export_store(
     State({"type": "viewer-param", "index": dash.ALL}, "value"),
     State({"type": "viewer-param", "index": dash.ALL}, "id"),
     State("viewer-page-store", "data"),
-    State("viewer-export-mode", "value"),
+    State("viewer-export-mode", "checked"),
     State("viewer-export-store", "data"),
     prevent_initial_call=True,
 )
@@ -772,7 +771,7 @@ def handle_export_click(
     param_values: list[Any] | None,
     param_ids: list[dict[str, Any]] | None,
     page_no: int | None,
-    mode: str | None = "now",
+    run_bg: bool | None = False,
     export_store: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], Any, bool, Any, dict[str, Any], int, bool]:
     """Xuất Excel theo điều kiện tìm kiếm hiện tại (không cần xem trước).
@@ -794,6 +793,8 @@ def handle_export_click(
     ctx = get_current_ctx()
     if ctx is None or not report or not template_id:
         raise PreventUpdate
+    # Task 70: switch "Chạy ngầm" (checked) thay cho Select mode.
+    mode = "background" if run_bg else "now"
     report_id = int(report["id"]) if isinstance(report, dict) else int(report)
     values = _values_from_inputs(param_values, param_ids)
     current = dict(run_store or {})

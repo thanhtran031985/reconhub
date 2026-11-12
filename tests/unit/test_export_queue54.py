@@ -141,7 +141,7 @@ def _click_bg(export_env, run_store, export_store=None):
         ["HN"],
         [{"type": "viewer-param", "index": "p_org"}],
         1,
-        "background",
+        True,
         export_store,
     )
 
@@ -205,7 +205,7 @@ class TestViewerBackgroundQueueNow:
                 ["HN"],
                 [{"type": "viewer-param", "index": "p_org"}],
                 1,
-                "now",
+                False,
             )
         # "Xuất ngay" vẫn chạy báo cáo trước: run-store có run DONE + tổng.
         assert out[4].get("run_id")
