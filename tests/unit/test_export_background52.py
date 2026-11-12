@@ -460,13 +460,19 @@ class TestSettingsPage:
         from app.services.export_retention import get_export_retention_settings
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
-        alert = page.handle_settings_save(1, "scheduler", 14, 5)
+        alert = page.handle_settings_save(1, "scheduler", 14, 5, 60, 120)
         assert "scheduler" in _dump(alert) or True
         assert get_export_retention_settings(admin_ctx).data["mode"] == "scheduler"
         assert get_export_retention_settings(admin_ctx).data["days"] == 14
         from app.services.export_retention import get_export_concurrency_settings
 
         assert get_export_concurrency_settings(admin_ctx).data["max_concurrent"] == 5
+        from app.services.report_timeouts import get_report_timeout_settings
+
+        assert get_report_timeout_settings(admin_ctx).data == {
+            "count_timeout_sec": 60,
+            "data_timeout_sec": 120,
+        }
 
 
 class TestHistoryDeleteButton:

@@ -22,6 +22,10 @@ from app.services.export_retention import (
     set_export_retention,
 )
 from app.services.perm import page_gate
+from app.services.report_timeouts import (
+    get_report_timeout_settings,
+    set_report_timeouts,
+)
 from app.ui.components.alert_box import alert_box
 from app.ui.components.notification import notify_error, notify_success
 from app.ui.components.page_header import page_header
@@ -47,6 +51,7 @@ def layout(**kwargs: Any) -> Any:
         )
     mode, days = "manual", 30
     max_concurrent = 10
+    count_timeout, data_timeout = 300, 300
     if ctx is not None:
         res = get_export_retention_settings(ctx)
         if res.ok and isinstance(res.data, dict):
@@ -55,6 +60,10 @@ def layout(**kwargs: Any) -> Any:
         c_res = get_export_concurrency_settings(ctx)
         if c_res.ok and isinstance(c_res.data, dict):
             max_concurrent = int(c_res.data.get("max_concurrent") or 10)
+        t_res = get_report_timeout_settings(ctx)
+        if t_res.ok and isinstance(t_res.data, dict):
+            count_timeout = int(t_res.data.get("count_timeout_sec") or 300)
+            data_timeout = int(t_res.data.get("data_timeout_sec") or 300)
     return dmc.Box(
         [
             html.Div(
@@ -64,7 +73,7 @@ def layout(**kwargs: Any) -> Any:
             ),
             page_header(
                 title="Cài đặt hệ thống",
-                subtitle="Chỉ ADMIN. Áp dụng cho file export chạy ngầm của báo cáo.",
+                subtitle="Chỉ ADMIN. Áp dụng cho file export chạy ngầm và timeout truy vấn báo cáo.",
                 style={"width": "fit-content"},
             ),
             dmc.Paper(
@@ -139,6 +148,47 @@ def layout(**kwargs: Any) -> Any:
                 w="100%",
                 maw=640,
             ),
+            dmc.Paper(
+                dmc.Stack(
+                    [
+                        dmc.Title("Timeout truy vấn báo cáo", order=4, size="sm"),
+                        dmc.Text(
+                            "Khi xem báo cáo, app chạy câu COUNT để đếm tổng số dòng "
+                            "rồi mới lấy 1 trang dữ liệu. Câu COUNT quét toàn bộ dữ "
+                            "liệu trong khoảng ngày nên với khoảng rộng có thể chạy "
+                            "lâu hơn câu lấy dữ liệu. Hai timeout này (giây) áp dụng "
+                            "cho mọi báo cáo khi xem và xem trước; đổi xong có hiệu "
+                            "lực ngay, không cần khởi động lại.",
+                            size="sm",
+                            c="dimmed",
+                        ),
+                        dmc.NumberInput(
+                            id="settings-count-timeout-input",
+                            label="Timeout câu COUNT (giây)",
+                            value=count_timeout,
+                            min=1,
+                            max=3600,
+                            step=1,
+                            w=320,
+                        ),
+                        dmc.NumberInput(
+                            id="settings-data-timeout-input",
+                            label="Timeout câu dữ liệu (giây)",
+                            value=data_timeout,
+                            min=1,
+                            max=3600,
+                            step=1,
+                            w=320,
+                        ),
+                    ],
+                    gap="md",
+                ),
+                withBorder=True,
+                radius="sm",
+                p="md",
+                w="100%",
+                maw=640,
+            ),
             dmc.Group(
                 [
                     dmc.Button(
@@ -169,6 +219,8 @@ def layout(**kwargs: Any) -> Any:
     State("settings-mode-select", "value"),
     State("settings-days-input", "value"),
     State("settings-concurrent-input", "value"),
+    State("settings-count-timeout-input", "value"),
+    State("settings-data-timeout-input", "value"),
     prevent_initial_call=True,
 )
 def handle_settings_save(
@@ -176,8 +228,10 @@ def handle_settings_save(
     mode: str | None,
     days: int | float | None,
     max_concurrent: int | float | None,
+    count_timeout: int | float | None,
+    data_timeout: int | float | None,
 ) -> Any:
-    """Lưu cài đặt dọn file + song song export (task 52, 57)."""
+    """Lưu cài đặt dọn file + song song export + timeout báo cáo (task 52, 57, 71)."""
     if not n_clicks:
         raise PreventUpdate
     ctx = get_current_ctx()
@@ -191,15 +245,29 @@ def handle_settings_save(
         concurrent_int = int(max_concurrent) if max_concurrent is not None else 10
     except (TypeError, ValueError):
         return notify_error("Số export song song phải là số nguyên.")
+    try:
+        count_int = int(count_timeout) if count_timeout is not None else 300
+    except (TypeError, ValueError):
+        return notify_error("Timeout câu COUNT phải là số nguyên.")
+    try:
+        data_int = int(data_timeout) if data_timeout is not None else 300
+    except (TypeError, ValueError):
+        return notify_error("Timeout câu dữ liệu phải là số nguyên.")
     res = set_export_retention(ctx, mode or "manual", days_int)
     if not res.ok:
         return notify_error(res.message or "Không lưu được cài đặt.")
     c_res = set_export_concurrency(ctx, concurrent_int)
     if not c_res.ok:
         return notify_error(c_res.message or "Không lưu được cài đặt song song.")
+    t_res = set_report_timeouts(ctx, count_int, data_int)
+    if not t_res.ok:
+        return notify_error(t_res.message or "Không lưu được timeout báo cáo.")
     data = res.data or {}
     c_data = c_res.data or {}
+    t_data = t_res.data or {}
     return notify_success(
         f"Đã lưu: chế độ {data.get('mode')}, giữ file {data.get('days')} ngày, "
-        f"tối đa {c_data.get('max_concurrent')} export chạy song song."
+        f"tối đa {c_data.get('max_concurrent')} export chạy song song, "
+        f"timeout COUNT {t_data.get('count_timeout_sec')}s, "
+        f"timeout dữ liệu {t_data.get('data_timeout_sec')}s."
     )

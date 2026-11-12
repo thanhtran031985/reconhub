@@ -36,6 +36,7 @@ from app.services.report_source import (
     effective_column_label,
     open_checked_connection,
 )
+from app.services.report_timeouts import get_report_timeouts
 
 
 def _now() -> datetime:
@@ -371,8 +372,11 @@ def _execute_count_page(
             select(recon_data_source.c.DB_TYPE).where(recon_data_source.c.ID == ds_id)
         ).mappings().first()
     db_type = str(ds_row.get("DB_TYPE") if ds_row else "ORACLE").upper()
-    count_timeout = min(int(detail["timeout_sec"]), 30)  # Q3
-    data_timeout = int(detail["timeout_sec"])
+    # Task 71: timeout câu COUNT + câu dữ liệu cấu hình trên /settings
+    # (mặc định 300s mỗi cái); bỏ chặn cứng min(..., 30) của câu COUNT.
+    timeouts = get_report_timeouts(engine)
+    count_timeout = int(timeouts["count_timeout_sec"])
+    data_timeout = int(timeouts["data_timeout_sec"])
     try:
         with open_checked_connection(ds_id, count_timeout) as ora_conn:
             cursor = ora_conn.cursor()
@@ -565,7 +569,8 @@ def _execute_preview(
             select(recon_data_source.c.DB_TYPE).where(recon_data_source.c.ID == ds_id)
         ).mappings().first()
     db_type = str(ds_row.get("DB_TYPE") if ds_row else "ORACLE").upper()
-    data_timeout = int(detail["timeout_sec"])
+    # Task 71: timeout câu dữ liệu lấy từ setting trên /settings.
+    data_timeout = int(get_report_timeouts(engine)["data_timeout_sec"])
     try:
         with open_checked_connection(ds_id, data_timeout) as ora_conn:
             cursor = ora_conn.cursor()

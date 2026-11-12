@@ -37,6 +37,7 @@ def run_env(tmp_path, monkeypatch):
         "app.services.report_column",
         "app.services.report_run",
         "app.services.export_retention",
+        "app.services.report_timeouts",
         "app.engine.catalog",
     ]:
         monkeypatch.setattr(f"{mod}.get_recon_engine", lambda: engine)

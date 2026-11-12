@@ -98,10 +98,14 @@ class TestCancelReportRun:
 
 
 class TestCountTimeout:
-    def test_count_timeout_separate(self, run_env, operator_ctx):
+    def test_count_timeout_separate(self, run_env, operator_ctx, admin_ctx):
         from app.services.report_run import execute_report_run
+        from app.services.report_timeouts import set_report_timeouts
 
-        # DS timeout 600s: count = min(300, 30) = 30s; data = min(300, 600) = 300s
+        # Task 71: count/data timeout riêng, cấu hình trên /settings
+        # (mặc định 300/300) — bỏ chặn cứng min(..., 30) của câu COUNT.
+        # DS timeout 600s: count = min(60, 600) = 60s; data = min(120, 600) = 120s.
+        assert set_report_timeouts(admin_ctx, 60, 120).ok
         engine = run_env["engine"]
         with engine.begin() as conn:
             conn.execute(
@@ -126,8 +130,8 @@ class TestCountTimeout:
             res = execute_report_run(operator_ctx, run["id"])
         assert res.ok, res.message
         assert len(conns) == 2
-        assert conns[0].call_timeout == 30_000  # count: min(300, 30)
-        assert conns[1].call_timeout == 300_000  # data: min(300, 600)
+        assert conns[0].call_timeout == 60_000  # count: setting 60
+        assert conns[1].call_timeout == 120_000  # data: setting 120
 
 
 class TestReportRunMetrics:
