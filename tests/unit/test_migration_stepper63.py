@@ -32,6 +32,7 @@ from app.services.metadata_migration import (
     start_migration,
 )
 from app.services.migration_checklist import (
+    MANUAL_STEP_KEY,
     MIGRATION_STEP_KEYS,
     MIGRATION_STEP_LABELS,
     advance_fake_checklist,
@@ -140,7 +141,7 @@ def _precheck_data() -> dict:
 # --- Pure helpers -------------------------------------------------------
 
 
-def test_new_checklist_has_six_steps_all_pending() -> None:
+def test_new_checklist_has_seven_steps_all_pending() -> None:
     state = new_checklist(
         mode="fake",
         target_ds_id=7,
@@ -149,7 +150,16 @@ def test_new_checklist_has_six_steps_all_pending() -> None:
         tables=[{"table": "RECON_USER", "rows": 5}, {"table": "RECON_MENU", "rows": 12}],
         top_tables=["RECON_MENU"],
     )
-    assert MIGRATION_STEP_KEYS == ["precheck", "maintenance", "create_schema", "copy", "verify", "finish"]
+    # Task 65: thêm bước 7 "Các bước làm tay" (chưa có item lúc tạo).
+    assert MIGRATION_STEP_KEYS == [
+        "precheck",
+        "maintenance",
+        "create_schema",
+        "copy",
+        "verify",
+        "finish",
+        "manual",
+    ]
     assert MIGRATION_STEP_LABELS == [
         "Kiểm tra trước",
         "Bật chế độ bảo trì",
@@ -157,6 +167,7 @@ def test_new_checklist_has_six_steps_all_pending() -> None:
         "Sao chép dữ liệu",
         "Đối chiếu toàn vẹn",
         "Hoàn tất",
+        "Các bước làm tay",
     ]
     assert [s["key"] for s in state["steps"]] == MIGRATION_STEP_KEYS
     assert [s["label"] for s in state["steps"]] == MIGRATION_STEP_LABELS
@@ -169,6 +180,7 @@ def test_new_checklist_has_six_steps_all_pending() -> None:
     assert len(state["steps"][3]["items"]) == 3
     assert len(state["steps"][4]["items"]) == 1
     assert len(state["steps"][5]["items"]) == 2
+    assert len(state["steps"][6]["items"]) == 0
 
 
 def test_build_fake_checklist_marks_precheck_done() -> None:
@@ -222,8 +234,12 @@ def test_advance_fake_checklist_is_pure_and_completes() -> None:
         if overall_status(done) == "done":
             break
     assert overall_status(done) == "done"
-    assert count_pending(done) == 0
-    assert all(step_status(s) == "done" for s in done["steps"])
+    # Task 65: 6 bước tự động xong, 4 việc manual còn chờ tick.
+    auto_done = [s for s in done["steps"] if s["key"] != "manual"]
+    assert all(step_status(s) == "done" for s in auto_done)
+    assert count_pending(done) == 4
+    assert len(done["steps"][6]["items"]) == 4
+    assert all(i["status"] == "pending" for i in done["steps"][6]["items"])
     # Tick tiếp khi đã xong thì giữ nguyên.
     assert advance_fake_checklist(done, per_tick=4) == done
 
@@ -311,7 +327,13 @@ def test_start_migration_writes_checklist(mig63_env) -> None:
     assert state is not None
     assert state["mode"] == "real"
     assert overall_status(state) == "done"
-    assert all(step_status(s) == "done" for s in state["steps"])
+    # Task 65: 6 bước tự động xong, bước 7 manual có 4 việc chờ tick.
+    auto_steps = [s for s in state["steps"] if s["key"] != MANUAL_STEP_KEY]
+    assert all(step_status(s) == "done" for s in auto_steps)
+    manual = state["steps"][6]
+    assert manual["key"] == MANUAL_STEP_KEY
+    assert len(manual["items"]) == 4
+    assert all(i["status"] == "pending" for i in manual["items"])
     copy_items = {i["id"]: i for i in state["steps"][3]["items"]}
     assert "RECON_USER" in copy_items
     assert copy_items["RECON_USER"]["status"] == "done"

@@ -27,10 +27,12 @@ from app.services.migration_checklist import (
     BACKFILL_ITEM_ID,
     checklist_from_json,
     checklist_item,
+    ensure_manual_step,
     mark_item_done,
     mark_items_done,
     mark_step_error,
     new_checklist,
+    populate_manual_items,
     refresh_status,
     save_checklist,
     set_step_items,
@@ -554,8 +556,10 @@ def start_migration(
                 )
             )
         mark_items_done(checklist, "finish")
-        # Lưu cả 4 bước làm tay vào checklist để modal poll vẽ báo cáo cuối.
+        # Lưu cả 4 bước làm tay vào checklist để modal poll vẽ báo cáo cuối,
+        # đồng thời nạp item bước 7 để user tick khi làm tay (task 65).
         checklist["next_steps"] = next_steps
+        populate_manual_items(checklist)
         refresh_status(checklist)
         save_checklist(src_engine, migration_id, checklist)
 
@@ -674,7 +678,37 @@ def get_active_migration(ctx: Ctx) -> dict[str, Any] | None:
     if not row:
         return None
     data = dict(row)
-    data["checklist"] = checklist_from_json(data.get("CHECKLIST_JSON"))
+    checklist = checklist_from_json(data.get("CHECKLIST_JSON"))
+    ensure_manual_step(checklist)
+    data["checklist"] = checklist
+    return data
+
+
+@service
+@requires_menu("data_source")
+def get_latest_migration(ctx: Ctx) -> dict[str, Any] | None:
+    """Phiên migration mới nhất (mọi trạng thái), kèm checklist đã parse
+    + chuẩn hóa 7 bước (task 65).
+
+    Modal mở lại dùng hàm này để khôi phục phiên DONE còn bước làm tay
+    chưa tick hết — tick đã lưu trong CHECKLIST_JSON không bị mất.
+    """
+    engine = get_recon_engine()
+    require_admin(ctx, engine)
+    with engine.connect() as conn:
+        row = (
+            conn.execute(
+                select(recon_metadata_migration).order_by(recon_metadata_migration.c.ID.desc())
+            )
+            .mappings()
+            .first()
+        )
+    if not row:
+        return None
+    data = dict(row)
+    checklist = checklist_from_json(data.get("CHECKLIST_JSON"))
+    ensure_manual_step(checklist)
+    data["checklist"] = checklist
     return data
 
 
@@ -709,7 +743,9 @@ def get_migration_for_poll(
     if not row:
         return None
     data = dict(row)
-    data["checklist"] = checklist_from_json(data.get("CHECKLIST_JSON"))
+    checklist = checklist_from_json(data.get("CHECKLIST_JSON"))
+    ensure_manual_step(checklist)
+    data["checklist"] = checklist
     return data
 
 

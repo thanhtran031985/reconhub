@@ -28,13 +28,14 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from typing import Any, cast
 
 from sqlalchemy import Engine, select, update
 
 from app.db.metadata import recon_metadata_migration
 
-MIGRATION_STEP_KEYS = ["precheck", "maintenance", "create_schema", "copy", "verify", "finish"]
+MIGRATION_STEP_KEYS = ["precheck", "maintenance", "create_schema", "copy", "verify", "finish", "manual"]
 MIGRATION_STEP_LABELS = [
     "Kiểm tra trước",
     "Bật chế độ bảo trì",
@@ -42,7 +43,10 @@ MIGRATION_STEP_LABELS = [
     "Sao chép dữ liệu",
     "Đối chiếu toàn vẹn",
     "Hoàn tất",
+    "Các bước làm tay",
 ]
+
+MANUAL_STEP_KEY = "manual"
 
 # (item_id, label) — 6 kiểm tra của precheck, theo đúng thứ tự trong
 # app.services.metadata_migration.precheck.
@@ -122,10 +126,79 @@ def new_checklist(
             _step("copy", MIGRATION_STEP_LABELS[3], copy_items),
             _step("verify", MIGRATION_STEP_LABELS[4], [checklist_item(t, f"Checksum SHA256 bảng {t}") for t in top_tables]),
             _step("finish", MIGRATION_STEP_LABELS[5], [checklist_item(item_id, label) for item_id, label in FINISH_ITEMS]),
+            # Bước 7 (task 65): các bước làm tay, chưa có item cho tới khi
+            # 6 bước tự động xong (nạp từ next_steps lúc DONE).
+            _step("manual", MIGRATION_STEP_LABELS[6], []),
         ],
         "report": None,
         "next_steps": None,
     }
+
+
+def manual_items(next_steps: list[str]) -> list[dict[str, Any]]:
+    """Item bước 7 từ danh sách bước làm tay: bỏ số thứ tự đầu dòng
+    ("1. Dừng ứng dụng..." -> "Dừng ứng dụng...")."""
+    items: list[dict[str, Any]] = []
+    for i, raw in enumerate(next_steps, 1):
+        label = re.sub(r"^\s*\d+\.\s*", "", str(raw)).strip()
+        items.append(checklist_item(f"manual-{i}", label))
+    return items
+
+
+def populate_manual_items(checklist: dict[str, Any]) -> bool:
+    """Nạp item bước 7 từ checklist["next_steps"] khi chưa có item nào.
+
+    Trả True nếu vừa nạp; False nếu bước 7 đã có item (giữ nguyên tick
+    user đã đánh) hoặc chưa có next_steps. Dùng lúc migration xong
+    (fake tick cuối / real DONE) và khi chuẩn hóa checklist cũ.
+    """
+    step = _find_step(checklist, MANUAL_STEP_KEY)
+    if step is None:
+        return False
+    if step.get("items"):
+        return False
+    next_steps = checklist.get("next_steps") or []
+    if not next_steps:
+        return False
+    step["items"] = manual_items([str(s) for s in next_steps])
+    return True
+
+
+def ensure_manual_step(checklist: dict[str, Any] | None) -> bool:
+    """Chuẩn hóa checklist cũ (6 bước) lên 7 bước: thêm bước manual trống
+    nếu thiếu; chỉ nạp item manual từ next_steps khi 6 bước tự động đã
+    xong (phiên DONE) — trước đó bước 7 phải có 0 item để hiện "Chờ".
+    Trả True nếu checklist đổi, False nếu đã đủ 7 bước. None -> False."""
+    if not isinstance(checklist, dict):
+        return False
+    steps: list[dict[str, Any]] = checklist.setdefault("steps", [])
+    changed = False
+    if _find_step(checklist, MANUAL_STEP_KEY) is None:
+        steps.append(_step(MANUAL_STEP_KEY, MIGRATION_STEP_LABELS[6], []))
+        changed = True
+    if overall_status(checklist) == "done" and populate_manual_items(checklist):
+        changed = True
+    return changed
+
+
+def set_item_status(
+    checklist: dict[str, Any],
+    step_key: str,
+    item_id: str,
+    status: str,
+) -> bool:
+    """Đặt trạng thái một dòng con (dùng cho tick manual): "done" hoặc
+    "pending". Trả True nếu đổi, False nếu không tìm thấy item."""
+    step = _find_step(checklist, step_key)
+    if step is None:
+        return False
+    for item in step.get("items", []):
+        if item.get("id") == item_id:
+            if item.get("status") == status:
+                return True
+            item["status"] = status
+            return True
+    return False
 
 
 def fake_next_steps() -> list[str]:
@@ -190,10 +263,13 @@ def step_status(step: dict[str, Any]) -> str:
 
 
 def overall_status(state: dict[str, Any]) -> str:
-    """Trạng thái chung suy ra từ các bước."""
+    """Trạng thái chung suy ra từ các bước.
+
+    Bước 7 manual không tính vào hoàn thành (task 65): 6 bước tự động
+    xong là migration xong, dù các bước làm tay còn chờ user tick."""
     if state.get("error"):
         return "error"
-    steps = state.get("steps", [])
+    steps = [s for s in state.get("steps", []) if s.get("key") != MANUAL_STEP_KEY]
     if any(step_status(s) == "error" for s in steps):
         return "error"
     if steps and all(step_status(s) == "done" for s in steps):
@@ -235,7 +311,8 @@ def running_item(step: dict[str, Any]) -> dict[str, Any] | None:
 
 def running_step_index(state: dict[str, Any]) -> int:
     """Index bước đang chạy/lỗi; nếu chưa có thì bước chờ đầu tiên; nếu
-    mọi bước xong thì bước cuối (Hoàn tất). Dùng làm bước chọn mặc định.
+    mọi bước xong thì bước cuối (bước 7 manual sau khi 6 bước xong).
+    Dùng làm bước chọn mặc định.
 
     Bước chưa có dòng con nào (vd bước đối chiếu trước khi biết top-3
     bảng) được bỏ qua khi tìm bước chờ — nó không có việc gì để làm.
@@ -321,12 +398,19 @@ def refresh_status(checklist: dict[str, Any]) -> None:
 
 def advance_fake_checklist(state: dict[str, Any], per_tick: int = 4) -> dict[str, Any]:
     """Thuần: xong thêm tối đa `per_tick` dòng con đang chờ, theo thứ tự
-    bước rồi thứ tự dòng. Không sửa state gốc, trả state mới."""
+    bước rồi thứ tự dòng. Không sửa state gốc, trả state mới.
+
+    Bước 7 manual không tự chạy (task 65): tick fake bỏ qua nó; khi
+    6 bước tự động xong thì nạp item manual từ next_steps để user tick.
+    """
     new_state = copy.deepcopy(state)
     if overall_status(new_state) == "done":
+        populate_manual_items(new_state)
         return new_state
     remaining = per_tick
     for step in new_state.get("steps", []):
+        if step.get("key") == MANUAL_STEP_KEY:
+            continue
         if remaining <= 0:
             break
         for item in step.get("items", []):
@@ -335,6 +419,8 @@ def advance_fake_checklist(state: dict[str, Any], per_tick: int = 4) -> dict[str
             if item.get("status") == "pending":
                 item["status"] = "done"
                 remaining -= 1
+    if overall_status(new_state) == "done":
+        populate_manual_items(new_state)
     refresh_status(new_state)
     return new_state
 

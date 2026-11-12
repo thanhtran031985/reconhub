@@ -101,7 +101,8 @@ def test_running_step_index() -> None:
     for step in done["steps"]:
         for item in step["items"]:
             item["status"] = "done"
-    assert running_step_index(done) == 5
+    # Task 65: 6 bước tự động xong thì bước hiện tại là bước 7 manual.
+    assert running_step_index(done) == 6
     err = build_fake_checklist(_precheck_data())
     mark_step_error(err, "copy", "Lỗi kết nối giả lập")
     assert running_step_index(err) == 3

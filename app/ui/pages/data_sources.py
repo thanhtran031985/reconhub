@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import threading
 import time
@@ -35,12 +36,14 @@ from app.services.metadata_migration import (
     clean_target_schema,
     delete_old_sqlite,
     get_active_migration,
+    get_latest_migration,
     get_migration_for_poll,
     get_migration_run_result,
     precheck,
     run_migration_background,
 )
 from app.services.migration_checklist import (
+    MANUAL_STEP_KEY,
     MIGRATION_STEP_KEYS,
     MIGRATION_STEP_LABELS,
     advance_fake_checklist,
@@ -53,6 +56,8 @@ from app.services.migration_checklist import (
     refresh_status,
     running_item,
     running_step_index,
+    save_checklist,
+    set_item_status,
     step_counts,
     step_status,
 )
@@ -435,44 +440,61 @@ def render_storage_tab(
                             size="sm",
                             c="dimmed",
                         ),
-                        dmc.SimpleGrid(
-                            cols=4,
+                        # Nút "Xem trước" cùng hàng với 4 ô lọc, căn đáy
+                        # theo ô nhập (không căn theo label) — task 65.
+                        html.Div(
+                            style={
+                                "display": "flex",
+                                "gap": "12px",
+                                "alignItems": "flex-end",
+                                "flexWrap": "nowrap",
+                            },
                             children=[
-                                dmc.Select(
-                                    id="ds-purge-filter-template",
-                                    label="Template",
-                                    placeholder="Tất cả template",
-                                    data=[],
-                                    clearable=True,
+                                html.Div(
+                                    dmc.Select(
+                                        id="ds-purge-filter-template",
+                                        label="Template",
+                                        placeholder="Tất cả template",
+                                        data=[],
+                                        clearable=True,
+                                    ),
+                                    style={"flex": "1", "minWidth": "0"},
                                 ),
-                                dmc.Select(
-                                    id="ds-purge-filter-checked",
-                                    label="Trạng thái kiểm tra",
-                                    placeholder="Tất cả",
-                                    data=[
-                                        {"value": "", "label": "Tất cả"},
-                                        {"value": "Y", "label": "Đã kiểm tra xong"},
-                                        {"value": "N", "label": "Chưa kiểm tra"},
-                                    ],
-                                    value="Y",
+                                html.Div(
+                                    dmc.Select(
+                                        id="ds-purge-filter-checked",
+                                        label="Trạng thái kiểm tra",
+                                        placeholder="Tất cả",
+                                        data=[
+                                            {"value": "", "label": "Tất cả"},
+                                            {"value": "Y", "label": "Đã kiểm tra xong"},
+                                            {"value": "N", "label": "Chưa kiểm tra"},
+                                        ],
+                                        value="Y",
+                                    ),
+                                    style={"flex": "1", "minWidth": "0"},
                                 ),
-                                dmc.NumberInput(
-                                    id="ds-purge-filter-days",
-                                    label="Chạy trước (số ngày)",
-                                    placeholder="VD: 30",
+                                html.Div(
+                                    dmc.NumberInput(
+                                        id="ds-purge-filter-days",
+                                        label="Chạy trước (số ngày)",
+                                        placeholder="VD: 30",
+                                    ),
+                                    style={"flex": "1", "minWidth": "0"},
                                 ),
-                                dmc.TextInput(
-                                    id="ds-purge-filter-user",
-                                    label="Người chạy",
-                                    placeholder="Username",
+                                html.Div(
+                                    dmc.TextInput(
+                                        id="ds-purge-filter-user",
+                                        label="Người chạy",
+                                        placeholder="Username",
+                                    ),
+                                    style={"flex": "1", "minWidth": "0"},
+                                ),
+                                html.Div(
+                                    button_primary("Xem trước", id="ds-purge-preview-btn", icon="lucide:eye"),
+                                    style={"flexShrink": "0"},
                                 ),
                             ],
-                        ),
-                        dmc.Group(
-                            [
-                                button_primary("Xem trước", id="ds-purge-preview-btn", icon="lucide:eye"),
-                            ],
-                            justify="flex-start",
                         ),
                         html.Div(id="ds-purge-preview-alert"),
                     ],
@@ -495,8 +517,14 @@ def render_storage_tab(
                 p="lg",
                 radius="md",
             ),
-            # Khối Chuyển dữ liệu sang Oracle (Task 13)
-            dmc.Paper(
+            # 2 card migration + script cùng một hàng (task 65): 2 cột
+            # từ md (992px), dưới đó xếp dọc theo ui-dash.
+            dmc.SimpleGrid(
+                cols={"base": 1, "md": 2},
+                spacing="md",
+                children=[
+                    # Khối Chuyển dữ liệu sang Oracle (Task 13)
+                    dmc.Paper(
                 dmc.Stack(
                     [
                         dmc.Group(
@@ -557,24 +585,6 @@ def render_storage_tab(
                 p="lg",
                 radius="md",
             ),
-            # Khối Bản lưu SQLite cũ (Task 13)
-            dmc.Paper(
-                dmc.Stack(
-                    [
-                        dmc.Title("Bản lưu SQLite cũ", order=4),
-                        dmc.Text(
-                            "Quản lý và giải phóng file cơ sở dữ liệu SQLite nguồn sau khi toàn bộ hệ thống đã chuyển sang vận hành trên Oracle.",
-                            size="sm",
-                            c="dimmed",
-                        ),
-                        sqlite_status_node,
-                    ],
-                    gap="sm",
-                ),
-                withBorder=True,
-                p="lg",
-                radius="md",
-            ),
             # Script tạo schema Oracle
             dmc.Paper(
                 dmc.Stack(
@@ -586,6 +596,26 @@ def render_storage_tab(
                             c="dimmed",
                         ),
                         code_block(target_sql, language="sql"),
+                    ],
+                    gap="sm",
+                ),
+                withBorder=True,
+                p="lg",
+                radius="md",
+            ),
+                ],
+            ),
+            # Khối Bản lưu SQLite cũ (Task 13)
+            dmc.Paper(
+                dmc.Stack(
+                    [
+                        dmc.Title("Bản lưu SQLite cũ", order=4),
+                        dmc.Text(
+                            "Quản lý và giải phóng file cơ sở dữ liệu SQLite nguồn sau khi toàn bộ hệ thống đã chuyển sang vận hành trên Oracle.",
+                            size="sm",
+                            c="dimmed",
+                        ),
+                        sqlite_status_node,
                     ],
                     gap="sm",
                 ),
@@ -1584,8 +1614,12 @@ def handle_migration_precheck(n_clicks: Any, target_ds_id: Any, mode: str | None
 # --- Stepper chuyển Oracle trong modal (Task 63) ---
 
 
+# Index bước 7 "Các bước làm tay" trong stepper (task 65).
+_MIG_MANUAL_IDX = MIGRATION_STEP_KEYS.index(MANUAL_STEP_KEY)
+
+
 def _empty_mig_state() -> dict[str, Any]:
-    """Khung stepper 6 bước chưa chạy (chưa có dòng con)."""
+    """Khung stepper 7 bước chưa chạy (bước 7 chưa có dòng con)."""
     return {
         "mode": "fake",
         "migration_id": None,
@@ -1631,24 +1665,30 @@ def _mig_count_unit(step_key: str) -> str:
 
 
 def _render_mig_stepper(state: dict[str, Any] | None, selected_idx: Any = None) -> Any:
-    """Stepper dọc 6 bước (task 64, Master–Detail): chỉ tên bước + dòng phụ
-    trạng thái, bấm được để chọn bước (detail nằm ở card phải).
+    """Stepper dọc 7 bước (task 64, Master–Detail; bước 7 manual task 65):
+    chỉ tên bước + dòng phụ trạng thái, bấm được để chọn bước (detail nằm
+    ở card phải).
 
     Dòng phụ: xong "✓ n/n việc xong" (xanh); đang chạy "Đang: <item đang
-    làm>" + "n/m bảng xong"; chờ "Chờ • 0/m việc"; lỗi hiện thông báo lỗi.
-    Vòng tròn đánh số kiểu wizard: xong ✓ xanh, đang chạy nền primary,
-    lỗi ✗ đỏ, chưa chạy vòng xám.
+    làm>" + "n/m bảng xong" (bước manual: "Tiếp theo: <item>"); chờ
+    "Chờ • 0/m việc"; lỗi hiện thông báo lỗi. Vòng tròn đánh số kiểu
+    wizard: xong ✓ xanh, đang chạy nền primary, lỗi ✗ đỏ, chưa chạy
+    vòng xám.
     """
     if not state or not state.get("steps"):
         state = _empty_mig_state()
     steps = state["steps"]
     selected = _mig_selected_index(state, selected_idx)
+    # Bước hiện tại: bước đang chạy/lỗi; nếu chưa có thì bước chờ đầu tiên
+    # — nhưng lúc state còn idle (chưa bấm Bắt đầu) thì KHÔNG tô bước nào
+    # là đang chạy, cả 7 bước đều hiện "Chờ" (task 65, sửa lỗi idle).
+    overall = overall_status(state)
     current_idx = -1
     for i, step in enumerate(steps):
         if step_status(step) in ("running", "error"):
             current_idx = i
             break
-    if current_idx < 0:
+    if current_idx < 0 and overall != "idle":
         for i, step in enumerate(steps):
             if step_status(step) == "pending":
                 current_idx = i
@@ -1690,8 +1730,11 @@ def _render_mig_stepper(state: dict[str, Any] | None, selected_idx: Any = None) 
             }
             run_item = running_item(step)
             if run_item is not None:
+                # Bước manual không "chạy" mà chờ user làm tay: dòng phụ
+                # ghi việc tiếp theo cần làm thay vì "Đang:" (task 65).
+                prefix = "Tiếp theo:" if str(step.get("key", "")) == MANUAL_STEP_KEY else "Đang:"
                 sub_lines = [
-                    dmc.Text(f"Đang: {run_item.get('label', '')}", size="xs", c="blue", style=ellipsis),
+                    dmc.Text(f"{prefix} {run_item.get('label', '')}", size="xs", c="blue", style=ellipsis),
                     dmc.Text(f"{done}/{total} {unit} xong", size="xs", c="dimmed"),
                 ]
             else:
@@ -1757,10 +1800,11 @@ def _render_mig_stepper(state: dict[str, Any] | None, selected_idx: Any = None) 
 
 
 def _render_mig_detail(state: dict[str, Any] | None, selected_idx: Any = None, alert: Any = None) -> Any:
-    """Card chi tiết bước (task 64, Master–Detail): header (tên bước +
-    badge trạng thái + "n/m việc xong") + checklist dòng con của bước
-    đang chọn (cuộn riêng khi dài) + báo cáo đối chiếu ở bước Hoàn tất
-    khi chạy xong.
+    """Card chi tiết bước (task 64, Master–Detail; bước 7 manual task 65):
+    header (tên bước + badge trạng thái + "n/m việc xong") + checklist
+    dòng con của bước đang chọn (cuộn riêng khi dài) + báo cáo đối chiếu
+    ở bước Hoàn tất khi chạy xong. Bước manual có checkbox để tick từng
+    việc làm tay; chưa chạy xong 6 bước thì chỉ hiện ghi chú.
     """
     if not state or not state.get("steps"):
         state = _empty_mig_state()
@@ -1769,11 +1813,16 @@ def _render_mig_detail(state: dict[str, Any] | None, selected_idx: Any = None, a
     step = steps[idx]
     st = step_status(step)
     done, total = step_counts(step)
-    is_current = idx == running_step_index(state)
+    # Lúc idle (chưa bấm Bắt đầu) không bước nào là "đang chạy" — tránh
+    # badge "Đang chạy" ở detail bước 7 khi user bấm vào nó (task 65).
+    is_current = idx == running_step_index(state) and overall_status(state) != "idle"
+    is_manual = str(step.get("key", "")) == MANUAL_STEP_KEY
     if st == "done":
         badge = dmc.Badge("Xong", color="green", variant="light", size="xs")
     elif st == "error":
         badge = dmc.Badge("Lỗi", color="red", variant="light", size="xs")
+    elif is_manual and step.get("items"):
+        badge = dmc.Badge("Cần làm tay", color="blue", variant="light", size="xs")
     elif is_current:
         badge = dmc.Badge("Đang chạy", color="blue", variant="light", size="xs")
     else:
@@ -1797,6 +1846,39 @@ def _render_mig_detail(state: dict[str, Any] | None, selected_idx: Any = None, a
     for item in step.get("items", []):
         ist = item.get("status")
         is_run = run_item is not None and item.get("id") == run_item.get("id")
+        if is_manual:
+            # Bước làm tay: checkbox để user tick khi xong từng việc
+            # (task 65). Việc tiếp theo được gắn nhãn để dễ thấy.
+            item_rows.append(
+                dmc.Group(
+                    [
+                        dmc.Checkbox(
+                            id={"type": "mig-manual-check", "item": str(item.get("id", ""))},
+                            checked=ist == "done",
+                            size="xs",
+                        ),
+                        dmc.Text(
+                            item.get("label", ""),
+                            size="xs",
+                            style=(
+                                {"fontWeight": 600, "color": "var(--primary, #0f6cbd)"}
+                                if is_run
+                                else (
+                                    {"color": "var(--text-muted, #616161)"}
+                                    if ist == "pending"
+                                    else {}
+                                )
+                            ),
+                        ),
+                        dmc.Badge("Tiếp theo", color="blue", variant="light", size="xs")
+                        if is_run
+                        else html.Div(),
+                    ],
+                    gap="xs",
+                    align="center",
+                )
+            )
+            continue
         if ist == "done":
             icon, color = "✓", "green"
             row_style: dict[str, Any] = {}
@@ -1840,18 +1922,31 @@ def _render_mig_detail(state: dict[str, Any] | None, selected_idx: Any = None, a
     if step.get("error"):
         content.append(alert_box("Bước này lỗi", str(step.get("error")), tone="crit"))
     if not item_rows:
-        content.append(
-            dmc.Text(
-                "Chưa có dữ liệu — bấm “Bắt đầu” để chạy.",
-                size="sm",
-                c="dimmed",
-                py="md",
-                ta="center",
+        if is_manual:
+            content.append(
+                dmc.Text(
+                    "Chạy xong 6 bước thì mới làm các bước này.",
+                    size="sm",
+                    c="dimmed",
+                    py="md",
+                    ta="center",
+                )
             )
-        )
+        else:
+            content.append(
+                dmc.Text(
+                    "Chưa có dữ liệu — bấm “Bắt đầu” để chạy.",
+                    size="sm",
+                    c="dimmed",
+                    py="md",
+                    ta="center",
+                )
+            )
     else:
         content.extend(item_rows)
-    if idx == len(steps) - 1 and overall_status(state) == "done":
+    # Báo cáo đối chiếu nằm ở detail bước Hoàn tất (key "finish", task 65)
+    # — không dời sang bước 7 manual (bước cuối trong stepper).
+    if str(step.get("key", "")) == "finish" and overall_status(state) == "done":
         content.append(
             _render_mig_report(
                 state.get("report"),
@@ -2000,16 +2095,24 @@ def toggle_mig_modal(
     if not open_clicks and not close_clicks:
         return no_update_13
     triggered = dash.callback_context.triggered_id
+    # Task 65: nút mở nằm trong tab Lưu trữ nên bị tạo lại mỗi khi tab vẽ
+    # lại (vd reload storage sau khi migration thật DONE) — n_clicks về 0
+    # và callback kích hoạt dù user không bấm. Click thật luôn có n_clicks
+    # >= 1 nên lần kích hoạt với nút vừa bấm = 0 là giả, bỏ qua để modal
+    # không tự đóng. (Guard cũ chỉ chặn (0, 0); trường hợp (0, >= 1) —
+    # user từng bấm Đóng trước đó — vẫn lọt và đọc target_ds_id=None do
+    # select đích cũng bị tạo lại, trả opened=False.)
+    if triggered == "ds-mig-start-btn" and not open_clicks:
+        return no_update_13
+    if triggered == "ds-mig-modal-close-btn" and not close_clicks:
+        return no_update_13
     if triggered == "ds-mig-modal-close-btn":
         return (False, *(dash.no_update,) * 8, True, True, dash.no_update, dash.no_update)
     if triggered != "ds-mig-start-btn":
         return no_update_13
-    if not target_ds_id:
-        return (
-            False,
-            *(dash.no_update,) * 11,
-            alert_box("Lưu ý", "Vui lòng chọn Data Source Oracle đích trước khi chuyển.", tone="warn"),
-        )
+    # Task 65: mở lại để khôi phục phiên (đang chạy / DONE còn bước tay)
+    # KHÔNG cần select đích — hai nhánh dưới dùng TARGET_DS_ID lưu trong DB.
+    # Chỉ mở mới (empty state, cuối hàm) mới cần target để ghi tóm tắt.
     ctx = get_current_ctx()
     if ctx is None or not is_admin(ctx):
         return (
@@ -2056,6 +2159,58 @@ def toggle_mig_modal(
             False,
             True,
             dash.no_update,
+        )
+    # Task 65: không có phiên đang chạy thì khôi phục phiên DONE gần nhất
+    # còn bước làm tay chưa tick hết — tick đã lưu trong CHECKLIST_JSON
+    # không bị mất khi đóng/mở lại modal.
+    latest = get_latest_migration(ctx)
+    if latest.ok and latest.data and str(latest.data.get("STATUS")) == "DONE":
+        checklist = latest.data.get("checklist") or _empty_mig_state()
+        manual_step = next(
+            (s for s in checklist.get("steps", []) if s.get("key") == MANUAL_STEP_KEY),
+            None,
+        )
+        manual_items = manual_step.get("items", []) if manual_step else []
+        pending = sum(1 for i in manual_items if i.get("status") != "done")
+        if manual_items and pending > 0:
+            done_target_name = _mig_target_name(ctx, latest.data.get("TARGET_DS_ID"))
+            summary = dmc.Stack(
+                [
+                    dmc.Text(
+                        f"Phiên #{latest.data.get('ID')} đã xong — còn {pending}/{len(manual_items)} bước làm tay chưa đánh dấu.",
+                        size="sm",
+                        fw=600,
+                    ),
+                    dmc.Text(
+                        f"Đích: {done_target_name} · Chế độ: {latest.data.get('MODE')} · Tick các bước làm tay khi hoàn thành.",
+                        size="sm",
+                        c="dimmed",
+                    ),
+                ],
+                gap=2,
+            )
+            return (
+                True,
+                summary,
+                False,
+                html.Div(),
+                _render_mig_stepper(checklist, _MIG_MANUAL_IDX),
+                _render_mig_detail(checklist, _MIG_MANUAL_IDX),
+                _MIG_MANUAL_IDX,
+                checklist,
+                None,
+                True,
+                True,
+                False,
+                dash.no_update,
+            )
+    # Task 65: chỉ mở mới (không có phiên để khôi phục) mới cần target —
+    # select đích có thể đã reset về None sau khi tab Lưu trữ vẽ lại.
+    if not target_ds_id:
+        return (
+            False,
+            *(dash.no_update,) * 11,
+            alert_box("Lưu ý", "Vui lòng chọn Data Source Oracle đích trước khi chuyển.", tone="warn"),
         )
     target_name = _mig_target_name(ctx, target_ds_id)
     summary = dmc.Stack(
@@ -2259,7 +2414,8 @@ def handle_mig_fake_tick(n_intervals: Any, state: Any, selected: Any) -> tuple[A
     """Mỗi tick mô phỏng xong thêm 4 dòng checklist (task 63, D8).
 
     Bước chọn giữ nguyên lựa chọn của user (sticky); chỉ khi chạy xong
-    mới nhảy sang bước Hoàn tất để hiện báo cáo.
+    mới nhảy sang bước 7 "Các bước làm tay" để thấy ngay 4 bước tay
+    (task 65, thay D4 task 64 chọn bước 6).
     """
     if not state:
         return (dash.no_update, dash.no_update, True, dash.no_update, dash.no_update, dash.no_update)
@@ -2268,10 +2424,10 @@ def handle_mig_fake_tick(n_intervals: Any, state: Any, selected: Any) -> tuple[A
     if overall_status(new_state) == "done":
         return (
             new_state,
-            _render_mig_stepper(new_state, 5),
+            _render_mig_stepper(new_state, _MIG_MANUAL_IDX),
             True,
-            _render_mig_detail(new_state, 5),
-            5,
+            _render_mig_detail(new_state, _MIG_MANUAL_IDX),
+            _MIG_MANUAL_IDX,
             False,
         )
     return (
@@ -2302,8 +2458,9 @@ def handle_mig_fake_tick(n_intervals: Any, state: Any, selected: Any) -> tuple[A
 def handle_mig_real_tick(n_intervals: Any, run_store: Any, last_raw: Any, selected: Any) -> tuple[Any, ...]:
     """Poll phiên migration thật mỗi 1,5s: vẽ stepper + detail từ
     CHECKLIST_JSON, dừng khi DONE/FAILED, không vẽ lại khi checklist
-    không đổi. Bước chọn giữ nguyên lựa chọn của user; chỉ khi xong/lỗi
-    mới nhảy sang bước Hoàn tất / bước lỗi."""
+    không đổi. Bước chọn giữ nguyên lựa chọn của user; chỉ khi xong mới
+    nhảy sang bước 7 "Các bước làm tay" (task 65), khi lỗi nhảy sang
+    bước lỗi."""
     if not run_store:
         return (
             dash.no_update,
@@ -2391,11 +2548,11 @@ def handle_mig_real_tick(n_intervals: Any, run_store: Any, last_raw: Any, select
     if status == "DONE":
         return (
             checklist,
-            _render_mig_stepper(checklist, 5),
-            _render_mig_detail(checklist, 5),
+            _render_mig_stepper(checklist, _MIG_MANUAL_IDX),
+            _render_mig_detail(checklist, _MIG_MANUAL_IDX),
             True,
             False,
-            5,
+            _MIG_MANUAL_IDX,
             {"migration_id": int(row.get("ID") or 0)},
             raw,
         )
@@ -2456,6 +2613,61 @@ def handle_mig_step_click(clicks: Any, state: Any, selected: Any) -> tuple[Any, 
         return dash.no_update, dash.no_update
     checklist = state or _empty_mig_state()
     return idx, _render_mig_detail(checklist, idx)
+
+
+@callback(
+    Output("ds-mig-state", "data", allow_duplicate=True),
+    Output("ds-mig-stepper", "children", allow_duplicate=True),
+    Output("ds-mig-detail", "children", allow_duplicate=True),
+    Input({"type": "mig-manual-check", "item": ALL}, "checked"),
+    State("ds-mig-state", "data"),
+    State("ds-mig-selected-step", "data"),
+    prevent_initial_call=True,
+)
+def handle_mig_manual_tick(checked_list: Any, state: Any, selected: Any) -> tuple[Any, ...]:
+    """Tick một bước làm tay (task 65): fake chỉ đổi ds-mig-state; thật
+    lưu vào CHECKLIST_JSON của phiên migration (ADMIN).
+
+    Guard: lần vẽ lại detail (tick/poll) tạo lại checkbox cũng kích hoạt
+    callback — bỏ qua khi giá trị mới bằng đúng trạng thái đã lưu.
+    """
+    checklist = state or _empty_mig_state()
+    triggered = dash.callback_context.triggered
+    triggered_id = dash.callback_context.triggered_id
+    if not triggered or not isinstance(triggered_id, dict) or triggered_id.get("type") != "mig-manual-check":
+        return dash.no_update, dash.no_update, dash.no_update
+    item_id = str(triggered_id.get("item") or "")
+    first = triggered[0]
+    new_checked = bool(first.get("value")) if isinstance(first, dict) else False
+    new_state = copy.deepcopy(checklist)
+    changed = set_item_status(
+        new_state, MANUAL_STEP_KEY, item_id, "done" if new_checked else "pending"
+    )
+    if not changed:
+        return dash.no_update, dash.no_update, dash.no_update
+    selected_idx = _mig_selected_index(new_state, selected)
+    if str(new_state.get("mode")) == "real" and new_state.get("migration_id"):
+        ctx = get_current_ctx()
+        if ctx is None or not is_admin(ctx):
+            return (
+                checklist,
+                _render_mig_stepper(checklist, selected_idx),
+                _render_mig_detail(checklist, selected_idx),
+            )
+        try:
+            save_checklist(get_recon_engine(), int(new_state["migration_id"]), new_state)
+        except Exception:
+            # Lưu lỗi thì vẽ lại từ state cũ (checkbox tự về trạng thái cũ).
+            return (
+                checklist,
+                _render_mig_stepper(checklist, selected_idx),
+                _render_mig_detail(checklist, selected_idx),
+            )
+    return (
+        new_state,
+        _render_mig_stepper(new_state, selected_idx),
+        _render_mig_detail(new_state, selected_idx),
+    )
 
 
 @callback(
