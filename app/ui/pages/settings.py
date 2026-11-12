@@ -76,118 +76,123 @@ def layout(**kwargs: Any) -> Any:
                 subtitle="Chỉ ADMIN. Áp dụng cho file export chạy ngầm và timeout truy vấn báo cáo.",
                 style={"width": "fit-content"},
             ),
-            dmc.Paper(
-                dmc.Stack(
-                    [
-                        dmc.Title("Dọn file export", order=4, size="sm"),
-                        dmc.Text(
-                            "File export đã kết thúc (DONE/FAILED/CANCELLED) được giữ "
-                            "lại để tải trong Lịch sử báo cáo. Chế độ manual: không tự "
-                            "xóa, ADMIN xóa tay từng file. Chế độ scheduler: worker tự "
-                            "xóa file quá số ngày đã chọn.",
-                            size="sm",
-                            c="dimmed",
-                        ),
-                        dmc.Select(
-                            id="settings-mode-select",
-                            label="Chế độ dọn file",
-                            data=[
-                                {"label": "Manual — không tự xóa", "value": "manual"},
-                                {"label": "Scheduler — tự xóa file quá hạn", "value": "scheduler"},
+            dmc.SimpleGrid(
+                cols={"base": 1, "lg": 3},
+                spacing="md",
+                w="100%",
+                maw=1400,
+                children=[
+                    dmc.Paper(
+                        dmc.Stack(
+                            [
+                                dmc.Title("Dọn file export", order=4, size="sm"),
+                                dmc.Text(
+                                    "File export đã kết thúc (DONE/FAILED/CANCELLED) được giữ "
+                                    "lại để tải trong Lịch sử báo cáo. Chế độ manual: không tự "
+                                    "xóa, ADMIN xóa tay từng file. Chế độ scheduler: worker tự "
+                                    "xóa file quá số ngày đã chọn.",
+                                    size="sm",
+                                    c="dimmed",
+                                ),
+                                dmc.Select(
+                                    id="settings-mode-select",
+                                    label="Chế độ dọn file",
+                                    data=[
+                                        {"label": "Manual — không tự xóa", "value": "manual"},
+                                        {"label": "Scheduler — tự xóa file quá hạn", "value": "scheduler"},
+                                    ],
+                                    value=mode,
+                                    w=320,
+                                    clearable=False,
+                                ),
+                                dmc.NumberInput(
+                                    id="settings-days-input",
+                                    label="Giữ file (ngày)",
+                                    value=days,
+                                    min=1,
+                                    max=365,
+                                    step=1,
+                                    w=320,
+                                    description="Chỉ dùng khi chế độ là Scheduler.",
+                                ),
                             ],
-                            value=mode,
-                            w=320,
-                            clearable=False,
+                            gap="md",
                         ),
-                        dmc.NumberInput(
-                            id="settings-days-input",
-                            label="Giữ file (ngày)",
-                            value=days,
-                            min=1,
-                            max=365,
-                            step=1,
-                            w=320,
-                            description="Chỉ dùng khi chế độ là Scheduler.",
+                        withBorder=True,
+                        radius="sm",
+                        p="md",
+                        w="100%",
+                    ),
+                    dmc.Paper(
+                        dmc.Stack(
+                            [
+                                dmc.Title("Export chạy song song", order=4, size="sm"),
+                                dmc.Text(
+                                    "Worker xử lý tối đa từng này export cùng lúc "
+                                    "(mỗi người dùng tối đa từng này export đang chạy). "
+                                    "Đổi xong có hiệu lực ở vòng poll tiếp theo, "
+                                    "không cần khởi động lại worker.",
+                                    size="sm",
+                                    c="dimmed",
+                                ),
+                                dmc.NumberInput(
+                                    id="settings-concurrent-input",
+                                    label="Số export chạy song song tối đa",
+                                    value=max_concurrent,
+                                    min=1,
+                                    max=50,
+                                    step=1,
+                                    w=320,
+                                ),
+                            ],
+                            gap="md",
                         ),
-                    ],
-                    gap="md",
-                ),
-                withBorder=True,
-                radius="sm",
-                p="md",
-                w="100%",
-                maw=640,
-            ),
-            dmc.Paper(
-                dmc.Stack(
-                    [
-                        dmc.Title("Export chạy song song", order=4, size="sm"),
-                        dmc.Text(
-                            "Worker xử lý tối đa từng này export cùng lúc "
-                            "(mỗi người dùng tối đa từng này export đang chạy). "
-                            "Đổi xong có hiệu lực ở vòng poll tiếp theo, "
-                            "không cần khởi động lại worker.",
-                            size="sm",
-                            c="dimmed",
+                        withBorder=True,
+                        radius="sm",
+                        p="md",
+                        w="100%",
+                    ),
+                    dmc.Paper(
+                        dmc.Stack(
+                            [
+                                dmc.Title("Timeout truy vấn báo cáo", order=4, size="sm"),
+                                dmc.Text(
+                                    "Khi xem báo cáo, app chạy câu COUNT để đếm tổng số dòng "
+                                    "rồi mới lấy 1 trang dữ liệu. Câu COUNT quét toàn bộ dữ "
+                                    "liệu trong khoảng ngày nên với khoảng rộng có thể chạy "
+                                    "lâu hơn câu lấy dữ liệu. Hai timeout này (giây) áp dụng "
+                                    "cho mọi báo cáo khi xem và xem trước; đổi xong có hiệu "
+                                    "lực ngay, không cần khởi động lại.",
+                                    size="sm",
+                                    c="dimmed",
+                                ),
+                                dmc.NumberInput(
+                                    id="settings-count-timeout-input",
+                                    label="Timeout câu COUNT (giây)",
+                                    value=count_timeout,
+                                    min=1,
+                                    max=3600,
+                                    step=1,
+                                    w=320,
+                                ),
+                                dmc.NumberInput(
+                                    id="settings-data-timeout-input",
+                                    label="Timeout câu dữ liệu (giây)",
+                                    value=data_timeout,
+                                    min=1,
+                                    max=3600,
+                                    step=1,
+                                    w=320,
+                                ),
+                            ],
+                            gap="md",
                         ),
-                        dmc.NumberInput(
-                            id="settings-concurrent-input",
-                            label="Số export chạy song song tối đa",
-                            value=max_concurrent,
-                            min=1,
-                            max=50,
-                            step=1,
-                            w=320,
-                        ),
-                    ],
-                    gap="md",
-                ),
-                withBorder=True,
-                radius="sm",
-                p="md",
-                w="100%",
-                maw=640,
-            ),
-            dmc.Paper(
-                dmc.Stack(
-                    [
-                        dmc.Title("Timeout truy vấn báo cáo", order=4, size="sm"),
-                        dmc.Text(
-                            "Khi xem báo cáo, app chạy câu COUNT để đếm tổng số dòng "
-                            "rồi mới lấy 1 trang dữ liệu. Câu COUNT quét toàn bộ dữ "
-                            "liệu trong khoảng ngày nên với khoảng rộng có thể chạy "
-                            "lâu hơn câu lấy dữ liệu. Hai timeout này (giây) áp dụng "
-                            "cho mọi báo cáo khi xem và xem trước; đổi xong có hiệu "
-                            "lực ngay, không cần khởi động lại.",
-                            size="sm",
-                            c="dimmed",
-                        ),
-                        dmc.NumberInput(
-                            id="settings-count-timeout-input",
-                            label="Timeout câu COUNT (giây)",
-                            value=count_timeout,
-                            min=1,
-                            max=3600,
-                            step=1,
-                            w=320,
-                        ),
-                        dmc.NumberInput(
-                            id="settings-data-timeout-input",
-                            label="Timeout câu dữ liệu (giây)",
-                            value=data_timeout,
-                            min=1,
-                            max=3600,
-                            step=1,
-                            w=320,
-                        ),
-                    ],
-                    gap="md",
-                ),
-                withBorder=True,
-                radius="sm",
-                p="md",
-                w="100%",
-                maw=640,
+                        withBorder=True,
+                        radius="sm",
+                        p="md",
+                        w="100%",
+                    ),
+                ],
             ),
             dmc.Group(
                 [
