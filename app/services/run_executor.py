@@ -537,7 +537,7 @@ def execute_run(
                         CONTROL_TOTAL_CALC=ct_calc,
                         CONTROL_TOTAL_OK=ct_ok,
                         MEASURE_TOTALS_JSON=_get_sum("MEASURE_TOTALS_JSON", None) or summary_dict.get("measure_totals"),
-                        STATUS_AMOUNTS_JSON=_get_sum("STATUS_AMOUNTS_JSON", None) or summary_dict.get("status_amounts"),
+                        STATUS_AMOUNTS_JSON=_get_sum("STATUS_AMOUNTS_JSON", None) or summary_dict.get("status_amounts") or {},
                         COLUMNS_JSON=_get_sum("COLUMNS_JSON", None) or summary_dict.get("columns"),
                         SOURCE_SQL=_get_sum("SOURCE_SQL", None) or summary_dict.get("source_sql"),
                         DURATION_MS=_get_sum("DURATION_MS", 0),

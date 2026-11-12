@@ -113,12 +113,12 @@ def _write_summary_sheet(
         ("Trùng khóa", summary.get("CNT_DUPLICATE", 0), "DUPLICATE"),
     ]
 
-    status_amounts = summary.get("STATUS_AMOUNTS_JSON", {})
+    status_amounts = summary.get("STATUS_AMOUNTS_JSON") or {}
 
     for lbl, cnt, code in status_data:
         ws.write(curr_row, 0, lbl, formats["text"])
         ws.write(curr_row, 1, cnt, formats["number_integer"])
-        amt_info = status_amounts.get(code, {})
+        amt_info = status_amounts.get(code, {}) or {}
         ex_amt = amt_info.get("excel", "0")
         db_amt = amt_info.get("db", "0")
         diff_amt = amt_info.get("diff", "0")

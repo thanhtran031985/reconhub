@@ -385,3 +385,47 @@ def test_worker_reset_stale_jobs(test_db, seed_data):
         assert r is not None
         assert r["STATUS"] == "FAILED"
         assert "bị ngắt đột ngột" in str(r["ERROR_MSG"])
+
+
+def test_execute_run_saves_status_amounts_empty_dict_when_no_main_measure(
+    test_db, seed_data, admin_ctx
+):
+    """Hồi quy task 72: profile không có main_measure -> build_summary trả
+    STATUS_AMOUNTS_JSON={}; executor phải lưu {} chứ không phải NULL (NULL
+    làm export_run crash ở export.py:121)."""
+    cfg = get_sample_config()
+    for p in cfg["profiles"]:
+        p["main_measure"] = None
+    with test_db.begin() as conn:
+        conn.execute(
+            recon_template_version.update()
+            .where(recon_template_version.c.TEMPLATE_ID == seed_data["template_id"])
+            .values(CONFIG_JSON=cfg)
+        )
+    res = create_run(
+        admin_ctx,
+        CreateRunParams(
+            template_id=seed_data["template_id"],
+            file_id=seed_data["file_id"],
+            profile_code="BY_INVOICE",
+            p_from=datetime(2026, 2, 1, 0, 0, 0),
+            p_to=datetime(2026, 2, 5, 23, 59, 59),
+        ),
+    )
+    assert res.ok
+    run_id = res.data["run_id"]
+
+    import polars as pl
+
+    golden_db_path = Path("tests/golden/G01_dtp_by_invoice/db.parquet")
+    db_df = pl.read_parquet(golden_db_path)
+
+    def mock_fetcher(config, profile, p_from, p_to, max_rows, timeout):
+        return db_df
+
+    exec_res = execute_run(run_id, mock_fetcher=mock_fetcher)
+    assert exec_res["status"] == "DONE"
+    with test_db.connect() as conn:
+        summ = conn.execute(select(recon_run_summary).where(recon_run_summary.c.RUN_ID == run_id)).mappings().first()
+        assert summ is not None
+        assert summ["STATUS_AMOUNTS_JSON"] == {}

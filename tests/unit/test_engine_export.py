@@ -131,3 +131,63 @@ def test_export_excel_format_and_styles() -> None:
     assert invalid_sheet.cell(row=2, column=1).value == 10
 
     Path(tmp_export_path).unlink(missing_ok=True)
+
+
+def test_export_status_amounts_none_no_crash() -> None:
+    """Hồi quy task 72: summary STATUS_AMOUNTS_JSON=None (DB NULL do executor
+    lưu {} thành NULL khi profile không có main_measure) không được crash
+    write_export — sheet Tổng hợp vẫn xuất được."""
+    profile = ProfileSpec(
+        code="BY_INVOICE",
+        name="Theo số hóa đơn",
+        aggregate=True,
+        group_by=["INVOICE_NO"],
+        main_measure="TOTAL_AMOUNT",
+        measures=[
+            MeasureSpec(
+                name="TOTAL_AMOUNT",
+                label="Tổng tiền",
+                agg="sum",
+                field="AMOUNT",
+                compare="abs_tol",
+                tolerance=Decimal("1.0"),
+                round=0,
+            ),
+        ],
+    )
+    excel_raw = pl.DataFrame(
+        [{"INVOICE_NO": "INV-1", "AMOUNT": Decimal("100"), "__row_no": 2}]
+    )
+    excel_agg = aggregate(excel_raw, profile)
+    db_raw = pl.DataFrame([{"INVOICE_NO": "INV-1", "AMOUNT": Decimal("100")}])
+    db_agg = aggregate(db_raw, profile)
+    res_df = compare(excel_agg, db_agg, profile)
+    invalid_df = pl.DataFrame(
+        [{"__row_no": 10, "__raw_data": '{"INVOICE_NO": ""}', "__invalid_reasons": '["MISSING_KEY"]'}]
+    )
+    summary = build_summary(
+        result_df=res_df,
+        profile=profile,
+        excel_rows_read=1,
+        excel_rows_invalid=1,
+    )
+    # Mô phỏng DB NULL: executor lưu {} thành NULL (run_executor.py:540),
+    # JsonText đọc lại thành None.
+    summary["STATUS_AMOUNTS_JSON"] = None
+
+    with NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+        tmp_export_path = f.name
+    try:
+        write_export(
+            output_path=tmp_export_path,
+            result_df=res_df,
+            invalid_df=invalid_df,
+            summary=summary,
+            profile=profile,
+            run_params={"p_from": "2026-02-01", "p_to": "2026-02-05"},
+        )
+        wb = openpyxl.load_workbook(tmp_export_path, data_only=False)
+        assert "Tổng hợp" in wb.sheetnames
+        assert "Khớp" in wb.sheetnames
+    finally:
+        Path(tmp_export_path).unlink(missing_ok=True)

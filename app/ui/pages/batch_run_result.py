@@ -13,6 +13,7 @@ from typing import Any
 import dash
 import dash_mantine_components as dmc
 from dash import ALL, Input, Output, State, callback, dcc, html
+from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
 from app.services.batch_run import build_zip, matrix, rerun_item, retry_failed
@@ -229,28 +230,30 @@ def render_matrix_table(
         if purged:
             check_chips.append(dmc.Badge("Đã xóa dữ liệu tạm", color="gray", variant="outline", size="xs"))
 
-        actions: list[Any] = []
+        # Menu thao tác 3 chấm (kiểu /history): 1 nút mở menu, các mục giữ
+        # nguyên id cũ để callback tải/chạy-lại không đổi.
+        menu_items: list[Any] = []
         if run_id is not None:
-            actions.append(
-                dmc.Anchor(
-                    button_subtle("Mở run", size="xs"),
+            menu_items.append(
+                dmc.MenuItem(
+                    "Mở run",
                     href=f"/runs/{run_id}",
-                    underline=False,
+                    leftSection=DashIconify(icon="lucide:eye", width=14),
                 )
             )
-            actions.append(
-                button_subtle(
+            menu_items.append(
+                dmc.MenuItem(
                     "Tải file",
                     id={"type": "brr-download-btn", "index": item_id},
-                    size="xs",
+                    leftSection=DashIconify(icon="lucide:download", width=14),
                 )
             )
         if str(row.get("status")) in ("DONE", "FAILED", "NOT_RUN"):
-            actions.append(
-                button_subtle(
+            menu_items.append(
+                dmc.MenuItem(
                     "Chạy lại",
                     id={"type": "brr-rerun-btn", "index": item_id},
-                    size="xs",
+                    leftSection=DashIconify(icon="lucide:rotate-ccw", width=14),
                 )
             )
 
@@ -295,7 +298,27 @@ def render_matrix_table(
                     dmc.TableTd(dmc.Text(_fmt_pct(row.get("match_rate")), size="xs", ta="right")),
                     dmc.TableTd(dmc.Text(_fmt_delta(row.get("match_rate_delta")), size="xs", ta="center", c="dimmed")),
                     dmc.TableTd(dmc.Group(check_chips, gap=4)),
-                    dmc.TableTd(dmc.Group(actions, gap=4)),
+                    dmc.TableTd(
+                        dmc.Menu(
+                            [
+                                dmc.MenuTarget(
+                                    dmc.ActionIcon(
+                                        DashIconify(icon="lucide:more-vertical", width=14),
+                                        variant="subtle",
+                                        color="gray",
+                                        size="sm",
+                                        **{"aria-label": f"Thao tác {row.get('template_code')}"},
+                                    )
+                                ),
+                                dmc.MenuDropdown(menu_items),
+                            ],
+                            position="bottom-end",
+                            withArrow=True,
+                        )
+                        if menu_items
+                        else "",
+                        style={"textAlign": "center"},
+                    ),
                 ]
             )
         )
@@ -325,7 +348,7 @@ def render_matrix_table(
                                 dmc.TableTh("Tỷ lệ khớp", style={**th_style, "width": "80px"}),
                                 dmc.TableTh("So tháng trước", style={**th_style, "width": "100px"}),
                                 dmc.TableTh("Kiểm tra", style={**th_style, "minWidth": "140px"}),
-                                dmc.TableTh("Thao tác", style={**th_style, "minWidth": "160px"}),
+                                dmc.TableTh("Thao tác", style={**th_style, "width": "56px"}),
                             ]
                         )
                     ),
@@ -606,7 +629,7 @@ def _download_one(_n: Any, store_data: Any) -> tuple[Any, Any]:
     res = export_run(ctx, int(target["current_run_id"]))
     if not res.ok or not res.data:
         return dash.no_update, notify_error(res.message or "Không xuất được file.")
-    path = Path(res.data["path"])
+    path = Path(res.data["export_path"])
     return dcc.send_file(str(path)), notify_success(f"Bắt đầu tải {path.name}.")  # type: ignore[attr-defined,no-untyped-call]
 
 

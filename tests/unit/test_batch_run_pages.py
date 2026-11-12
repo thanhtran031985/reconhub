@@ -371,6 +371,69 @@ class TestResultRender:
         assert "1/1 mục có kết quả" in " ".join(_texts(render_result_header(data)))
         assert "100" in " ".join(_texts(render_result_kpis(data["kpis"])))
 
+    def test_matrix_table_actions_are_single_menu(self):
+        """Task 72: cột Thao tác là 1 menu duy nhất với đủ 3 mục; các mục giữ
+        nguyên id để callback tải/chạy-lại không đổi."""
+        from app.ui.pages.batch_run_result import render_matrix_table
+
+        node = render_matrix_table(self._matrix())
+        menus = _find_all(node, dmc.Menu)
+        assert len(menus) == 1
+        items = _find_all(node, dmc.MenuItem)
+        assert [str(i.children) for i in items] == ["Mở run", "Tải file", "Chạy lại"]
+        by_text = {str(i.children): i for i in items}
+        assert by_text["Mở run"].href == "/runs/42"
+        assert by_text["Tải file"].id == {"type": "brr-download-btn", "index": 1}
+        assert by_text["Chạy lại"].id == {"type": "brr-rerun-btn", "index": 1}
+
+    def test_matrix_table_failed_row_menu_without_run(self):
+        from app.ui.pages.batch_run_result import render_matrix_table
+
+        node = render_matrix_table(self._matrix(status="FAILED", current_run_id=None))
+        items = _find_all(node, dmc.MenuItem)
+        assert [str(i.children) for i in items] == ["Chạy lại"]
+
+    def test_matrix_table_skipped_row_has_no_menu(self):
+        from app.ui.pages.batch_run_result import render_matrix_table
+
+        node = render_matrix_table(self._matrix(status="SKIPPED", current_run_id=None))
+        assert _find_all(node, dmc.Menu) == []
+
+    def test_download_one_reads_export_path(self, monkeypatch, tmp_path):
+        """Hồi quy task 72 (D5): _download_one phải đọc res.data["export_path"]
+        — export_run không trả key "path" nên bản cũ KeyError -> callback 500."""
+        from types import SimpleNamespace
+
+        import dash
+
+        import app.ui.pages.batch_run_result as page
+        from app.schemas.errors import ServiceResult
+
+        fake = tmp_path / "export.xlsx"
+        fake.write_bytes(b"fake-xlsx")
+        monkeypatch.setattr(
+            page,
+            "export_run",
+            lambda ctx, run_id: ServiceResult(
+                ok=True,
+                data={"run_id": 1, "export_path": str(fake), "file_name": "export.xlsx"},
+            ),
+        )
+        monkeypatch.setattr(
+            page, "get_current_ctx",
+            lambda: Ctx(user_id=1, username="admin", full_name="admin", roles=["ADMIN"]),
+        )
+        monkeypatch.setattr(
+            "dash.callback_context",
+            SimpleNamespace(
+                triggered_id={"type": "brr-download-btn", "index": 1},
+                triggered=[{"prop_id": "x", "value": 1}],
+            ),
+        )
+        out, _note = page._download_one([1], {"rows": [{"item_id": 1, "current_run_id": 1}]})
+        assert out is not dash.no_update
+        assert out.get("filename") == "export.xlsx"
+
 
 class TestHistoryBatchChip:
     def _history_item(self, **kw):
