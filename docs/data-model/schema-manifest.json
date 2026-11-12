@@ -1,7 +1,7 @@
 {
   "database": "sqlite",
   "generated": true,
-  "generated_at": "2026-11-11T14:58:23.615566+00:00",
+  "generated_at": "2026-11-12T03:19:25.843438+00:00",
   "generator": "schema-introspect",
   "schema": "main",
   "tables": [
@@ -6088,6 +6088,6 @@
       "unique_constraints": []
     }
   ],
-  "version": "0008_migration_checklist",
+  "version": "0009_queue_health_menu",
   "warnings": []
 }

@@ -239,3 +239,34 @@ def test_export_claim_migration_columns(temp_db_url: str) -> None:
         c["name"] for c in inspect(engine).get_columns("RECON_RPT_EXPORT")
     }
     assert not ({"LOCKED_BY", "LOCKED_AT", "HEARTBEAT_AT"} & cols)
+
+
+def _queue_health_grants(engine) -> set[str]:
+    """Các vai trò được cấp menu queue_health (RECON_ROLE_MENU)."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT R.CODE FROM RECON_ROLE_MENU RM "
+                "JOIN RECON_ROLE R ON R.ID = RM.ROLE_ID "
+                "WHERE RM.MENU_CODE = 'queue_health'"
+            )
+        ).all()
+    return {str(r[0]) for r in rows}
+
+
+def test_queue_health_menu_grants_0009(temp_db_url: str) -> None:
+    """Task 66: migration 0009 (chỉ dữ liệu) cấp menu queue_health cho
+    3 vai trò còn lại; idempotent; downgrade gỡ đúng các dòng đã thêm."""
+    from sqlalchemy import create_engine
+
+    run_alembic_upgrade(temp_db_url, "head")
+    engine = create_engine(temp_db_url)
+    assert _queue_health_grants(engine) == {"TEMPLATE_OWNER", "OPERATOR", "VIEWER"}
+    # Upgrade lại vẫn đúng 3 dòng (không trùng).
+    run_alembic_upgrade(temp_db_url, "head")
+    assert _queue_health_grants(engine) == {"TEMPLATE_OWNER", "OPERATOR", "VIEWER"}
+    # Downgrade về 0008 gỡ các dòng đã thêm; upgrade lại thì có lại.
+    run_alembic_downgrade(temp_db_url, "0008_migration_checklist")
+    assert _queue_health_grants(engine) == set()
+    run_alembic_upgrade(temp_db_url, "head")
+    assert _queue_health_grants(engine) == {"TEMPLATE_OWNER", "OPERATOR", "VIEWER"}

@@ -107,6 +107,7 @@ class TestEffectiveMenus:
             "batch_def",
             "report_center",
             "report_history",
+            "queue_health",
         }
 
     def test_operator_menus(self, perm_env):
@@ -120,6 +121,7 @@ class TestEffectiveMenus:
             "issue",
             "report_center",
             "report_history",
+            "queue_health",
         }
 
     def test_viewer_menus(self, perm_env):
@@ -132,6 +134,7 @@ class TestEffectiveMenus:
             "batch_def",
             "report_center",
             "report_history",
+            "queue_health",
         }
 
     def test_inactive_user_has_no_menus(self, perm_env):
@@ -188,6 +191,7 @@ class TestEffectiveMenus:
             "issue",
             "report_center",
             "report_history",
+            "queue_health",
         }
 
     def test_is_admin(self, perm_env):

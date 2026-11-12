@@ -12,11 +12,10 @@ import pytest
 from sqlalchemy import select
 
 from app.db.metadata import recon_report_run, recon_rpt_export
-from tests.unit.test_page_dashboard import dashboard_env
-from tests.unit.test_page_report_viewer import _dump, _find_by_id
+from tests.unit.test_page_report_viewer import _find_by_id
 from tests.unit.test_report_run_execute import admin_ctx, operator_ctx, run_env
 
-__all__ = ["run_env", "admin_ctx", "operator_ctx", "dashboard_env"]
+__all__ = ["run_env", "admin_ctx", "operator_ctx"]
 
 
 def _now() -> datetime:
@@ -314,7 +313,7 @@ class TestQueueHealth:
 
 class TestHealthCardBody:
     def test_body_shows_down_when_no_heartbeat(self):
-        import app.ui.pages.dashboard as page
+        import app.ui.pages.queue_health as page
 
         body = page._health_card_body(
             {
@@ -337,7 +336,7 @@ class TestHealthCardBody:
         assert "Không có mục kẹt" in text
 
     def test_body_shows_stuck_items_with_cancel(self):
-        import app.ui.pages.dashboard as page
+        import app.ui.pages.queue_health as page
 
         body = page._health_card_body(
             {
@@ -388,27 +387,6 @@ class TestHealthCardBody:
         assert _find_by_id(body, {"type": "health-cancel", "kind": "run", "id": 9}) is None
 
 
-class TestHealthCardPage:
-    def test_health_card_in_render(self, dashboard_env, monkeypatch):
-        import app.ui.pages.dashboard as page
-
-        monkeypatch.setattr(page, "get_current_ctx", lambda: dashboard_env["ctx"])
-        node = page.render_dashboard(0)
-        body = _find_by_id(node, "dashboard-health-card-body")
-        assert body is not None
-        assert "Sức khỏe hàng đợi" in _dump(node)
-
-    def test_health_card_in_empty_branch(self, dashboard_env, monkeypatch):
-        """D7: chưa có run nào (total == 0) thì thẻ vẫn hiện."""
-        import app.ui.pages.dashboard as page
-
-        monkeypatch.setattr(page, "get_current_ctx", lambda: dashboard_env["ctx"])
-        monkeypatch.setattr(page, "fetch_dashboard_stats", lambda ctx: {})
-        node = page.render_dashboard(0)
-        assert _find_by_id(node, "dashboard-health-card-body") is not None
-        assert "Sức khỏe hàng đợi" in _dump(node)
-
-
 class TestHealthCancelCallback:
     def _mock_ctx(self, monkeypatch, triggered_id, value):
         from types import SimpleNamespace
@@ -421,7 +399,7 @@ class TestHealthCancelCallback:
     def test_guard_no_trigger(self, health_env, operator_ctx, monkeypatch):
         import dash
 
-        import app.ui.pages.dashboard as page
+        import app.ui.pages.queue_health as page
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         self._mock_ctx(monkeypatch, None, None)
@@ -430,7 +408,7 @@ class TestHealthCancelCallback:
     def test_guard_redraw_refire(self, health_env, operator_ctx, monkeypatch):
         import dash
 
-        import app.ui.pages.dashboard as page
+        import app.ui.pages.queue_health as page
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
         self._mock_ctx(monkeypatch, {"type": "health-cancel", "kind": "export", "id": 5}, 0)
@@ -439,10 +417,10 @@ class TestHealthCancelCallback:
     def test_refresh_button(self, health_env, operator_ctx, monkeypatch):
         import dash
 
-        import app.ui.pages.dashboard as page
+        import app.ui.pages.queue_health as page
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
-        self._mock_ctx(monkeypatch, "dashboard-health-refresh-btn", 1)
+        self._mock_ctx(monkeypatch, "queue-health-refresh-btn", 1)
         body = page.handle_health_actions(1, [])
         assert body is not dash.no_update
         # health_env chưa từng ghi nhịp tim nên worker đang "Không phản hồi".
@@ -451,7 +429,7 @@ class TestHealthCancelCallback:
     def test_cancel_stuck_export(self, health_env, operator_ctx, monkeypatch):
         import dash
 
-        import app.ui.pages.dashboard as page
+        import app.ui.pages.queue_health as page
 
         engine = health_env["engine"]
         now = _now()
@@ -471,7 +449,7 @@ class TestHealthCancelCallback:
     def test_cancel_forbidden_keeps_export(self, health_env, admin_ctx, monkeypatch):
         import dash
 
-        import app.ui.pages.dashboard as page
+        import app.ui.pages.queue_health as page
 
         engine = health_env["engine"]
         now = _now()
@@ -488,7 +466,7 @@ class TestHealthCancelCallback:
         assert status == "QUEUED"
 
     def test_cancel_stuck_run(self, health_env, operator_ctx, monkeypatch):
-        import app.ui.pages.dashboard as page
+        import app.ui.pages.queue_health as page
 
         engine = health_env["engine"]
         now = _now()

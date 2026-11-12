@@ -59,7 +59,7 @@ class TestMenuDeclaration:
         # Seed 0003 là lịch sử đóng băng; menu thêm sau (task 21) không có trong đó.
         menus = [(m.code, m.label, m.group, m.path, m.order, m.icon, m.hideable) for m in MENUS]
         assert all(s in menus for s in mod.SEED_MENUS)
-        assert len(MENUS) == 18  # 13 menu gốc + 3 menu report (task 21) + 1 menu data model (task 31) + 1 menu cài đặt hệ thống (task 52)
+        assert len(MENUS) == 19  # 13 menu gốc + 3 menu report (task 21) + 1 menu data model (task 31) + 1 menu cài đặt hệ thống (task 52) + 1 menu hàng đợi & worker (task 66)
         assert len(GROUPS) == 3
 
     def test_menu_codes_unique_and_valid(self):
@@ -78,13 +78,13 @@ class TestMenuSync:
     def test_sync_adds_menus_and_groups(self, sync_env):
         engine, sync_mod, _ = sync_env
         res = sync_mod.sync_from_code(engine)
-        assert res["added_menus"] == 18
+        assert res["added_menus"] == 19
         assert res["added_groups"] == 3
         assert res["changed"] is True
         with engine.connect() as conn:
-            assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 18
+            assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 19
             assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU_GROUP")).scalar() == 3
-            assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU WHERE IS_NEW='Y'")).scalar() == 18
+            assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU WHERE IS_NEW='Y'")).scalar() == 19
             assert conn.execute(text("SELECT VALUE FROM RECON_APP_SETTING WHERE KEY='PERM_REVISION'")).scalar() == "1"
             # Không thêm menu vào vai trò nào
             assert conn.execute(text("SELECT COUNT(*) FROM RECON_ROLE_MENU")).scalar() == 0
@@ -152,11 +152,11 @@ class TestMenuSync:
         with ProcessPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(_sync_in_process, [db_path, db_path]))
         # Một process đồng bộ đủ 18 menu, process kia bỏ qua vì khóa đang giữ
-        assert sum(r.get("added_menus", 0) for r in results) == 18
-        assert all(r.get("added_menus", 0) in (0, 18) for r in results)
+        assert sum(r.get("added_menus", 0) for r in results) == 19
+        assert all(r.get("added_menus", 0) in (0, 19) for r in results)
         engine = create_engine(f"sqlite:///{db_path}")
         with engine.connect() as conn:
-            assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 18
+            assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 19
             assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU_GROUP")).scalar() == 3
             assert conn.execute(text("SELECT COUNT(*) FROM RECON_ROLE_MENU")).scalar() == 0
         engine.dispose()

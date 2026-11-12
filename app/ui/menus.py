@@ -54,6 +54,8 @@ MENUS: list[MenuDef] = [
     MenuDef("menu_admin", "Danh sách menu", "QUAN_TRI", "/menus", 30, "lucide:list", "N"),
     MenuDef("report_center", "Trung tâm báo cáo", "DOI_SOAT", "/reports", 70, "lucide:bar-chart-3"),
     MenuDef("report_history", "Lịch sử báo cáo", "DOI_SOAT", "/report-runs", 80, "lucide:clipboard-list"),
+    # Task 66: tách card sức khỏe khỏi dashboard thành tab riêng.
+    MenuDef("queue_health", "Hàng đợi & worker", "DOI_SOAT", "/queue-health", 90, "lucide:activity"),
     MenuDef("report_admin", "Quản trị báo cáo", "QUAN_TRI", "/report-admin", 40, "lucide:settings", "N"),
     MenuDef("data_model", "Mô hình dữ liệu", "QUAN_TRI", "/data-model", 50, "lucide:network"),
     MenuDef("system_settings", "Cài đặt hệ thống", "QUAN_TRI", "/settings", 60, "lucide:settings-2", "N"),
@@ -67,6 +69,8 @@ GROUP_BY_CODE: dict[str, GroupDef] = {g.code: g for g in GROUPS}
 # của effective_menus khi ctx không phải user trong DB (CLI, worker).
 # Task 21 (Q1): report_center + report_history cho cả 3 vai trò còn lại,
 # report_admin chỉ ADMIN.
+# Task 66: queue_health cho cả 3 vai trò còn lại (như card sức khỏe cũ,
+# ai cũng xem được).
 ROLE_MENUS_SEED: dict[str, list[str]] = {
     "TEMPLATE_OWNER": [
         "dashboard",
@@ -79,6 +83,7 @@ ROLE_MENUS_SEED: dict[str, list[str]] = {
         "batch_def",
         "report_center",
         "report_history",
+        "queue_health",
     ],
     "OPERATOR": [
         "dashboard",
@@ -89,6 +94,7 @@ ROLE_MENUS_SEED: dict[str, list[str]] = {
         "issue",
         "report_center",
         "report_history",
+        "queue_health",
     ],
     "VIEWER": [
         "dashboard",
@@ -98,6 +104,7 @@ ROLE_MENUS_SEED: dict[str, list[str]] = {
         "batch_def",
         "report_center",
         "report_history",
+        "queue_health",
     ],
 }
 

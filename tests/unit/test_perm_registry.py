@@ -73,6 +73,8 @@ class TestPageMenuRegistry:
             "report_viewer": "report_center",
             "report_runs": "report_history",
             "report_admin": "report_admin",
+            # Task 66: tab Hàng đợi & worker tách khỏi dashboard.
+            "queue_health": "queue_health",
         }
         for name, code in expected.items():
             mod = importlib.import_module(f"app.ui.pages.{name}")

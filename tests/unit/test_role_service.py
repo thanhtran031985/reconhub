@@ -104,6 +104,7 @@ class TestListRoles:
             "dashboard",
             "history",
             "issue",
+            "queue_health",
             "report_center",
             "report_history",
             "result",
@@ -242,6 +243,7 @@ class TestDeleteAndClone:
             "dashboard",
             "history",
             "issue",
+            "queue_health",
             "report_center",
             "report_history",
             "result",
@@ -270,6 +272,7 @@ class TestUsersAndEffective:
             "batch_run",
             "history",
             "issue",
+            "queue_health",
             "report_center",
             "report_history",
         }

@@ -121,9 +121,10 @@ def _counts_by_status(conn: Any, table: Any, owner: str | None) -> dict[str, int
 
 
 @service
-@requires_menu("dashboard")
+@requires_menu("queue_health")
 def get_queue_health(ctx: Ctx, now: datetime | None = None) -> dict[str, Any]:
-    """Thống kê hàng đợi + danh sách kẹt cho thẻ dashboard (task 62).
+    """Thống kê hàng đợi + danh sách kẹt cho trang Hàng đợi & worker (task 66,
+    tách khỏi dashboard — trước task 66 là thẻ dashboard, menu "dashboard").
 
     Owner scope như list_exports/list_report_runs: không phải ADMIN chỉ
     thấy mục của mình. Danh sách kẹt (tối đa 20, cũ nhất trước):

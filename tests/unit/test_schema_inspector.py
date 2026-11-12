@@ -161,7 +161,7 @@ def test_build_manifest_header_and_version():
     assert manifest["generator"] == "schema-introspect"
     assert manifest["database"] == "sqlite"
     assert manifest["schema"] == "main"
-    assert manifest["version"] == "0008_migration_checklist"  # task 63
+    assert manifest["version"] == "0009_queue_health_menu"  # task 66
     tables = _tables(manifest)
     assert tables["RECON_USER"]["source"] == {"model": "app/db/metadata.py", "migration": "0001_init"}
     assert tables["RECON_LOOKUP_CODE"]["source"]["migration"] == "0002_add_lookup_tables"
