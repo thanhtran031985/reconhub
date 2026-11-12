@@ -62,7 +62,7 @@ from app.services.report_template import (
     update_version_source,
 )
 from app.ui.components.alert_box import alert_box
-from app.ui.components.button import button_danger, button_primary
+from app.ui.components.button import button_danger, button_primary, button_subtle
 from app.ui.components.command_bar import command_bar
 from app.ui.components.data_grid import data_grid
 from app.ui.components.empty_state import empty_state
@@ -897,6 +897,48 @@ def layout(action: str | None = None, **kwargs: Any) -> Any:
                 confirm_label="Mở lại để sửa",
                 danger=True,
             ),
+            # Task 74: modal tạo mới template cho báo cáo đang mở (chỉ Mã +
+            # Tên + Thứ tự; template mới bắt đầu ở version 1 DRAFT).
+            # Đặt ngoài container wizard để lần dựng lại wizard không tạo
+            # lại modal (tránh kích hoạt callback lưu 2 lần).
+            dmc.Modal(
+                id="admin-new-tpl-modal",
+                title="Tạo mới template",
+                opened=False,
+                children=dmc.Stack(
+                    [
+                        dmc.TextInput(
+                            id="admin-new-tpl-code",
+                            label="Mã template *",
+                            placeholder="VD: REVENUE_BY_ORG",
+                            style={"fontFamily": "var(--font-mono, Consolas, monospace)"},
+                            **{"aria-label": "Mã template mới"},
+                        ),
+                        dmc.TextInput(
+                            id="admin-new-tpl-name",
+                            label="Tên template *",
+                            placeholder="VD: Doanh thu theo đơn vị",
+                            **{"aria-label": "Tên template mới"},
+                        ),
+                        dmc.NumberInput(
+                            id="admin-new-tpl-order",
+                            label="Thứ tự",
+                            value=10,
+                            min=0,
+                        ),
+                        html.Div(id="admin-new-tpl-alert"),
+                        dmc.Group(
+                            [
+                                button_subtle("Hủy", id="admin-new-tpl-cancel"),
+                                button_primary("Lưu", id="admin-new-tpl-save"),
+                            ],
+                            justify="flex-end",
+                            gap="sm",
+                        ),
+                    ],
+                    gap="sm",
+                ),
+            ),
         ],
         style={
             "height": "100%",
@@ -974,6 +1016,18 @@ def render_step1(state: dict[str, Any]) -> Any:
 
     tpl_status = str(template.get("status") or version.get("status") or "DRAFT")
 
+    # Task 74: khi đang sửa, "Mã template" là list có search các template
+    # của báo cáo đang mở (value = template id), kèm nút tạo mới.
+    tpl_options: list[dict[str, str]] = []
+    if ctx and editing:
+        tpl_res = list_templates(ctx, int(state["report_id"]))
+        if tpl_res.ok and isinstance(tpl_res.data, list):
+            tpl_options = [
+                {"value": str(t["id"]), "label": f"{t['code']} — {t['name']}"}
+                for t in tpl_res.data
+                if isinstance(t, dict)
+            ]
+
     return dmc.Stack(
         [
             html.Div(
@@ -1017,19 +1071,45 @@ def render_step1(state: dict[str, Any]) -> Any:
                         value=str(report.get("category_code") or "FINANCE"),
                         clearable=False,
                     ),
-                    dmc.TextInput(
-                        id="admin-s1-tpl-code",
-                        label="Mã template *",
-                        value=str(template.get("code") or ""),
-                        disabled=editing,
-                        placeholder="VD: REVENUE_DETAIL",
-                        style={"fontFamily": "var(--font-mono, Consolas, monospace)"},
-                        **{"aria-label": "Mã template"},
+                    (
+                        dmc.Stack(
+                            [
+                                dmc.Select(
+                                    id="admin-s1-tpl-code",
+                                    label="Mã template *",
+                                    data=tpl_options,
+                                    value=str(state["template_id"]),
+                                    searchable=True,
+                                    clearable=False,
+                                    style={"fontFamily": "var(--font-mono, Consolas, monospace)"},
+                                    **{"aria-label": "Mã template"},
+                                ),
+                                dmc.Button(
+                                    "Tạo mới template",
+                                    id="admin-s1-new-tpl-btn",
+                                    variant="light",
+                                    size="xs",
+                                    leftSection=DashIconify(icon="lucide:plus", width=14),
+                                    style={"alignSelf": "flex-start"},
+                                ),
+                            ],
+                            gap=4,
+                        )
+                        if editing
+                        else dmc.TextInput(
+                            id="admin-s1-tpl-code",
+                            label="Mã template *",
+                            value=str(template.get("code") or ""),
+                            placeholder="VD: REVENUE_DETAIL",
+                            style={"fontFamily": "var(--font-mono, Consolas, monospace)"},
+                            **{"aria-label": "Mã template"},
+                        )
                     ),
                     dmc.TextInput(
                         id="admin-s1-tpl-name",
                         label="Tên template *",
                         value=str(template.get("name") or ""),
+                        disabled=editing,
                         placeholder="VD: Chi tiết doanh thu",
                     ),
                     dmc.NumberInput(
@@ -1082,7 +1162,7 @@ def render_step1(state: dict[str, Any]) -> Any:
                 mt="xs",
             ),
             dmc.Alert(
-                "Một Report Master có thể chứa nhiều template động. Sau khi hoàn tất template này, Admin có thể thêm các template “Theo đơn vị”, “Theo khách hàng” hoặc “Theo dịch vụ”.",
+                "Một Report Master có thể chứa nhiều template động. Khi đang sửa một template, dùng nút “Tạo mới template” ở ô Mã template để thêm template khác cho cùng báo cáo.",
                 color="orange",
                 variant="light",
                 mt="xs",
@@ -3179,21 +3259,26 @@ def handle_save_step1(
     editing = bool(state.get("report_id") and state.get("template_id"))
     try:
         if not editing:
-            rep_res = create_report(
-                ctx,
-                {
-                    "code": (report_code or "").strip(),
-                    "name": (report_name or "").strip(),
-                    "category_code": category_code or "FINANCE",
-                    "owner": (owner or "").strip(),
-                    "description": (description or "").strip() or None,
-                    "default_favorite": bool(default_favorite),
-                    "is_visible": bool(is_visible) if is_visible is not None else True,
-                },
-            )
-            if not rep_res.ok or not isinstance(rep_res.data, dict):
-                return state, _err_alert(rep_res)
-            report_id = int(rep_res.data["id"])
+            # Task 74: báo cáo đã có sẵn (report_id có, template_id chưa
+            # có) thì chỉ tạo template, bỏ qua create_report.
+            if state.get("report_id"):
+                report_id = int(state["report_id"])
+            else:
+                rep_res = create_report(
+                    ctx,
+                    {
+                        "code": (report_code or "").strip(),
+                        "name": (report_name or "").strip(),
+                        "category_code": category_code or "FINANCE",
+                        "owner": (owner or "").strip(),
+                        "description": (description or "").strip() or None,
+                        "default_favorite": bool(default_favorite),
+                        "is_visible": bool(is_visible) if is_visible is not None else True,
+                    },
+                )
+                if not rep_res.ok or not isinstance(rep_res.data, dict):
+                    return state, _err_alert(rep_res)
+                report_id = int(rep_res.data["id"])
             tpl_res = create_template(
                 ctx,
                 report_id,
@@ -3799,6 +3884,84 @@ def _state_or_no_update(old_state: dict[str, Any] | None, new_state: dict[str, A
     if new_state == old_state:
         return dash.no_update, alert
     return new_state, alert
+
+
+def handle_tpl_switch(
+    tpl_value: str | int | None,
+    state: dict[str, Any] | None,
+) -> tuple[dict[str, Any], Any]:
+    """Task 74: chọn mã template khác ở bước 1 -> wizard chuyển sang sửa template đó.
+
+    Guard: chỉ chạy khi đang sửa (có report_id + template_id) và giá trị
+    chọn khác template hiện tại — callback cũng bắn khi layout vừa chèn
+    Select (giá trị khởi tạo = template hiện tại) hoặc khi bước khác
+    chèn placeholder ẩn (giá trị rỗng).
+    """
+    if not state or not state.get("report_id") or not state.get("template_id"):
+        raise PreventUpdate
+    if tpl_value is None or str(tpl_value) == "" or str(tpl_value) == str(state["template_id"]):
+        raise PreventUpdate
+    try:
+        tpl_id = int(str(tpl_value))
+    except (TypeError, ValueError):
+        raise PreventUpdate from None
+    new_state, alert = handle_open_edit(1, tpl_id)
+    if new_state is None:
+        # Không mở được (vd template chỉ có version ACTIVE): bump rev để
+        # wizard vẽ lại, Select quay về template đang sửa.
+        return _bump(dict(state)), alert
+    return new_state, alert
+
+
+def handle_new_template_save(
+    n_clicks: int | None,
+    state: dict[str, Any] | None,
+    code: str | None,
+    name: str | None,
+    display_order: int | None,
+) -> tuple[bool, Any, Any, Any]:
+    """Task 74: Lưu modal 'Tạo mới template' -> (modal_mở, state, alert_chung, alert_modal).
+
+    Tạo template dưới báo cáo đang mở (service create_template đã có sẵn,
+    trùng mã trong báo cáo -> CONFLICT) rồi chuyển wizard sang sửa template
+    mới (version 1 DRAFT, bước 1). Lỗi thì modal ở lại mở, lỗi hiện trong
+    modal; thành công thì đóng modal, state đổi, toast thành công.
+    """
+    if not n_clicks:
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    if not state or not state.get("report_id"):
+        return True, dash.no_update, dash.no_update, notify_error("Chưa mở báo cáo để thêm template.")
+    try:
+        tpl_res = create_template(
+            ctx,
+            int(state["report_id"]),
+            {
+                "code": (code or "").strip(),
+                "name": (name or "").strip(),
+                # Task 74 (parent review): 0 là thứ tự hợp lệ (ge=0) nên
+                # không dùng `or 10` — chỉ mặc định 10 khi chưa nhập.
+                "display_order": int(display_order) if display_order is not None else 10,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - service đã bọc, phòng thủ thêm
+        return True, dash.no_update, dash.no_update, notify_error(f"Tạo template lỗi: {exc}")
+    if not tpl_res.ok or not isinstance(tpl_res.data, dict):
+        return True, dash.no_update, dash.no_update, _err_alert(tpl_res)
+    versions = tpl_res.data.get("versions") or []
+    version_id = int(versions[0]["id"]) if versions else None
+    new_state = _state_from_version(ctx, int(tpl_res.data["id"]), version_id) if version_id else None
+    if new_state is None:
+        return True, dash.no_update, dash.no_update, notify_error("Đã tạo template nhưng không tải được version.")
+    new_state["report_id"] = int(state["report_id"])
+    return (
+        False,
+        new_state,
+        notify_success(f"Đã tạo template {tpl_res.data.get('code')}. Đang sửa template mới."),
+        None,
+    )
 
 
 @callback(
@@ -4783,6 +4946,72 @@ def handle_reopen_confirm(
     ctx = get_current_ctx()
     new_state, alert = confirm_reopen_logic(n_clicks, state, ctx)
     return False, new_state, alert
+
+
+@callback(
+    Output("admin-new-tpl-modal", "opened"),
+    Output("admin-new-tpl-code", "value"),
+    Output("admin-new-tpl-name", "value"),
+    Output("admin-new-tpl-order", "value"),
+    Output("admin-new-tpl-alert", "children"),
+    Input("admin-s1-new-tpl-btn", "n_clicks"),
+    Input("admin-new-tpl-cancel", "n_clicks"),
+    prevent_initial_call=True,
+)
+def handle_new_tpl_modal_toggle(
+    open_clicks: int | None,
+    cancel_clicks: int | None,
+) -> tuple[Any, Any, Any, Any, Any]:
+    """Task 74: mở modal 'Tạo mới template' (xóa trắng form) / Hủy đóng modal.
+
+    Guard n_clicks: nút mở nằm trong wizard nên mỗi lần wizard vẽ lại,
+    nút được tạo mới với n_clicks None -> không làm gì.
+    """
+    triggered = dash.callback_context.triggered_id
+    if triggered == "admin-new-tpl-cancel":
+        return False, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    if not open_clicks:
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    return True, "", "", 10, None
+
+
+@callback(
+    Output("admin-new-tpl-modal", "opened", allow_duplicate=True),
+    Output("admin-state-store", "data", allow_duplicate=True),
+    Output("admin-alert", "children", allow_duplicate=True),
+    Output("admin-new-tpl-alert", "children", allow_duplicate=True),
+    Input("admin-new-tpl-save", "n_clicks"),
+    State("admin-state-store", "data"),
+    State("admin-new-tpl-code", "value"),
+    State("admin-new-tpl-name", "value"),
+    State("admin-new-tpl-order", "value"),
+    prevent_initial_call=True,
+)
+def handle_new_tpl_save_click(
+    n_clicks: int | None,
+    state: dict[str, Any] | None,
+    code: str | None,
+    name: str | None,
+    display_order: int | None,
+) -> tuple[bool, Any, Any, Any]:
+    """Task 74: bấm Lưu trong modal -> tạo template rồi chuyển wizard sang template mới."""
+    return handle_new_template_save(n_clicks, state, code, name, display_order)
+
+
+@callback(
+    Output("admin-state-store", "data", allow_duplicate=True),
+    Output("admin-alert", "children", allow_duplicate=True),
+    Input("admin-s1-tpl-code", "value"),
+    State("admin-state-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_s1_tpl_switch(
+    tpl_value: str | None,
+    state: dict[str, Any] | None,
+) -> tuple[dict[str, Any], Any]:
+    """Task 74: chọn mã template khác ở bước 1 -> wizard chuyển sang sửa template đó."""
+    new_state, alert = handle_tpl_switch(tpl_value, state)
+    return _state_or_no_update(state, new_state, alert)
 
 
 @callback(
