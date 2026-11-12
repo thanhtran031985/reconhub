@@ -151,8 +151,19 @@ def normalize(
     - valid_df: các dòng hợp lệ với kiểu dữ liệu chuẩn (Decimal, datetime/date, text)
     - invalid_df: các dòng lỗi gồm (__row_no, __raw_data, __invalid_reasons)
     """
-    field_map = {f.name: f for f in fields if f.name in df.columns}
-    cols_to_process = [f.name for f in fields if f.name in df.columns]
+    # Khớp cột theo tên trường logic; phía DB (pushdown) cột mang tên cột
+    # vật lý (f.db) thay vì tên trường — vẫn phải chuẩn hóa theo kiểu khai
+    # báo để 2 phía cùng kiểu (task 69: field NGAY_HD/db INVOICE_DATE type
+    # date; phía DB không khớp tên nên giữ nguyên datetime, phía Excel ra
+    # date -> compare() lỗi khi dựng kết quả trộn 2 kiểu).
+    field_map: dict[str, FieldSpec] = {}
+    cols_to_process: list[str] = []
+    for f in fields:
+        candidates = (f.name, f.db) if side == "db" else (f.name,)
+        for col in candidates:
+            if col and col in df.columns and col not in field_map:
+                field_map[col] = f
+                cols_to_process.append(col)
 
     valid_records: list[dict[str, Any]] = []
     invalid_records: list[dict[str, Any]] = []
