@@ -481,6 +481,108 @@ def handle_run_click(
 
 
 @callback(
+    Output("viewer-param-form", "children"),
+    Output("viewer-version-store", "data"),
+    Output("viewer-run-store", "data", allow_duplicate=True),
+    Output("viewer-page-store", "data", allow_duplicate=True),
+    Output("viewer-run-error", "children", allow_duplicate=True),
+    Input("viewer-tabs", "value"),
+    State("viewer-version-store", "data"),
+    State("viewer-templates-store", "data"),
+    State("viewer-run-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_viewer_tab_switch_click(
+    tab_value: str | None,
+    version_store: dict[str, Any] | None,
+    templates_store: list[dict[str, Any]] | None,
+    run_store: dict[str, Any] | None,
+) -> tuple[Any, Any, Any, Any, Any]:
+    """Task 77: chọn tab template khác -> vẽ lại form tham số + xóa kết quả cũ."""
+    form, version_detail, new_run, page, error = handle_viewer_tab_switch(
+        tab_value, version_store, templates_store, run_store
+    )
+    return (
+        form if form is not None else dash.no_update,
+        version_detail if version_detail is not None else dash.no_update,
+        new_run if new_run is not None else dash.no_update,
+        page if page is not None else dash.no_update,
+        error,
+    )
+
+
+def handle_viewer_tab_switch(
+    tab_value: str | int | None,
+    version_store: dict[str, Any] | None,
+    templates_store: list[dict[str, Any]] | None,
+    run_store: dict[str, Any] | None,
+) -> tuple[Any, dict[str, Any] | None, dict[str, Any] | None, int | None, Any]:
+    """Task 77: chọn tab template khác -> vẽ lại form tham số theo version
+    ACTIVE của template đó, xóa kết quả cũ. Không tự chạy báo cáo.
+
+    Trả (form, version_detail, run_store_mới, page, error); None ở một
+    slot nghĩa là giữ nguyên (callback map sang dash.no_update).
+    """
+    if tab_value is None or str(tab_value) == "":
+        raise PreventUpdate
+    try:
+        template_id = int(str(tab_value))
+    except (TypeError, ValueError):
+        raise PreventUpdate from None
+    current_id: int | None = None
+    if isinstance(version_store, dict):
+        try:
+            current_id = int(version_store.get("template_id") or 0) or None
+        except (TypeError, ValueError):
+            current_id = None
+    if current_id is not None and template_id == current_id:
+        raise PreventUpdate
+    target: dict[str, Any] | None = None
+    for t in templates_store or []:
+        if isinstance(t, dict) and int(t.get("id") or 0) == template_id:
+            target = t
+            break
+    if target is None:
+        raise PreventUpdate
+    active_version_id = target.get("active_version_id")
+    if not active_version_id:
+        return (
+            None,
+            None,
+            None,
+            None,
+            notify_error(f"Template {target.get('code') or template_id} chưa có version ACTIVE."),
+        )
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    version_res = get_version(ctx, int(active_version_id))
+    if not version_res.ok or not isinstance(version_res.data, dict):
+        return None, None, None, None, notify_error(version_res.message or "Không tải được version.")
+    version_detail = version_res.data
+    preview_res = preview_layout(ctx, int(active_version_id))
+    if not preview_res.ok or not isinstance(preview_res.data, dict):
+        return None, None, None, None, notify_error(preview_res.message or "Không tải được form tham số.")
+    preview = preview_res.data
+    options_by_code: dict[str, list[dict[str, str]]] = {}
+    for row in preview.get("rows", []):
+        for entry in row.get("params", []):
+            if entry.get("control_type") in ("SELECT", "MULTI_SELECT"):
+                options_by_code[str(entry["code"])] = _lov_options(ctx, int(active_version_id), entry)
+    form = render_param_form(
+        preview,
+        options_by_code,
+        action=dmc.Button(
+            "Xem báo cáo",
+            id="viewer-run-btn",
+            variant="filled",
+            size="sm",
+        ),
+    )
+    return form, version_detail, {}, 1, ""
+
+
+@callback(
     Output("viewer-page-store", "data", allow_duplicate=True),
     Input("viewer-pagination", "value"),
     State("viewer-run-store", "data"),
