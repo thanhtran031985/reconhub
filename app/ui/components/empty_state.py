@@ -22,7 +22,7 @@ def empty_state(
             color="gray",
             variant="light",
         ),
-        dmc.Text(title, fw=600, size="md", c="dark", ta="center"),
+        dmc.Text(title, fw=600, size="md", c="var(--ink)", ta="center"),
         dmc.Text(description, size="sm", c="dimmed", ta="center", maw=400),
     ]
     if action is not None:
@@ -33,6 +33,6 @@ def empty_state(
         withBorder=True,
         radius="lg",
         p="xl",
-        bg="surface-2",
+        bg="var(--surface-2)",
         **kwargs,
     )

@@ -701,7 +701,7 @@ def layout() -> Any:
                                 withBorder=True,
                                 radius="sm",
                                 p="xs",
-                                bg="gray.1",
+                                bg="var(--surface-2)",
                                 mb="xs",
                             ),
                             dmc.Paper(
@@ -720,7 +720,7 @@ def layout() -> Any:
                                 withBorder=True,
                                 radius="sm",
                                 p="xs",
-                                bg="gray.1",
+                                bg="var(--surface-2)",
                             ),
                         ],
                         withBorder=True,

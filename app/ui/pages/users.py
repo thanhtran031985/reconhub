@@ -169,7 +169,7 @@ def render_users_table(
                         style={"padding": "10px 14px", "textAlign": "right"},
                     ),
                 ],
-                style={"borderBottom": "1px solid var(--border-subtle, #e2e8f0)"},
+                style={"borderBottom": "1px solid var(--line, #e2e8f0)"},
             )
             rows.append(tr)
 
@@ -177,7 +177,7 @@ def render_users_table(
             "padding": "8px 12px",
             "position": "sticky",
             "top": 0,
-            "background": "var(--bg-subtle, #f8fafc)",
+            "background": "var(--surface-2, #f8fafc)",
             "zIndex": 1,
         }
         table = dmc.Table(
@@ -483,7 +483,7 @@ def layout() -> Any:
                                 "flexShrink": 0,
                                 "marginTop": "auto",
                                 "background": "var(--mantine-color-body)",
-                                "borderTop": "1px solid var(--border-subtle, #e2e8f0)",
+                                "borderTop": "1px solid var(--line, #e2e8f0)",
                             },
                         ),
                     ],
@@ -560,7 +560,7 @@ def _render_login_history_table(history_logs: Any) -> Any:
                     html.Td(res_chip, style={"padding": "10px 14px"}),
                     html.Td(html.Span(ip_val, className="mono"), style={"padding": "10px 14px"}),
                 ],
-                style={"borderBottom": "1px solid var(--border-subtle, #e2e8f0)"},
+                style={"borderBottom": "1px solid var(--line, #e2e8f0)"},
             )
         )
     return dmc.Table(
@@ -581,7 +581,7 @@ def _render_login_history_table(history_logs: Any) -> Any:
                                 "textAlign": "center",
                                 "position": "sticky",
                                 "top": 0,
-                                "background": "var(--bg-subtle, #f8fafc)",
+                                "background": "var(--surface-2, #f8fafc)",
                             },
                         ),
                         html.Th(
@@ -591,7 +591,7 @@ def _render_login_history_table(history_logs: Any) -> Any:
                                 "textAlign": "center",
                                 "position": "sticky",
                                 "top": 0,
-                                "background": "var(--bg-subtle, #f8fafc)",
+                                "background": "var(--surface-2, #f8fafc)",
                             },
                         ),
                         html.Th(
@@ -601,11 +601,11 @@ def _render_login_history_table(history_logs: Any) -> Any:
                                 "textAlign": "center",
                                 "position": "sticky",
                                 "top": 0,
-                                "background": "var(--bg-subtle, #f8fafc)",
+                                "background": "var(--surface-2, #f8fafc)",
                             },
                         ),
                     ],
-                    style={"background": "var(--bg-subtle, #f8fafc)"},
+                    style={"background": "var(--surface-2, #f8fafc)"},
                 )
             ),
             html.Tbody(h_rows),

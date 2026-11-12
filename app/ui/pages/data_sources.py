@@ -1710,18 +1710,18 @@ def _render_mig_stepper(state: dict[str, Any] | None, selected_idx: Any = None) 
             circle_text = "✓"
             circle_style = {
                 **_MIG_CIRCLE_BASE,
-                "border": "1px solid var(--success, #107c10)",
-                "color": "var(--success, #107c10)",
-                "backgroundColor": "var(--bg-surface, #fff)",
+                "border": "1px solid var(--ok, #107c10)",
+                "color": "var(--ok, #107c10)",
+                "backgroundColor": "var(--surface, #fff)",
             }
             sub_lines: list[Any] = [dmc.Text(f"✓ {done}/{total} {unit} xong", size="xs", c="green")]
         elif st == "error":
             circle_text = "✗"
             circle_style = {
                 **_MIG_CIRCLE_BASE,
-                "border": "1px solid var(--danger, #c50f1f)",
-                "color": "var(--danger, #c50f1f)",
-                "backgroundColor": "var(--bg-surface, #fff)",
+                "border": "1px solid var(--crit, #c50f1f)",
+                "color": "var(--crit, #c50f1f)",
+                "backgroundColor": "var(--surface, #fff)",
             }
             sub_lines = [dmc.Text(step.get("error") or "Lỗi", size="xs", c="red", style=ellipsis)]
         elif is_current:
@@ -1730,7 +1730,7 @@ def _render_mig_stepper(state: dict[str, Any] | None, selected_idx: Any = None) 
                 **_MIG_CIRCLE_BASE,
                 "backgroundColor": "var(--primary, #0f6cbd)",
                 "border": "1px solid var(--primary, #0f6cbd)",
-                "color": "#fff",
+                "color": "var(--on-primary)",
             }
             run_item = running_item(step)
             if run_item is not None:
@@ -1747,9 +1747,9 @@ def _render_mig_stepper(state: dict[str, Any] | None, selected_idx: Any = None) 
             circle_text = str(i + 1)
             circle_style = {
                 **_MIG_CIRCLE_BASE,
-                "border": "1px solid var(--border, #e0e0e0)",
-                "color": "var(--text-muted, #616161)",
-                "backgroundColor": "var(--bg-surface, #fff)",
+                "border": "1px solid var(--line, #e0e0e0)",
+                "color": "var(--ink-soft, #616161)",
+                "backgroundColor": "var(--surface, #fff)",
             }
             sub_lines = [dmc.Text(f"Chờ • 0/{total} {unit}" if total else "Chờ", size="xs", c="dimmed")]
         connector = (
@@ -1758,7 +1758,7 @@ def _render_mig_stepper(state: dict[str, Any] | None, selected_idx: Any = None) 
                     "width": "1px",
                     "flex": "1",
                     "minHeight": "12px",
-                    "backgroundColor": "var(--border, #e0e0e0)",
+                    "backgroundColor": "var(--line, #e0e0e0)",
                 }
             )
             if i < len(steps) - 1
@@ -1920,7 +1920,7 @@ def _render_mig_detail(state: dict[str, Any] | None, selected_idx: Any = None, a
                                 {"fontWeight": 600, "color": "var(--primary, #0f6cbd)"}
                                 if is_run
                                 else (
-                                    {"color": "var(--text-muted, #616161)"}
+                                    {"color": "var(--ink-soft, #616161)"}
                                     if ist == "pending"
                                     else {}
                                 )
@@ -1957,7 +1957,7 @@ def _render_mig_detail(state: dict[str, Any] | None, selected_idx: Any = None, a
         else:
             icon, color = "○", "dimmed"
             row_style = {}
-            label_style = {"color": "var(--text-muted, #616161)"}
+            label_style = {"color": "var(--ink-soft, #616161)"}
             extra = html.Div()
         item_rows.append(
             dmc.Group(

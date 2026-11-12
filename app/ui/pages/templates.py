@@ -323,7 +323,7 @@ def render_templates_content(
         "whiteSpace": "nowrap",
         "position": "sticky",
         "top": 0,
-        "backgroundColor": "var(--p2, #FAFAFA)",
+        "backgroundColor": "var(--surface-2, #FAFAFA)",
         "zIndex": 1,
         "fontSize": "12px",
         "fontWeight": 600,
@@ -351,7 +351,7 @@ def render_templates_content(
         align="center",
         px="sm",
         py=6,
-        style={"borderTop": "1px solid var(--line, #E0E0E0)", "backgroundColor": "var(--p2, #FAFAFA)", "flexShrink": 0},
+        style={"borderTop": "1px solid var(--line, #E0E0E0)", "backgroundColor": "var(--surface-2, #FAFAFA)", "flexShrink": 0},
         children=[
             dmc.Text(
                 f"Hiển thị {start_idx + 1 if total_items > 0 else 0} – {end_idx} trong tổng số {total_items} template",
@@ -396,7 +396,7 @@ def render_templates_content(
             "flexDirection": "column",
             "overflow": "hidden",
             "border": "1px solid var(--line, #E0E0E0)",
-            "backgroundColor": "var(--p, #FFFFFF)",
+            "backgroundColor": "var(--surface, #FFFFFF)",
         },
     )
 

@@ -1,7 +1,7 @@
 """SINH RA bởi scripts/gen_dmc_theme.py từ designs/tokens.json. Không sửa tay."""
 
 THEME = {'primaryColor': 'primary',
- 'primaryShade': {'light': 6, 'dark': 4},
+ 'primaryShade': {'light': 6, 'dark': 5},
  'colors': {'primary': ['#ECF3FA',
                         '#D4E5F3',
                         '#B2D0EA',

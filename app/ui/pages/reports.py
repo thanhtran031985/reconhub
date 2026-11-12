@@ -156,7 +156,7 @@ def render_reports_sections(reports: list[dict[str, Any]]) -> Any:
                         "backgroundColor": "var(--surface-2, #FAFAFA)",
                         "fontSize": "11px",
                         "fontWeight": 600,
-                        "color": "var(--text-muted, #757575)",
+                        "color": "var(--ink-soft, #757575)",
                         "textTransform": "uppercase",
                         "letterSpacing": "0.04em",
                         "padding": "0 12px",

@@ -165,7 +165,7 @@ def render_filter_bar(
         withBorder=True,
         p="xs",
         radius="sm",
-        bg="var(--p2, #FAFAFA)",
+        bg="var(--surface-2, #FAFAFA)",
     )
 
 
@@ -229,7 +229,7 @@ def render_history_pagination_bar(
             align="center",
             px="sm",
             py=6,
-            style={"backgroundColor": "var(--p2, #FAFAFA)", "flexShrink": 0},
+            style={"backgroundColor": "var(--surface-2, #FAFAFA)", "flexShrink": 0},
             children=[
                 dmc.Text(
                     _history_showing_text(total, current_page, page_size),
@@ -302,7 +302,7 @@ def render_runs_table(
                     "padding": "0 8px",
                     "position": "sticky",
                     "top": 0,
-                    "backgroundColor": "var(--p2, #FAFAFA)",
+                    "backgroundColor": "var(--surface-2, #FAFAFA)",
                     "zIndex": 1,
                     "borderBottom": "1px solid var(--line, #E0E0E0)",
                 },
@@ -312,7 +312,7 @@ def render_runs_table(
     th_base = {
         "position": "sticky",
         "top": 0,
-        "backgroundColor": "var(--p2, #FAFAFA)",
+        "backgroundColor": "var(--surface-2, #FAFAFA)",
         "zIndex": 1,
         "height": "34px",
         "fontSize": "12px",
@@ -610,7 +610,7 @@ def render_runs_table(
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
-            "backgroundColor": "var(--p, #FFFFFF)",
+            "backgroundColor": "var(--surface, #FFFFFF)",
             "border": "1px solid var(--line, #E0E0E0)",
         },
     )

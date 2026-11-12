@@ -66,7 +66,9 @@ def page_header(
         for i, item in enumerate(breadcrumbs):
             is_last = i == len(breadcrumbs) - 1
             if is_last or not item.get("href"):
-                crumb_items.append(dmc.Text(item["label"], size="xs", c="dimmed" if not is_last else "dark", fw=500))
+                crumb_items.append(
+                    dmc.Text(item["label"], size="xs", c="dimmed" if not is_last else "var(--ink)", fw=500)
+                )
             else:
                 crumb_items.append(
                     dmc.Anchor(

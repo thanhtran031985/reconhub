@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 t = json.loads((ROOT / "designs" / "tokens.json").read_text(encoding="utf-8"))
 guide = re.sub(r"^# .*\n", "", (ROOT / "designs" / "README.md").read_text(encoding="utf-8"), count=1)
 
-css = [':root, [data-theme="light"] {', f"  --font-ui: {t['font']['ui']};", f"  --font-mono: {t['font']['mono']};"]
+css = [":root {", f"  --font-ui: {t['font']['ui']};", f"  --font-mono: {t['font']['mono']};"]
 css += [f"  --{k}: {v['light']};" for k, v in t["color"].items()]
 for k, v in t["type"].items():
     css += [
@@ -29,7 +29,7 @@ for k, v in t["type"].items():
 for grp in ("space", "radius", "size"):
     css += [f"  --{k}: {v}px;" for k, v in t[grp].items()]
 css += [f"  --{k}: {v['light']};" for k, v in t["shadow"].items()]
-css += ["  --motion-fast: 150ms;", "}", '[data-theme="dark"] {']
+css += ["  --motion-fast: 150ms;", "}", '[data-mantine-color-scheme="dark"] {']
 css += [f"  --{k}: {v['dark']};" for k, v in t["color"].items()]
 css += [f"  --{k}: {v['dark']};" for k, v in t["shadow"].items()]
 css += ["}", "@media (prefers-reduced-motion: reduce) { :root { --motion-fast: 0ms; } }"]

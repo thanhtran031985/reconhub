@@ -87,7 +87,7 @@ def render_step_1(
             )
             for h in preview_headers
         ]
-        tb_rows.append(html.Tr(td_cells, style={"borderBottom": "1px solid var(--border-subtle, #e2e8f0)"}))
+        tb_rows.append(html.Tr(td_cells, style={"borderBottom": "1px solid var(--line, #e2e8f0)"}))
 
     # Panel Hệ thống phát hiện
     if sample_data:
@@ -309,7 +309,7 @@ def render_step_1(
                         dmc.Table(
                             striped=True,
                             children=[
-                                html.Thead(html.Tr(th_cells, style={"background": "var(--bg-subtle, #f8fafc)"})),
+                                html.Thead(html.Tr(th_cells, style={"background": "var(--surface-2, #f8fafc)"})),
                                 html.Tbody(tb_rows),
                             ],
                         )
@@ -405,12 +405,12 @@ def render_step_2(
                     html.Span(
                         str(sample_v),
                         className="mono",
-                        style={"color": "var(--text-muted, #94a3b8)"} if sample_v == "—" else {},
+                        style={"color": "var(--ink-soft, #94a3b8)"} if sample_v == "—" else {},
                     ),
                     style={"padding": "8px 10px"},
                 ),
             ],
-            style={"opacity": 1.0 if is_used else 0.5, "borderBottom": "1px solid var(--border-subtle, #e2e8f0)"},
+            style={"opacity": 1.0 if is_used else 0.5, "borderBottom": "1px solid var(--line, #e2e8f0)"},
         )
         rows.append(tr)
 
@@ -463,7 +463,7 @@ def render_step_2(
                 ),
                 html.Td(html.Span("2026-02-01", className="mono"), style={"padding": "8px 10px"}),
             ],
-            style={"borderBottom": "1px solid var(--border-subtle, #e2e8f0)"},
+            style={"borderBottom": "1px solid var(--line, #e2e8f0)"},
         )
         rows.append(tr)
 
@@ -503,7 +503,7 @@ def render_step_2(
                                     html.Th("Chuẩn hóa", style={"padding": "8px 10px"}),
                                     html.Th("Giá trị mẫu", style={"padding": "8px 10px"}),
                                 ],
-                                style={"background": "var(--bg-subtle, #f8fafc)"},
+                                style={"background": "var(--surface-2, #f8fafc)"},
                             )
                         ),
                         html.Tbody(rows),
@@ -670,7 +670,7 @@ def _render_db_mapping_table(
                             html.Span(f_name, className="mono", style={"fontWeight": 600}),
                             html.Span(
                                 f" ({f_label})",
-                                style={"color": "var(--text-muted, #64748b)", "fontSize": "11px"},
+                                style={"color": "var(--ink-soft, #64748b)", "fontSize": "11px"},
                             )
                             if f_label and f_label != f_name
                             else None,
@@ -693,7 +693,7 @@ def _render_db_mapping_table(
                     html.Td(html.Span(col_type, className="mono"), style={"padding": "8px 10px"}),
                     html.Td(status_badge, style={"padding": "8px 10px"}),
                 ],
-                style={"borderBottom": "1px solid var(--border-subtle, #e2e8f0)"},
+                style={"borderBottom": "1px solid var(--line, #e2e8f0)"},
             )
         )
 
@@ -708,7 +708,7 @@ def _render_db_mapping_table(
                         html.Th("Kiểu DB"),
                         html.Th("Trạng thái"),
                     ],
-                    style={"background": "var(--bg-subtle, #f8fafc)"},
+                    style={"background": "var(--surface-2, #f8fafc)"},
                 )
             ),
             html.Tbody(rows),
@@ -895,7 +895,7 @@ def _render_filter_params_table(
                         html.Th("Mặc định"),
                         html.Th("", style={"width": 36}),
                     ],
-                    style={"background": "var(--bg-subtle, #f8fafc)"},
+                    style={"background": "var(--surface-2, #f8fafc)"},
                 )
             ),
             html.Tbody(base_rows + extra_rows),
@@ -1760,7 +1760,7 @@ def _render_measures_table(
                     html.Td(main_badge_or_btn, style={"padding": "6px 8px", "textAlign": "center"}),
                     html.Td(del_btn, style={"padding": "6px 8px", "textAlign": "center"}),
                 ],
-                style={"borderBottom": "1px solid var(--border-subtle, #e2e8f0)"},
+                style={"borderBottom": "1px solid var(--line, #e2e8f0)"},
             )
         )
 
@@ -1781,7 +1781,7 @@ def _render_measures_table(
                             html.Th("Chính", style={"textAlign": "center"}),
                             html.Th("", style={"textAlign": "center"}),
                         ],
-                        style={"background": "var(--bg-subtle, #f8fafc)"},
+                        style={"background": "var(--surface-2, #f8fafc)"},
                     )
                 ),
                 html.Tbody(rows),
@@ -1836,7 +1836,7 @@ def _render_step_4_left_fields(
                                     html.Span(f_name, className="mono", style={"fontSize": "13px", "fontWeight": 600}),
                                     html.Span(
                                         f" ({f_label})",
-                                        style={"color": "var(--text-muted, #64748b)", "fontSize": "11px"},
+                                        style={"color": "var(--ink-soft, #64748b)", "fontSize": "11px"},
                                     )
                                     if f_label != f_name
                                     else None,
@@ -1878,11 +1878,11 @@ def _render_step_4_left_fields(
                     html.Div(
                         mapping_line,
                         className="mono",
-                        style={"color": "var(--text-muted, #64748b)", "fontSize": "11px", "marginTop": "2px"},
+                        style={"color": "var(--ink-soft, #64748b)", "fontSize": "11px", "marginTop": "2px"},
                     ),
                 ],
                 style={
-                    "borderBottom": "1px solid var(--border-subtle, #f1f5f9)",
+                    "borderBottom": "1px solid var(--line, #f1f5f9)",
                     "paddingTop": "4px",
                     "paddingBottom": "4px",
                 },
@@ -2685,9 +2685,9 @@ def render_diagrams_tab(config: dict[str, Any]) -> Any:
                                     "padding": "6px 12px",
                                     "fontSize": "13px",
                                     "cursor": "pointer",
-                                    "border": "1px solid var(--border-subtle, #e2e8f0)",
+                                    "border": "1px solid var(--line, #e2e8f0)",
                                     "borderRadius": "4px",
-                                    "background": "var(--bg-surface, #ffffff)",
+                                    "background": "var(--surface, #ffffff)",
                                 },
                             ),
                         ],
@@ -2695,7 +2695,7 @@ def render_diagrams_tab(config: dict[str, Any]) -> Any:
                     html.Div(
                         html.Pre(mermaid_code, className="mermaid", style={"margin": "16px 0", "textAlign": "center"}),
                         style={
-                            "background": "var(--bg-subtle, #f8fafc)",
+                            "background": "var(--surface-2, #f8fafc)",
                             "borderRadius": "6px",
                             "padding": "16px",
                             "overflowX": "auto",
@@ -3238,7 +3238,7 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
                         p=2,
                         withBorder=True,
                         style={
-                            "backgroundColor": "#FFFFFF",
+                            "backgroundColor": "var(--surface, #FFFFFF)",
                             "borderColor": "var(--line, #E0E0E0)",
                             "boxShadow": "0 1px 3px rgba(0, 0, 0, 0.05)",
                         },

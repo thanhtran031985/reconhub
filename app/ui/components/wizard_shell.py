@@ -36,7 +36,7 @@ def wizard_shell(
             "fontSize": "11px",
             "fontWeight": 600,
             "flexShrink": 0,
-            "backgroundColor": "var(--p, #FFFFFF)",
+            "backgroundColor": "var(--surface, #FFFFFF)",
             "color": "var(--ink-soft, #616161)",
         }
         if is_active:
@@ -44,7 +44,7 @@ def wizard_shell(
                 {
                     "backgroundColor": "var(--primary, #0F6CBD)",
                     "borderColor": "var(--primary, #0F6CBD)",
-                    "color": "#FFFFFF",
+                    "color": "var(--on-primary)",
                 }
             )
         elif is_done:
@@ -97,7 +97,7 @@ def wizard_shell(
             "flexDirection": "row",
             "border": "1px solid var(--line, #E0E0E0)",
             "borderRadius": "6px",
-            "backgroundColor": "var(--p, #FFFFFF)",
+            "backgroundColor": "var(--surface, #FFFFFF)",
             "overflow": "hidden",
             "flexShrink": 0,
             "marginBottom": "8px",
@@ -140,7 +140,7 @@ def wizard_shell(
             "flexShrink": 0,
             "padding": "8px 16px",
             "borderTop": "1px solid var(--line, #E0E0E0)",
-            "backgroundColor": "var(--p2, #FAFAFA)",
+            "backgroundColor": "var(--surface-2, #FAFAFA)",
         }
     }
     if footer_id is not None:
@@ -169,10 +169,10 @@ def wizard_shell(
             "minHeight": 0,
             "display": "flex",
             "flexDirection": "column",
-            "backgroundColor": "var(--p, #FFFFFF)",
+            "backgroundColor": "var(--surface, #FFFFFF)",
             "border": "1px solid var(--line, #E0E0E0)",
             "borderRadius": "6px",
-            "boxShadow": "var(--sh, 0 1px 2px #0000001f)",
+            "boxShadow": "var(--shadow-card, 0 1px 2px #0000001f)",
             "overflow": "hidden",
         },
     )

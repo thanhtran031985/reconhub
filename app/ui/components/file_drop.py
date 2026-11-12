@@ -26,7 +26,7 @@ def file_drop(
                     color="primary",
                     variant="light",
                 ),
-                dmc.Text(label, fw=600, size="sm", c="dark", ta="center"),
+                dmc.Text(label, fw=600, size="sm", c="var(--ink)", ta="center"),
                 dmc.Text(hint, size="xs", c="dimmed", ta="center"),
             ],
             align="center",
@@ -35,7 +35,7 @@ def file_drop(
         ),
         withBorder=True,
         radius="lg",
-        bg="surface-2",
+        bg="var(--surface-2)",
         style={"borderStyle": "dashed", "cursor": "pointer"},
     )
 

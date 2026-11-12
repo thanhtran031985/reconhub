@@ -315,7 +315,7 @@ def render_sidebar_preview(ctx: Ctx, menu_codes: list[str], is_admin: bool = Fal
                     gap="xs",
                 )
             )
-    panel = dmc.Paper(items, bg="gray.1", withBorder=True, radius="md", p="sm")
+    panel = dmc.Paper(items, bg="var(--surface-2)", withBorder=True, radius="md", p="sm")
     blocks: list[Any] = [panel]
     labels = _menu_label_map(ctx)
     not_shown = [labels.get(c, c) for c in menu_codes if c in _SIDEBAR_SKIP_CODES and c in labels]

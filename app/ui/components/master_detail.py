@@ -51,7 +51,7 @@ def master_detail_layout(
             "height": "100%",
             "overflow": "auto",
             "borderLeft": "1px solid var(--line, #E0E0E0)",
-            "backgroundColor": "var(--p2, #FAFAFA)",
+            "backgroundColor": "var(--surface-2, #FAFAFA)",
             "display": "flex",
             "flexDirection": "column",
         }
@@ -74,7 +74,7 @@ def master_detail_layout(
         "overflow": "hidden",
         "border": "1px solid var(--line, #E0E0E0)",
         "borderRadius": "6px",
-        "backgroundColor": "var(--p, #FFFFFF)",
+        "backgroundColor": "var(--surface, #FFFFFF)",
     }
 
     container_kwargs: dict[str, Any] = {"style": container_style}

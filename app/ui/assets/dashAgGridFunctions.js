@@ -92,11 +92,14 @@ dagcomp.reconRunsFileCell = function (props) {
 };
 
 dagcomp.reconRunsStatusCell = function (props) {
-  var colors = { DONE: 'green', FAILED: 'red', RUNNING: 'blue', QUEUED: 'gray', CANCELLED: 'gray' };
+  // Task 73 (D8): màu trạng thái dùng token --ok/--crit/--info/--ink-soft
+  // thay vì tên màu CSS cố định ('green'/'red'/...) — tên CSS không đổi
+  // theo dark mode nên 'green' chìm trên nền tối (tương phản 2.83).
+  var colors = { DONE: 'var(--ok)', FAILED: 'var(--crit)', RUNNING: 'var(--info)', QUEUED: 'var(--ink-soft)', CANCELLED: 'var(--ink-soft)' };
   var code = props.data ? props.data.status_code : '';
   return React.createElement(
     'span',
-    { style: { color: colors[code] || 'gray', fontWeight: 600 } },
+    { style: { color: colors[code] || 'var(--ink-soft)', fontWeight: 600 } },
     props.value
   );
 };

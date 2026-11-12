@@ -1170,7 +1170,7 @@ def render_step2(state: dict[str, Any]) -> Any:
                         withBorder=True,
                         radius="sm",
                         p="sm",
-                        style={"backgroundColor": "var(--bg-subtle, #f8fafc)"},
+                        style={"backgroundColor": "var(--surface-2, #f8fafc)"},
                         children=[
                             dmc.SimpleGrid(
                                 cols={"base": 1, "sm": 2},
@@ -1419,7 +1419,7 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
                     style={
                         "gridColumn": f"span {span}",
                         "minWidth": 0,
-                        "backgroundColor": "var(--surface-1, #FFFFFF)",
+                        "backgroundColor": "var(--surface, #FFFFFF)",
                         "border": "1px solid var(--line, #E0E0E0)",
                         "borderRadius": "4px",
                         "padding": "6px 6px",
@@ -1461,7 +1461,7 @@ def _render_param_canvas(params: list[dict[str, Any]], violations: list[dict[str
                 **{"data-layout-row": str(r)},
                 style={
                     "borderStyle": "dashed",
-                    "borderColor": "var(--crimson-7, #e03131)" if is_over else "var(--line, #E0E0E0)",
+                    "borderColor": "var(--crit, #e03131)" if is_over else "var(--line, #E0E0E0)",
                     "backgroundColor": "rgba(224, 49, 49, 0.04)" if is_over else "transparent",
                     "marginBottom": "8px",
                 },
@@ -1840,7 +1840,7 @@ def render_step3(state: dict[str, Any]) -> Any:
         withBorder=True,
         p="md",
         radius="sm",
-        style={"backgroundColor": "var(--surface-1, #FFFFFF)"},
+        style={"backgroundColor": "var(--surface, #FFFFFF)"},
         id="lovside",
     )
 
@@ -2437,9 +2437,9 @@ def render_step6(state: dict[str, Any]) -> Any:
                     withBorder=True,
                     radius="sm",
                     p="xl",
-                    style={"textAlign": "center", "backgroundColor": "var(--bg-subtle, #f8fafc)"},
+                    style={"textAlign": "center", "backgroundColor": "var(--surface-2, #f8fafc)"},
                     children=[
-                        DashIconify(icon="lucide:check-circle-2", width=48, color="var(--success, #107c10)"),
+                        DashIconify(icon="lucide:check-circle-2", width=48, color="var(--ok, #107c10)"),
                         dmc.Title(
                             f"✓ Đã kích hoạt {report.get('code') or ''} / {template.get('name') or template.get('code') or ''} / v{version.get('version_no') or 1}",
                             order=3,
@@ -2600,7 +2600,7 @@ def _render_step_ribbon(current_step: int, max_step: int) -> Any:
                     "fontSize": "11px",
                     "fontWeight": 600,
                     "backgroundColor": "var(--primary, #0f6cbd)",
-                    "color": "#fff",
+                    "color": "var(--on-primary)",
                     "border": "1px solid var(--primary, #0f6cbd)",
                     "flexShrink": 0,
                 },
@@ -2617,9 +2617,9 @@ def _render_step_ribbon(current_step: int, max_step: int) -> Any:
                     "borderRadius": "50%",
                     "fontSize": "11px",
                     "fontWeight": 700,
-                    "border": "1px solid var(--success, #107c10)",
-                    "color": "var(--success, #107c10)",
-                    "backgroundColor": "var(--bg-surface, #fff)",
+                    "border": "1px solid var(--ok, #107c10)",
+                    "color": "var(--ok, #107c10)",
+                    "backgroundColor": "var(--surface, #fff)",
                     "flexShrink": 0,
                 },
             )
@@ -2635,9 +2635,9 @@ def _render_step_ribbon(current_step: int, max_step: int) -> Any:
                     "borderRadius": "50%",
                     "fontSize": "11px",
                     "fontWeight": 600,
-                    "border": "1px solid var(--border, #e0e0e0)",
-                    "color": "var(--text-muted, #616161)",
-                    "backgroundColor": "var(--bg-surface, #fff)",
+                    "border": "1px solid var(--line, #e0e0e0)",
+                    "color": "var(--ink-soft, #616161)",
+                    "backgroundColor": "var(--surface, #fff)",
                     "flexShrink": 0,
                 },
             )
@@ -2651,23 +2651,23 @@ def _render_step_ribbon(current_step: int, max_step: int) -> Any:
             "gap": "6px",
             "padding": "0 8px",
             "border": "none",
-            "borderRight": "1px solid var(--border, #e0e0e0)" if i < 5 else "none",
+            "borderRight": "1px solid var(--line, #e0e0e0)" if i < 5 else "none",
             "fontSize": "12px",
             "whiteSpace": "nowrap",
             "cursor": "pointer" if not is_disabled else "not-allowed",
             "transition": "all 150ms ease",
         }
         if is_current:
-            step_style["backgroundColor"] = "var(--primary-subtle, #ebf3fc)"
-            step_style["color"] = "var(--text-primary, #242424)"
+            step_style["backgroundColor"] = "var(--primary-soft, #ebf3fc)"
+            step_style["color"] = "var(--ink, #242424)"
             step_style["fontWeight"] = "600"
             step_style["boxShadow"] = "inset 0 -2px 0 var(--primary, #0f6cbd)"
         elif is_done:
             step_style["backgroundColor"] = "transparent"
-            step_style["color"] = "var(--text-primary, #242424)"
+            step_style["color"] = "var(--ink, #242424)"
         else:
             step_style["backgroundColor"] = "transparent"
-            step_style["color"] = "var(--text-muted, #616161)"
+            step_style["color"] = "var(--ink-soft, #616161)"
             if is_disabled:
                 step_style["opacity"] = 0.5
 
@@ -2686,9 +2686,9 @@ def _render_step_ribbon(current_step: int, max_step: int) -> Any:
         id="admin-steps-ribbon",
         style={
             "display": "flex",
-            "border": "1px solid var(--border, #e0e0e0)",
+            "border": "1px solid var(--line, #e0e0e0)",
             "borderRadius": "6px",
-            "backgroundColor": "var(--bg-surface, #fff)",
+            "backgroundColor": "var(--surface, #fff)",
             "overflow": "hidden",
             "marginBottom": "12px",
             "flexWrap": "nowrap",
@@ -2783,7 +2783,7 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
         p=1,
         withBorder=True,
         style={
-            "backgroundColor": "#FFFFFF",
+            "backgroundColor": "var(--surface, #FFFFFF)",
             "borderColor": "var(--line, #E0E0E0)",
             "boxShadow": "0 1px 3px rgba(0, 0, 0, 0.05)",
         },
@@ -2812,7 +2812,7 @@ def _render_wizard_footer(step: int, state: dict[str, Any]) -> Any:
             "height": "48px",
             "padding": "0 12px",
             "borderTop": "1px solid var(--line, #E0E0E0)",
-            "backgroundColor": "#FFFFFF",
+            "backgroundColor": "var(--surface, #FFFFFF)",
             "display": "flex",
             "zIndex": 10,
         },
@@ -2962,7 +2962,7 @@ def render_wizard(state: dict[str, Any], dry_run: dict[str, Any] | None = None) 
                 radius="sm",
                 shadow="xs",
                 style={
-                    "backgroundColor": "var(--bg-surface, #fff)",
+                    "backgroundColor": "var(--surface, #fff)",
                     "border": "1px solid var(--line, #E0E0E0)",
                     "maxWidth": 1250,
                     "margin": "0 auto",
@@ -2993,7 +2993,7 @@ def render_wizard(state: dict[str, Any], dry_run: dict[str, Any] | None = None) 
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
-            "backgroundColor": "#FFFFFF",
+            "backgroundColor": "var(--surface, #FFFFFF)",
         },
     )
 

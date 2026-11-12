@@ -151,7 +151,7 @@ def _pagination_footer(
         py=6,
         style={
             "borderTop": "1px solid var(--line, #E0E0E0)",
-            "backgroundColor": "var(--p2, #FAFAFA)",
+            "backgroundColor": "var(--surface-2, #FAFAFA)",
             "flexShrink": 0,
             "marginTop": "auto",
         },
@@ -192,7 +192,7 @@ def _diff_rate_table_content(diff_rates: list[dict[str, Any]], page: int = 1, pa
     th_style = {
         "position": "sticky",
         "top": 0,
-        "backgroundColor": "var(--p2, #FAFAFA)",
+        "backgroundColor": "var(--surface-2, #FAFAFA)",
         "zIndex": 1,
         "height": "32px",
         "fontSize": "12px",
@@ -347,7 +347,7 @@ def _recent_runs_table_content(recent_items: list[dict[str, Any]], page: int = 1
     th_style = {
         "position": "sticky",
         "top": 0,
-        "backgroundColor": "var(--p2, #FAFAFA)",
+        "backgroundColor": "var(--surface-2, #FAFAFA)",
         "zIndex": 1,
         "height": "32px",
         "fontSize": "12px",

@@ -105,7 +105,7 @@ main > div > div,
   padding: 2px 6px;
   border: 1px solid var(--line, #dfe5ee);
   border-radius: 4px;
-  background-color: var(--surface-1, #fff);
+  background-color: var(--surface, #fff);
   color: var(--ink, #172033);
   font-family: inherit;
   box-sizing: border-box;
@@ -145,7 +145,7 @@ main > div > div,
 .rh-btn-del {
   background: transparent;
   border: none;
-  color: #c42b1c;
+  color: var(--crit, #c42b1c);
   cursor: pointer;
   font-size: 14px;
   padding: 2px 4px;
@@ -153,7 +153,7 @@ main > div > div,
 }
 
 .rh-btn-del:hover {
-  background: #fde8e8;
+  background: var(--crit-soft, #fde8e8);
 }
 
 .rh-native-checklist {
@@ -333,6 +333,32 @@ main > div > div,
    bước 4 hay chiều cao dòng/header). */
 .rh-viewer-grid {
   --ag-font-size: 13px;
+}
+
+/* Task 73: AG Grid theo toggle dark mode của app, không theo hệ điều hành.
+   ag-theme-quartz-auto-dark chỉ đổi theo prefers-color-scheme của OS,
+   trong khi app có toggle riêng (data-mantine-color-scheme). Khi OS sáng
+   + app tối, grid giữ nền trắng nhưng nút subtle trong cell dùng màu chữ
+   sáng của dark mode → chữ chìm (Xuất lại/Chạy lại trên /report-runs).
+   Ghi đè biến --ag-* dưới selector dark của Mantine (đặc hiệu cao hơn
+   rule gốc của theme) để grid tối theo app, bất kể OS. */
+[data-mantine-color-scheme="dark"] .ag-theme-quartz-auto-dark {
+  --ag-background-color: var(--surface);
+  --ag-foreground-color: var(--ink);
+  --ag-header-background-color: var(--surface-2);
+  --ag-header-foreground-color: var(--ink);
+  --ag-odd-row-background-color: var(--surface-2);
+  --ag-row-hover-color: var(--primary-soft);
+  --ag-border-color: var(--line);
+  --ag-secondary-border-color: var(--line);
+  --ag-selected-row-background-color: var(--primary-soft);
+  --ag-input-focus-border-color: var(--primary);
+  --ag-disabled-foreground-color: var(--ink-soft);
+  --ag-checkbox-background-color: var(--surface);
+  --ag-checkbox-checked-color: var(--primary);
+  --ag-range-selection-background-color: var(--primary-soft);
+  --ag-header-cell-hover-background-color: var(--surface-2);
+  --ag-modal-overlay-background-color: rgb(20 20 20 / 0.6);
 }
 
 /* Task 56: grid Lịch sử báo cáo — font 12px (pattern task 40).

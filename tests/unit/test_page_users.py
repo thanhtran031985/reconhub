@@ -137,7 +137,9 @@ def test_login_history_table_looks_like_a_table() -> None:
     assert "Thời gian" in text and "Kết quả" in text and "IP" in text
     assert "Thành công" in text and "Sai mật khẩu" in text
     # Nền header + kẻ dòng: 2 thứ khiến bảng nhìn ra bảng.
-    assert "var(--bg-subtle" in text
+    # Task 73: --bg-subtle không tồn tại trong tokens.json (fallback
+    # sáng dùng cả ở dark mode) → remap về --surface-2 (tiêu đề bảng).
+    assert "var(--surface-2" in text
     assert "borderBottom" in text
     # Tiêu đề căn trái cho khớp dữ liệu (Mantine mặc định căn giữa th)
     # và dính trên cùng vùng cuộn của bảng.

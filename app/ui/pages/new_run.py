@@ -307,7 +307,7 @@ def render_file_section(
             p="sm",
             radius="sm",
             style={
-                "background": "var(--bg-subtle, #f8fafc)",
+                "background": "var(--surface-2, #f8fafc)",
                 "display": "flex",
                 "flexDirection": "column",
                 "gap": "10px",

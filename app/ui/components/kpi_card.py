@@ -42,7 +42,7 @@ def kpi_card(
 
     content_children = [
         header,
-        dmc.Text(str(value), size=val_size, fw=700, c=tone if tone in ("crit", "warn") else "dark", mt="xs"),
+        dmc.Text(str(value), size=val_size, fw=700, c=tone if tone in ("crit", "warn") else "var(--ink)", mt="xs"),
     ]
     if meta:
         content_children.append(dmc.Text(meta, size="xs", c="dimmed", mt=4))

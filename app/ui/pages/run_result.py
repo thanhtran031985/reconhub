@@ -438,7 +438,7 @@ def build_grid_headers(measures: list[dict[str, Any]], only_diff_cols: bool = Fa
     """Sinh 2 tầng header chuẩn DMC: Tầng 1 gồm Key, Trạng thái, Trạng thái đối soát, và Colspan từng Measure; Tầng 2 gồm Excel, DB, Chênh."""
     th_base = {
         "position": "sticky",
-        "backgroundColor": "var(--p2, #FAFAFA)",
+        "backgroundColor": "var(--surface-2, #FAFAFA)",
         "zIndex": 2,
         "height": "28px",
         "fontSize": "12px",
@@ -762,7 +762,7 @@ def render_sql_tab_content(run_info: dict[str, Any], summary: dict[str, Any]) ->
             [
                 html.Td(html.Code(b[0], className="mono", style={"fontWeight": 600})),
                 html.Td(html.Span(b[1], className="mono")),
-                html.Td(b[2], style={"color": "var(--text-subtle, #64748b)"}),
+                html.Td(b[2], style={"color": "var(--ink-soft, #64748b)"}),
             ]
         )
         for b in bind_items

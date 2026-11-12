@@ -367,7 +367,7 @@ def render_result_table(layout: dict[str, Any], rows: list[dict[str, Any]]) -> A
     th_style = {
         "position": "sticky",
         "top": 0,
-        "backgroundColor": "var(--p2, #FAFAFA)",
+        "backgroundColor": "var(--surface-2, #FAFAFA)",
         "zIndex": 1,
         "height": "32px",
         "fontSize": "12px",

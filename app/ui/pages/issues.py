@@ -179,7 +179,7 @@ def render_issues_table(
     th_style = {
         "position": "sticky",
         "top": 0,
-        "backgroundColor": "var(--p2, #FAFAFA)",
+        "backgroundColor": "var(--surface-2, #FAFAFA)",
         "zIndex": 1,
         "height": "32px",
         "fontSize": "12px",
@@ -341,7 +341,7 @@ def render_issues_table(
         justify="space-between",
         align="center",
         p="xs",
-        style={"borderTop": "1px solid var(--border-subtle, #e2e8f0)"},
+        style={"borderTop": "1px solid var(--line, #e2e8f0)"},
         children=[
             dmc.Text(
                 f"Hiển thị {len(issues)} chênh lệch",

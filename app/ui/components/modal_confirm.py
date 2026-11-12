@@ -28,7 +28,7 @@ def modal_confirm(
                 f"Vui lòng gõ '{confirm_text}' vào ô bên dưới để xác nhận:",
                 size="xs",
                 fw=600,
-                c="dark",
+                c="var(--ink)",
                 mb="xs",
             )
         )

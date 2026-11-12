@@ -432,7 +432,7 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool
         if "href" in b and i < len(breadcrumbs_data) - 1:
             bc_elements.append(dmc.Anchor(b["label"], href=b["href"], size="sm", c="dimmed", underline=False))
         else:
-            bc_elements.append(dmc.Text(b["label"], size="sm", fw=600, c="dark"))
+            bc_elements.append(dmc.Text(b["label"], size="sm", fw=600, c="var(--ink)"))
 
     toggle_button = dmc.Tooltip(
         dmc.ActionIcon(
@@ -569,7 +569,7 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
                                 color="primary",
                                 variant="filled",
                             ),
-                            dmc.Text("ReconHub", fw=700, size="md", c="dark"),
+                            dmc.Text("ReconHub", fw=700, size="md", c="var(--ink)"),
                         ],
                         gap="xs",
                         align="center",

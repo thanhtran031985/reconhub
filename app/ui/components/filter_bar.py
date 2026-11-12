@@ -40,7 +40,7 @@ def filter_bar(
         "radius": "sm",
         "p": "xs",
         "mb": "xs",
-        "bg": "var(--p2, #FAFAFA)",
+        "bg": "var(--surface-2, #FAFAFA)",
         "style": {"flexShrink": 0, "minWidth": 0},
     }
     if id is not None:

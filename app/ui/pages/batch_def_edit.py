@@ -177,7 +177,7 @@ def render_def_items_table(
                             disabled=not can_write,
                             size="xs",
                             style={"minWidth": 120},
-                            styles={"input": {"height": "26px", "minHeight": "26px", "fontSize": "11px", "fontFamily": "var(--mono)"}},
+                            styles={"input": {"height": "26px", "minHeight": "26px", "fontSize": "11px", "fontFamily": "var(--font-mono)"}},
                         ),
                         style={"verticalAlign": "middle"},
                     ),
@@ -235,7 +235,7 @@ def render_def_items_table(
                             disabled=not can_write,
                             size="xs",
                             style={"minWidth": 140},
-                            styles={"input": {"height": "26px", "minHeight": "26px", "fontSize": "11px", "fontFamily": "var(--mono)"}},
+                            styles={"input": {"height": "26px", "minHeight": "26px", "fontSize": "11px", "fontFamily": "var(--font-mono)"}},
                         ),
                         style={"verticalAlign": "middle"},
                     ),
@@ -598,7 +598,7 @@ def layout(def_id: str | int | None = 1, **kwargs: Any) -> Any:
                                             placeholder="VD: DOANH_THU_CUOI_THANG",
                                             size="xs",
                                             disabled=not is_new,
-                                            styles={"input": {"fontFamily": "var(--mono)", "fontSize": "11px", "height": "28px", "minHeight": "28px"}},
+                                            styles={"input": {"fontFamily": "var(--font-mono)", "fontSize": "11px", "height": "28px", "minHeight": "28px"}},
                                         ),
                                         dmc.TextInput(
                                             id="bdef-info-name",
@@ -1311,7 +1311,7 @@ def _render_add_config(checked_list: Any, check_ids: Any, addable: Any, store_da
                             id={"type": "bdef-add-pattern", "index": tmpl_id},
                             value=suggest_pat,
                             size="xs",
-                            styles={"input": {"height": "26px", "fontSize": "11px", "fontFamily": "var(--mono)"}},
+                            styles={"input": {"height": "26px", "fontSize": "11px", "fontFamily": "var(--font-mono)"}},
                         )
                     ),
                     dmc.TableTd(

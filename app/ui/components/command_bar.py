@@ -69,7 +69,7 @@ def command_bar(
         "radius": "sm",
         "p": "xs",
         "mb": "xs",
-        "bg": "var(--p, #FFFFFF)",
+        "bg": "var(--surface, #FFFFFF)",
         "style": {"flexShrink": 0, "minWidth": 0},
     }
     if id is not None:

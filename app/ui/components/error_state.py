@@ -84,7 +84,7 @@ def error_state(
         "withBorder": True,
         "radius": "sm",
         "p": "xl",
-        "bg": "var(--p2, #FAFAFA)",
+        "bg": "var(--surface-2, #FAFAFA)",
     }
     if id is not None:
         paper_kwargs["id"] = id

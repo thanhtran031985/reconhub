@@ -39,7 +39,7 @@ def scale(base: str) -> list[str]:
 c, s, ty = T["color"], T["space"], T["type"]
 theme = {
     "primaryColor": "primary",
-    "primaryShade": {"light": 6, "dark": 4},
+    "primaryShade": {"light": 6, "dark": 5},
     "colors": {k: scale(c[k]["light"]) for k in ("primary", "ok", "crit", "warn", "purple", "off", "info")},
     "fontFamily": T["font"]["ui"],
     "fontFamilyMonospace": T["font"]["mono"],

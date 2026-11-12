@@ -31,7 +31,7 @@ def skeleton_grid(
             "alignItems": "center",
             "height": f"{header_height}px",
             "padding": "0 8px",
-            "backgroundColor": "var(--p2, #FAFAFA)",
+            "backgroundColor": "var(--surface-2, #FAFAFA)",
             "borderBottom": "1px solid var(--line, #E0E0E0)",
         },
     )
@@ -66,7 +66,7 @@ def skeleton_grid(
             "flexDirection": "column",
             "border": "1px solid var(--line, #E0E0E0)",
             "borderRadius": "6px",
-            "backgroundColor": "var(--p, #FFFFFF)",
+            "backgroundColor": "var(--surface, #FFFFFF)",
             "overflow": "hidden",
             "width": "100%",
         }
