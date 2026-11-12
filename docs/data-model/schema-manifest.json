@@ -1,7 +1,7 @@
 {
   "database": "sqlite",
   "generated": true,
-  "generated_at": "2026-11-12T03:19:25.843438+00:00",
+  "generated_at": "2026-11-12T13:33:57.030607+00:00",
   "generator": "schema-introspect",
   "schema": "main",
   "tables": [
@@ -2895,6 +2895,177 @@
       ],
       "source": {
         "migration": "0001_init",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_USER.ID",
+          "name": "USER_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TYPE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(40)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TITLE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "MESSAGE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(1000)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LINK",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(500)",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "IS_READ",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "USER_ID",
+          "constraint_name": "fk_RECON_NOTIFICATION_USER_ID_RECON_USER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_USER"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "USER_ID",
+            "IS_READ",
+            "CREATED_AT"
+          ],
+          "name": "ix_recon_notification_user_read_created",
+          "unique": false
+        }
+      ],
+      "name": "RECON_NOTIFICATION",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0010_notifications",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": "RECON_USER.ID",
+          "name": "USER_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "EVENT_TYPE",
+          "nullable": false,
+          "primary_key": true,
+          "type": "VARCHAR(40)",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "ENABLED",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "",
+      "domain": "recon",
+      "domain_label": "Đối soát",
+      "foreign_keys": [
+        {
+          "column": "USER_ID",
+          "constraint_name": "fk_RECON_NOTIFICATION_PREF_USER_ID_RECON_USER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_USER"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_NOTIFICATION_PREF",
+      "primary_key": [
+        "USER_ID",
+        "EVENT_TYPE"
+      ],
+      "source": {
+        "migration": "0010_notifications",
         "model": "app/db/metadata.py"
       },
       "unique_constraints": []
@@ -6088,6 +6259,6 @@
       "unique_constraints": []
     }
   ],
-  "version": "0009_queue_health_menu",
+  "version": "0010_notifications",
   "warnings": []
 }

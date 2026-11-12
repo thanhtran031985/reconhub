@@ -23,6 +23,7 @@ from app.services.export_retention import (
     get_export_max_concurrent,
     sweep_old_exports,
 )
+from app.services.notification import notify_for_export
 from app.services.report_export import MAX_RUNNING_PER_USER, execute_export
 from app.services.worker_health import write_worker_heartbeat
 
@@ -111,6 +112,15 @@ class ReportExportWorker:
                     )
                 )
                 reset_count += 1
+        # Task 78: báo chủ export bị treo (mỗi export chỉ reset 1 lần nên không spam).
+        for export_id in stale_ids:
+            notify_for_export(
+                self.engine,
+                export_id,
+                "EXPORT_FAILED",
+                f"Xuất Excel #{export_id} lỗi",
+                "Worker bị ngắt đột ngột, export bị treo.",
+            )
         return reset_count
 
     def _start_heartbeat(

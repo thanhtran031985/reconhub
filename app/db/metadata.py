@@ -233,6 +233,32 @@ recon_app_setting = Table(
     Column("UPDATED_AT", DateTime, nullable=False),
 )
 
+# 1c. Thông báo trong app (task 78): chuông + danh sách lưu DB.
+recon_notification = Table(
+    "RECON_NOTIFICATION",
+    metadata,
+    pk_id_column(),
+    Column("USER_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_USER.ID"), nullable=False),
+    Column("TYPE", String(40), nullable=False),
+    Column("TITLE", String(200), nullable=False),
+    Column("MESSAGE", String(1000), nullable=True),
+    Column("LINK", String(500), nullable=True),
+    Column("IS_READ", String(1), nullable=False, default="N"),
+    Column("CREATED_AT", DateTime, nullable=False),
+    Index("ix_recon_notification_user_read_created", "USER_ID", "IS_READ", "CREATED_AT"),
+)
+
+# Cài đặt nhận thông báo theo user (task 78): thiếu dòng = dùng mặc định
+# (lỗi BẬT, DONE TẮT — quyết định task 52).
+recon_notification_pref = Table(
+    "RECON_NOTIFICATION_PREF",
+    metadata,
+    Column("USER_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_USER.ID"), primary_key=True),
+    Column("EVENT_TYPE", String(40), primary_key=True),
+    Column("ENABLED", String(1), nullable=False, default="Y"),
+    Column("UPDATED_AT", DateTime, nullable=False),
+)
+
 # 2. Data Source
 recon_data_source = Table(
     "RECON_DATA_SOURCE",

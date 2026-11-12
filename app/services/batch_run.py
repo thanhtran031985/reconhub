@@ -51,6 +51,7 @@ from app.services.batch_formula import parse_period, resolve_params
 from app.services.batch_matcher import match as match_pattern
 from app.services.batch_matcher import normalize_name
 from app.services.file_service import upload_file
+from app.services.notification import notify_for_batch
 from app.services.perm import (
     check_owned,
     is_admin,
@@ -1292,12 +1293,14 @@ def sync_batch_status(engine: Engine, batch_run_id: int) -> dict[str, Any]:
             "UPDATED_AT": _now(),
         }
         new_status = str(run["STATUS"])
+        transitioned = False
         if run["STATUS"] == "RUNNING" and all_terminal:
             new_status = "PARTIAL" if (has_failed or has_required_not_run) else "DONE"
             values["STATUS"] = new_status
             values["FINISHED_AT"] = _now()
+            transitioned = True
         conn.execute(update(recon_batch_run).where(recon_batch_run.c.ID == batch_run_id).values(**values))
-        return {
+        result = {
             "id": batch_run_id,
             "status": new_status,
             "cnt_done": counts["DONE"],
@@ -1305,6 +1308,27 @@ def sync_batch_status(engine: Engine, batch_run_id: int) -> dict[str, Any]:
             "cnt_skipped": counts["SKIPPED"],
             "cnt_not_run": counts["NOT_RUN"],
         }
+    # Task 78: báo chủ bộ khi lần chạy kết thúc — chuyển trạng thái chỉ
+    # xảy ra 1 lần nên mỗi bộ báo tối đa 1 lần; PARTIAL (= có mục lỗi)
+    # dùng sự kiện BATCH_FAILED.
+    if transitioned:
+        if new_status == "DONE":
+            notify_for_batch(
+                engine,
+                batch_run_id,
+                "BATCH_DONE",
+                f"Chạy bộ #{batch_run_id} đã xong",
+                f"Chạy bộ đã xong: {counts['DONE']} mục xong, {counts['SKIPPED']} mục bỏ qua.",
+            )
+        else:
+            notify_for_batch(
+                engine,
+                batch_run_id,
+                "BATCH_FAILED",
+                f"Chạy bộ #{batch_run_id} kết thúc có lỗi",
+                f"Chạy bộ kết thúc: {counts['DONE']} mục xong, {counts['FAILED']} mục lỗi.",
+            )
+    return result
 
 
 def _check_data_source_cached(ds_id: int, cache: dict[int, tuple[bool, str]], lock: threading.Lock) -> tuple[bool, str]:

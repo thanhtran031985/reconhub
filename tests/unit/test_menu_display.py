@@ -194,7 +194,7 @@ class TestSidebarDisplayValues:
         hrefs = _hrefs(_group(_sidebar(_operator(), engine, False), "ĐỐI SOÁT"))
         # Task 27 (Q8): 3 menu report đã hiện ở thanh bên (order 70/80).
         # Task 66: thêm menu Hàng đợi & worker (order 90) cuối nhóm.
-        assert hrefs == ["/runs/new", "/", "/history", "/batch-runs", "/issues", "/reports", "/report-runs", "/queue-health"]
+        assert hrefs == ["/runs/new", "/", "/history", "/batch-runs", "/issues", "/reports", "/report-runs", "/queue-health", "/notifications"]
 
     def test_sidebar_empty_group_hidden(self, display_env):
         engine, _ = display_env

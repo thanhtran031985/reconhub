@@ -108,6 +108,7 @@ class TestEffectiveMenus:
             "report_center",
             "report_history",
             "queue_health",
+            "notifications",
         }
 
     def test_operator_menus(self, perm_env):
@@ -122,6 +123,7 @@ class TestEffectiveMenus:
             "report_center",
             "report_history",
             "queue_health",
+            "notifications",
         }
 
     def test_viewer_menus(self, perm_env):
@@ -135,6 +137,7 @@ class TestEffectiveMenus:
             "report_center",
             "report_history",
             "queue_health",
+            "notifications",
         }
 
     def test_inactive_user_has_no_menus(self, perm_env):
@@ -192,6 +195,7 @@ class TestEffectiveMenus:
             "report_center",
             "report_history",
             "queue_health",
+            "notifications",
         }
 
     def test_is_admin(self, perm_env):

@@ -56,6 +56,8 @@ MENUS: list[MenuDef] = [
     MenuDef("report_history", "Lịch sử báo cáo", "DOI_SOAT", "/report-runs", 80, "lucide:clipboard-list"),
     # Task 66: tách card sức khỏe khỏi dashboard thành tab riêng.
     MenuDef("queue_health", "Hàng đợi & worker", "DOI_SOAT", "/queue-health", 90, "lucide:activity"),
+    # Task 78: trung tâm thông báo trong app.
+    MenuDef("notifications", "Thông báo", "DOI_SOAT", "/notifications", 95, "lucide:bell"),
     MenuDef("report_admin", "Quản trị báo cáo", "QUAN_TRI", "/report-admin", 40, "lucide:settings", "N"),
     MenuDef("data_model", "Mô hình dữ liệu", "QUAN_TRI", "/data-model", 50, "lucide:network"),
     MenuDef("system_settings", "Cài đặt hệ thống", "QUAN_TRI", "/settings", 60, "lucide:settings-2", "N"),
@@ -84,6 +86,7 @@ ROLE_MENUS_SEED: dict[str, list[str]] = {
         "report_center",
         "report_history",
         "queue_health",
+        "notifications",
     ],
     "OPERATOR": [
         "dashboard",
@@ -95,6 +98,7 @@ ROLE_MENUS_SEED: dict[str, list[str]] = {
         "report_center",
         "report_history",
         "queue_health",
+        "notifications",
     ],
     "VIEWER": [
         "dashboard",
@@ -105,6 +109,7 @@ ROLE_MENUS_SEED: dict[str, list[str]] = {
         "report_center",
         "report_history",
         "queue_health",
+        "notifications",
     ],
 }
 

@@ -547,5 +547,23 @@
     "migration_id": "0008_migration_checklist",
     "task_id": null,
     "timestamp": "2026-11-11T14:58:23.641984+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_NOTIFICATION",
+    "migration_id": "0010_notifications",
+    "task_id": null,
+    "timestamp": "2026-11-12T13:33:57.060822+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_NOTIFICATION_PREF",
+    "migration_id": "0010_notifications",
+    "task_id": null,
+    "timestamp": "2026-11-12T13:33:57.060822+00:00"
   }
 ]

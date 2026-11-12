@@ -77,12 +77,12 @@ def test_upgrade_creates_tables_and_seeds(v4_db: str, root: Path) -> None:
     engine = create_engine(v4_db)
     with engine.connect() as conn:
         assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU_GROUP")).scalar() == 3
-        assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 14  # task 66: 0009 thêm dòng menu queue_health
+        assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 15  # task 66: 0009 thêm menu queue_health; task 78: 0010 thêm menu notifications
         assert conn.execute(text("SELECT COUNT(*) FROM RECON_ROLE")).scalar() == 4
         admin = conn.execute(text("SELECT CODE, IS_SYSTEM FROM RECON_ROLE WHERE CODE='ADMIN'")).one()
         assert admin[1] == "Y"
         # ADMIN không có dòng ở RECON_ROLE_MENU
-        assert conn.execute(text("SELECT COUNT(*) FROM RECON_ROLE_MENU")).scalar() == (8 + 6 + 5 + 3)  # task 66: 0009 cấp queue_health cho 3 vai trò
+        assert conn.execute(text("SELECT COUNT(*) FROM RECON_ROLE_MENU")).scalar() == (8 + 6 + 5 + 3 + 3)  # task 66: 0009 cấp queue_health cho 3 vai trò; task 78: 0010 cấp notifications cho 3 vai trò
         # PERM_REVISION + MENU_SYNC_LOCK
         rev = conn.execute(text("SELECT VALUE FROM RECON_APP_SETTING WHERE KEY='PERM_REVISION'")).scalar()
         assert rev is not None and int(rev) >= 1
@@ -116,7 +116,7 @@ def test_upgrade_idempotent(v4_db: str, root: Path) -> None:
     engine = create_engine(v4_db)
     with engine.connect() as conn:
         assert conn.execute(text("SELECT COUNT(*) FROM RECON_ROLE")).scalar() == 4
-        assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 14  # task 66: 0009 thêm dòng menu queue_health
+        assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 15  # task 66: 0009 thêm menu queue_health; task 78: 0010 thêm menu notifications
     engine.dispose()
 
 

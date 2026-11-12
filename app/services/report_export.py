@@ -24,6 +24,7 @@ from app.db.engine import get_recon_engine
 from app.db.metadata import recon_report, recon_report_run, recon_rpt_export
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
+from app.services.notification import notify_for_export
 from app.services.perm import is_admin, requires_menu
 from app.services.report_run import (
     _prepare_query_binds,
@@ -612,6 +613,9 @@ def _fail_export(engine: Any, export_id: int, error: ServiceError) -> None:
                 "error_message": error.message[:500],
             },
         )
+    # Task 78: báo chủ export khi lỗi (chỉ khi chuyển sang FAILED thật;
+    # rowcount == 0 đã return sớm ở trên — export bị hủy không báo lỗi).
+    notify_for_export(engine, export_id, "EXPORT_FAILED", f"Xuất Excel #{export_id} lỗi", error.message[:500])
 
 
 def _summary_text(
@@ -821,6 +825,14 @@ def execute_export(
                     "part_count": part,
                 },
             )
+        # Task 78: báo chủ export khi xong (DONE chỉ khi chủ bật EXPORT_DONE).
+        notify_for_export(
+            eng,
+            export_id,
+            "EXPORT_DONE",
+            f"Xuất Excel #{export_id} đã xong",
+            f"Báo cáo {report_code}: đã xuất {written} dòng.",
+        )
     except ServiceError as exc:
         shutil.rmtree(out_dir, ignore_errors=True)
         _fail_export(eng, export_id, exc)

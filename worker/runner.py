@@ -12,6 +12,7 @@ from app.core.logging import setup_logging
 from app.db.dialect import get_dialect
 from app.db.engine import get_db_engine
 from app.db.metadata import recon_run, recon_run_queue
+from app.services.notification import notify_for_run
 from app.services.run_executor import execute_run
 from app.services.worker_health import write_worker_heartbeat
 
@@ -77,6 +78,15 @@ class ReconWorker:
                     sync_batch_status(self.engine, batch_id)
             except Exception as exc:  # noqa: BLE001 - đồng bộ batch là phụ
                 logger.warn("Không đồng bộ được trạng thái batch sau khi reset job treo", error=str(exc))
+            # Task 78: báo chủ run bị treo (mỗi run chỉ reset 1 lần nên không spam).
+            for r_id in stale_run_ids:
+                notify_for_run(
+                    self.engine,
+                    r_id,
+                    "RUN_FAILED",
+                    f"Run đối soát #{r_id} lỗi",
+                    "Worker bị ngắt đột ngột, job bị treo.",
+                )
 
         return reset_count
 

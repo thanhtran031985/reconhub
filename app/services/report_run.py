@@ -28,6 +28,7 @@ from app.db.metadata import (
 from app.engine.sql_dialect import quote_identifier
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
+from app.services.notification import notify_for_report_run
 from app.services.perm import is_admin, requires_menu
 from app.services.report import load_report_row
 from app.services.report_param import resolve_param_values
@@ -514,6 +515,8 @@ def execute_report_run(ctx: Ctx, run_id: int, page: int = 1, page_size: int = 50
                 },
             )
             row = conn.execute(select(recon_report_run).where(recon_report_run.c.ID == run_id)).mappings().first()
+        # Task 78: báo chủ run khi lỗi.
+        notify_for_report_run(engine, run_id, "REPORT_RUN_FAILED", f"Chạy báo cáo #{run_id} lỗi", exc.message[:500])
         return {"run": _run_dict(row), "total": 0, "rows": [], "columns": []}
     query_ms = int((time.monotonic() - started) * 1000)
     with engine.begin() as conn:
@@ -536,6 +539,8 @@ def execute_report_run(ctx: Ctx, run_id: int, page: int = 1, page_size: int = 50
             new_data={"status": "DONE", "total": total, "query_ms": query_ms},
         )
         row = conn.execute(select(recon_report_run).where(recon_report_run.c.ID == run_id)).mappings().first()
+    # Task 78: báo chủ run khi xong (DONE chỉ khi chủ bật REPORT_RUN_DONE).
+    notify_for_report_run(engine, run_id, "REPORT_RUN_DONE", f"Chạy báo cáo #{run_id} đã xong", f"Đã chạy xong: {total} dòng.")
     return {
         "run": _run_dict(row),
         "total": total,

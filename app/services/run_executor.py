@@ -36,6 +36,7 @@ from app.engine.sql_builder import build_source_sql
 from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.template_config import TemplateConfig
 from app.services.excel_load import load_excel_to_temp
+from app.services.notification import notify_for_run
 from app.services.source_conn import open_source_connection
 
 logger = structlog.get_logger("executor")
@@ -603,6 +604,9 @@ def execute_run(
         if batch_run_id is not None:
             _sync_batch_after_run(run_id, batch_run_id)
 
+        # Task 78: báo chủ run (DONE chỉ khi chủ bật RUN_DONE; lỗi luôn bật mặc định).
+        notify_for_run(engine, run_id, "RUN_DONE", f"Run đối soát #{run_id} đã xong", "Run đối soát đã hoàn thành. Bấm để xem kết quả.")
+
         return {"run_id": run_id, "status": "DONE", "summary": summary_dict}
 
     except _BatchCancelled:
@@ -664,6 +668,9 @@ def execute_run(
 
         if batch_run_id is not None:
             _sync_batch_after_run(run_id, batch_run_id)
+
+        # Task 78: báo chủ run khi lỗi.
+        notify_for_run(engine, run_id, "RUN_FAILED", f"Run đối soát #{run_id} lỗi", str(err_msg)[:500])
 
         return {
             "run_id": run_id,

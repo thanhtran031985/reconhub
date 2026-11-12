@@ -5,7 +5,7 @@ from typing import Any
 
 import dash
 import dash_mantine_components as dmc
-from dash import Input, Output, State, callback, dcc, html
+from dash import ALL, Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
 from sqlalchemy import inspect, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -13,8 +13,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.context import Ctx, Role
 from app.core.session import get_current_ctx
 from app.db.engine import get_recon_engine
-from app.db.metadata import recon_app_setting
+from app.db.metadata import recon_app_setting, recon_notification
 from app.services.data_source import get_active_environment
+from app.services.notification import count_unread, list_notifications, mark_read, maybe_notify_worker_health
 from app.services.perm import effective_menus, get_perm_revision, is_admin, user_role_codes
 from app.services.temp_data import usage
 from app.ui.components.alert_box import alert_box
@@ -481,6 +482,52 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool
         visibleFrom="md",
     )
 
+    # Task 78: chuông thông báo — badge số chưa đọc, bấm mở panel 5 mục mới nhất.
+    bell: Any = html.Div()
+    if ctx is not None:
+        try:
+            unread = count_unread(get_recon_engine(), ctx.user_id)
+        except Exception:  # noqa: BLE001 — badge lỗi không được vỡ header
+            unread = 0
+        bell = dmc.Menu(
+            [
+                dmc.MenuTarget(
+                    dmc.Indicator(
+                        dmc.ActionIcon(
+                            DashIconify(icon="lucide:bell", width=18),
+                            id="app-notif-bell",
+                            variant="subtle",
+                            color="gray",
+                            size="md",
+                            **{"aria-label": "Thông báo"},
+                        ),
+                        id="app-notif-indicator",
+                        label=str(unread) if unread > 0 else "",
+                        disabled=unread == 0,
+                        color="red",
+                        size=16,
+                        position="top-end",
+                    )
+                ),
+                dmc.MenuDropdown(
+                    [
+                        dmc.MenuLabel("Thông báo"),
+                        html.Div(id="app-notif-panel"),
+                        dmc.MenuDivider(),
+                        dmc.MenuItem(
+                            "Xem tất cả thông báo",
+                            href="/notifications",
+                            leftSection=DashIconify(icon="lucide:bell", width=16),
+                        ),
+                    ],
+                    style={"width": "360px"},
+                ),
+            ],
+            id="app-notif-menu",
+            position="bottom-end",
+            withArrow=True,
+        )
+
     return dmc.Group(
         [
             dmc.Group(
@@ -501,6 +548,7 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool
                         variant="light",
                         size="sm",
                     ),
+                    bell,
                     dmc.ColorSchemeToggle(
                         id="app-color-scheme-toggle",
                         lightIcon=DashIconify(icon="lucide:sun", width=16),
@@ -751,6 +799,9 @@ def create_shell_layout() -> Any:
             # thanh bên trong tối đa 5 giây (spec 11 mục 6).
             dcc.Store(id="app-perm-revision", data=None),
             dcc.Interval(id="app-perm-revision-check", interval=5000, n_intervals=0),
+            # Task 78: đếm badge chuông mỗi 60s (1 câu COUNT) + kiểm tra
+            # sức khỏe worker để báo ADMIN (D8).
+            dcc.Interval(id="app-notif-poll", interval=60000, n_intervals=0),
             dmc.NotificationContainer(position="top-right", zIndex=9999),
             html.Div(id="app-shell-container"),
         ]
@@ -994,3 +1045,136 @@ def handle_menu_search(
             )
         )
     return nodes, {**_MENU_SEARCH_RESULTS_STYLE, "display": "block"}, dash.no_update, dash.no_update
+
+
+# --- Task 78: chuông thông báo ------------------------------------------------
+
+
+def _notif_badge(ctx: Ctx) -> tuple[str, bool]:
+    """(label, disabled) của badge chuông theo số chưa đọc."""
+    try:
+        unread = count_unread(get_recon_engine(), ctx.user_id)
+    except Exception:  # noqa: BLE001 — badge lỗi không được vỡ header
+        return "", True
+    return (str(unread) if unread > 0 else ""), unread == 0
+
+
+def _notif_panel_items(ctx: Ctx) -> list[Any]:
+    """5 thông báo mới nhất cho panel chuông."""
+    res = list_notifications(ctx, page=1, page_size=5)
+    if not res.ok or not res.data:
+        return [dmc.Text("Chưa có thông báo.", size="sm", c="dimmed", px="sm", py="xs")]
+    items = res.data.get("items") or []
+    if not items:
+        return [dmc.Text("Chưa có thông báo.", size="sm", c="dimmed", px="sm", py="xs")]
+    nodes: list[Any] = []
+    for item in items:
+        title = str(item.get("title") or "")
+        created = str(item.get("created_at") or "")[:16].replace("T", " ")
+        label = dmc.Group(
+            [
+                dmc.Text(title, size="sm", fw=600 if not item.get("is_read") else 400),
+                dmc.Text(created, size="xs", c="dimmed"),
+            ],
+            gap="xs",
+            justify="space-between",
+        )
+        nodes.append(
+            dmc.MenuItem(
+                label,
+                id={"type": "app-notif-panel-item", "index": int(item["id"])},
+            )
+        )
+    return nodes
+
+
+@callback(
+    Output("app-notif-indicator", "label"),
+    Output("app-notif-indicator", "disabled"),
+    Input("app-notif-poll", "n_intervals"),
+    Input("app-location", "pathname"),
+    prevent_initial_call=True,
+)
+def handle_notif_poll(_n_intervals: int, pathname: str | None) -> tuple[str, bool]:
+    """Đếm badge chuông khi đổi trang + mỗi 60s.
+
+    Chỉ khi Interval tick mới kiểm tra sức khỏe worker để báo ADMIN
+    (D8) — đổi trang chỉ đếm badge.
+    """
+    ctx = get_current_ctx()
+    if ctx is None or pathname == "/login":
+        raise dash.exceptions.PreventUpdate
+    try:
+        triggered = dash.callback_context.triggered_id
+        if triggered == "app-notif-poll":
+            maybe_notify_worker_health(get_recon_engine())
+        return _notif_badge(ctx)
+    except Exception:  # noqa: BLE001 — badge lỗi không được vỡ header
+        raise dash.exceptions.PreventUpdate from None
+
+
+@callback(
+    Output("app-notif-panel", "children"),
+    Input("app-notif-bell", "n_clicks"),
+    Input("app-notif-poll", "n_intervals"),
+    prevent_initial_call=True,
+)
+def handle_notif_panel(_n_clicks: int | None, _n_intervals: int) -> Any:
+    """Vẽ lại panel chuông khi bấm chuông (hoặc mỗi 60s nếu đang mở)."""
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise dash.exceptions.PreventUpdate
+    try:
+        return _notif_panel_items(ctx)
+    except Exception:  # noqa: BLE001 — panel lỗi không được vỡ header
+        raise dash.exceptions.PreventUpdate from None
+
+
+def handle_panel_item_click(ctx: Ctx, notif_id: int) -> tuple[str, bool, Any, Any]:
+    """Thuần: đánh dấu 1 thông báo đã đọc; trả (badge label, disabled,
+    panel mới, link để điều hướng)."""
+    mark_read(ctx, notif_id)
+    link: Any = dash.no_update
+    try:
+        with get_recon_engine().connect() as conn:
+            row = conn.execute(
+                select(recon_notification.c.LINK).where(recon_notification.c.ID == int(notif_id))
+            ).scalar_one_or_none()
+        if row:
+            link = str(row)
+    except Exception:  # noqa: BLE001 — không lấy được link thì ở lại trang
+        link = dash.no_update
+    label, disabled = _notif_badge(ctx)
+    return label, disabled, _notif_panel_items(ctx), link
+
+
+@callback(
+    Output("app-notif-indicator", "label", allow_duplicate=True),
+    Output("app-notif-indicator", "disabled", allow_duplicate=True),
+    Output("app-notif-panel", "children", allow_duplicate=True),
+    Output("app-location", "href", allow_duplicate=True),
+    Input({"type": "app-notif-panel-item", "index": ALL}, "n_clicks"),
+    prevent_initial_call=True,
+)
+def handle_notif_panel_item_click(_n_clicks: list[int | None] | None) -> tuple[str, bool, Any, Any]:
+    """Bấm 1 mục trong panel chuông -> đánh dấu đã đọc + tới link.
+
+    MenuItem KHÔNG dùng href: href + n_clicks thì click điều hướng
+    ngay, n_clicks mất (đã chứng minh bằng debug live task 78) —
+    callback tự điều hướng qua app-location.href SAU khi đánh dấu đọc
+    nên chắc chắn đã đọc trước khi chuyển trang.
+    """
+    triggered = dash.callback_context.triggered_id
+    ctx = get_current_ctx()
+    if not isinstance(triggered, dict) or ctx is None:
+        raise dash.exceptions.PreventUpdate
+    if not any(c for c in (_n_clicks or []) if c):
+        raise dash.exceptions.PreventUpdate
+    try:
+        notif_id = int(triggered["index"])
+    except (TypeError, ValueError):
+        raise dash.exceptions.PreventUpdate from None
+    try:
+        return handle_panel_item_click(ctx, notif_id)
+    except Exception:  # noqa: BLE001 — lỗi đánh dấu không được vỡ header
+        raise dash.exceptions.PreventUpdate from None

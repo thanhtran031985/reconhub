@@ -37,6 +37,7 @@ from app.services.migration_checklist import (
     save_checklist,
     set_step_items,
 )
+from app.services.notification import notify_admins
 from app.services.perm import require_admin, requires_menu
 
 RECON_TABLES_ORDER = [
@@ -563,6 +564,16 @@ def start_migration(
         refresh_status(checklist)
         save_checklist(src_engine, migration_id, checklist)
 
+        # Task 78: báo ADMIN khi migration thật hoàn tất (fake mode mô phỏng
+        # ở client, không qua hàm này nên không báo nhầm).
+        notify_admins(
+            src_engine,
+            "MIGRATION_DONE",
+            "Chuyển Oracle đã xong",
+            "Đã chuyển metadata sang Oracle đích và đối chiếu xong.",
+            link="/data-sources",
+        )
+
         return {
             "migration_id": migration_id,
             "status": "DONE",
@@ -590,6 +601,14 @@ def start_migration(
                     FINISHED_AT=datetime.now(timezone.utc).replace(tzinfo=None),
                 )
             )
+        # Task 78: báo ADMIN khi migration thật lỗi.
+        notify_admins(
+            src_engine,
+            "MIGRATION_FAILED",
+            "Chuyển Oracle lỗi",
+            str(exc)[:500],
+            link="/data-sources",
+        )
         raise
 
 
