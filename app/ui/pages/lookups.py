@@ -1,11 +1,9 @@
 """app/ui/pages/lookups.py — Màn hình Quản lý Danh mục Lookup (Screen12-Lookups).
 
-Bố cục Master–Detail 2 cột theo chuẩn designs/components/Screen12-Lookups/:
-- Cột trái (Master ~35%):
-    - Tiêu đề nhóm, badge số lượng loại, nút "+ Thêm loại".
-    - Ô tìm kiếm loại danh mục (theo tên hoặc mã).
-    - Danh sách Type kèm badge đếm mã con, tag "Hệ thống".
-- Cột phải (Detail ~65%):
+Bố cục 1 cột theo chuẩn designs/components/Screen12-Lookups/ (task 83:
+card trái đã xóa, chọn loại bằng Select ở command bar):
+- Command bar: Select chọn loại danh mục (có search) + số lượng loại + nút "+ Thêm loại".
+- Card bảng Lookup Code:
     - Tiêu đề loại đang chọn, mã loại, nút "Sửa loại", nút "+ Thêm giá trị" (khóa nếu nhóm cố định).
     - Khung cảnh báo chính sách (Policy alert: nhóm cố định vs nhóm mở).
     - Toolbar: ô tìm kiếm mã/nhãn, dropdown lọc trạng thái (Tất cả / Đang dùng / Ngừng dùng).
@@ -113,118 +111,29 @@ def _error_state(title: str, message: str, retry_id: str) -> Any:
 # ─── Hàm render thành phần ───────────────────────────────────────────────────
 
 
-def render_type_list(
-    ctx: Any,
-    selected_type: str | None = None,
-    search_query: str = "",
-) -> tuple[Any, int]:
-    """Render danh sách Lookup Type ở cột trái kèm bộ lọc tìm kiếm.
+def build_type_options(ctx: Any) -> tuple[list[dict[str, str]], int]:
+    """Dựng options cho Select chọn loại ở command bar (task 83, D9).
 
-    Trả về (component_ui, total_types_count).
+    Trả về (options, total_types_count). Label giữ thông tin card trái
+    từng hiện: "Tên loại (CODE) — N giá trị · M đang dùng".
     """
     res = list_lookup_types(ctx)
     err = _service_message(res)
     if err:
-        return (_error_state("Không tải được danh sách loại", err, "lookups-type-retry-btn"), 0)
+        return [], 0
     types = res.data if res.data else []
-    total_count = len(types)
-
-    q = (search_query or "").strip().lower()
-    if q:
-        filtered_types = [
-            t for t in types if q in (t.get("lookup_type") or "").lower() or q in (t.get("type_name") or "").lower()
-        ]
-    else:
-        filtered_types = types
-
-    if not filtered_types:
-        return (
-            empty_state(
-                title="Không có loại khớp tìm kiếm" if q else "Chưa có loại danh mục",
-                description="Thử đổi từ khóa tìm kiếm hoặc bấm '+ Thêm loại'."
-                if q
-                else "Bấm '+ Thêm loại' để tạo nhóm đầu tiên.",
+    options = [
+        {
+            "value": t.get("lookup_type", ""),
+            "label": (
+                f"{t.get('type_name') or t.get('lookup_type', '')} ({t.get('lookup_type', '')})"
+                f" — {t.get('code_total_count', t.get('code_count', 0))} giá trị"
+                f" · {t.get('code_count', 0)} đang dùng"
             ),
-            total_count,
-        )
-
-    items = []
-    for t in filtered_types:
-        lt = t.get("lookup_type", "")
-        is_selected = lt == selected_type
-        is_sys = (t.get("is_system") or "N") == "Y"
-        is_type_active = (t.get("is_active") or "Y") == "Y"
-        code_count = t.get("code_count", 0)
-        code_total = t.get("code_total_count", code_count)
-
-        # Thẻ loại theo thiết kế: Paper có viền làm khung thẻ, nút bên
-        # trong làm vùng bấm. Dùng dmc.Button, không dùng UnstyledButton:
-        # UnstyledButton của Dash Mantine không phát n_clicks nên callback
-        # chọn loại không bao giờ chạy (đã kiểm chứng bằng Playwright).
-        items.append(
-            dmc.Paper(
-                dmc.Button(
-                    id={"type": "lookups-type-item", "index": lt},
-                    n_clicks=0,
-                    variant="subtle",
-                    color="gray",
-                    fullWidth=True,
-                    justify="flex-start",
-                    **{
-                        "aria-label": f"Chọn loại {t.get('type_name') or lt} ({lt}), {code_total} giá trị, {code_count} đang dùng"
-                    },
-                    style={
-                        "height": "auto",
-                        "textAlign": "left",
-                        "padding": "0",
-                        "backgroundColor": "transparent",
-                        "transition": "background-color 0.15s ease",
-                    },
-                    children=dmc.Stack(
-                        gap=4,
-                        children=[
-                            dmc.Text(
-                                t.get("type_name") or lt,
-                                size="md",
-                                fw=700,
-                            ),
-                            dmc.Text(
-                                lt,
-                                size="sm",
-                                c="dimmed",
-                                className="rh-code mono",
-                            ),
-                            dmc.Group(
-                                gap="xs",
-                                children=[
-                                    dmc.Badge(
-                                        f"{code_total} giá trị · {code_count} đang dùng",
-                                        size="sm",
-                                        color="gray",
-                                        variant="light",
-                                        tt="none",
-                                    ),
-                                    dmc.Badge("Hệ thống", size="sm", color="blue", variant="light") if is_sys else None,
-                                    dmc.Badge("Ngừng dùng", size="sm", color="gray", variant="light")
-                                    if not is_type_active
-                                    else None,
-                                ],
-                            ),
-                        ],
-                    ),
-                ),
-                withBorder=True,
-                radius="md",
-                p="md",
-                style={
-                    "backgroundColor": "var(--primary-soft)" if is_selected else "transparent",
-                    "borderColor": "var(--primary)" if is_selected else None,
-                    "borderWidth": "2px" if is_selected else None,
-                },
-            )
-        )
-
-    return dmc.Stack(items, gap="sm"), total_count
+        }
+        for t in types
+    ]
+    return options, len(types)
 
 
 def render_policy_alert(lookup_type: str | None) -> Any:
@@ -261,7 +170,7 @@ def render_code_table(
     if not lookup_type:
         return empty_state(
             title="Chọn loại danh mục",
-            description="Bấm vào một loại danh mục ở cột trái để xem và quản lý các giá trị.",
+            description="Bấm vào một loại danh mục ở trên để xem và quản lý các giá trị.",
             icon="lucide:arrow-left",
         )
 
@@ -345,32 +254,45 @@ def render_code_table(
         )
 
         # Nút thật (ActionIcon) thay cho Div bấm được: tab tới được, có
-        # aria-label, vùng bấm size xl của Mantine (~44px). Mã hệ thống bị
+        # aria-label + Tooltip hint. Task 83: size sm (28px) thay xl (~44px)
+        # để 2 icon (28+28+8 = 64px) nằm gọn 1 hàng trong cột Thao tác 90px;
+        # Group wrap="nowrap" để không bao giờ rớt hàng lại. Mã hệ thống bị
         # disabled thật nên không mở được modal xóa.
+        edit_label = f"Sửa mã {code}"
+        delete_label = f"Mã hệ thống, không thể xóa mã {code}" if is_sys else f"Xóa mã {code}"
         action_btns = dmc.Group(
             gap=8,
             justify="flex-end",
+            wrap="nowrap",
             children=[
-                dmc.ActionIcon(
-                    DashIconify(icon="lucide:pencil", width=18),
-                    id={"type": "lookups-edit-code-btn", "index": f"{lookup_type}|{code}"},
-                    n_clicks=0,
-                    variant="subtle",
-                    color="primary",
-                    size="xl",
-                    **{"aria-label": f"Sửa mã {code}"},
+                dmc.Tooltip(
+                    label=edit_label,
+                    withArrow=True,
+                    children=dmc.ActionIcon(
+                        DashIconify(icon="lucide:pencil", width=16),
+                        id={"type": "lookups-edit-code-btn", "index": f"{lookup_type}|{code}"},
+                        n_clicks=0,
+                        variant="subtle",
+                        color="primary",
+                        size="sm",
+                        **{"aria-label": edit_label},
+                    ),
                 )
                 if can_edit
                 else None,
-                dmc.ActionIcon(
-                    DashIconify(icon="lucide:trash-2", width=18),
-                    id={"type": "lookups-delete-code-btn", "index": f"{lookup_type}|{code}"},
-                    n_clicks=0,
-                    variant="subtle",
-                    color="crit",
-                    size="xl",
-                    disabled=is_sys,
-                    **{"aria-label": f"Mã hệ thống, không thể xóa mã {code}" if is_sys else f"Xóa mã {code}"},
+                dmc.Tooltip(
+                    label=delete_label,
+                    withArrow=True,
+                    children=dmc.ActionIcon(
+                        DashIconify(icon="lucide:trash-2", width=16),
+                        id={"type": "lookups-delete-code-btn", "index": f"{lookup_type}|{code}"},
+                        n_clicks=0,
+                        variant="subtle",
+                        color="crit",
+                        size="sm",
+                        disabled=is_sys,
+                        **{"aria-label": delete_label},
+                    ),
                 )
                 if can_edit
                 else None,
@@ -662,7 +584,7 @@ def layout(**kwargs: Any) -> Any:
             ]
         )
 
-    type_list_ui, total_types_count = render_type_list(ctx, selected_type=None)
+    type_options, total_types_count = build_type_options(ctx)
     code_table_ui = render_code_table(ctx, lookup_type=None)
 
     return html.Div(
@@ -678,185 +600,145 @@ def layout(**kwargs: Any) -> Any:
             ),
             # Vùng thông báo chung của trang (lỗi xóa, aria-live cho trình đọc màn hình). Mặc định trống.
             html.Div(id="lookups-page-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
-            # Layout Master–Detail 2 cột
-            dmc.Box(
-                style={
-                    "display": "flex",
-                    "flexDirection": "row",
-                    "flex": 1,
-                    "minHeight": 0,
-                    "gap": "12px",
-                    "overflow": "hidden",
-                },
-                children=[
-                    # Cột trái (Master): Danh sách Lookup Type
-                    dmc.Paper(
-                        [
-                            # Header cột trái
+            # Command bar: chọn loại + thêm loại (task 83: thay card trái).
+            dmc.Paper(
+                dmc.Group(
+                    [
+                        dmc.Select(
+                            id="lookups-type-select",
+                            data=type_options,
+                            value=None,
+                            placeholder="Chọn loại danh mục…",
+                            searchable=True,
+                            size="xs",
+                            style={"flex": 1},
+                            **{"aria-label": "Chọn loại danh mục"},
+                        ),
+                        dmc.Text(
+                            f"{total_types_count} loại",
+                            id="lookups-type-count-text",
+                            size="xs",
+                            c="dimmed",
+                        ),
+                        dmc.Button(
+                            "+ Thêm loại danh mục",
+                            id="lookups-add-type-btn",
+                            variant="outline",
+                            color="gray",
+                            size="xs",
+                        ),
+                    ],
+                    gap="xs",
+                    align="center",
+                ),
+                withBorder=True,
+                radius="sm",
+                p="xs",
+                mb="xs",
+            ),
+            # Bảng Lookup Code — 1 cột duy nhất full width (task 83).
+            dmc.Paper(
+                [
+                    # Header cột phải
+                    dmc.Group(
+                        justify="space-between",
+                        align="center",
+                        mb="xs",
+                        children=[
                             dmc.Group(
-                                justify="space-between",
+                                gap="xs",
                                 align="center",
-                                mb="xs",
                                 children=[
-                                    dmc.Group(
-                                        gap="xs",
-                                        children=[
-                                            dmc.Text("Loại danh mục", fw=700, size="sm"),
-                                            dmc.Badge(
-                                                f"{total_types_count} loại",
-                                                id="lookups-type-count-badge",
-                                                color="gray",
-                                                size="xs",
-                                                variant="light",
-                                            ),
-                                        ],
+                                    dmc.Text(
+                                        id="lookups-code-header",
+                                        children="Chọn loại danh mục",
+                                        fw=700,
+                                        size="sm",
+                                    ),
+                                    dmc.Badge(
+                                        id="lookups-code-type-badge",
+                                        children="",
+                                        color="gray",
+                                        size="xs",
+                                        variant="outline",
+                                        style={"display": "none"},
                                     ),
                                 ],
                             ),
-                            # Ô tìm kiếm Type
+                            dmc.Group(
+                                gap="xs",
+                                children=[
+                                    button_subtle(
+                                        "Sửa loại",
+                                        id="lookups-edit-type-btn",
+                                        size="xs",
+                                        icon="lucide:pencil",
+                                        disabled=True,
+                                    ),
+                                    button_primary(
+                                        "Thêm giá trị",
+                                        id="lookups-add-code-btn",
+                                        size="xs",
+                                        icon="lucide:plus",
+                                        disabled=True,
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    # Alert policy
+                    html.Div(id="lookups-policy-alert-container", children=render_policy_alert(None)),
+                    # Toolbar: Tìm kiếm Code & Lọc trạng thái
+                    dmc.Group(
+                        align="flex-end",
+                        gap="xs",
+                        mb="xs",
+                        children=[
                             dmc.TextInput(
-                                id="lookups-type-search-input",
-                                label="Tìm loại danh mục",
-                                placeholder="Tên hoặc mã loại...",
+                                id="lookups-code-search-input",
+                                placeholder="Tìm mã hoặc nhãn…",
                                 leftSection=DashIconify(icon="lucide:search", width=14),
                                 size="xs",
-                                mb="xs",
+                                style={"flex": 1, "minWidth": "160px"},
                             ),
-                            # Danh sách Type cuộn nội bộ
-                            html.Div(
-                                id="lookups-type-list",
-                                children=type_list_ui,
-                                style={"flex": 1, "minHeight": 0, "overflowY": "auto"},
-                            ),
-                            # Nút thêm loại ở cuối cột trái
-                            dmc.Button(
-                                "+ Thêm loại danh mục",
-                                id="lookups-add-type-btn",
-                                variant="outline",
-                                color="gray",
-                                fullWidth=True,
+                            dmc.Select(
+                                id="lookups-code-active-filter",
+                                data=[
+                                    {"value": "all", "label": "Tất cả trạng thái"},
+                                    {"value": "Y", "label": "Đang dùng"},
+                                    {"value": "N", "label": "Ngừng dùng"},
+                                ],
+                                value="all",
                                 size="xs",
-                                mt="xs",
+                                style={"width": "150px"},
                             ),
                         ],
-                        withBorder=True,
-                        radius="sm",
-                        p="xs",
-                        style={
-                            "width": "320px",
-                            "minWidth": "320px",
-                            "maxWidth": "320px",
-                            "display": "flex",
-                            "flexDirection": "column",
-                            "minHeight": 0,
-                            "height": "100%",
-                        },
                     ),
-                    # Cột phải (Detail): Bảng Lookup Code
-                    dmc.Paper(
-                        [
-                            # Header cột phải
-                            dmc.Group(
-                                justify="space-between",
-                                align="center",
-                                mb="xs",
-                                children=[
-                                    dmc.Group(
-                                        gap="xs",
-                                        align="center",
-                                        children=[
-                                            dmc.Text(
-                                                id="lookups-code-header",
-                                                children="Chọn loại danh mục ở cột trái",
-                                                fw=700,
-                                                size="sm",
-                                            ),
-                                            dmc.Badge(
-                                                id="lookups-code-type-badge",
-                                                children="",
-                                                color="gray",
-                                                size="xs",
-                                                variant="outline",
-                                                style={"display": "none"},
-                                            ),
-                                        ],
-                                    ),
-                                    dmc.Group(
-                                        gap="xs",
-                                        children=[
-                                            button_subtle(
-                                                "Sửa loại",
-                                                id="lookups-edit-type-btn",
-                                                size="xs",
-                                                icon="lucide:pencil",
-                                                disabled=True,
-                                            ),
-                                            button_primary(
-                                                "Thêm giá trị",
-                                                id="lookups-add-code-btn",
-                                                size="xs",
-                                                icon="lucide:plus",
-                                                disabled=True,
-                                            ),
-                                        ],
-                                    ),
-                                ],
-                            ),
-                            # Alert policy
-                            html.Div(id="lookups-policy-alert-container", children=render_policy_alert(None)),
-                            # Toolbar: Tìm kiếm Code & Lọc trạng thái
-                            dmc.Group(
-                                align="flex-end",
-                                gap="xs",
-                                mb="xs",
-                                children=[
-                                    dmc.TextInput(
-                                        id="lookups-code-search-input",
-                                        placeholder="Tìm mã hoặc nhãn…",
-                                        leftSection=DashIconify(icon="lucide:search", width=14),
-                                        size="xs",
-                                        style={"flex": 1, "minWidth": "160px"},
-                                    ),
-                                    dmc.Select(
-                                        id="lookups-code-active-filter",
-                                        data=[
-                                            {"value": "all", "label": "Tất cả trạng thái"},
-                                            {"value": "Y", "label": "Đang dùng"},
-                                            {"value": "N", "label": "Ngừng dùng"},
-                                        ],
-                                        value="all",
-                                        size="xs",
-                                        style={"width": "150px"},
-                                    ),
-                                ],
-                            ),
-                            dmc.Divider(mb="xs"),
-                            # Bảng Code cuộn nội bộ
-                            html.Div(
-                                id="lookups-code-table",
-                                children=code_table_ui,
-                                style={
-                                    "flex": 1,
-                                    "minHeight": 0,
-                                    "overflowY": "auto",
-                                    "display": "flex",
-                                    "flexDirection": "column",
-                                },
-                            ),
-                        ],
-                        withBorder=True,
-                        radius="sm",
-                        p="xs",
+                    dmc.Divider(mb="xs"),
+                    # Bảng Code cuộn nội bộ
+                    html.Div(
+                        id="lookups-code-table",
+                        children=code_table_ui,
                         style={
                             "flex": 1,
-                            "minWidth": 0,
+                            "minHeight": 0,
+                            "overflowY": "auto",
                             "display": "flex",
                             "flexDirection": "column",
-                            "minHeight": 0,
-                            "height": "100%",
                         },
                     ),
                 ],
+                withBorder=True,
+                radius="sm",
+                p="xs",
+                style={
+                    "flex": 1,
+                    "minWidth": 0,
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "minHeight": 0,
+                    "height": "100%",
+                },
             ),
             # Modal Thêm Lookup Type
             _modal_type_form("lookups-add-type-modal", "Thêm loại danh mục mới"),
@@ -885,7 +767,7 @@ def layout(**kwargs: Any) -> Any:
 
 
 def handle_select_type(selected_type: str | None) -> tuple[Any, str | None]:
-    """Hàm thuần xử lý chọn Lookup Type ở cột trái — trả (code_table_ui, selected_store)."""
+    """Hàm thuần xử lý chọn Lookup Type — trả (code_table_ui, selected_store)."""
     ctx = get_current_ctx()
     if not ctx or not selected_type:
         return render_code_table(None, lookup_type=None), None
@@ -902,49 +784,41 @@ def handle_select_type(selected_type: str | None) -> tuple[Any, str | None]:
     Output("lookups-add-code-btn", "disabled"),
     Output("lookups-edit-type-btn", "disabled"),
     Output("lookups-policy-alert-container", "children"),
-    Output("lookups-type-list", "children"),
-    Output("lookups-type-count-badge", "children"),
-    Input({"type": "lookups-type-item", "index": dash.ALL}, "n_clicks"),
+    Output("lookups-type-select", "data"),
+    Output("lookups-type-select", "value"),
+    Output("lookups-type-count-text", "children"),
+    Input("lookups-type-select", "value"),
     Input("lookups-refresh-store", "data"),
-    Input("lookups-type-search-input", "value"),
     Input("lookups-code-search-input", "value"),
     Input("lookups-code-active-filter", "value"),
     State("lookups-selected-type-store", "data"),
     prevent_initial_call=True,
 )
 def cb_master_detail_sync(
-    _clicks: list[int | None],
+    type_select: str | None,
     _refresh: int | None,
-    type_search: str | None,
     code_search: str | None,
     active_filter: str | None,
     current_selected: str | None,
-) -> tuple[Any, str | None, str, str, dict[str, str], bool, bool, Any, Any, str]:
-    """Đồng bộ Master–Detail: chọn type, tìm kiếm, lọc trạng thái, refresh."""
+) -> tuple[Any, str | None, str, str, dict[str, str], bool, bool, Any, list[dict[str, str]], str | None, str]:
+    """Đồng bộ bảng Code + Select loại: chọn loại, lọc trạng thái, refresh (task 83).
+
+    `lookups-selected-type-store` là nguồn sự thật duy nhất (D7); Select
+    chỉ là Input/Output của callback này (value vào, data ra).
+    """
     ctx = get_current_ctx()
     ctx_dash = dash.callback_context
     triggered = ctx_dash.triggered[0]["prop_id"] if ctx_dash.triggered else ""
 
     selected_type = current_selected
-    # Guard: khi danh sách loại được render lại (tìm kiếm/refresh), Dash
-    # có thể kích hoạt callback với n_clicks=0 của nút mới xuất hiện.
-    # Chỉ coi là bấm chọn khi giá trị kích hoạt > 0.
-    _triggered_value = ctx_dash.triggered[0].get("value") if ctx_dash.triggered else None
-    if "lookups-type-item" in triggered and _triggered_value:
-        try:
-            id_dict = json.loads(triggered.split(".")[0])
-            selected_type = id_dict.get("index")
-        except Exception:
-            pass
+    if "lookups-type-select" in triggered:
+        # Người dùng chọn/xóa loại trên Select (value có thể là None khi xóa).
+        selected_type = type_select or None
 
-    # Render danh sách Type (cột trái)
-    type_list_ui, total_types_count = render_type_list(
-        ctx,
-        selected_type=selected_type,
-        search_query=type_search or "",
-    )
+    # Options cho Select loại (làm mới sau thêm/sửa loại).
+    type_options, total_types_count = build_type_options(ctx)
 
-    # Render bảng Code (cột phải)
+    # Render bảng Code
     code_table_ui = render_code_table(
         ctx,
         lookup_type=selected_type,
@@ -973,13 +847,13 @@ def cb_master_detail_sync(
         add_disabled = is_closed  # Nhóm cố định không cho thêm mã mới
         edit_type_disabled = False
     else:
-        header = "Chọn loại danh mục ở cột trái"
+        header = "Chọn loại danh mục"
         badge_text = ""
         badge_style = {"display": "none"}
         add_disabled = True
         edit_type_disabled = True
 
-    count_badge_text = f"{total_types_count} loại"
+    count_text = f"{total_types_count} loại"
 
     return (
         code_table_ui,
@@ -990,8 +864,9 @@ def cb_master_detail_sync(
         add_disabled,
         edit_type_disabled,
         policy_ui,
-        type_list_ui,
-        count_badge_text,
+        type_options,
+        selected_type,
+        count_text,
     )
 
 
@@ -1401,8 +1276,8 @@ def cb_toggle_code(checked: bool) -> bool:
     Output("lookups-delete-target-store", "data"),
     Output("lookups-page-alert", "children"),
     Input({"type": "lookups-delete-code-btn", "index": dash.ALL}, "n_clicks"),
-    Input("lookups-delete-code-modal-cancel-btn", "n_clicks"),
-    Input("lookups-delete-code-modal-confirm-btn", "n_clicks"),
+    Input("lookups-delete-code-modal-cancel", "n_clicks"),
+    Input("lookups-delete-code-modal-confirm", "n_clicks"),
     State("lookups-delete-target-store", "data"),
     prevent_initial_call=True,
 )

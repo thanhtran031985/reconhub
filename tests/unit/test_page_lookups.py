@@ -48,16 +48,21 @@ class TestLayoutRender:
         result = layout()
         assert result is not None
 
-    def test_layout_has_screen12_search_inputs(self, lookups_env: Any, monkeypatch: Any) -> None:
-        """Layout phải có ô tìm kiếm Type và ô tìm kiếm Code theo chuẩn Screen12."""
+    def test_layout_has_type_select_command_bar(self, lookups_env: Any, monkeypatch: Any) -> None:
+        """Layout có Select chọn loại ở command bar thay cho card trái (task 83)."""
         monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
         from app.ui.pages.lookups import layout
         result = str(layout())
-        assert "lookups-type-search-input" in result
+        assert "lookups-type-select" in result
+        assert "lookups-type-count-text" in result
         assert "lookups-code-search-input" in result
         assert "lookups-code-active-filter" in result
         assert "lookups-edit-type-btn" in result
         assert "lookups-policy-alert" in result
+        assert "lookups-add-type-btn" in result
+        # Card trái đã xóa: không còn danh sách loại / ô tìm loại.
+        assert "lookups-type-list" not in result
+        assert "lookups-type-search-input" not in result
 
     def test_layout_redirects_when_not_logged_in(self, lookups_env: Any, monkeypatch: Any) -> None:
         """Layout redirect khi chưa đăng nhập."""
@@ -67,12 +72,13 @@ class TestLayoutRender:
         result_str = str(result)
         assert "forbidden" in result_str or "login" in result_str.lower() or "Location" in result_str
 
-    def test_layout_contains_lookup_type_list(self, lookups_env: Any, monkeypatch: Any) -> None:
-        """Layout phải có vùng hiển thị danh sách Lookup Type."""
+    def test_layout_contains_lookup_type_select(self, lookups_env: Any, monkeypatch: Any) -> None:
+        """Layout phải có Select chọn Lookup Type ở command bar (task 83)."""
         monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
         from app.ui.pages.lookups import layout
         result = str(layout())
-        assert "lookups-type-list" in result or "LOOKUP_TYPE" in result or "lookups" in result.lower()
+        assert "lookups-type-select" in result
+        assert "ISSUE_STATUS" in result or "Trạng thái đối soát" in result
 
     def test_layout_has_add_type_button(self, lookups_env: Any, monkeypatch: Any) -> None:
         """Admin thấy nút Thêm loại danh mục."""
@@ -82,23 +88,29 @@ class TestLayoutRender:
         assert "lookups-add-type-btn" in result
 
 
-class TestRenderTypeList:
-    def test_render_type_list_shows_seeded_types(self, lookups_env: Any, monkeypatch: Any) -> None:
-        """Hàm render_type_list hiển thị đủ Type sau khi seed."""
+class TestBuildTypeOptions:
+    def test_build_type_options_labels(self, lookups_env: Any, monkeypatch: Any) -> None:
+        """Option Select giữ thông tin card trái từng hiện: tên (CODE) — N giá trị · M đang dùng."""
         monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
-        from app.ui.pages.lookups import render_type_list
-        ctx = _admin_ctx()
-        result = str(render_type_list(ctx))
-        assert "ISSUE_STATUS" in result or "Trạng thái đối soát" in result
+        from app.ui.pages.lookups import build_type_options
 
-    def test_render_type_list_shows_code_count_badge(self, lookups_env: Any, monkeypatch: Any) -> None:
-        """Mỗi type phải có badge đếm số code."""
-        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
-        from app.ui.pages.lookups import render_type_list
-        ctx = _admin_ctx()
-        result = str(render_type_list(ctx))
-        # ISSUE_STATUS có 4 code → badge phải hiển thị 4
-        assert "4" in result
+        options, total = build_type_options(_admin_ctx())
+        assert total == 2
+        by_value = {o["value"]: o["label"] for o in options}
+        assert by_value["ISSUE_STATUS"] == "Trạng thái đối soát (ISSUE_STATUS) — 4 giá trị · 4 đang dùng"
+        assert by_value["ISSUE_REASON"] == "Nguyên nhân chênh lệch (ISSUE_REASON) — 6 giá trị · 6 đang dùng"
+
+    def test_build_type_options_empty_on_error(self, lookups_env: Any, monkeypatch: Any) -> None:
+        from app.schemas.errors import ErrorCode, ServiceResult
+        from app.ui.pages.lookups import build_type_options
+
+        monkeypatch.setattr(
+            "app.ui.pages.lookups.list_lookup_types",
+            lambda ctx: ServiceResult.fail(ErrorCode.INTERNAL_ERROR, "DB lỗi"),
+        )
+        options, total = build_type_options(_admin_ctx())
+        assert options == []
+        assert total == 0
 
 
 class TestRenderCodeTable:
@@ -172,23 +184,227 @@ class TestUiUxFixes:
         assert "Mã hệ thống, không thể xóa mã OPEN" in result
 
 
-class TestLeftColumnDesign:
-    def test_type_card_shows_total_and_active_counts(self, lookups_env: Any, monkeypatch: Any) -> None:
-        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
-        from app.ui.pages.lookups import render_type_list
+class TestTypeSelectFlow83:
+    """Task 83 (phần 2): chọn loại bằng Select ở command bar thay cho card trái."""
 
-        ui, _total = render_type_list(_admin_ctx(), selected_type="ISSUE_REASON")
-        text = str(ui)
-        # Seed: ISSUE_REASON có 6 mã, đều đang dùng.
-        assert "6 giá trị" in text
-        assert "6 đang dùng" in text
-        assert "ISSUE_REASON" in text
+    def _mock_ctx(self, monkeypatch: Any, prop_id: str, value: Any) -> None:
+        from types import SimpleNamespace
 
-    def test_add_type_button_is_at_bottom_of_left_column(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr(
+            "dash.callback_context",
+            SimpleNamespace(triggered=[{"prop_id": prop_id, "value": value}]),
+        )
+
+    def test_layout_no_left_column(self, lookups_env: Any, monkeypatch: Any) -> None:
         monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
         from app.ui.pages.lookups import layout
 
         text = str(layout())
+        assert "lookups-type-select" in text
+        assert "2 loại" in text
         assert "lookups-add-type-btn" in text
-        assert "Thêm loại danh mục" in text
-        assert "Tìm loại danh mục" in text
+        assert "Chọn loại danh mục" in text
+        assert "ở cột trái" not in text
+        assert "lookups-type-list" not in text
+
+    def test_select_type_via_callback_updates_table(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
+        from app.ui.pages.lookups import cb_master_detail_sync
+
+        self._mock_ctx(monkeypatch, "lookups-type-select.value", "ISSUE_STATUS")
+        result = cb_master_detail_sync("ISSUE_STATUS", 0, "", "all", None)
+        assert len(result) == 11
+        (
+            code_table,
+            selected,
+            header,
+            badge,
+            _badge_style,
+            _add_disabled,
+            _edit_disabled,
+            _policy,
+            options,
+            value,
+            count_text,
+        ) = result
+        assert selected == "ISSUE_STATUS"
+        assert value == "ISSUE_STATUS"
+        assert "Trạng thái đối soát" in header
+        assert badge == "ISSUE_STATUS"
+        assert "OPEN" in str(code_table)
+        assert any(o["value"] == "ISSUE_STATUS" for o in options)
+        assert count_text == "2 loại"
+
+    def test_refresh_after_add_type_adds_option(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
+        from app.services.lookup import create_lookup_type
+        from app.ui.pages.lookups import cb_master_detail_sync
+
+        res = create_lookup_type(_admin_ctx(), lookup_type="TEST83", type_name="Loại kiểm tra 83", description=None)
+        assert res.ok
+        self._mock_ctx(monkeypatch, "lookups-refresh-store.data", 1)
+        result = cb_master_detail_sync(None, 1, "", "all", None)
+        options = result[8]
+        assert any(o["value"] == "TEST83" for o in options)
+        assert result[10] == "3 loại"
+
+    def test_empty_state_text_mentions_top_not_left(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        from app.ui.pages.lookups import render_code_table
+
+        text = str(render_code_table(_admin_ctx(), lookup_type=None))
+        assert "ở trên" in text
+        assert "ở cột trái" not in text
+
+
+class TestDeleteModalCallbackIds83:
+    """Task 83 (lỗi thật tìm ra khi check live): callback xóa phải tham chiếu
+    đúng id nút của modal_confirm ({id}-cancel / {id}-confirm), không phải
+    {id}-cancel-btn / {id}-confirm-btn — sai id làm Dash văng ReferenceError
+    và modal xóa không bao giờ mở."""
+
+    def test_delete_callback_string_inputs_exist_in_layout(self, lookups_env: Any, monkeypatch: Any) -> None:
+        import dash._callback as cbmod
+
+        from app.ui.pages.lookups import layout
+
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
+        node = layout()
+        layout_ids = {getattr(c, "id", None) for c in _walk(node) if isinstance(getattr(c, "id", None), str)}
+        entry = next(e for e in cbmod.GLOBAL_CALLBACK_LIST if "lookups-delete-code-modal.opened" in e["output"])
+        # Registry lưu input dạng dict {"id": ..., "property": ...}; id
+        # pattern-matching lưu dạng chuỗi JSON -> loại khỏi id thường.
+        input_ids = [(inp.get("id") if isinstance(inp, dict) else getattr(inp, "id", None)) for inp in entry["inputs"]]
+        input_ids = [i for i in input_ids if isinstance(i, str) and not i.startswith("{")]
+        assert "lookups-delete-code-modal-cancel" in input_ids
+        assert "lookups-delete-code-modal-confirm" in input_ids
+        missing = [i for i in input_ids if i not in layout_ids]
+        assert not missing, f"callback xóa tham chiếu id không có trong layout: {missing}"
+
+    def _mock_ctx(self, monkeypatch: Any, prop_id: str, value: Any) -> None:
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            "dash.callback_context",
+            SimpleNamespace(triggered=[{"prop_id": prop_id, "value": value}]),
+        )
+
+    def test_delete_click_opens_modal(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        from app.ui.pages.lookups import cb_delete_code_modal
+
+        self._mock_ctx(
+            monkeypatch,
+            '{"type": "lookups-delete-code-btn", "index": "ISSUE_REASON|EXTRA"}.n_clicks',
+            1,
+        )
+        opened, target, _alert = cb_delete_code_modal([1], None, None, None)
+        assert opened is True
+        assert target == {"lookup_type": "ISSUE_REASON", "lookup_code": "EXTRA"}
+
+    def test_delete_click_guard_no_click(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        from app.ui.pages.lookups import cb_delete_code_modal
+
+        self._mock_ctx(
+            monkeypatch,
+            '{"type": "lookups-delete-code-btn", "index": "ISSUE_REASON|EXTRA"}.n_clicks',
+            None,
+        )
+        opened, target, _alert = cb_delete_code_modal([None], None, None, None)
+        assert opened is False
+        assert target is None
+
+
+def _walk(component: Any) -> Any:
+    """Yield component + mọi hậu duệ (duyệt đệ quy children)."""
+    yield component
+    children = getattr(component, "children", None)
+    if isinstance(children, (list, tuple)):
+        for child in children:
+            yield from _walk(child)
+    elif children is not None:
+        yield from _walk(children)
+
+
+class TestCodeTableActionIcons83:
+    """Task 83: icon Sửa/Xóa ở cột Thao tác không rớt hàng (size sm + Tooltip + nowrap)."""
+
+    def test_action_icons_are_sm_not_xl(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        from app.ui.pages.lookups import render_code_table
+
+        table = render_code_table(_admin_ctx(), lookup_type="ISSUE_STATUS")
+        icons = [c for c in _walk(table) if type(c).__name__ == "ActionIcon"]
+        assert icons  # bảng phải có icon thao tác
+        assert all(getattr(c, "size", None) == "sm" for c in icons)
+        assert not [c for c in icons if getattr(c, "size", None) == "xl"]
+        # Icon vẽ bên trong thu từ 18 → 16.
+        inner = [getattr(c, "children", None) for c in icons]
+        assert all(getattr(ch, "width", None) == 16 for ch in inner)
+
+    def test_action_icons_have_tooltips_with_aria_labels(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        from app.ui.pages.lookups import render_code_table
+
+        table = render_code_table(_admin_ctx(), lookup_type="ISSUE_STATUS")
+        found = set()
+        for tip in [c for c in _walk(table) if type(c).__name__ == "Tooltip"]:
+            child = tip.children
+            assert type(child).__name__ == "ActionIcon"
+            assert getattr(tip, "withArrow", None) is True
+            found.add((tip.label, child.id.get("type"), child.id.get("index")))
+        assert ("Sửa mã OPEN", "lookups-edit-code-btn", "ISSUE_STATUS|OPEN") in found
+        assert ("Mã hệ thống, không thể xóa mã OPEN", "lookups-delete-code-btn", "ISSUE_STATUS|OPEN") in found
+        # Id dict giữ nguyên để callback bám theo.
+        assert ("Sửa mã RESOLVED", "lookups-edit-code-btn", "ISSUE_STATUS|RESOLVED") in found
+
+    def test_non_system_delete_tooltip(self, lookups_env: Any, monkeypatch: Any) -> None:
+        from app.schemas.errors import ServiceResult
+        from app.ui.pages.lookups import render_code_table
+
+        monkeypatch.setattr(
+            "app.ui.pages.lookups.list_lookup_codes",
+            lambda ctx, lookup_type: ServiceResult(
+                ok=True,
+                data=[
+                    {
+                        "lookup_code": "CUSTOM",
+                        "meaning": "Tùy chỉnh",
+                        "color_badge": "blue",
+                        "icon_name": "lucide:circle",
+                        "display_order": 1,
+                        "is_active": "Y",
+                        "is_system": "N",
+                    }
+                ],
+            ),
+        )
+        table = render_code_table(_admin_ctx(), lookup_type="ISSUE_STATUS")
+        found = {
+            (tip.label, tip.children.id.get("type"), tip.children.id.get("index"))
+            for tip in [c for c in _walk(table) if type(c).__name__ == "Tooltip"]
+        }
+        assert ("Xóa mã CUSTOM", "lookups-delete-code-btn", "ISSUE_STATUS|CUSTOM") in found
+
+    def test_action_group_is_nowrap(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        from app.ui.pages.lookups import render_code_table
+
+        table = render_code_table(_admin_ctx(), lookup_type="ISSUE_STATUS")
+        action_groups = [
+            c
+            for c in _walk(table)
+            if type(c).__name__ == "Group"
+            and any(
+                type(d).__name__ == "ActionIcon"
+                and isinstance(getattr(d, "id", None), dict)
+                and d.id.get("type") in ("lookups-edit-code-btn", "lookups-delete-code-btn")
+                for d in _walk(c)
+            )
+        ]
+        assert action_groups  # mỗi hàng phải có Group nút thao tác
+        assert all(getattr(g, "wrap", None) == "nowrap" for g in action_groups)
