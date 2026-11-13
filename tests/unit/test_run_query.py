@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 import openpyxl
 import polars as pl
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 
 from app.core.context import Ctx, Role
 from app.db.metadata import (
     metadata,
     recon_data_source,
     recon_file,
+    recon_issue,
+    recon_result_row,
+    recon_run,
     recon_template,
     recon_template_version,
 )
@@ -242,3 +246,88 @@ def test_export_run(completed_g01_run, admin_ctx, tmp_path):
     assert "Tổng hợp" in wb.sheetnames
     assert "Khớp" in wb.sheetnames
     assert "Lệch giá trị" in wb.sheetnames
+
+
+class TestGetRunRowsIssueStatus88:
+    """Task 88 (A): lọc dòng kết quả theo trạng thái xử lý chênh lệch.
+
+    "Chưa đối soát" (OPEN) gồm cả dòng chưa có issue (STATUS NULL do
+    outerjoin) lẫn dòng có issue OPEN; các trạng thái khác chỉ khớp đúng mã.
+    """
+
+    @pytest.fixture
+    def seeded_issue_rows(self, completed_g01_run):
+        run_id = completed_g01_run["run_id"]
+        tmpl_id = completed_g01_run["template_id"]
+        engine = create_engine(os.environ["RECON_DB_URL"])
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        with engine.begin() as conn:
+            prof_code = conn.execute(
+                select(recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id)
+            ).scalar()
+            key_hashes = [
+                r[0]
+                for r in conn.execute(
+                    select(recon_result_row.c.KEY_HASH)
+                    .where(recon_result_row.c.RUN_ID == run_id)
+                    .order_by(recon_result_row.c.ROW_NO)
+                    .limit(4)
+                ).fetchall()
+            ]
+            assert len(key_hashes) == 4
+
+            def _ins(key_hash, status):
+                conn.execute(
+                    recon_issue.insert().values(
+                        TEMPLATE_ID=tmpl_id,
+                        PROFILE_CODE=prof_code,
+                        KEY_TEXT=f"key-{key_hash[:8]}",
+                        KEY_HASH=key_hash,
+                        FIRST_RUN_ID=run_id,
+                        LAST_RUN_ID=run_id,
+                        STATUS=status,
+                        REASON_CODE=None,
+                        ASSIGNEE_ID=None,
+                        NOTE=None,
+                        UPDATED_AT=now,
+                        UPDATED_BY="admin",
+                        ROW_VERSION=1,
+                    )
+                )
+
+            _ins(key_hashes[0], "OPEN")
+            _ins(key_hashes[1], "OPEN")
+            _ins(key_hashes[2], "RESOLVED")
+            _ins(key_hashes[3], "IN_PROGRESS")
+        return run_id
+
+    def test_issue_status_none_returns_all(self, seeded_issue_rows, admin_ctx):
+        res = get_run_rows(admin_ctx, seeded_issue_rows, RunRowsFilter(page=1, page_size=200))
+        assert res.ok
+        assert res.data["total"] == 192
+
+    def test_issue_status_open_includes_no_issue_and_open(self, seeded_issue_rows, admin_ctx):
+        res = get_run_rows(
+            admin_ctx, seeded_issue_rows, RunRowsFilter(issue_status="OPEN", page=1, page_size=200)
+        )
+        assert res.ok
+        # 192 dòng trừ 2 dòng có issue RESOLVED / IN_PROGRESS.
+        assert res.data["total"] == 190
+        statuses = {r["issue_status"] for r in res.data["items"]}
+        assert statuses <= {None, "OPEN"}
+
+    def test_issue_status_resolved_only(self, seeded_issue_rows, admin_ctx):
+        res = get_run_rows(
+            admin_ctx, seeded_issue_rows, RunRowsFilter(issue_status="RESOLVED", page=1, page_size=200)
+        )
+        assert res.ok
+        assert res.data["total"] == 1
+        assert res.data["items"][0]["issue_status"] == "RESOLVED"
+
+    def test_issue_status_in_progress_only(self, seeded_issue_rows, admin_ctx):
+        res = get_run_rows(
+            admin_ctx, seeded_issue_rows, RunRowsFilter(issue_status="IN_PROGRESS", page=1, page_size=200)
+        )
+        assert res.ok
+        assert res.data["total"] == 1
+        assert res.data["items"][0]["issue_status"] == "IN_PROGRESS"

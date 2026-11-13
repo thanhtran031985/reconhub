@@ -70,6 +70,21 @@ def _lookup_status_options(ctx: Any) -> list[dict[str, Any]]:
     return options or list(DEFAULT_ISSUE_STATUS_OPTIONS)
 
 
+def _issue_filter_options(ctx: Any) -> list[dict[str, Any]]:
+    """Lựa chọn cho filter "Đối soát & Xử lý": Tất cả + Chưa đối soát + lookup.
+
+    Task 88 (A): dùng chung helper lookup của trang (D2); OPEN đã có sẵn
+    ở đầu danh sách nên loại khỏi phần còn lại để khỏi trùng.
+    """
+    return _issue_filter_options_from(_lookup_status_options(ctx))
+
+
+def _issue_filter_options_from(base_options: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Dựng lựa chọn filter từ một danh sách trạng thái (lookup hoặc fallback)."""
+    rest = [o for o in base_options if o.get("value") != "OPEN"]
+    return [{"value": "ALL", "label": "Tất cả"}, {"value": "OPEN", "label": "Chưa đối soát"}, *rest]
+
+
 def _lookup_reason_options(ctx: Any) -> list[dict[str, Any]]:
     """Nguyên nhân chênh lệch từ lookup ISSUE_REASON (map sang CODE/LABEL).
 
@@ -152,11 +167,24 @@ def _profile_main_measure(ctx: Any, run_info: dict[str, Any] | None) -> dict[str
                 return None
             main_name = prof.get("main_measure")
             chosen = next((m for m in measures if m.get("name") == main_name), measures[0])
+            # Task 88 (C): map tên trường logic → tên cột gốc trong file
+            # (field.excel + field.excel_aliases) để drawer tra DATA_JSON
+            # theo đúng mapping của template đang chạy, không hardcode.
+            field_excel_map: dict[str, list[str]] = {}
+            for f in config.get("fields") or []:
+                f_name = f.get("name")
+                if not f_name:
+                    continue
+                raw_keys = [f.get("excel"), *(f.get("excel_aliases") or [])]
+                raw_keys = [k for k in raw_keys if k]
+                if raw_keys:
+                    field_excel_map[str(f_name)] = raw_keys
             return {
                 "name": chosen.get("name"),
                 "label": chosen.get("label") or chosen.get("name"),
                 "field": chosen.get("field"),
                 "group_by": list(prof.get("group_by") or []),
+                "field_excel_map": field_excel_map,
             }
     except Exception:
         return None
@@ -562,6 +590,8 @@ def render_result_grid(
     page_size: int = 50,
     search_query: str = "",
     only_diff_cols: bool = False,
+    issue_status: str = "ALL",
+    issue_status_options: list[dict[str, Any]] | None = None,
     can_edit: bool = False,
     selected_row_nos: list[int] | None = None,
     **kwargs: Any,
@@ -744,6 +774,22 @@ def render_result_grid(
                                 label="Chỉ hiện cột lệch",
                                 checked=only_diff_cols,
                                 size="xs",
+                            ),
+                            dmc.Select(
+                                id="run-res-issue-status-select",
+                                # issue_status_options đã là danh sách cuối
+                                # (gồm Tất cả + Chưa đối soát) khi caller truyền
+                                # _issue_filter_options(ctx); chỉ dựng từ
+                                # fallback khi caller không truyền gì.
+                                data=(
+                                    issue_status_options
+                                    if issue_status_options is not None
+                                    else _issue_filter_options_from(DEFAULT_ISSUE_STATUS_OPTIONS)
+                                ),
+                                value=issue_status,
+                                size="xs",
+                                style={"width": 200},
+                                **{"aria-label": "Đối soát & Xử lý"},
                             ),
                         ],
                         gap="sm",
@@ -968,6 +1014,7 @@ def render_detail_drawer(
     main_measure_name: str | None = None,
     main_measure_field: str | None = None,
     group_by_fields: list[str] | None = None,
+    field_excel_map: dict[str, list[str]] | None = None,
     **kwargs: Any,
 ) -> Any:
     """Dựng nội dung Drawer chi tiết: Trạng thái đối soát, ghi chú chênh lệch, dòng Excel gốc và dòng DB."""
@@ -1022,9 +1069,22 @@ def render_detail_drawer(
         children=dmc.Stack(
             [
                 dmc.Group(
-                    [
-                        DashIconify(icon="lucide:clipboard-check", width=18, color="blue"),
-                        dmc.Text("Trạng thái đối soát & Ghi chú chênh lệch", fw=600, size="sm"),
+                    justify="space-between",
+                    align="center",
+                    children=[
+                        dmc.Group(
+                            [
+                                DashIconify(icon="lucide:clipboard-check", width=18, color="blue"),
+                                dmc.Text("Trạng thái đối soát & Ghi chú chênh lệch", fw=600, size="sm"),
+                            ],
+                            gap="xs",
+                        ),
+                        button_primary(
+                            "Chuyển xử lý chênh lệch",
+                            id="drawer-save-issue-btn",
+                            icon="lucide:save",
+                            size="xs",
+                        ),
                     ],
                     gap="xs",
                 ),
@@ -1068,12 +1128,6 @@ def render_detail_drawer(
                     align="center",
                     children=[
                         html.Div(id="drawer-save-feedback"),
-                        button_primary(
-                            "Lưu trạng thái & ghi chú",
-                            id="drawer-save-issue-btn",
-                            icon="lucide:save",
-                            size="sm",
-                        ),
                     ],
                 ),
                 dcc.Store(id="drawer-row-meta-store", data={"run_id": r_id, "row_no": r_no}),
@@ -1138,9 +1192,22 @@ def render_detail_drawer(
         # Thành tiền của dòng Excel gốc phải lấy theo trường mà measure chính
         # đang cộng dồn (ví dụ TOTAL_TONG_TIEN cộng trường TONG_TIEN), chứ
         # không hardcode TOTAL_AMOUNT/AMOUNT của mẫu DTP (sai tên là ra 0).
+        # Task 88 (C): DATA_JSON lưu theo tên cột gốc trong file (vd _COL_17),
+        # nên tra khóa qua mapping của template: tên cột gốc → tên trường
+        # logic → fallback cũ. Không hardcode bất cứ tên cột nào.
         # Không tìm thấy trường nào thì hiện "—", không hiện 0 gây hiểu lầm.
-        amount_keys = ([main_measure_field] if main_measure_field else []) + ["TOTAL_AMOUNT", "AMOUNT"]
-        invoice_keys = ["INVOICE_NO"] + list(group_by_fields or [])
+        excel_map = field_excel_map or {}
+
+        def _keys_for_field(logical: str | None) -> list[str]:
+            if not logical:
+                return []
+            return [k for k in (excel_map.get(logical) or []) if k] + [logical]
+
+        amount_keys = _keys_for_field(main_measure_field) + ["TOTAL_AMOUNT", "AMOUNT"]
+        invoice_keys: list[str] = []
+        for gb in group_by_fields or []:
+            invoice_keys.extend(_keys_for_field(gb))
+        invoice_keys.append("INVOICE_NO")
         xl_rows_ui = []
         for r in excel_raw:
             data_map = r.get("data") or {}
@@ -1595,7 +1662,7 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
             dcc.Store(id="run-res-data-store", data={"run": run_data, "summary": summary_data}),
             dcc.Store(
                 id="run-res-filter-store",
-                data={"tab": "ALL", "search": "", "only_diff": False, "page": 1, "page_size": 50},
+                data={"tab": "ALL", "search": "", "only_diff": False, "page": 1, "page_size": 50, "issue_status": "ALL"},
             ),
             dcc.Store(id="run-res-compare-store", data=None),
             dcc.Store(id="run-res-compare-filter-store", data="ALL"),
@@ -1648,6 +1715,8 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
                                     page_size=50,
                                     search_query="",
                                     only_diff_cols=False,
+                                    issue_status="ALL",
+                                    issue_status_options=_issue_filter_options(ctx),
                                 ),
                             ),
                         ],
@@ -1728,6 +1797,7 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
     Input({"type": "run-res-tab-btn", "index": dash.ALL}, "n_clicks"),
     Input("run-res-search-input", "value"),
     Input("run-res-only-diff-check", "checked"),
+    Input("run-res-issue-status-select", "value"),
     Input("run-res-pagination", "value"),
     Input("run-res-trigger-store", "data"),
     State("run-res-data-store", "data"),
@@ -1738,6 +1808,7 @@ def handle_filter_or_tab_change(
     _tab_clicks: list[int | None],
     search_val: str | None,
     only_diff: bool | None,
+    issue_status_val: str | None,
     page_num: int | None,
     _trigger_val: int | None,
     data_store: dict[str, Any] | None,
@@ -1748,6 +1819,7 @@ def handle_filter_or_tab_change(
     curr_tab = filter_state.get("tab", "ALL") if filter_state else "ALL"
     curr_page = filter_state.get("page", 1) if filter_state else 1
     page_size = filter_state.get("page_size", 50) if filter_state else 50
+    curr_issue_status = filter_state.get("issue_status", "ALL") if filter_state else "ALL"
 
     if ctx_dash.triggered:
         prop_id = ctx_dash.triggered[0]["prop_id"]
@@ -1756,6 +1828,9 @@ def handle_filter_or_tab_change(
             curr_tab = btn_dict.get("index", "ALL")
             curr_page = 1
         elif "run-res-search-input" in prop_id:
+            curr_page = 1
+        elif "run-res-issue-status-select" in prop_id:
+            curr_issue_status = issue_status_val or "ALL"
             curr_page = 1
         elif "run-res-pagination" in prop_id:
             curr_page = page_num or 1
@@ -1771,6 +1846,7 @@ def handle_filter_or_tab_change(
             run_id=r_id,
             filter=RunRowsFilter(
                 status=curr_tab,
+                issue_status=None if curr_issue_status in (None, "", "ALL") else curr_issue_status,
                 search=(search_val or "").strip() or None,
                 page=curr_page,
                 page_size=page_size,
@@ -1796,6 +1872,8 @@ def handle_filter_or_tab_change(
         page_size=page_size,
         search_query=search_val or "",
         only_diff_cols=bool(only_diff),
+        issue_status=curr_issue_status,
+        issue_status_options=_issue_filter_options(ctx) if ctx else None,
     )
     tabs_ui = render_ratio_bar_and_tabs(summary, active_tab=curr_tab)
     updated_filter = {
@@ -1804,6 +1882,7 @@ def handle_filter_or_tab_change(
         "only_diff": bool(only_diff),
         "page": curr_page,
         "page_size": page_size,
+        "issue_status": curr_issue_status,
     }
 
     return grid_ui, tabs_ui, updated_filter
@@ -1862,6 +1941,7 @@ def handle_row_click_open_drawer(
         main_measure_name=main_measure["name"] if main_measure else None,
         main_measure_field=main_measure["field"] if main_measure else None,
         group_by_fields=main_measure["group_by"] if main_measure else None,
+        field_excel_map=main_measure["field_excel_map"] if main_measure else None,
     )
     return True, drawer_ui
 

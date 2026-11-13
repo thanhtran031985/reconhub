@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
-from sqlalchemy import delete, desc, func, select, tuple_
+from sqlalchemy import delete, desc, func, or_, select, tuple_
 
 from app.core.context import Ctx, Role
 from app.db.engine import get_recon_engine
@@ -624,7 +624,14 @@ def get_run_rows(ctx: Ctx, run_id: int, filter: RunRowsFilter) -> dict[str, Any]
             else:
                 base_query = base_query.where(recon_result_row.c.STATUS == filter.status)
         if filter.issue_status:
-            base_query = base_query.where(recon_issue.c.STATUS == filter.issue_status)
+            if filter.issue_status == "OPEN":
+                # Task 88 (A): "Chưa đối soát" gồm cả dòng chưa có issue
+                # (STATUS NULL do outerjoin) lẫn dòng có issue OPEN.
+                base_query = base_query.where(
+                    or_(recon_issue.c.STATUS.is_(None), recon_issue.c.STATUS == "OPEN")
+                )
+            else:
+                base_query = base_query.where(recon_issue.c.STATUS == filter.issue_status)
         if filter.search:
             base_query = base_query.where(recon_result_row.c.KEY_TEXT.like(f"%{filter.search}%"))
 

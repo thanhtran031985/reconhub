@@ -1030,3 +1030,296 @@ def test_lookup_reason_options_uses_lookup_then_fallback(run_result_env: Any, mo
     )
     fallback = _lookup_reason_options(ctx)
     assert {r["CODE"] for r in fallback} >= {"ROUNDING", "TIMING", "SYSTEM_BUG"}
+
+
+def _iter_components(node: Any):
+    """Duyệt cây component Dash (kể cả con lồng trong list/tuple)."""
+    yield node
+    children = getattr(node, "children", None)
+    if isinstance(children, (list, tuple)):
+        items = children
+    elif children is not None and not isinstance(children, str):
+        items = [children]
+    else:
+        items = []
+    for child in items:
+        yield from _iter_components(child)
+
+
+def _find_by_id(node: Any, comp_id: str) -> Any | None:
+    for comp in _iter_components(node):
+        if getattr(comp, "id", None) == comp_id:
+            return comp
+    return None
+
+
+class TestIssueStatusFilter88:
+    """Task 88 (A): filter "Đối soát & Xử lý" trên trang kết quả run."""
+
+    def test_issue_filter_options_from_lookup_then_fallback(self, run_result_env: Any, monkeypatch: Any) -> None:
+        """Options filter: Tất cả + Chưa đối soát + lookup (trừ OPEN trùng), lỗi → fallback."""
+        from app.schemas.errors import ErrorCode, ServiceResult
+        from app.ui.pages.run_result import _issue_filter_options
+
+        ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+        monkeypatch.setattr(
+            "app.ui.pages.run_result.list_active_lookup_codes",
+            lambda *a, **kw: ServiceResult(
+                ok=True,
+                data=[
+                    {"lookup_code": "OPEN", "meaning": "Chưa đối soát", "display_order": 1, "is_active": "Y"},
+                    {"lookup_code": "IN_PROGRESS", "meaning": "Đang kiểm tra", "display_order": 2, "is_active": "Y"},
+                    {"lookup_code": "ON_HOLD", "meaning": "Tạm giữ", "display_order": 3, "is_active": "Y"},
+                ],
+            ),
+        )
+        assert _issue_filter_options(ctx) == [
+            {"value": "ALL", "label": "Tất cả"},
+            {"value": "OPEN", "label": "Chưa đối soát"},
+            {"value": "IN_PROGRESS", "label": "Đang kiểm tra"},
+            {"value": "ON_HOLD", "label": "Tạm giữ"},
+        ]
+
+        monkeypatch.setattr(
+            "app.ui.pages.run_result.list_active_lookup_codes",
+            lambda *a, **kw: ServiceResult(ok=False, code=ErrorCode.FORBIDDEN, message="không quyền"),
+        )
+        assert [o["value"] for o in _issue_filter_options(ctx)] == [
+            "ALL",
+            "OPEN",
+            "IN_PROGRESS",
+            "ACCEPTED",
+            "RESOLVED",
+        ]
+
+    def test_render_result_grid_has_issue_status_select(self) -> None:
+        """Toolbar có Select run-res-issue-status-select, mặc định ALL, đủ lựa chọn."""
+        import dash_mantine_components as dmc
+
+        measures = [{"name": "TOTAL_AMOUNT", "label": "Tổng tiền", "type": "number"}]
+        grid_ui = render_result_grid(measures=measures, rows=[], search_query="", only_diff_cols=False)
+        select = _find_by_id(grid_ui, "run-res-issue-status-select")
+        assert isinstance(select, dmc.Select)
+        assert select.value == "ALL"
+        assert [o["value"] for o in select.data] == ["ALL", "OPEN", "IN_PROGRESS", "ACCEPTED", "RESOLVED"]
+        assert select.data[0]["label"] == "Tất cả"
+        assert select.data[1]["label"] == "Chưa đối soát"
+        assert select.size == "xs"
+
+    def test_render_result_grid_issue_status_select_keeps_value(self) -> None:
+        """Giá trị filter hiện tại được truyền vào grid (không reset về ALL khi vẽ lại)."""
+        measures = [{"name": "TOTAL_AMOUNT", "label": "Tổng tiền", "type": "number"}]
+        grid_ui = render_result_grid(
+            measures=measures,
+            rows=[],
+            search_query="",
+            only_diff_cols=False,
+            issue_status="RESOLVED",
+            issue_status_options=[
+                {"value": "ALL", "label": "Tất cả"},
+                {"value": "OPEN", "label": "Chưa đối soát"},
+                {"value": "RESOLVED", "label": "Đã xử lý xong"},
+            ],
+        )
+        select = _find_by_id(grid_ui, "run-res-issue-status-select")
+        assert select is not None
+        assert select.value == "RESOLVED"
+        # Options caller truyền đã là danh sách cuối: không được bọc thêm
+        # Tất cả/Chưa đối soát lần nữa (trùng value làm Select lỗi render).
+        assert [o["value"] for o in select.data] == ["ALL", "OPEN", "RESOLVED"]
+
+    def test_handle_filter_or_tab_change_issue_status_resets_to_page_one(
+        self, run_result_env: Any, monkeypatch: Any
+    ) -> None:
+        """Đổi filter → gọi get_run_rows với issue_status tương ứng và về trang 1."""
+        from app.schemas.errors import ServiceResult
+        from app.ui.pages.run_result import handle_filter_or_tab_change
+
+        ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+        monkeypatch.setattr("app.ui.pages.run_result.get_current_ctx", lambda: ctx)
+        monkeypatch.setattr(
+            "app.ui.pages.run_result.list_active_lookup_codes",
+            lambda *a, **kw: ServiceResult(ok=True, data=[]),
+        )
+        captured: dict[str, Any] = {}
+
+        def _fake_get_run_rows(_ctx, run_id=None, filter=None, **_kw):  # noqa: ANN001, ANN202
+            captured["filter"] = filter
+            return ServiceResult(ok=True, data={"items": [], "total": 0})
+
+        monkeypatch.setattr("app.ui.pages.run_result.get_run_rows", _fake_get_run_rows)
+        monkeypatch.setattr(
+            "dash.callback_context",
+            type("MockCtx", (), {"triggered": [{"prop_id": "run-res-issue-status-select.value"}]})(),
+        )
+        data_store = {"run": {"id": 1}, "summary": {}}
+        filter_state = {"tab": "ALL", "search": "", "only_diff": False, "page": 3, "page_size": 50}
+
+        _grid, _tabs, updated = handle_filter_or_tab_change(
+            _tab_clicks=[None],
+            search_val="",
+            only_diff=False,
+            issue_status_val="RESOLVED",
+            page_num=3,
+            _trigger_val=0,
+            data_store=data_store,
+            filter_state=filter_state,
+        )
+        assert captured["filter"].issue_status == "RESOLVED"
+        assert updated["page"] == 1
+        assert updated["issue_status"] == "RESOLVED"
+
+        # "Tất cả" → không lọc (None), vẫn về trang 1.
+        _grid, _tabs, updated_all = handle_filter_or_tab_change(
+            _tab_clicks=[None],
+            search_val="",
+            only_diff=False,
+            issue_status_val="ALL",
+            page_num=3,
+            _trigger_val=0,
+            data_store=data_store,
+            filter_state=filter_state,
+        )
+        assert captured["filter"].issue_status is None
+        assert updated_all["page"] == 1
+        assert updated_all["issue_status"] == "ALL"
+
+
+class TestDrawerSaveButton88:
+    """Task 88 (B): nút drawer đổi tên + dời lên hàng tiêu đề + thu nhỏ, hành vi lưu giữ nguyên."""
+
+    def _drawer(self) -> Any:
+        return render_detail_drawer(
+            row_detail={
+                "key_text": "2026-04-29 11:00:45 | C26TBD0100011",
+                "status": "MISSING_IN_DB",
+                "row_no": 1,
+                "run_id": 1040,
+                "issue": {},
+                "excel_raw_rows": [],
+                "excel": {"x__TOTAL_AMOUNT": 624500000},
+                "db": {"d__TOTAL_AMOUNT": None},
+                "diff": {"diff__TOTAL_AMOUNT": 624500000},
+            },
+            reasons_list=[],
+        )
+
+    def test_save_button_renamed_xs_and_in_title_row(self) -> None:
+        """Nút "Chuyển xử lý chênh lệch", size xs, cùng hàng tiêu đề (bên phải)."""
+        import dash_mantine_components as dmc
+
+        drawer = self._drawer()
+        btn = _find_by_id(drawer, "drawer-save-issue-btn")
+        assert isinstance(btn, dmc.Button)
+        assert btn.children == "Chuyển xử lý chênh lệch"
+        assert btn.size == "xs"
+        assert "Lưu trạng thái & ghi chú" not in str(drawer)
+
+        # Nút nằm trong Group tiêu đề: cùng Group trực tiếp với Text tiêu đề.
+        found = False
+        for comp in _iter_components(drawer):
+            if not isinstance(comp, dmc.Group):
+                continue
+            kids = comp.children if isinstance(comp.children, (list, tuple)) else [comp.children]
+            has_btn = any(getattr(k, "id", None) == "drawer-save-issue-btn" for k in kids if k is not None)
+            if not has_btn:
+                continue
+            has_title = any(
+                isinstance(t, dmc.Text) and t.children == "Trạng thái đối soát & Ghi chú chênh lệch"
+                for k in kids
+                if k is not None
+                for t in _iter_components(k)
+            )
+            if has_title:
+                found = True
+        assert found, "nút lưu phải nằm cùng Group với tiêu đề card"
+        # Feedback vẫn còn để callback lưu ghi vào.
+        assert _find_by_id(drawer, "drawer-save-feedback") is not None
+
+
+class TestDrawerRawExcelFieldMap88:
+    """Task 88 (C): drawer tra khóa dòng Excel gốc theo mapping template, không hardcode."""
+
+    def test_profile_main_measure_returns_field_excel_map(self, monkeypatch: Any) -> None:
+        """_profile_main_measure trả thêm map tên trường logic → tên cột gốc."""
+        from app.schemas.errors import ServiceResult
+        from app.ui.pages.run_result import _profile_main_measure
+
+        monkeypatch.setattr(
+            "app.ui.pages.run_result.get_template",
+            lambda *a, **kw: ServiceResult(
+                ok=True,
+                data={
+                    "config": {
+                        "fields": [
+                            {"name": "TONG_TIEN", "excel": "_COL_17", "excel_aliases": ["_COL_17B"]},
+                            {"name": "INVOICE_NO", "excel": "_COL_2", "excel_aliases": []},
+                            {"name": "AMOUNT", "excel": None, "excel_aliases": []},
+                        ],
+                        "profiles": [
+                            {
+                                "code": "BY_INVOICE_VTOS",
+                                "group_by": ["INVOICE_NO"],
+                                "main_measure": "TOTAL_TONG_TIEN",
+                                "measures": [{"name": "TOTAL_TONG_TIEN", "label": "Tổng tiền", "field": "TONG_TIEN"}],
+                            }
+                        ],
+                    }
+                },
+            ),
+        )
+        ctx = Ctx(user_id=1, username="admin", full_name="Admin", roles=[Role.ADMIN])
+        res = _profile_main_measure(
+            ctx, {"profile_code": "BY_INVOICE_VTOS", "template_id": 1, "template_version": 4}
+        )
+        assert res is not None
+        assert res["field"] == "TONG_TIEN"
+        assert res["field_excel_map"] == {
+            "TONG_TIEN": ["_COL_17", "_COL_17B"],
+            "INVOICE_NO": ["_COL_2"],
+        }
+
+    def _drawer_raw(self, field_excel_map: Any, data: dict[str, Any]) -> Any:
+        return render_detail_drawer(
+            row_detail={
+                "key_text": "2026-04-29 11:00:45 | C26TBD0100011",
+                "status": "MISSING_IN_DB",
+                "row_no": 1,
+                "run_id": 1040,
+                "issue": {},
+                "excel_raw_rows": [{"excel_row_no": 4104, "data": data}],
+                "excel": {},
+                "db": {},
+                "diff": {},
+            },
+            reasons_list=[],
+            main_measure_field="TONG_TIEN",
+            group_by_fields=["INVOICE_NO"],
+            field_excel_map=field_excel_map,
+        )
+
+    def test_raw_excel_col_keys_show_amount_and_invoice(self) -> None:
+        """DATA_JSON khóa _COL_n + map measure → _COL_17: Thành tiền đúng số, Số HĐ đúng mã."""
+        drawer = self._drawer_raw(
+            {"TONG_TIEN": ["_COL_17"], "INVOICE_NO": ["_COL_2"]},
+            {"_COL_2": "C26TBD0100011", "_COL_3": "29/04/2026 11:00:45", "_COL_17": 493500000},
+        )
+        s = str(drawer)
+        assert "493.500.000" in s
+        assert "C26TBD0100011" in s
+
+    def test_raw_excel_col_keys_alias_fallback(self) -> None:
+        """Khóa đầu trong map không có mặt → dùng alias tiếp theo."""
+        drawer = self._drawer_raw(
+            {"TONG_TIEN": ["_COL_X", "_COL_17"], "INVOICE_NO": ["_COL_2"]},
+            {"_COL_2": "C26TBD0100011", "_COL_17": 131000000},
+        )
+        assert "131.000.000" in str(drawer)
+
+    def test_raw_excel_logical_names_still_work_without_map(self) -> None:
+        """Không lấy được config (map rỗng) → tra tên trường logic như cũ (mẫu DTP)."""
+        drawer = self._drawer_raw(
+            None,
+            {"INVOICE_NO": "C26TBD0100011", "TONG_TIEN": 1425000},
+        )
+        assert "1.425.000" in str(drawer)
