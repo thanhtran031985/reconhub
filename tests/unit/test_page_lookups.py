@@ -48,21 +48,16 @@ class TestLayoutRender:
         result = layout()
         assert result is not None
 
-    def test_layout_has_type_select_command_bar(self, lookups_env: Any, monkeypatch: Any) -> None:
-        """Layout có Select chọn loại ở command bar thay cho card trái (task 83)."""
+    def test_layout_has_screen12_search_inputs(self, lookups_env: Any, monkeypatch: Any) -> None:
+        """Layout phải có ô tìm kiếm Type và ô tìm kiếm Code theo chuẩn Screen12."""
         monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
         from app.ui.pages.lookups import layout
         result = str(layout())
-        assert "lookups-type-select" in result
-        assert "lookups-type-count-text" in result
+        assert "lookups-type-search-input" in result
         assert "lookups-code-search-input" in result
         assert "lookups-code-active-filter" in result
         assert "lookups-edit-type-btn" in result
         assert "lookups-policy-alert" in result
-        assert "lookups-add-type-btn" in result
-        # Card trái đã xóa: không còn danh sách loại / ô tìm loại.
-        assert "lookups-type-list" not in result
-        assert "lookups-type-search-input" not in result
 
     def test_layout_redirects_when_not_logged_in(self, lookups_env: Any, monkeypatch: Any) -> None:
         """Layout redirect khi chưa đăng nhập."""
@@ -72,13 +67,12 @@ class TestLayoutRender:
         result_str = str(result)
         assert "forbidden" in result_str or "login" in result_str.lower() or "Location" in result_str
 
-    def test_layout_contains_lookup_type_select(self, lookups_env: Any, monkeypatch: Any) -> None:
-        """Layout phải có Select chọn Lookup Type ở command bar (task 83)."""
+    def test_layout_contains_lookup_type_list(self, lookups_env: Any, monkeypatch: Any) -> None:
+        """Layout phải có vùng hiển thị danh sách Lookup Type."""
         monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
         from app.ui.pages.lookups import layout
         result = str(layout())
-        assert "lookups-type-select" in result
-        assert "ISSUE_STATUS" in result or "Trạng thái đối soát" in result
+        assert "lookups-type-list" in result or "LOOKUP_TYPE" in result or "lookups" in result.lower()
 
     def test_layout_has_add_type_button(self, lookups_env: Any, monkeypatch: Any) -> None:
         """Admin thấy nút Thêm loại danh mục."""
@@ -88,29 +82,23 @@ class TestLayoutRender:
         assert "lookups-add-type-btn" in result
 
 
-class TestBuildTypeOptions:
-    def test_build_type_options_labels(self, lookups_env: Any, monkeypatch: Any) -> None:
-        """Option Select giữ thông tin card trái từng hiện: tên (CODE) — N giá trị · M đang dùng."""
+class TestRenderTypeList:
+    def test_render_type_list_shows_seeded_types(self, lookups_env: Any, monkeypatch: Any) -> None:
+        """Hàm render_type_list hiển thị đủ Type sau khi seed."""
         monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
-        from app.ui.pages.lookups import build_type_options
+        from app.ui.pages.lookups import render_type_list
+        ctx = _admin_ctx()
+        result = str(render_type_list(ctx))
+        assert "ISSUE_STATUS" in result or "Trạng thái đối soát" in result
 
-        options, total = build_type_options(_admin_ctx())
-        assert total == 2
-        by_value = {o["value"]: o["label"] for o in options}
-        assert by_value["ISSUE_STATUS"] == "Trạng thái đối soát (ISSUE_STATUS) — 4 giá trị · 4 đang dùng"
-        assert by_value["ISSUE_REASON"] == "Nguyên nhân chênh lệch (ISSUE_REASON) — 6 giá trị · 6 đang dùng"
-
-    def test_build_type_options_empty_on_error(self, lookups_env: Any, monkeypatch: Any) -> None:
-        from app.schemas.errors import ErrorCode, ServiceResult
-        from app.ui.pages.lookups import build_type_options
-
-        monkeypatch.setattr(
-            "app.ui.pages.lookups.list_lookup_types",
-            lambda ctx: ServiceResult.fail(ErrorCode.INTERNAL_ERROR, "DB lỗi"),
-        )
-        options, total = build_type_options(_admin_ctx())
-        assert options == []
-        assert total == 0
+    def test_render_type_list_shows_code_count_badge(self, lookups_env: Any, monkeypatch: Any) -> None:
+        """Mỗi type phải có badge đếm số code."""
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        from app.ui.pages.lookups import render_type_list
+        ctx = _admin_ctx()
+        result = str(render_type_list(ctx))
+        # ISSUE_STATUS có 4 code → badge phải hiển thị 4
+        assert "4" in result
 
 
 class TestRenderCodeTable:
@@ -184,79 +172,26 @@ class TestUiUxFixes:
         assert "Mã hệ thống, không thể xóa mã OPEN" in result
 
 
-class TestTypeSelectFlow83:
-    """Task 83 (phần 2): chọn loại bằng Select ở command bar thay cho card trái."""
+class TestLeftColumnDesign:
+    def test_type_card_shows_total_and_active_counts(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
+        from app.ui.pages.lookups import render_type_list
 
-    def _mock_ctx(self, monkeypatch: Any, prop_id: str, value: Any) -> None:
-        from types import SimpleNamespace
+        ui, _total = render_type_list(_admin_ctx(), selected_type="ISSUE_REASON")
+        text = str(ui)
+        # Seed: ISSUE_REASON có 6 mã, đều đang dùng.
+        assert "6 giá trị" in text
+        assert "6 đang dùng" in text
+        assert "ISSUE_REASON" in text
 
-        monkeypatch.setattr(
-            "dash.callback_context",
-            SimpleNamespace(triggered=[{"prop_id": prop_id, "value": value}]),
-        )
-
-    def test_layout_no_left_column(self, lookups_env: Any, monkeypatch: Any) -> None:
+    def test_add_type_button_is_at_bottom_of_left_column(self, lookups_env: Any, monkeypatch: Any) -> None:
         monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
         from app.ui.pages.lookups import layout
 
         text = str(layout())
-        assert "lookups-type-select" in text
-        assert "2 loại" in text
         assert "lookups-add-type-btn" in text
-        assert "Chọn loại danh mục" in text
-        assert "ở cột trái" not in text
-        assert "lookups-type-list" not in text
-
-    def test_select_type_via_callback_updates_table(self, lookups_env: Any, monkeypatch: Any) -> None:
-        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
-        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
-        from app.ui.pages.lookups import cb_master_detail_sync
-
-        self._mock_ctx(monkeypatch, "lookups-type-select.value", "ISSUE_STATUS")
-        result = cb_master_detail_sync("ISSUE_STATUS", 0, "", "all", None)
-        assert len(result) == 11
-        (
-            code_table,
-            selected,
-            header,
-            badge,
-            _badge_style,
-            _add_disabled,
-            _edit_disabled,
-            _policy,
-            options,
-            value,
-            count_text,
-        ) = result
-        assert selected == "ISSUE_STATUS"
-        assert value == "ISSUE_STATUS"
-        assert "Trạng thái đối soát" in header
-        assert badge == "ISSUE_STATUS"
-        assert "OPEN" in str(code_table)
-        assert any(o["value"] == "ISSUE_STATUS" for o in options)
-        assert count_text == "2 loại"
-
-    def test_refresh_after_add_type_adds_option(self, lookups_env: Any, monkeypatch: Any) -> None:
-        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
-        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
-        from app.services.lookup import create_lookup_type
-        from app.ui.pages.lookups import cb_master_detail_sync
-
-        res = create_lookup_type(_admin_ctx(), lookup_type="TEST83", type_name="Loại kiểm tra 83", description=None)
-        assert res.ok
-        self._mock_ctx(monkeypatch, "lookups-refresh-store.data", 1)
-        result = cb_master_detail_sync(None, 1, "", "all", None)
-        options = result[8]
-        assert any(o["value"] == "TEST83" for o in options)
-        assert result[10] == "3 loại"
-
-    def test_empty_state_text_mentions_top_not_left(self, lookups_env: Any, monkeypatch: Any) -> None:
-        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
-        from app.ui.pages.lookups import render_code_table
-
-        text = str(render_code_table(_admin_ctx(), lookup_type=None))
-        assert "ở trên" in text
-        assert "ở cột trái" not in text
+        assert "Thêm loại danh mục" in text
+        assert "Tìm loại danh mục" in text
 
 
 class TestDeleteModalCallbackIds83:

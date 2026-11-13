@@ -14,3 +14,8 @@
 ## Bổ sung (user 10:13 13/11/2026): xóa card trái
 - Bỏ hẳn cột trái "Loại danh mục" (danh sách type + ô tìm loại + nút "+ Thêm loại danh mục"). Chọn loại chuyển sang `dmc.Select` có search ở thanh trên cùng của trang, nút Thêm loại giữ lại bên cạnh Select.
 - Cấu trúc callback hiện tại (đã đọc): `cb_master_detail_sync` nhận Input click từng type-item (pattern ALL) + ô tìm loại + refresh store; Output vẽ lại `lookups-type-list` + badge đếm loại. `render_type_list(ctx, selected_type, search_query)` trả (ui, total_count); `list_lookup_types` đã có số lượng giá trị mỗi loại (card trái hiện "8 giá trị · 8 đang dùng"). `cb_add_type_modal` bám nút `lookups-add-type-btn` (giữ nguyên id). Hàm thuần `handle_select_type` — kiểm tra nơi dùng trước khi đổi/xóa.
+
+## Đổi hướng (user 10:54 13/11/2026): TRẢ VỀ THIẾT KẾ CŨ
+- User đã áp patch 83, mở trang thấy bảng trống (chưa chọn loại) và hỏi "dữ liệu cũ đâu" — card trái đã xóa khiến dữ liệu bị giấu sau Select. User yêu cầu trả về thiết kế cũ, chỉ chỉnh layout card bên phải cho hợp lý.
+- Follow-up của task 83 (không tách số mới): khôi phục nguyên trạng card trái + Master–Detail 2 cột như trước task 83; GIỮ LẠI 2 thứ thuộc card phải: (1) icon Sửa/Xóa sm + Tooltip + wrap="nowrap" (hết rớt hàng), (2) fix id nút Xóa (`-cancel`/`-confirm`, bug user báo 10:26). Bỏ ý tự chọn loại đầu tiên (không cần nữa khi card trái về).
+- Cách làm: lấy `lookups.py` + `test_page_lookups.py` từ b35ed7f (trước task 83), áp lại đúng 2 sửa trên; kiểm chứng bằng `git diff b35ed7f` chỉ còn 2 sửa đó.
