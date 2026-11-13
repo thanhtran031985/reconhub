@@ -16,6 +16,7 @@ from app.db.metadata import (
     recon_batch_def,
     recon_batch_run,
     recon_data_source,
+    recon_excel_load,
     recon_excel_row,
     recon_file,
     recon_invalid_row,
@@ -49,6 +50,65 @@ def _parse_excel_row_nos(value: Any) -> list[Any]:
         except Exception:
             pass
     return [int(n.strip()) for n in text.split(",") if n.strip().isdigit()]
+
+
+def _resolve_excel_row_pairs(conn: Any, load_id: Any, row_nos: list[Any]) -> list[tuple[int, int]]:
+    """Chuyển EXCEL_ROW_NOS dạng [{"f": ..., "r": ...}] thành [(file_id, row_no)].
+
+    Task 85 (A): f có thể là file_id (int) hoặc TÊN file (str) — executor ghi
+    tên khi không map được tên → file_id qua SOURCE_FILES_JSON của load
+    (fallback = tên gốc). int("ten-file.xlsx") từng ném ValueError trong
+    get_row_detail làm drawer chi tiết không mở (chỉ dòng có dữ liệu Excel
+    mới dính; MISSING_IN_EXCEL có EXCEL_ROW_NOS rỗng nên thoát).
+    Tên được map qua SOURCE_FILES_JSON; tên không map được thì dùng file duy
+    nhất của load nếu load chỉ có 1 file; còn lại bỏ qua cặp đó thay vì ném lỗi.
+    """
+    name_to_id: dict[str, int] = {}
+    single_file_id: int | None = None
+    if load_id:
+        load_row = (
+            conn.execute(select(recon_excel_load.c.SOURCE_FILES_JSON).where(recon_excel_load.c.ID == load_id))
+            .mappings()
+            .first()
+        )
+        source_files = load_row.get("SOURCE_FILES_JSON") if load_row else None
+        if isinstance(source_files, str):
+            try:
+                source_files = json.loads(source_files)
+            except Exception:
+                source_files = None
+        for sf in source_files or []:
+            if isinstance(sf, dict) and sf.get("name") is not None and sf.get("file_id") is not None:
+                try:
+                    name_to_id[str(sf["name"])] = int(sf["file_id"])
+                except (TypeError, ValueError):
+                    continue
+        file_ids = [
+            int(r[0])
+            for r in conn.execute(
+                select(recon_excel_row.c.SOURCE_FILE_ID).where(recon_excel_row.c.LOAD_ID == load_id).distinct()
+            ).all()
+            if r[0] is not None
+        ]
+        if len(file_ids) == 1:
+            single_file_id = file_ids[0]
+    pairs: list[tuple[int, int]] = []
+    for p in row_nos:
+        if not isinstance(p, dict) or p.get("f") is None or p.get("r") is None:
+            continue
+        try:
+            row_no = int(p["r"])
+        except (TypeError, ValueError):
+            continue
+        file_id: int | None
+        try:
+            file_id = int(p["f"])
+        except (TypeError, ValueError):
+            file_id = name_to_id.get(str(p["f"]), single_file_id)
+        if file_id is None:
+            continue
+        pairs.append((int(file_id), row_no))
+    return pairs
 
 
 @service
@@ -692,19 +752,28 @@ def get_row_detail(ctx: Ctx, run_id: int, row_no: int) -> dict[str, Any]:
             row_nos = _parse_excel_row_nos(row["EXCEL_ROW_NOS"])
             if row_nos:
                 if isinstance(row_nos[0], dict):
-                    pairs = [
-                        (int(p["f"]), int(p["r"]))
-                        for p in row_nos
-                        if isinstance(p, dict) and p.get("f") is not None and p.get("r") is not None
-                    ]
-                    excel_rows_stmt = (
-                        select(recon_excel_row)
-                        .where(
-                            recon_excel_row.c.LOAD_ID == run_row["EXCEL_LOAD_ID"],
-                            tuple_(recon_excel_row.c.SOURCE_FILE_ID, recon_excel_row.c.EXCEL_ROW_NO).in_(pairs),
+                    # Task 85: f có thể là tên file — map qua helper, không
+                    # int() trực tiếp (ValueError làm cả drawer không mở).
+                    pairs = _resolve_excel_row_pairs(conn, run_row["EXCEL_LOAD_ID"] if run_row else None, row_nos)
+                    if pairs:
+                        excel_rows_stmt = (
+                            select(recon_excel_row)
+                            .where(
+                                recon_excel_row.c.LOAD_ID == run_row["EXCEL_LOAD_ID"],
+                                tuple_(recon_excel_row.c.SOURCE_FILE_ID, recon_excel_row.c.EXCEL_ROW_NO).in_(pairs),
+                            )
+                            .order_by(recon_excel_row.c.SOURCE_FILE_ID, recon_excel_row.c.EXCEL_ROW_NO)
                         )
-                        .order_by(recon_excel_row.c.SOURCE_FILE_ID, recon_excel_row.c.EXCEL_ROW_NO)
-                    )
+                        raw_rows = [
+                            {
+                                "excel_row_no": int(er["EXCEL_ROW_NO"]),
+                                "source_file_id": int(er["SOURCE_FILE_ID"])
+                                if er["SOURCE_FILE_ID"] is not None
+                                else None,
+                                "data": er["DATA_JSON"],
+                            }
+                            for er in conn.execute(excel_rows_stmt).mappings().fetchall()
+                        ]
                 else:
                     excel_rows_stmt = (
                         select(recon_excel_row)
@@ -714,14 +783,14 @@ def get_row_detail(ctx: Ctx, run_id: int, row_no: int) -> dict[str, Any]:
                         )
                         .order_by(recon_excel_row.c.EXCEL_ROW_NO)
                     )
-                raw_rows = [
-                    {
-                        "excel_row_no": int(er["EXCEL_ROW_NO"]),
-                        "source_file_id": int(er["SOURCE_FILE_ID"]) if er["SOURCE_FILE_ID"] is not None else None,
-                        "data": er["DATA_JSON"],
-                    }
-                    for er in conn.execute(excel_rows_stmt).mappings().fetchall()
-                ]
+                    raw_rows = [
+                        {
+                            "excel_row_no": int(er["EXCEL_ROW_NO"]),
+                            "source_file_id": int(er["SOURCE_FILE_ID"]) if er["SOURCE_FILE_ID"] is not None else None,
+                            "data": er["DATA_JSON"],
+                        }
+                        for er in conn.execute(excel_rows_stmt).mappings().fetchall()
+                    ]
 
     return {
         "run_id": run_id,

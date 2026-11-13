@@ -356,3 +356,77 @@ def test_list_issues_filters_and_kpis(issue_env):
     assert lst_search.ok is True
     assert len(lst_search.data["items"]) == 1
     assert lst_search.data["items"][0]["KEY_TEXT"] == "INV_CUSTOMER_X"
+
+
+def test_upsert_issue_for_row_accepts_lookup_status(issue_env):
+    """Task 85 (D6): trạng thái mới thêm ở /lookups (ISSUE_STATUS) phải lưu
+    được qua upsert_issue_for_row; trạng thái lạ không có trong lookup vẫn lỗi."""
+    engine, operator_ctx, _, admin_ctx, _, run_id = issue_env
+
+    from app.services.lookup import create_lookup_code, ensure_default_lookup_data
+
+    with engine.begin() as conn:
+        ensure_default_lookup_data(conn)
+    created = create_lookup_code(
+        admin_ctx,
+        lookup_type="ISSUE_STATUS",
+        lookup_code="PENDING_REVIEW",
+        meaning="Chờ duyệt lại",
+        display_order=5,
+    )
+    assert created.ok, created.message
+
+    res = upsert_issue_for_row(
+        operator_ctx,
+        run_id=run_id,
+        row_no=1,
+        reason_code="ROUNDING",
+        status="PENDING_REVIEW",
+        note="Trạng thái mới từ lookup",
+    )
+    assert res.ok, res.message
+    assert res.data["status"] == "PENDING_REVIEW"
+
+    bad = upsert_issue_for_row(
+        operator_ctx,
+        run_id=run_id,
+        row_no=1,
+        reason_code="ROUNDING",
+        status="BOGUS_STATUS",
+    )
+    assert bad.ok is False
+    assert bad.code == ErrorCode.VALIDATION_ERROR
+
+
+def test_upsert_issue_for_row_accepts_lookup_only_reason(issue_env):
+    """Task 85 (D6): mã lý do chỉ có trong lookup (không có trong bảng
+    RECON_ISSUE_REASON) vẫn lưu được; nhãn hiển thị fallback bằng chính mã
+    ở trang issues (REASON_LABEL or REASON_CODE)."""
+    engine, operator_ctx, _, admin_ctx, _, run_id = issue_env
+
+    from app.services.lookup import create_lookup_code, ensure_default_lookup_data
+
+    with engine.begin() as conn:
+        ensure_default_lookup_data(conn)
+    created = create_lookup_code(
+        admin_ctx,
+        lookup_type="ISSUE_REASON",
+        lookup_code="NEW_REASON",
+        meaning="Nguyên nhân mới từ lookup",
+        display_order=7,
+    )
+    assert created.ok, created.message
+
+    res = upsert_issue_for_row(
+        operator_ctx,
+        run_id=run_id,
+        row_no=1,
+        reason_code="NEW_REASON",
+        status="OPEN",
+    )
+    assert res.ok, res.message
+    iss = get_issue(operator_ctx, issue_id=res.data["issue_id"])
+    assert iss.ok
+    assert iss.data["REASON_CODE"] == "NEW_REASON"
+    # Mã lookup được đồng bộ sang RECON_ISSUE_REASON nên nhãn hiển thị đúng.
+    assert iss.data["REASON_LABEL"] == "Nguyên nhân mới từ lookup"

@@ -780,3 +780,253 @@ def test_handle_row_click_open_drawer(run_result_env: Any, monkeypatch: Any) -> 
     assert opened is True
     assert drawer_ui is not None
     assert "C26TBD0031312" in str(drawer_ui)
+
+
+# ─── Task 85: drawer mở được cho dòng MISSING_IN_DB + Select từ lookup ───────
+
+
+def _seed_detail_rows(engine: Any, *, source_files_json: Any) -> dict[str, int]:
+    """Seed load Excel + dòng Excel gốc + result rows cho run 1042.
+
+    Dòng MISSING_IN_DB (ROW_NO 2) có EXCEL_ROW_NOS dạng gộp file
+    [{"f": "dtp_sample_200.xlsx", "r": 5}]; dòng MISSING_IN_EXCEL (ROW_NO 3)
+    có EXCEL_ROW_NOS rỗng. Trả về {"load_id": ..., "file_id": ...}.
+    """
+    import hashlib
+    import json
+
+    from sqlalchemy import select
+
+    from app.db.metadata import recon_excel_load, recon_excel_row, recon_result_row, recon_run
+    from app.services.lookup import ensure_default_lookup_data
+
+    with engine.begin() as conn:
+        ensure_default_lookup_data(conn)
+        run_row = conn.execute(select(recon_run).where(recon_run.c.ID == 1042)).mappings().first()
+        assert run_row is not None
+        file_id = int(run_row["FILE_ID"])
+        load_id = int(
+            conn.execute(
+                recon_excel_load.insert().values(
+                    FILE_ID=file_id,
+                    SHEET_NAME="Sheet1",
+                    TEMPLATE_ID=int(run_row["TEMPLATE_ID"]),
+                    TEMPLATE_VERSION=1,
+                    ROWS_READ=2,
+                    ROWS_INVALID=0,
+                    BYTES_EST=1000,
+                    FILE_SET_HASH="f" * 64,
+                    SOURCE_FILES_JSON=source_files_json,
+                    LOADED_AT=datetime.now(timezone.utc).replace(tzinfo=None),
+                )
+            ).inserted_primary_key[0]
+        )
+        conn.execute(
+            recon_excel_row.insert().values(
+                LOAD_ID=load_id,
+                SOURCE_FILE_ID=file_id,
+                EXCEL_ROW_NO=5,
+                DATA_JSON={"INVOICE_NO": "C26TBD0084556", "TOTAL_AMOUNT": 66805000},
+                IS_VALID="Y",
+            )
+        )
+        conn.execute(recon_run.update().where(recon_run.c.ID == 1042).values(EXCEL_LOAD_ID=load_id))
+        for row_no, key_text, status, row_nos in [
+            (
+                2,
+                "2026-04-15 08:47:39 | C26TBD0084556",
+                "MISSING_IN_DB",
+                json.dumps([{"f": "dtp_sample_200.xlsx", "r": 5}], ensure_ascii=False),
+            ),
+            (3, "2026-07-23 16:57:54 | C26TBP0003038", "MISSING_IN_EXCEL", ""),
+        ]:
+            conn.execute(
+                recon_result_row.insert().values(
+                    RUN_ID=1042,
+                    ROW_NO=row_no,
+                    KEY_TEXT=key_text,
+                    KEY_HASH=hashlib.sha256(key_text.encode("utf-8")).hexdigest(),
+                    STATUS=status,
+                    KEY_JSON={"INVOICE_NO": key_text.split(" | ")[1]},
+                    EXCEL_JSON=(
+                        {"x__TOTAL_AMOUNT": "66805000"} if status == "MISSING_IN_DB" else {"x__TOTAL_AMOUNT": None}
+                    ),
+                    DB_JSON=(
+                        {"d__TOTAL_AMOUNT": None} if status == "MISSING_IN_DB" else {"d__TOTAL_AMOUNT": "1370037884"}
+                    ),
+                    DIFF_JSON=(
+                        {"diff__TOTAL_AMOUNT": "66805000"}
+                        if status == "MISSING_IN_DB"
+                        else {"diff__TOTAL_AMOUNT": "-1370037884"}
+                    ),
+                    EXCEL_ROW_NOS=row_nos,
+                    ABS_DIFF_MAIN=None,
+                    ABS_DIFF_SORT=66805000.0,
+                )
+            )
+    return {"load_id": load_id, "file_id": file_id}
+
+
+def _run_file_id(engine: Any) -> int:
+    from sqlalchemy import select
+
+    from app.db.metadata import recon_run
+
+    with engine.connect() as conn:
+        return int(conn.execute(select(recon_run.c.FILE_ID).where(recon_run.c.ID == 1042)).scalar_one())
+
+
+def _mock_row_click(monkeypatch: Any, ctx: Any, row_no: int) -> None:
+    import dash
+
+    monkeypatch.setattr("app.ui.pages.run_result.get_current_ctx", lambda: ctx)
+    monkeypatch.setattr(
+        dash,
+        "callback_context",
+        type(
+            "Obj",
+            (),
+            {"triggered": [{"prop_id": '{"index":%d,"type":"run-res-row"}.n_clicks' % row_no, "value": 1}]},
+        ),
+    )
+
+
+def test_handle_row_click_open_drawer_missing_in_db_name_file_ref(run_result_env: Any, monkeypatch: Any) -> None:
+    """Task 85 (A): bấm dòng MISSING_IN_DB có EXCEL_ROW_NOS dạng {f: tên file}
+    (map được qua SOURCE_FILES_JSON) phải mở drawer, hiện dòng Excel gốc."""
+    from app.ui.pages.run_result import handle_row_click_open_drawer
+
+    file_id = _run_file_id(run_result_env)
+    _seed_detail_rows(
+        run_result_env,
+        source_files_json=[{"name": "dtp_sample_200.xlsx", "file_id": file_id}],
+    )
+    ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+    _mock_row_click(monkeypatch, ctx, 2)
+    opened, drawer_ui = handle_row_click_open_drawer([0, 1], {"run": {"id": 1042}})
+    assert opened is True
+    text = str(drawer_ui)
+    assert "C26TBD0084556" in text
+    assert "66.805.000" in text
+    assert "Dòng Excel gốc" in text
+
+
+def test_handle_row_click_open_drawer_missing_in_db_unmapped_name(run_result_env: Any, monkeypatch: Any) -> None:
+    """Task 85 (A): tên file không map được nhưng load chỉ có 1 file → drawer
+    vẫn mở (fallback file duy nhất), không ném lỗi."""
+    from app.ui.pages.run_result import handle_row_click_open_drawer
+
+    _seed_detail_rows(run_result_env, source_files_json=[])
+    ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+    _mock_row_click(monkeypatch, ctx, 2)
+    opened, drawer_ui = handle_row_click_open_drawer([0, 1], {"run": {"id": 1042}})
+    assert opened is True
+    assert "C26TBD0084556" in str(drawer_ui)
+
+
+def test_handle_row_click_open_drawer_missing_in_excel_real(run_result_env: Any, monkeypatch: Any) -> None:
+    """Task 85 (A, hồi quy): bấm dòng MISSING_IN_EXCEL (service thật, không
+    mock get_row_detail) vẫn mở drawer."""
+    from app.ui.pages.run_result import handle_row_click_open_drawer
+
+    file_id = _run_file_id(run_result_env)
+    _seed_detail_rows(
+        run_result_env,
+        source_files_json=[{"name": "dtp_sample_200.xlsx", "file_id": file_id}],
+    )
+    ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+    _mock_row_click(monkeypatch, ctx, 3)
+    opened, drawer_ui = handle_row_click_open_drawer([0, 0, 1], {"run": {"id": 1042}})
+    assert opened is True
+    assert "C26TBP0003038" in str(drawer_ui)
+
+
+def test_render_detail_drawer_status_options_from_lookup() -> None:
+    """Task 85 (B): render_detail_drawer nhận status_options từ lookup thì
+    hiện nhãn lookup; mặc định (None) giữ 4 nhãn hardcode cũ."""
+    row_detail = {
+        "key_text": "2026-04-15 08:47:39 | C26TBD0084556",
+        "status": "MISSING_IN_DB",
+        "row_no": 2,
+        "run_id": 1042,
+        "issue": {},
+        "excel_raw_rows": [],
+        "excel": {"x__TOTAL_AMOUNT": 66805000},
+        "db": {"d__TOTAL_AMOUNT": None},
+        "diff": {"diff__TOTAL_AMOUNT": 66805000},
+    }
+    custom = render_detail_drawer(
+        row_detail=row_detail,
+        reasons_list=[],
+        status_options=[
+            {"value": "OPEN", "label": "Nhãn lookup A"},
+            {"value": "CUSTOM", "label": "Nhãn lookup B"},
+        ],
+    )
+    assert "Nhãn lookup A" in str(custom)
+    assert "Nhãn lookup B" in str(custom)
+
+    default = render_detail_drawer(row_detail=row_detail, reasons_list=[])
+    default_text = str(default)
+    assert "Chưa đối soát (Chờ xử lý)" in default_text
+    assert "Đã xử lý xong" in default_text
+
+
+def test_lookup_status_options_fallback_when_lookup_fails(run_result_env: Any, monkeypatch: Any) -> None:
+    """Task 85 (B): lookup lỗi/rỗng → Select trạng thái fallback 4 mặc định."""
+    from app.schemas.errors import ErrorCode, ServiceResult
+    from app.ui.pages.run_result import _lookup_status_options
+
+    ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.list_active_lookup_codes",
+        lambda *a, **kw: ServiceResult(ok=False, code=ErrorCode.FORBIDDEN, message="không quyền"),
+    )
+    assert [o["value"] for o in _lookup_status_options(ctx)] == [
+        "OPEN",
+        "IN_PROGRESS",
+        "ACCEPTED",
+        "RESOLVED",
+    ]
+
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.list_active_lookup_codes",
+        lambda *a, **kw: ServiceResult(
+            ok=True,
+            data=[
+                {"lookup_code": "OPEN", "meaning": "Nhãn lookup A", "display_order": 1, "is_active": "Y"},
+                {"lookup_code": "CUSTOM", "meaning": "Nhãn lookup B", "display_order": 2, "is_active": "Y"},
+            ],
+        ),
+    )
+    assert _lookup_status_options(ctx) == [
+        {"value": "OPEN", "label": "Nhãn lookup A"},
+        {"value": "CUSTOM", "label": "Nhãn lookup B"},
+    ]
+
+
+def test_lookup_reason_options_uses_lookup_then_fallback(run_result_env: Any, monkeypatch: Any) -> None:
+    """Task 85 (B): lý do lấy từ lookup ISSUE_REASON (map sang CODE/LABEL);
+    lookup rỗng → fallback list_reasons hiện tại."""
+    from app.schemas.errors import ServiceResult
+    from app.ui.pages.run_result import _lookup_reason_options
+
+    ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.list_active_lookup_codes",
+        lambda *a, **kw: ServiceResult(
+            ok=True,
+            data=[{"lookup_code": "NEW_REASON", "meaning": "Nguyên nhân mới", "display_order": 1, "is_active": "Y"}],
+        ),
+    )
+    reasons = _lookup_reason_options(ctx)
+    assert reasons == [
+        {"CODE": "NEW_REASON", "code": "NEW_REASON", "LABEL": "Nguyên nhân mới", "label": "Nguyên nhân mới"}
+    ]
+
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.list_active_lookup_codes",
+        lambda *a, **kw: ServiceResult(ok=True, data=[]),
+    )
+    fallback = _lookup_reason_options(ctx)
+    assert {r["CODE"] for r in fallback} >= {"ROUNDING", "TIMING", "SYSTEM_BUG"}

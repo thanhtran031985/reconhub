@@ -193,6 +193,36 @@ def list_lookup_codes(ctx: Ctx, *, lookup_type: str) -> list[dict[str, Any]]:
     return result
 
 
+@service
+# Trang kết quả run (menu result) + trang xử lý chênh lệch (menu issue)
+# cũng cần đọc mã lookup để mở drawer issue — như list_reasons.
+@requires_menu("issue", "result", "lookup", any_of=True)
+def list_active_lookup_codes(ctx: Ctx, *, lookup_type: str) -> list[dict[str, Any]]:
+    """Lấy các Lookup Code đang hoạt động của 1 loại, theo DISPLAY_ORDER.
+
+    Task 85 (B): dùng cho drawer chi tiết run (Select trạng thái đối soát /
+    nguyên nhân chênh lệch). Chỉ trả mã IS_ACTIVE='Y'; rỗng → caller dùng
+    fallback dữ liệu hiện tại. Khác list_lookup_codes (yêu cầu menu lookup
+    mà OPERATOR/TEMPLATE_OWNER không có) nên hàm này mở cho cả menu result
+    và issue — nếu không, đúng người xử lý chênh lệch sẽ luôn rơi fallback.
+    """
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        rows = (
+            conn.execute(
+                select(recon_lookup_code)
+                .where(
+                    recon_lookup_code.c.LOOKUP_TYPE == lookup_type,
+                    recon_lookup_code.c.IS_ACTIVE == "Y",
+                )
+                .order_by(recon_lookup_code.c.DISPLAY_ORDER, recon_lookup_code.c.LOOKUP_CODE)
+            )
+            .mappings()
+            .all()
+        )
+    return [_row_to_code_dict(r) for r in rows]
+
+
 # ─── CREATE ──────────────────────────────────────────────────────────────────
 
 

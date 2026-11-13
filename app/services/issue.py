@@ -11,6 +11,7 @@ from app.db.engine import get_recon_engine
 from app.db.metadata import (
     recon_issue,
     recon_issue_reason,
+    recon_lookup_code,
     recon_result_row,
     recon_run,
     recon_template,
@@ -343,12 +344,6 @@ def upsert_issue_for_row(
     """Tạo hoặc cập nhật xử lý chênh lệch cho một dòng kết quả cụ thể."""
     require_role(ctx, *MUTATION_ROLES)
 
-    if status not in VALID_ISSUE_STATUSES:
-        raise ServiceError(
-            ErrorCode.VALIDATION_ERROR,
-            f"Trạng thái '{status}' không hợp lệ. Phải là một trong: {', '.join(VALID_ISSUE_STATUSES)}.",
-        )
-
     if reason_code is not None and not str(reason_code).strip():
         reason_code = None
 
@@ -357,6 +352,48 @@ def upsert_issue_for_row(
 
     with engine.begin() as conn:
         ensure_default_reasons(conn)
+
+        # Task 85 (D6): REASON_CODE có FK tới RECON_ISSUE_REASON.CODE — mã lý
+        # do chỉ có trong lookup (thêm tay ở /lookups) phải được đồng bộ
+        # sang bảng lý do thì mới lưu được; nhãn lấy từ lookup, không có
+        # thì dùng chính mã. Mã không có ở cả 2 nơi giữ nguyên hành vi cũ.
+        if reason_code:
+            reason_exists = conn.execute(
+                select(recon_issue_reason.c.CODE).where(recon_issue_reason.c.CODE == reason_code)
+            ).scalar()
+            if not reason_exists:
+                lookup_label = conn.execute(
+                    select(recon_lookup_code.c.MEANING).where(
+                        recon_lookup_code.c.LOOKUP_TYPE == "ISSUE_REASON",
+                        recon_lookup_code.c.LOOKUP_CODE == reason_code,
+                    )
+                ).scalar()
+                if lookup_label:
+                    conn.execute(
+                        recon_issue_reason.insert().values(CODE=reason_code, LABEL=str(lookup_label), IS_ACTIVE="Y")
+                    )
+
+        # Task 85 (D6): trạng thái hợp lệ = 4 mặc định + mã ISSUE_STATUS đang
+        # hoạt động trong lookup (drawer đọc trạng thái từ lookup nên trạng
+        # thái mới thêm ở /lookups cũng phải lưu được). Lookup rỗng → chỉ
+        # 4 mặc định, hành vi cũ giữ nguyên.
+        allowed_statuses = set(VALID_ISSUE_STATUSES)
+        allowed_statuses.update(
+            str(c)
+            for c in conn.execute(
+                select(recon_lookup_code.c.LOOKUP_CODE).where(
+                    recon_lookup_code.c.LOOKUP_TYPE == "ISSUE_STATUS",
+                    recon_lookup_code.c.IS_ACTIVE == "Y",
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if status not in allowed_statuses:
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                f"Trạng thái '{status}' không hợp lệ. Phải là một trong: {', '.join(sorted(allowed_statuses))}.",
+            )
 
         run_row = (
             conn.execute(select(recon_run.c.TEMPLATE_ID, recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id))

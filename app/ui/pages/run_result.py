@@ -14,6 +14,7 @@ from app.core.session import get_current_ctx
 from app.schemas.run import RunRowsFilter
 from app.services.dashboard import compare_runs, get_previous_run
 from app.services.issue import list_reasons, upsert_issue_for_row
+from app.services.lookup import list_active_lookup_codes
 from app.services.perm import page_gate
 from app.services.run_service import export_run, get_row_detail, get_run, get_run_rows
 from app.services.temp_data import mark_checked, purge_runs
@@ -42,6 +43,54 @@ ISSUE_STATUS_LABELS: dict[str, str] = {
     "ACCEPTED": "Xác nhận đối soát",
     "RESOLVED": "Đã xử lý xong",
 }
+
+# Task 85 (B): 4 trạng thái mặc định — fallback khi lookup ISSUE_STATUS
+# rỗng/lỗi; nhãn trùng với seed lookup để drawer không đổi khi nối lookup.
+DEFAULT_ISSUE_STATUS_OPTIONS: list[dict[str, str]] = [
+    {"value": "OPEN", "label": "Chưa đối soát (Chờ xử lý)"},
+    {"value": "IN_PROGRESS", "label": "Đang kiểm tra"},
+    {"value": "ACCEPTED", "label": "Xác nhận đối soát (Chấp nhận lệch)"},
+    {"value": "RESOLVED", "label": "Đã xử lý xong"},
+]
+
+
+def _lookup_status_options(ctx: Any) -> list[dict[str, Any]]:
+    """Trạng thái đối soát từ lookup ISSUE_STATUS (mã đang dùng, DISPLAY_ORDER).
+
+    Lookup rỗng/lỗi → fallback 4 trạng thái mặc định.
+    """
+    res = list_active_lookup_codes(ctx, lookup_type="ISSUE_STATUS")
+    if not res.ok or not res.data:
+        return list(DEFAULT_ISSUE_STATUS_OPTIONS)
+    options = [
+        {"value": c.get("lookup_code"), "label": c.get("meaning") or c.get("lookup_code")}
+        for c in res.data
+        if c.get("lookup_code")
+    ]
+    return options or list(DEFAULT_ISSUE_STATUS_OPTIONS)
+
+
+def _lookup_reason_options(ctx: Any) -> list[dict[str, Any]]:
+    """Nguyên nhân chênh lệch từ lookup ISSUE_REASON (map sang CODE/LABEL).
+
+    Lookup rỗng/lỗi → fallback list_reasons hiện tại (bảng RECON_ISSUE_REASON).
+    """
+    res = list_active_lookup_codes(ctx, lookup_type="ISSUE_REASON")
+    if res.ok and res.data:
+        options = [
+            {
+                "CODE": c.get("lookup_code"),
+                "code": c.get("lookup_code"),
+                "LABEL": c.get("meaning") or c.get("lookup_code"),
+                "label": c.get("meaning") or c.get("lookup_code"),
+            }
+            for c in res.data
+            if c.get("lookup_code")
+        ]
+        if options:
+            return options
+    reasons_res = list_reasons(ctx)
+    return reasons_res.data if reasons_res.ok and reasons_res.data else []
 
 
 def fmt_num(val: Any) -> str:
@@ -904,6 +953,7 @@ def render_sql_tab_content(run_info: dict[str, Any], summary: dict[str, Any]) ->
 def render_detail_drawer(
     row_detail: dict[str, Any] | None = None,
     reasons_list: list[dict[str, Any]] | None = None,
+    status_options: list[dict[str, Any]] | None = None,
     temp_purged_at: str | None = None,
     row_key: str | None = None,
     status: str = "MATCHED",
@@ -961,6 +1011,9 @@ def render_detail_drawer(
         for r in active_reasons
     ]
 
+    # Task 85 (B): trạng thái từ lookup (tham số mới); None → 4 mặc định.
+    status_select_data = status_options if status_options else DEFAULT_ISSUE_STATUS_OPTIONS
+
     issue_form = dmc.Paper(
         p="md",
         withBorder=True,
@@ -983,12 +1036,7 @@ def render_detail_drawer(
                             children=dmc.Select(
                                 id="drawer-issue-status-select",
                                 label="Trạng thái đối soát",
-                                data=[
-                                    {"value": "OPEN", "label": "Chưa đối soát (Chờ xử lý)"},
-                                    {"value": "IN_PROGRESS", "label": "Đang kiểm tra"},
-                                    {"value": "ACCEPTED", "label": "Xác nhận đối soát (Chấp nhận lệch)"},
-                                    {"value": "RESOLVED", "label": "Đã xử lý xong"},
-                                ],
+                                data=status_select_data,
                                 value=cur_status,
                                 size="sm",
                             ),
@@ -1801,13 +1849,15 @@ def handle_row_click_open_drawer(
         return False, dash.no_update
 
     row_detail = detail_res.data
-    reasons_res = list_reasons(ctx)
-    reasons_list = reasons_res.data if reasons_res.ok and reasons_res.data else []
+    # Task 85 (B): cả 2 Select lấy từ lookup, fallback dữ liệu hiện tại.
+    reasons_list = _lookup_reason_options(ctx)
+    status_options = _lookup_status_options(ctx)
     main_measure = _profile_main_measure(ctx, run_info)
 
     drawer_ui = render_detail_drawer(
         row_detail=row_detail,
         reasons_list=reasons_list,
+        status_options=status_options,
         temp_purged_at=run_info.get("temp_purged_at"),
         main_measure_name=main_measure["name"] if main_measure else None,
         main_measure_field=main_measure["field"] if main_measure else None,

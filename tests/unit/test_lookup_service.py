@@ -335,3 +335,66 @@ class TestDeleteLookupType:
         create_lookup_type(_admin_ctx(), lookup_type="DELTYPE3", type_name="Delete me 3")
         res = delete_lookup_type(_viewer_ctx(), lookup_type="DELTYPE3")
         assert not res.ok
+
+
+class TestListActiveLookupCodes:
+    """Task 85 (B): mã lookup đang hoạt động cho drawer — operator đọc được
+    dù không có menu lookup (any_of issue/result/lookup, theo tiền lệ
+    list_reasons); chỉ mã IS_ACTIVE='Y', theo DISPLAY_ORDER."""
+
+    def test_admin_gets_active_status_codes_in_order(self, lookup_env):
+        from app.services.lookup import ensure_default_lookup_data, list_active_lookup_codes
+
+        with lookup_env.begin() as conn:
+            ensure_default_lookup_data(conn)
+        res = list_active_lookup_codes(_admin_ctx(), lookup_type="ISSUE_STATUS")
+        assert res.ok
+        codes = [c["lookup_code"] for c in res.data]
+        assert codes == ["OPEN", "IN_PROGRESS", "ACCEPTED", "RESOLVED"]
+        labels = {c["lookup_code"]: c["meaning"] for c in res.data}
+        assert labels["OPEN"] == "Chưa đối soát (Chờ xử lý)"
+        assert labels["RESOLVED"] == "Đã xử lý xong"
+
+    def test_inactive_code_excluded(self, lookup_env):
+        from sqlalchemy import text
+
+        from app.services.lookup import ensure_default_lookup_data, list_active_lookup_codes
+
+        with lookup_env.begin() as conn:
+            ensure_default_lookup_data(conn)
+            conn.execute(
+                text(
+                    "UPDATE RECON_LOOKUP_CODE SET IS_ACTIVE='N' "
+                    "WHERE LOOKUP_TYPE='ISSUE_STATUS' AND LOOKUP_CODE='RESOLVED'"
+                )
+            )
+        res = list_active_lookup_codes(_admin_ctx(), lookup_type="ISSUE_STATUS")
+        assert res.ok
+        assert "RESOLVED" not in [c["lookup_code"] for c in res.data]
+        assert len(res.data) == 3
+
+    def test_operator_can_read_without_lookup_menu(self, lookup_env):
+        """OPERATOR không có menu lookup nhưng vẫn đọc được nhờ any_of."""
+        from app.core.context import Ctx, Role
+        from app.services.lookup import (
+            ensure_default_lookup_data,
+            list_active_lookup_codes,
+            list_lookup_codes,
+        )
+
+        with lookup_env.begin() as conn:
+            ensure_default_lookup_data(conn)
+        operator_ctx = Ctx(user_id=10, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+        res = list_active_lookup_codes(operator_ctx, lookup_type="ISSUE_REASON")
+        assert res.ok, res.message
+        assert len(res.data) == 6
+        # Đối chứng: list_lookup_codes gốc chặn operator vì thiếu menu lookup.
+        blocked = list_lookup_codes(operator_ctx, lookup_type="ISSUE_REASON")
+        assert not blocked.ok
+
+    def test_unknown_type_returns_empty_ok(self, lookup_env):
+        from app.services.lookup import list_active_lookup_codes
+
+        res = list_active_lookup_codes(_admin_ctx(), lookup_type="NO_SUCH_TYPE")
+        assert res.ok
+        assert res.data == []
