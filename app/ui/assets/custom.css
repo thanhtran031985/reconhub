@@ -457,3 +457,58 @@ main > div > div,
     flex: none;
   }
 }
+
+/* Task 81: Hàng đợi & worker — 3 vùng header | command bar | vùng chính,
+   không cuộn trang ở ≥1366×768 (chỉ thân card cuộn khi tràn);
+   dưới 900px trang được cuộn (quy tắc ui-dash). */
+.qh-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  height: 100%;
+  min-height: 0;
+}
+
+.qh-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.qh-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.qh-table {
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+.qh-table td {
+  height: 32px;
+}
+
+.qh-created-at {
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .qh-page {
+    height: auto;
+  }
+
+  .qh-card {
+    flex: none;
+  }
+
+  .qh-body {
+    flex: none;
+    overflow: visible;
+  }
+}

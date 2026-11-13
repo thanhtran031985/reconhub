@@ -120,7 +120,7 @@ def _health_item_row(item: dict[str, Any], status_label: str | None = None) -> d
     )
     return dmc.TableTr(
         [
-            dmc.TableTd(dmc.Text(kind_label, size="xs"), style={"height": "32px"}),
+            dmc.TableTd(dmc.Text(kind_label, size="xs")),
             dmc.TableTd(
                 dmc.Anchor(
                     f"#{item['id']} · {item['report_name']}",
@@ -128,11 +128,9 @@ def _health_item_row(item: dict[str, Any], status_label: str | None = None) -> d
                     size="xs",
                     underline="hover",
                 ),
-                style={"height": "32px", "fontSize": "13px"},
             ),
             dmc.TableTd(
                 dmc.Text(str(item["created_by"]), size="xs"),
-                style={"height": "32px"},
             ),
             dmc.TableTd(
                 dmc.Text(
@@ -140,35 +138,39 @@ def _health_item_row(item: dict[str, Any], status_label: str | None = None) -> d
                     size="xs",
                     className="rh-code",
                 ),
-                style={"height": "32px", "whiteSpace": "nowrap"},
+                className="qh-created-at",
             ),
             dmc.TableTd(
                 dmc.Text(_format_age(int(item["age_minutes"])), size="xs"),
-                style={"height": "32px"},
             ),
-            dmc.TableTd(status_node, style={"height": "32px"}),
-            dmc.TableTd(action, style={"height": "32px"}),
+            dmc.TableTd(status_node),
+            dmc.TableTd(action),
         ]
     )
 
 
 def _health_items_table(rows: list[dmc.TableTr], age_header: str) -> dmc.TableScrollContainer:
-    """Bảng 7 cột cho các mục hàng đợi (dùng chung 2 section)."""
+    """Bảng 7 cột cho các mục hàng đợi (dùng chung 2 section).
+
+    Task 81: độ rộng cột theo % (table-layout fixed ở class qh-table)
+    để cột "Mục" không chiếm hết; "Tạo lúc" 17% chứa vừa
+    "12/11/2026 14:22:05" (task 80) ở 1366. Không chặn chiều cao
+    từng bảng nữa — thân card cuộn chung khi tràn (D2).
+    """
     return dmc.TableScrollContainer(
         minWidth=520,
-        style={"maxHeight": 132, "overflow": "auto"},
         children=dmc.Table(
             [
                 dmc.TableThead(
                     dmc.TableTr(
                         [
-                            dmc.TableTh("Loại"),
-                            dmc.TableTh("Mục"),
-                            dmc.TableTh("Người tạo"),
-                            dmc.TableTh("Tạo lúc"),
-                            dmc.TableTh(age_header),
-                            dmc.TableTh("Trạng thái"),
-                            dmc.TableTh(""),
+                            dmc.TableTh("Loại", style={"width": "8%"}),
+                            dmc.TableTh("Mục", style={"width": "30%"}),
+                            dmc.TableTh("Người tạo", style={"width": "12%"}),
+                            dmc.TableTh("Tạo lúc", style={"width": "17%"}),
+                            dmc.TableTh(age_header, style={"width": "12%"}),
+                            dmc.TableTh("Trạng thái", style={"width": "13%"}),
+                            dmc.TableTh("", style={"width": "8%"}),
                         ]
                     )
                 ),
@@ -178,7 +180,7 @@ def _health_items_table(rows: list[dmc.TableTr], age_header: str) -> dmc.TableSc
             withTableBorder=False,
             withColumnBorders=False,
             verticalSpacing=2,
-            style={"fontSize": "13px"},
+            className="qh-table",
         ),
     )
 
@@ -249,8 +251,8 @@ def _health_card_body(
     )
 
     # Follow-up task 66: bảng Đang chạy / Đang chờ (mọi export QUEUED/
-    # RUNNING + run QUEUED) đặt TRÊN bảng Mục kẹt; 2 Select ở header tĩnh
-    # lọc riêng bảng này (bảng kẹt giữ nguyên).
+    # RUNNING + run QUEUED) đặt TRÊN bảng Mục kẹt; 2 Select ở command
+    # bar (task 81) lọc riêng bảng này (bảng kẹt giữ nguyên).
     active = health.get("active") or []
     filtered = [
         item
@@ -258,7 +260,7 @@ def _health_card_body(
         if (status_filter == "all" or str(item["status"]) == status_filter)
         and (kind_filter == "all" or str(item["kind"]) == kind_filter)
     ]
-    children.append(dmc.Text(f"Đang chạy / Đang chờ ({len(filtered)})", size="sm", fw=600))
+    children.append(dmc.Title(f"Đang chạy / Đang chờ ({len(filtered)})", order=5))
     if not filtered:
         children.append(dmc.Text("Không có mục nào đang chạy hoặc chờ.", size="sm", c="dimmed"))
     else:
@@ -276,7 +278,7 @@ def _health_card_body(
         )
 
     stuck = health.get("stuck") or []
-    children.append(dmc.Text(f"Mục kẹt ({len(stuck)})", size="sm", fw=600))
+    children.append(dmc.Title(f"Mục kẹt ({len(stuck)})", order=5))
     if not stuck:
         children.append(dmc.Text("Không có mục kẹt.", size="sm", c="dimmed"))
     else:
@@ -287,95 +289,30 @@ def _health_card_body(
 
 
 def render_health_card(health: dict[str, Any]) -> dmc.Card:
-    """Thẻ Sức khỏe hàng đợi & worker (task 62, dời sang trang riêng ở task 66).
+    """Card chính chỉ bọc body (task 81).
 
-    Theo pattern task 60: header tĩnh, callback chỉ cập nhật body
-    (không vẽ lại cả card).
+    Hàng header card cũ đã bỏ (tiêu đề trùng tiêu đề trang, D1);
+    nút "Làm mới"/"Xem lịch sử" lên page header, 2 Select lọc ra
+    command bar ở layout(). Theo pattern task 60: vùng tĩnh nằm
+    ngoài body, callback chỉ cập nhật body (không vẽ lại cả trang).
     """
-    header_group = dmc.Group(
-        [
-            dmc.Text("Sức khỏe hàng đợi & worker", fw=600, size="sm"),
-            dmc.Group(
-                [
-                    button_subtle(
-                        "Làm mới",
-                        id="queue-health-refresh-btn",
-                        size="xs",
-                        icon="lucide:refresh-cw",
-                    ),
-                    dmc.Anchor(
-                        button_subtle("Xem lịch sử", size="xs", icon="lucide:history"),
-                        href="/report-runs",
-                    ),
-                ],
-                gap="xs",
-            ),
-        ],
-        justify="space-between",
-        align="center",
-        p="xs",
-    )
-    # Follow-up task 66: hàng filter nằm ở vùng tĩnh của card (ngoài
-    # queue-health-card-body) nên đổi filter không bị reset khi body vẽ
-    # lại (mẫu task 60); chỉ lọc bảng Đang chạy / Đang chờ.
-    filter_row = dmc.Group(
-        [
-            dmc.Select(
-                id="queue-health-filter-status",
-                data=[
-                    {"label": "Tất cả trạng thái", "value": "all"},
-                    {"label": "Đang chạy", "value": "RUNNING"},
-                    {"label": "Đang chờ", "value": "QUEUED"},
-                ],
-                value="all",
-                size="xs",
-                w=170,
-                **{"aria-label": "Lọc theo trạng thái"},
-            ),
-            dmc.Select(
-                id="queue-health-filter-kind",
-                data=[
-                    {"label": "Tất cả loại", "value": "all"},
-                    {"label": "Export", "value": "export"},
-                    {"label": "Run", "value": "run"},
-                ],
-                value="all",
-                size="xs",
-                w=140,
-                **{"aria-label": "Lọc theo loại"},
-            ),
-        ],
-        gap="xs",
-        p="xs",
-    )
     return dmc.Card(
-        [
-            header_group,
-            dmc.Divider(),
-            filter_row,
-            dmc.Divider(),
-            html.Div(
-                _health_card_body(health),
-                id="queue-health-card-body",
-                style={
-                    "flex": 1,
-                    "minHeight": 0,
-                    "maxHeight": 220,
-                    "overflow": "auto",
-                    "display": "flex",
-                    "flexDirection": "column",
-                },
-            ),
-        ],
+        html.Div(
+            _health_card_body(health),
+            id="queue-health-card-body",
+            className="qh-body",
+        ),
         withBorder=True,
         padding=0,
         radius="sm",
-        style={"flexShrink": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
+        className="qh-card",
     )
 
 
 def layout(**kwargs: Any) -> Any:
-    """Giao diện chính màn hình Hàng đợi & worker (task 66)."""
+    """Giao diện chính màn hình Hàng đợi & worker (task 66, layout
+    lại theo chuẩn ui-dash ở task 81): page header (nút chính phải)
+    | command bar | vùng chính chiếm phần còn lại."""
     ctx = get_current_ctx()
     if ctx is None:
         return alert_box("Bạn cần đăng nhập để xem thông tin Hàng đợi & worker.", tone="crit")
@@ -392,17 +329,57 @@ def layout(**kwargs: Any) -> Any:
             page_header(
                 title="Hàng đợi & worker",
                 subtitle="Trạng thái worker và các mục kẹt trong hàng đợi export/báo cáo. Làm mới bằng tay; Hủy theo đúng quyền của từng mục.",
+                actions=[
+                    button_subtle(
+                        "Làm mới",
+                        id="queue-health-refresh-btn",
+                        size="xs",
+                        icon="lucide:refresh-cw",
+                    ),
+                    dmc.Anchor(
+                        button_subtle("Xem lịch sử", size="xs", icon="lucide:history"),
+                        href="/report-runs",
+                    ),
+                ],
+            ),
+            dmc.Paper(
+                dmc.Group(
+                    [
+                        dmc.Select(
+                            id="queue-health-filter-status",
+                            data=[
+                                {"label": "Tất cả trạng thái", "value": "all"},
+                                {"label": "Đang chạy", "value": "RUNNING"},
+                                {"label": "Đang chờ", "value": "QUEUED"},
+                            ],
+                            value="all",
+                            size="xs",
+                            w=170,
+                            **{"aria-label": "Lọc theo trạng thái"},
+                        ),
+                        dmc.Select(
+                            id="queue-health-filter-kind",
+                            data=[
+                                {"label": "Tất cả loại", "value": "all"},
+                                {"label": "Export", "value": "export"},
+                                {"label": "Run", "value": "run"},
+                            ],
+                            value="all",
+                            size="xs",
+                            w=140,
+                            **{"aria-label": "Lọc theo loại"},
+                        ),
+                    ],
+                    gap="xs",
+                ),
+                withBorder=True,
+                p="sm",
+                radius="sm",
             ),
             render_health_card(fetch_queue_health(ctx)),
         ],
-        style={
-            "height": "100%",
-            "minHeight": 0,
-            "display": "flex",
-            "flexDirection": "column",
-            "padding": "12px 16px",
-            "gap": "10px",
-        },
+        className="qh-page",
+        p="md",
     )
 
 

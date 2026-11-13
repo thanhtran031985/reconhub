@@ -411,3 +411,86 @@ class TestCreatedAtFull:
         assert "11/11/2026 12:20:00" in text
         assert "11/11/2026 12:10:00" in text
         assert "thấy lần cuối 11/11 13:00" in text
+
+
+def _walk(component):
+    """Yield component + mọi hậu duệ (duyệt đệ quy children)."""
+    yield component
+    children = getattr(component, "children", None)
+    if isinstance(children, (list, tuple)):
+        for child in children:
+            yield from _walk(child)
+    elif children is not None:
+        yield from _walk(children)
+
+
+class TestLayout81:
+    """Task 81: layout /queue-health theo chuẩn ui-dash (3 vùng,
+    không chặn 220px, không px inline, Title order=5, cột theo %)."""
+
+    def test_refresh_button_in_page_header(self, health_env, admin_ctx, monkeypatch):
+        import app.ui.pages.queue_health as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        node = page.layout()
+        header = node.children[0]
+        header_text = _dump(header)
+        assert "Làm mới" in header_text
+        assert "Xem lịch sử" in header_text
+        assert _find_by_id(header, "queue-health-refresh-btn") is not None
+        # Tiêu đề card cũ đã bỏ.
+        assert "Sức khỏe hàng đợi & worker" not in _dump(node)
+
+    def test_filters_outside_body(self, health_env, admin_ctx, monkeypatch):
+        import app.ui.pages.queue_health as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        node = page.layout()
+        body = _find_by_id(node, "queue-health-card-body")
+        assert body is not None
+        body_text = _dump(body)
+        assert "Tất cả trạng thái" not in body_text
+        assert "Tất cả loại" not in body_text
+        # 2 Select vẫn có mặt trong layout, ở command bar (con thứ 2).
+        assert _find_by_id(node, "queue-health-filter-status") is not None
+        assert _find_by_id(node, "queue-health-filter-kind") is not None
+        assert "Tất cả trạng thái" in _dump(node.children[1])
+
+    def test_section_titles_order_5(self):
+        import app.ui.pages.queue_health as page
+
+        body = page._health_card_body(_active_health())
+        titles = [c for c in _walk(body) if type(c).__name__ == "Title"]
+        assert len(titles) == 2
+        assert all(getattr(t, "order", None) == 5 for t in titles)
+        text = _dump(body)
+        assert "Đang chạy / Đang chờ (2)" in text
+        assert "Mục kẹt (2)" in text
+
+    def test_body_no_max_height_cap(self):
+        import app.ui.pages.queue_health as page
+
+        card = page.render_health_card(_active_health())
+        assert "qh-card" in str(getattr(card, "className", ""))
+        body = _find_by_id(card, "queue-health-card-body")
+        assert body is not None
+        assert "qh-body" in str(getattr(body, "className", ""))
+        style = getattr(body, "style", None) or {}
+        assert "maxHeight" not in style
+
+    def test_table_header_widths_percent(self):
+        import app.ui.pages.queue_health as page
+
+        rows = [page._health_item_row(item) for item in _active_health()["active"]]
+        table = page._health_items_table(rows, "Chờ bao lâu")
+        ths = [c for c in _walk(table) if type(c).__name__ == "TableTh"]
+        assert len(ths) == 7
+        widths = []
+        for th in ths:
+            style = getattr(th, "style", None) or {}
+            assert "px" not in str(style.values()), f"độ rộng cột dùng px: {style}"
+            widths.append(style.get("width"))
+        assert all(isinstance(w, str) and w.endswith("%") for w in widths)
+        assert sum(int(w[:-1]) for w in widths) == 100
+        tables = [c for c in _walk(table) if type(c).__name__ == "Table"]
+        assert tables and "qh-table" in str(getattr(tables[0], "className", ""))
