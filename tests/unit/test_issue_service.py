@@ -21,11 +21,13 @@ from app.db.metadata import (
 )
 from app.schemas.errors import ErrorCode
 from app.services.issue import (
+    bulk_update_issues_by_ids,
     bulk_upsert_issues,
     get_issue,
     get_issue_for_row,
     list_issues,
     list_reasons,
+    update_issue_by_id,
     upsert_issue_for_row,
 )
 
@@ -430,3 +432,126 @@ def test_upsert_issue_for_row_accepts_lookup_only_reason(issue_env):
     assert iss.data["REASON_CODE"] == "NEW_REASON"
     # Mã lookup được đồng bộ sang RECON_ISSUE_REASON nên nhãn hiển thị đúng.
     assert iss.data["REASON_LABEL"] == "Nguyên nhân mới từ lookup"
+
+
+def _seed_issues_87(engine, tmpl_id, run_id):
+    """Seed run2 + 3 issue cho task 87.
+
+    A: run1, OPEN, đã giao (ASSIGNEE_ID=10); B: run1, OPEN, chưa giao;
+    C: run2, RESOLVED, chưa giao. Trả (run2_id, id_a, id_b, id_c).
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with engine.begin() as conn:
+        ds_id = conn.execute(select(recon_run.c.DATA_SOURCE_ID).where(recon_run.c.ID == run_id)).scalar()
+        run2_id = conn.execute(
+            recon_run.insert().values(
+                TEMPLATE_ID=tmpl_id,
+                TEMPLATE_VERSION=1,
+                PROFILE_CODE="DEFAULT",
+                DATA_SOURCE_ID=ds_id,
+                STATUS="DONE",
+                P_FROM=now,
+                P_TO=now,
+                CREATED_BY="operator_tester",
+                CREATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+
+        def _ins(first_run, status, assignee, key):
+            return conn.execute(
+                recon_issue.insert().values(
+                    TEMPLATE_ID=tmpl_id,
+                    PROFILE_CODE="DEFAULT",
+                    KEY_TEXT=key,
+                    KEY_HASH=f"hash_{key}",
+                    FIRST_RUN_ID=first_run,
+                    LAST_RUN_ID=first_run,
+                    STATUS=status,
+                    REASON_CODE="ROUNDING",
+                    ASSIGNEE_ID=assignee,
+                    NOTE=None,
+                    UPDATED_AT=now,
+                    UPDATED_BY="operator_tester",
+                    ROW_VERSION=1,
+                )
+            ).inserted_primary_key[0]
+
+        id_a = _ins(run_id, "OPEN", 10, "INV_87_A")
+        id_b = _ins(run_id, "OPEN", None, "INV_87_B")
+        id_c = _ins(run2_id, "RESOLVED", None, "INV_87_C")
+    return run2_id, id_a, id_b, id_c
+
+
+class TestListIssuesFilters87:
+    def test_unassigned_only(self, issue_env):
+        engine, operator_ctx, _, _, tmpl_id, run_id = issue_env
+        _, _, id_b, id_c = _seed_issues_87(engine, tmpl_id, run_id)
+        res = list_issues(operator_ctx, unassigned_only=True)
+        assert res.ok, res.message
+        got = {it["ID"] for it in res.data["items"]}
+        assert got == {id_b, id_c}
+        assert res.data["total"] == len(res.data["items"]) == 2
+
+    def test_run_id_filter(self, issue_env):
+        engine, operator_ctx, _, _, tmpl_id, run_id = issue_env
+        run2_id, _, _, id_c = _seed_issues_87(engine, tmpl_id, run_id)
+        res = list_issues(operator_ctx, run_id=run2_id)
+        assert res.ok, res.message
+        assert [it["ID"] for it in res.data["items"]] == [id_c]
+        assert res.data["total"] == 1
+
+    def test_combined_run_status_unassigned(self, issue_env):
+        engine, operator_ctx, _, _, tmpl_id, run_id = issue_env
+        _, _, id_b, _ = _seed_issues_87(engine, tmpl_id, run_id)
+        res = list_issues(operator_ctx, run_id=run_id, status="OPEN", unassigned_only=True)
+        assert res.ok, res.message
+        assert [it["ID"] for it in res.data["items"]] == [id_b]
+        assert res.data["total"] == 1
+
+    def test_no_new_params_unchanged(self, issue_env):
+        engine, operator_ctx, _, _, tmpl_id, run_id = issue_env
+        _, id_a, id_b, id_c = _seed_issues_87(engine, tmpl_id, run_id)
+        res = list_issues(operator_ctx)
+        assert res.ok, res.message
+        assert {it["ID"] for it in res.data["items"]} == {id_a, id_b, id_c}
+        assert res.data["total"] == 3
+
+
+class TestIssueStatusValidationLookup87:
+    """Task 87 (D6): drawer/bulk ở /issues đọc trạng thái từ lookup nên
+    trạng thái mới thêm ở /lookups cũng phải lưu được (như upsert ở task 85)."""
+
+    def test_update_and_bulk_accept_lookup_status(self, issue_env):
+        engine, operator_ctx, _, admin_ctx, tmpl_id, run_id = issue_env
+        _, id_a, _, _ = _seed_issues_87(engine, tmpl_id, run_id)
+
+        from app.services.lookup import create_lookup_code, ensure_default_lookup_data
+
+        with engine.begin() as conn:
+            ensure_default_lookup_data(conn)
+        created = create_lookup_code(
+            admin_ctx,
+            lookup_type="ISSUE_STATUS",
+            lookup_code="ON_HOLD",
+            meaning="Tạm giữ",
+            display_order=50,
+        )
+        assert created.ok, created.message
+
+        res = update_issue_by_id(operator_ctx, issue_id=id_a, status="ON_HOLD")
+        assert res.ok, res.message
+        assert res.data["STATUS"] == "ON_HOLD"
+
+        bulk = bulk_update_issues_by_ids(operator_ctx, issue_ids=[id_a], status="ON_HOLD")
+        assert bulk.ok, bulk.message
+        assert bulk.data["count"] == 1
+
+        bulk2 = bulk_upsert_issues(operator_ctx, run_id=run_id, row_nos=[1], status="ON_HOLD")
+        assert bulk2.ok, bulk2.message
+
+    def test_invalid_status_still_rejected(self, issue_env):
+        engine, operator_ctx, _, _, tmpl_id, run_id = issue_env
+        _, id_a, _, _ = _seed_issues_87(engine, tmpl_id, run_id)
+        res = update_issue_by_id(operator_ctx, issue_id=id_a, status="BOGUS")
+        assert res.ok is False
+        assert res.code == ErrorCode.VALIDATION_ERROR

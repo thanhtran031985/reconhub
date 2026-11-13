@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 from app.core.auth import hash_password
 from app.core.config import get_settings
@@ -19,6 +19,8 @@ from app.db.metadata import (
     recon_user,
 )
 from app.ui.pages.issues import (
+    DEFAULT_ISSUE_STATUS_OPTIONS,
+    _lookup_status_options,
     handle_bulk_apply,
     open_issue_edit_drawer,
     render_bulk_action_bar,
@@ -350,3 +352,218 @@ def test_run_result_issue_handling_ui(issues_ui_env, monkeypatch):
     )
     assert bulk_trig > 0
     assert bulk_cleared == []
+
+
+# ─── Task 87: lọc "Chưa giao" / trạng thái từ lookup / lọc theo lần chạy ───
+
+
+def _find_by_id(comp, target_id):
+    """Tìm component theo id trong cây Dash (đệ quy qua .children)."""
+    if getattr(comp, "id", None) == target_id:
+        return comp
+    children = getattr(comp, "children", None)
+    if isinstance(children, (list, tuple)):
+        for c in children:
+            found = _find_by_id(c, target_id)
+            if found is not None:
+                return found
+    elif children is not None:
+        return _find_by_id(children, target_id)
+    return None
+
+
+def _collect_texts(comp, out):
+    """Gom mọi chuỗi lá trong cây Dash (để assert nội dung bảng đã render)."""
+    if isinstance(comp, str):
+        out.append(comp)
+        return
+    children = getattr(comp, "children", None)
+    if isinstance(children, (list, tuple)):
+        for c in children:
+            _collect_texts(c, out)
+    elif children is not None:
+        _collect_texts(children, out)
+
+
+def _seed_unassigned_issue_87(engine, tmpl_id, run_id):
+    """Thêm 1 issue chưa giao (KEY_TEXT INV_87_UNASSIGNED) vào run đã có."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with engine.begin() as conn:
+        return conn.execute(
+            recon_issue.insert().values(
+                TEMPLATE_ID=tmpl_id,
+                PROFILE_CODE="DEFAULT",
+                KEY_TEXT="INV_87_UNASSIGNED",
+                KEY_HASH="hash_inv_87_unassigned",
+                FIRST_RUN_ID=run_id,
+                LAST_RUN_ID=run_id,
+                STATUS="OPEN",
+                REASON_CODE="ROUNDING",
+                ASSIGNEE_ID=None,
+                NOTE=None,
+                UPDATED_AT=now,
+                UPDATED_BY="operator_tester",
+                ROW_VERSION=1,
+            )
+        ).inserted_primary_key[0]
+
+
+def test_render_filter_bar_with_runs87():
+    tmpls = [{"id": 1, "code": "TMPL1", "name": "Template 1"}]
+    assignees = [{"ID": 10, "USERNAME": "operator", "FULL_NAME": "Operator"}]
+    runs = [{"id": 5, "template_code": "TMPL1", "created_at": "2026-11-13T10:30:00"}]
+    status_options = [{"value": "ON_HOLD", "label": "Tạm giữ"}]
+    bar = render_filter_bar(tmpls, assignees, status_options=status_options, runs=runs)
+
+    run_sel = _find_by_id(bar, "issues-filter-run")
+    assert run_sel is not None
+    assert {"value": "ALL", "label": "Tất cả lần chạy"} in run_sel.data
+    assert {"value": "5", "label": "Run #5 · TMPL1 · 13/11/2026 10:30"} in run_sel.data
+
+    st_sel = _find_by_id(bar, "issues-filter-status")
+    assert st_sel is not None
+    assert {"value": "ALL", "label": "Tất cả trạng thái"} in st_sel.data
+    assert {"value": "ON_HOLD", "label": "Tạm giữ"} in st_sel.data
+
+
+def test_lookup_status_options87(issues_ui_env):
+    engine, operator_ctx, _, admin_ctx, _, _, _ = issues_ui_env
+    from app.services.lookup import create_lookup_code, ensure_default_lookup_data
+
+    with engine.begin() as conn:
+        ensure_default_lookup_data(conn)
+    # Lookup có seed mặc định → 4 mã, nhãn lấy từ lookup.
+    opts = _lookup_status_options(operator_ctx)
+    assert {o["value"] for o in opts} == {"OPEN", "IN_PROGRESS", "ACCEPTED", "RESOLVED"}
+
+    created = create_lookup_code(
+        admin_ctx,
+        lookup_type="ISSUE_STATUS",
+        lookup_code="ON_HOLD",
+        meaning="Tạm giữ",
+        display_order=50,
+    )
+    assert created.ok, created.message
+    opts = _lookup_status_options(operator_ctx)
+    assert {"value": "ON_HOLD", "label": "Tạm giữ"} in opts
+
+    # Vô hiệu hóa toàn bộ mã → fallback 4 trạng thái mặc định.
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE RECON_LOOKUP_CODE SET IS_ACTIVE='N' WHERE LOOKUP_TYPE='ISSUE_STATUS'"))
+    opts = _lookup_status_options(operator_ctx)
+    assert opts == list(DEFAULT_ISSUE_STATUS_OPTIONS)
+
+
+def test_update_issues_view_run_and_unassigned87(issues_ui_env, monkeypatch):
+    _, operator_ctx, _, _, _, run_id, _ = issues_ui_env
+    monkeypatch.setattr("app.ui.pages.issues.get_current_ctx", lambda: operator_ctx)
+    from app.services.issue import list_issues as real_list_issues
+
+    captured = {}
+
+    def fake_list_issues(ctx, **kwargs):
+        captured.update(kwargs)
+        return real_list_issues(ctx, **kwargs)
+
+    monkeypatch.setattr("app.ui.pages.issues.list_issues", fake_list_issues)
+    update_issues_view(
+        tmpl_val="ALL",
+        st_val="ALL",
+        assignee_val="UNASSIGNED",
+        search_val=None,
+        run_val=str(run_id),
+        _refresh=1,
+        _trigger=1,
+        selected_ids=[],
+    )
+    assert captured.get("unassigned_only") is True
+    assert captured.get("run_id") == run_id
+    assert captured.get("assignee_id") is None
+
+
+def test_update_issues_view_unassigned_filters_rows87(issues_ui_env, monkeypatch):
+    engine, operator_ctx, _, _, tmpl_id, run_id, _ = issues_ui_env
+    monkeypatch.setattr("app.ui.pages.issues.get_current_ctx", lambda: operator_ctx)
+    _seed_unassigned_issue_87(engine, tmpl_id, run_id)
+
+    _, _, table_ui = update_issues_view(
+        tmpl_val="ALL",
+        st_val="ALL",
+        assignee_val="UNASSIGNED",
+        search_val=None,
+        run_val="ALL",
+        _refresh=1,
+        _trigger=1,
+        selected_ids=[],
+    )
+    texts: list[str] = []
+    _collect_texts(table_ui, texts)
+    assert "INV_87_UNASSIGNED" in texts
+    # Issue đã giao của fixture (C26TBD00100) phải bị lọc ra.
+    assert "C26TBD00100" not in texts
+
+
+def test_update_issues_view_run_filters_rows87(issues_ui_env, monkeypatch):
+    engine, operator_ctx, _, _, tmpl_id, run_id, _ = issues_ui_env
+    monkeypatch.setattr("app.ui.pages.issues.get_current_ctx", lambda: operator_ctx)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with engine.begin() as conn:
+        ds_id = conn.execute(text("SELECT DATA_SOURCE_ID FROM RECON_RUN WHERE ID=:r"), {"r": run_id}).scalar()
+        run2_id = conn.execute(
+            recon_run.insert().values(
+                TEMPLATE_ID=tmpl_id,
+                TEMPLATE_VERSION=1,
+                PROFILE_CODE="DEFAULT",
+                DATA_SOURCE_ID=ds_id,
+                STATUS="DONE",
+                P_FROM=now,
+                P_TO=now,
+                CREATED_BY="operator_tester",
+                CREATED_AT=now,
+            )
+        ).inserted_primary_key[0]
+        conn.execute(
+            recon_issue.insert().values(
+                TEMPLATE_ID=tmpl_id,
+                PROFILE_CODE="DEFAULT",
+                KEY_TEXT="INV_87_RUN2",
+                KEY_HASH="hash_inv_87_run2",
+                FIRST_RUN_ID=run2_id,
+                LAST_RUN_ID=run2_id,
+                STATUS="OPEN",
+                REASON_CODE="ROUNDING",
+                ASSIGNEE_ID=None,
+                NOTE=None,
+                UPDATED_AT=now,
+                UPDATED_BY="operator_tester",
+                ROW_VERSION=1,
+            )
+        )
+
+    _, _, table_ui = update_issues_view(
+        tmpl_val="ALL",
+        st_val="ALL",
+        assignee_val="ALL",
+        search_val=None,
+        run_val=str(run2_id),
+        _refresh=1,
+        _trigger=1,
+        selected_ids=[],
+    )
+    texts: list[str] = []
+    _collect_texts(table_ui, texts)
+    assert "INV_87_RUN2" in texts
+    assert "C26TBD00100" not in texts
+
+
+def test_issues_layout_has_run_filter87(issues_ui_env, monkeypatch):
+    _, operator_ctx, _, _, _, run_id, _ = issues_ui_env
+    monkeypatch.setattr("app.ui.pages.issues.get_current_ctx", lambda: operator_ctx)
+    res = issues_layout()
+    run_sel = _find_by_id(res, "issues-filter-run")
+    assert run_sel is not None
+    assert any(str(o.get("value")) == str(run_id) for o in run_sel.data)
+    st_sel = _find_by_id(res, "issues-filter-status")
+    assert st_sel is not None
+    # Lookup seed mặc định (85f) → nhãn trạng thái lấy từ lookup.
+    assert {"value": "OPEN", "label": "Chưa đối soát (Chờ xử lý)"} in st_sel.data

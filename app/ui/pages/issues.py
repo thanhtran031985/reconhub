@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import dash
@@ -8,6 +9,7 @@ from dash import ALL, Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
+from app.schemas.run import RunListFilter
 from app.services.issue import (
     bulk_update_issues_by_ids,
     get_issue,
@@ -16,7 +18,9 @@ from app.services.issue import (
     list_reasons,
     update_issue_by_id,
 )
+from app.services.lookup import list_active_lookup_codes
 from app.services.perm import has_role, page_gate
+from app.services.run_service import list_runs
 from app.services.template import list_templates
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
@@ -35,6 +39,51 @@ except Exception:
     pass
 
 MENU_CODE = "issue"
+
+# Task 87 (D2): 4 trạng thái mặc định dùng chung cho thanh lọc, drawer sửa và
+# thanh bulk — chỉ là fallback khi lookup ISSUE_STATUS rỗng/lỗi. KHÔNG import
+# từ run_result.py (module trang không import lẫn nhau). Nhãn fallback giữ
+# nguyên như trước task 87; khi lookup có dữ liệu, nhãn hiển thị lấy từ lookup.
+DEFAULT_ISSUE_STATUS_OPTIONS: list[dict[str, str]] = [
+    {"value": "OPEN", "label": "Chờ xử lý (Mở)"},
+    {"value": "IN_PROGRESS", "label": "Đang xử lý"},
+    {"value": "RESOLVED", "label": "Đã xử lý"},
+    {"value": "ACCEPTED", "label": "Đã chấp nhận lệch"},
+]
+
+
+def _lookup_status_options(ctx: Any) -> list[dict[str, Any]]:
+    """Trạng thái xử lý từ lookup ISSUE_STATUS (mã đang dùng, DISPLAY_ORDER).
+
+    Lookup rỗng/lỗi → fallback 4 trạng thái mặc định.
+    """
+    res = list_active_lookup_codes(ctx, lookup_type="ISSUE_STATUS")
+    if not res.ok or not res.data:
+        return list(DEFAULT_ISSUE_STATUS_OPTIONS)
+    options = [
+        {"value": c.get("lookup_code"), "label": c.get("meaning") or c.get("lookup_code")}
+        for c in res.data
+        if c.get("lookup_code")
+    ]
+    return options or list(DEFAULT_ISSUE_STATUS_OPTIONS)
+
+
+def _run_filter_options(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Option cho Select lọc theo lần chạy: Run #<id> · <template_code> · <dd/mm/yyyy hh:mm>."""
+    options = [{"value": "ALL", "label": "Tất cả lần chạy"}]
+    for r in runs:
+        label = f"Run #{r.get('id')}"
+        code = r.get("template_code")
+        if code:
+            label += f" · {code}"
+        created = r.get("created_at")
+        if created:
+            try:
+                label += f" · {datetime.fromisoformat(str(created)).strftime('%d/%m/%Y %H:%M')}"
+            except ValueError:
+                pass
+        options.append({"value": str(r.get("id")), "label": label})
+    return options
 
 
 def render_header(kpis: dict[str, int]) -> dmc.Stack:
@@ -97,19 +146,16 @@ def render_kpi_cards(kpis: dict[str, int]) -> dmc.SimpleGrid:
 def render_filter_bar(
     templates: list[dict[str, Any]],
     assignees: list[dict[str, Any]],
+    status_options: list[dict[str, Any]] | None = None,
+    runs: list[dict[str, Any]] | None = None,
 ) -> dmc.Paper:
-    """Thanh lọc theo template, trạng thái, người xử lý và tìm kiếm theo khóa."""
+    """Thanh lọc theo template, lần chạy, trạng thái, người xử lý và tìm kiếm theo khóa."""
     tmpl_options = [{"value": "ALL", "label": "Tất cả Template"}] + [
         {"value": str(t["id"]), "label": f"{t['code']} – {t['name']}"} for t in templates
     ]
 
-    status_options = [
-        {"value": "ALL", "label": "Tất cả trạng thái"},
-        {"value": "OPEN", "label": "Chờ xử lý (Mở)"},
-        {"value": "IN_PROGRESS", "label": "Đang xử lý"},
-        {"value": "RESOLVED", "label": "Đã xử lý"},
-        {"value": "ACCEPTED", "label": "Đã chấp nhận lệch"},
-    ]
+    status_options = list(status_options) if status_options else list(DEFAULT_ISSUE_STATUS_OPTIONS)
+    status_data = [{"value": "ALL", "label": "Tất cả trạng thái"}] + status_options
 
     assignee_options = [
         {"value": "ALL", "label": "Tất cả người xử lý"},
@@ -132,8 +178,17 @@ def render_filter_bar(
                     placeholder="Lọc theo template",
                 ),
                 dmc.Select(
+                    id="issues-filter-run",
+                    data=_run_filter_options(runs or []),
+                    value="ALL",
+                    searchable=True,
+                    style={"width": 200},
+                    size="xs",
+                    placeholder="Lọc theo lần chạy",
+                ),
+                dmc.Select(
                     id="issues-filter-status",
-                    data=status_options,
+                    data=status_data,
                     value="ALL",
                     style={"width": 160},
                     size="xs",
@@ -411,17 +466,18 @@ def layout(**kwargs: Any) -> Any:
     reasons_res = list_reasons(ctx)
     reasons = reasons_res.data if reasons_res.ok and reasons_res.data else []
 
-    # Danh mục cho modal/drawer
-    status_options = [
-        {"value": "OPEN", "label": "Chờ xử lý (Mở)"},
-        {"value": "IN_PROGRESS", "label": "Đang xử lý"},
-        {"value": "RESOLVED", "label": "Đã xử lý"},
-        {"value": "ACCEPTED", "label": "Đã chấp nhận lệch"},
-    ]
+    # Danh mục cho modal/drawer: trạng thái đọc từ lookup ISSUE_STATUS
+    # (task 87), rỗng/lỗi → fallback 4 trạng thái mặc định.
+    status_options = _lookup_status_options(ctx)
     reason_options = [{"value": r["CODE"], "label": r["LABEL"]} for r in reasons]
     assignee_options = [
         {"value": str(u["ID"]), "label": f"{u['FULL_NAME'] or u['USERNAME']} (@{u['USERNAME']})"} for u in assignees
     ]
+
+    # Danh sách lần chạy cho bộ lọc (task 87, D4): tối đa 100 run mới nhất;
+    # lỗi → Select chỉ còn "Tất cả", trang không vỡ.
+    runs_res = list_runs(ctx, RunListFilter(page=1, page_size=100))
+    runs = runs_res.data.get("items", []) if runs_res.ok and runs_res.data else []
 
     return dmc.Box(
         [
@@ -433,7 +489,7 @@ def layout(**kwargs: Any) -> Any:
             # KPI Cards
             html.Div(id="issues-kpi-container", children=render_kpi_cards({})),
             # Filter bar
-            render_filter_bar(templates, assignees),
+            render_filter_bar(templates, assignees, status_options=status_options, runs=runs),
             # Thanh hành động hàng loạt (khi có chọn dòng)
             html.Div(id="issues-bulk-bar-container"),
             # Bảng dữ liệu chênh lệch
@@ -520,6 +576,7 @@ def layout(**kwargs: Any) -> Any:
     Output("issues-kpi-container", "children"),
     Output("issues-table-container", "children"),
     Input("issues-filter-template", "value"),
+    Input("issues-filter-run", "value"),
     Input("issues-filter-status", "value"),
     Input("issues-filter-assignee", "value"),
     Input("issues-filter-search", "value"),
@@ -529,12 +586,13 @@ def layout(**kwargs: Any) -> Any:
 )
 def update_issues_view(
     tmpl_val: str | None,
-    st_val: str | None,
-    assignee_val: str | None,
-    search_val: str | None,
-    _refresh: int | None,
-    _trigger: int | None,
-    selected_ids: list[int] | None,
+    run_val: str | None = None,
+    st_val: str | None = None,
+    assignee_val: str | None = None,
+    search_val: str | None = None,
+    _refresh: int | None = None,
+    _trigger: int | None = None,
+    selected_ids: list[int] | None = None,
 ) -> tuple[Any, Any, Any]:
     """Cập nhật dữ liệu bảng và thẻ KPI khi người dùng thay đổi bộ lọc hoặc bấm Làm mới."""
     ctx = get_current_ctx()
@@ -542,10 +600,12 @@ def update_issues_view(
         return dash.no_update, dash.no_update, dash.no_update
 
     t_id = int(tmpl_val) if tmpl_val and tmpl_val != "ALL" and tmpl_val.isdigit() else None
+    run_id = int(run_val) if run_val and run_val != "ALL" and run_val.isdigit() else None
     st = st_val if st_val and st_val != "ALL" else None
 
     ass_id = None
-    if assignee_val and assignee_val != "ALL":
+    unassigned_only = assignee_val == "UNASSIGNED"
+    if assignee_val and assignee_val != "ALL" and not unassigned_only:
         if assignee_val.isdigit():
             ass_id = int(assignee_val)
 
@@ -554,6 +614,8 @@ def update_issues_view(
         template_id=t_id,
         status=st,
         assignee_id=ass_id,
+        unassigned_only=unassigned_only,
+        run_id=run_id,
         search=search_val.strip() if search_val else None,
         page=1,
         page_size=100,
@@ -629,12 +691,7 @@ def render_bulk_action_bar(selected_ids: list[int] | None) -> Any:
     assignees_res = list_assignees(ctx)
     assignees = assignees_res.data if assignees_res.ok and assignees_res.data else []
 
-    status_options = [
-        {"value": "OPEN", "label": "Chờ xử lý (Mở)"},
-        {"value": "IN_PROGRESS", "label": "Đang xử lý"},
-        {"value": "RESOLVED", "label": "Đã xử lý"},
-        {"value": "ACCEPTED", "label": "Đã chấp nhận lệch"},
-    ]
+    status_options = _lookup_status_options(ctx)
     reason_options = [{"value": r["CODE"], "label": r["LABEL"]} for r in reasons]
     assignee_options = [
         {"value": str(u["ID"]), "label": f"{u['FULL_NAME'] or u['USERNAME']} (@{u['USERNAME']})"} for u in assignees

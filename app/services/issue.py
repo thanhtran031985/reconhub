@@ -55,6 +55,28 @@ def ensure_default_reasons(conn: Connection) -> None:
             )
 
 
+def _valid_issue_statuses(conn: Connection) -> set[str]:
+    """Trạng thái issue hợp lệ = 4 mặc định + mã ISSUE_STATUS đang hoạt động trong lookup.
+
+    Task 85 (D6) + task 87 (D6): drawer/bulk ở /issues và trang kết quả run
+    đều đọc trạng thái từ lookup nên trạng thái mới thêm ở /lookups cũng phải
+    lưu được. Lookup rỗng → chỉ 4 mặc định, hành vi cũ giữ nguyên.
+    """
+    allowed = set(VALID_ISSUE_STATUSES)
+    allowed.update(
+        str(c)
+        for c in conn.execute(
+            select(recon_lookup_code.c.LOOKUP_CODE).where(
+                recon_lookup_code.c.LOOKUP_TYPE == "ISSUE_STATUS",
+                recon_lookup_code.c.IS_ACTIVE == "Y",
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return allowed
+
+
 @service
 # Trang kết quả run (menu result) cũng cần đọc lý do để mở drawer issue.
 @requires_menu("issue", "result", any_of=True)
@@ -137,14 +159,16 @@ def update_issue_by_id(
 ) -> dict[str, Any]:
     """Cập nhật trực tiếp một issue theo ID."""
     require_role(ctx, *MUTATION_ROLES)
-    if status is not None and status not in VALID_ISSUE_STATUSES:
-        raise ServiceError(
-            ErrorCode.VALIDATION_ERROR,
-            f"Trạng thái '{status}' không hợp lệ. Phải là một trong: {', '.join(VALID_ISSUE_STATUSES)}.",
-        )
     engine = get_recon_engine()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     with engine.begin() as conn:
+        if status is not None:
+            allowed_statuses = _valid_issue_statuses(conn)
+            if status not in allowed_statuses:
+                raise ServiceError(
+                    ErrorCode.VALIDATION_ERROR,
+                    f"Trạng thái '{status}' không hợp lệ. Phải là một trong: {', '.join(sorted(allowed_statuses))}.",
+                )
         issue = conn.execute(select(recon_issue).where(recon_issue.c.ID == issue_id)).mappings().first()
         if not issue:
             raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Issue với ID {issue_id}.")
@@ -196,12 +220,6 @@ def bulk_update_issues_by_ids(
     if not issue_ids:
         return {"count": 0, "updated_issues": []}
 
-    if status is not None and status not in VALID_ISSUE_STATUSES:
-        raise ServiceError(
-            ErrorCode.VALIDATION_ERROR,
-            f"Trạng thái '{status}' không hợp lệ. Phải là một trong: {', '.join(VALID_ISSUE_STATUSES)}.",
-        )
-
     engine = get_recon_engine()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -220,6 +238,13 @@ def bulk_update_issues_by_ids(
         upd_values["NOTE"] = note
 
     with engine.begin() as conn:
+        if status is not None:
+            allowed_statuses = _valid_issue_statuses(conn)
+            if status not in allowed_statuses:
+                raise ServiceError(
+                    ErrorCode.VALIDATION_ERROR,
+                    f"Trạng thái '{status}' không hợp lệ. Phải là một trong: {', '.join(sorted(allowed_statuses))}.",
+                )
         rows = conn.execute(select(recon_issue).where(recon_issue.c.ID.in_(issue_ids))).mappings().all()
         if len(rows) != len(set(issue_ids)):
             raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy một số Issue yêu cầu.")
@@ -373,22 +398,9 @@ def upsert_issue_for_row(
                         recon_issue_reason.insert().values(CODE=reason_code, LABEL=str(lookup_label), IS_ACTIVE="Y")
                     )
 
-        # Task 85 (D6): trạng thái hợp lệ = 4 mặc định + mã ISSUE_STATUS đang
-        # hoạt động trong lookup (drawer đọc trạng thái từ lookup nên trạng
-        # thái mới thêm ở /lookups cũng phải lưu được). Lookup rỗng → chỉ
-        # 4 mặc định, hành vi cũ giữ nguyên.
-        allowed_statuses = set(VALID_ISSUE_STATUSES)
-        allowed_statuses.update(
-            str(c)
-            for c in conn.execute(
-                select(recon_lookup_code.c.LOOKUP_CODE).where(
-                    recon_lookup_code.c.LOOKUP_TYPE == "ISSUE_STATUS",
-                    recon_lookup_code.c.IS_ACTIVE == "Y",
-                )
-            )
-            .scalars()
-            .all()
-        )
+        # Task 85 (D6) + task 87 (D6): trạng thái hợp lệ = 4 mặc định + mã
+        # ISSUE_STATUS đang hoạt động trong lookup (xem _valid_issue_statuses).
+        allowed_statuses = _valid_issue_statuses(conn)
         if status not in allowed_statuses:
             raise ServiceError(
                 ErrorCode.VALIDATION_ERROR,
@@ -520,17 +532,19 @@ def bulk_upsert_issues(
     if not row_nos:
         return {"count": 0, "updated_issues": []}
 
-    if status and status not in VALID_ISSUE_STATUSES:
-        raise ServiceError(
-            ErrorCode.VALIDATION_ERROR,
-            f"Trạng thái '{status}' không hợp lệ. Phải là một trong: {', '.join(VALID_ISSUE_STATUSES)}.",
-        )
-
     engine = get_recon_engine()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     with engine.begin() as conn:
         ensure_default_reasons(conn)
+
+        if status:
+            allowed_statuses = _valid_issue_statuses(conn)
+            if status not in allowed_statuses:
+                raise ServiceError(
+                    ErrorCode.VALIDATION_ERROR,
+                    f"Trạng thái '{status}' không hợp lệ. Phải là một trong: {', '.join(sorted(allowed_statuses))}.",
+                )
 
         run_row = (
             conn.execute(select(recon_run.c.TEMPLATE_ID, recon_run.c.PROFILE_CODE).where(recon_run.c.ID == run_id))
@@ -654,6 +668,8 @@ def list_issues(
     profile_code: str | None = None,
     status: str | None = None,
     assignee_id: int | None = None,
+    unassigned_only: bool = False,
+    run_id: int | None = None,
     search: str | None = None,
     page: int = 1,
     page_size: int = 50,
@@ -702,6 +718,12 @@ def list_issues(
             conditions.append(recon_issue.c.STATUS == status)
         if assignee_id:
             conditions.append(recon_issue.c.ASSIGNEE_ID == assignee_id)
+        if unassigned_only:
+            # Task 87 (D1): "Chưa giao" = issue chưa có người xử lý.
+            conditions.append(recon_issue.c.ASSIGNEE_ID.is_(None))
+        if run_id:
+            # Task 87 (D3): lọc theo lần chạy ĐẦU TIÊN phát hiện chênh lệch.
+            conditions.append(recon_issue.c.FIRST_RUN_ID == run_id)
         if search:
             s_clean = f"%{search.strip()}%"
             conditions.append(

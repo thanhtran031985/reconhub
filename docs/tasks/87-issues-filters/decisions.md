@@ -1,0 +1,9 @@
+# Decisions — Task 87
+
+- D1: "Chưa giao" sửa bằng tham số mới `unassigned_only` ở service (điều kiện `ASSIGNEE_ID IS NULL`), không dùng sentinel `assignee_id=-1`.
+- D2: trạng thái ở cả 3 chỗ trên /issues đọc từ lookup ISSUE_STATUS, fallback 4 mặc định; hằng fallback gom chung trong `issues.py`, không import từ `run_result.py` (module trang không import lẫn nhau).
+- D3: lọc run theo `FIRST_RUN_ID` (lần chạy đầu tiên phát hiện chênh lệch) — issue chỉ gắn 1 run đầu tiên, không gắn mọi run tái xuất hiện.
+- D4: danh sách run lấy tối đa 100 run mới nhất qua `list_runs` có sẵn (scope-aware); lỗi thì Select chỉ còn "Tất cả", trang không vỡ.
+- D5: KPI theo phạm vi (không theo bộ lọc) và phân trang (trang 1 / 100 dòng) giữ nguyên, ngoài phạm vi task.
+- D6 (phát sinh khi triển khai, plan bước 2 đã dặn kiểm tra): `update_issue_by_id` (drawer /issues) và `bulk_update_issues_by_ids` (bulk /issues) validate trạng thái chỉ với 4 mặc định, trong khi `upsert_issue_for_row` (task 85) đã chấp nhận mã lookup — nếu chỉ đổi Select sang lookup thì chọn trạng thái mới sẽ bị từ chối khi lưu. Fix: gom thành helper dùng chung `_valid_issue_statuses(conn)` (4 mặc định ∪ mã ISSUE_STATUS đang hoạt động) và dùng ở cả 4 chỗ validate (`update_issue_by_id`, `bulk_update_issues_by_ids`, `bulk_upsert_issues` — đường bulk của trang kết quả run, cùng lỗi tiềm ẩn — và `upsert_issue_for_row` rút gọn theo helper). Validation được chuyển vào trong `engine.begin()` vì cần conn để đọc lookup.
+- D7 (hệ quả của D2, nhãn hiển thị): khi lookup ISSUE_STATUS có dữ liệu, nhãn trạng thái trên /issues lấy từ lookup (nhãn seed mặc định = nhãn ở drawer trang run, vd OPEN = "Chưa đối soát (Chờ xử lý)"), khác nhẹ nhãn hardcode cũ của /issues (vd "Chờ xử lý (Mở)"). Đây là đúng bản chất "lookup là nguồn sự thật" — user sửa nhãn ở /lookups thì cả 2 trang đổi theo. Fallback (lookup rỗng/lỗi) giữ nguyên nhãn cũ của /issues.
