@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 
 from app.core.context import Ctx
 from app.db.metadata import metadata
@@ -22,11 +22,22 @@ from app.db.metadata import metadata
 def batch_env(tmp_path, monkeypatch):
     db_path = tmp_path / "batch_def.db"
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
+
+    # Task 86: bật FK enforcement (SQLite mặc định tắt) để test chứng minh
+    # thứ tự xóa xếp tầng là đúng — xóa sai thứ tự phải lỗi IntegrityError
+    # thay vì âm thầm thành công như khi FK tắt.
+    @event.listens_for(engine, "connect")
+    def _fk_on(dbapi_conn, _rec):
+        dbapi_conn.execute("PRAGMA foreign_keys=ON")
+
     metadata.create_all(engine)
     for mod in [
         "app.services.menu_sync",
         "app.services.perm",
         "app.services.batch_def",
+        # Task 86: test xóa xếp tầng cần tạo lần chạy + file qua service.
+        "app.services.batch_run",
+        "app.services.file_service",
     ]:
         monkeypatch.setattr(f"{mod}.get_recon_engine", lambda: engine)
     from app.services.menu_sync import sync_from_code
@@ -485,6 +496,79 @@ class TestAddableAndPreview:
         assert res.code == "BATCH_FORMULA_INVALID"
 
 
+def _make_active_def(batch_env, admin_ctx):
+    """Tạo bộ ACTIVE có 1 mục (theo mẫu _make_run của test_batch_wizard_fixes67)."""
+    from app.services.batch_def import activate_batch_def, add_batch_def_items
+
+    d = _create_def(admin_ctx)
+    ds_id = _make_data_source(batch_env)
+    tmpl = _make_template(batch_env, "DTP_TMPL")
+    added = add_batch_def_items(admin_ctx, d["id"], [_item_payload(tmpl)])
+    assert added.ok is True, added.message
+    assert activate_batch_def(admin_ctx, d["id"]).ok is True
+    return d, tmpl, ds_id
+
+
+def _seed_batch_run(batch_env, admin_ctx, def_id, ds_id, period, status="DONE"):
+    """Tạo 1 lần chạy bộ qua service + 1 file + 1 run đối soát con link tới.
+
+    Trả (run_id, item_id, child_run_id). Status được set trực tiếp qua SQL
+    (DONE/RUNNING) vì không chạy worker thật trong test.
+    """
+    from app.services.batch_run import add_files, create_batch_run
+
+    run = create_batch_run(admin_ctx, def_id, period, data_source_id=ds_id)
+    assert run.ok is True, run.message
+    run_id = int(run.data["id"])
+    with batch_env.connect() as conn:
+        items = (
+            conn.execute(
+                text(
+                    "SELECT ID, TEMPLATE_ID, PROFILE_CODE, DATA_SOURCE_ID "
+                    "FROM RECON_BATCH_RUN_ITEM WHERE BATCH_RUN_ID=:r"
+                ),
+                {"r": run_id},
+            )
+            .mappings()
+            .all()
+        )
+    assert items, "create_batch_run phải tạo run item"
+    item_id = int(items[0]["ID"])
+    content = Path("samples/dtp_sample_200.xlsx").read_bytes()
+    added = add_files(admin_ctx, run_id, [{"filename": f"dtp_{period}.xlsx", "content": content}])
+    assert added.ok is True, added.message
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with batch_env.begin() as conn:
+        conn.execute(
+            text("UPDATE RECON_BATCH_RUN SET STATUS=:s WHERE ID=:r"),
+            {"s": status, "r": run_id},
+        )
+        child_id = conn.execute(
+            text(
+                "INSERT INTO RECON_RUN (TEMPLATE_ID, TEMPLATE_VERSION, PROFILE_CODE, "
+                "DATA_SOURCE_ID, P_FROM, P_TO, APPLY_RANGE_EXCEL, STATUS, PROGRESS_PCT, "
+                "BATCH_RUN_ID, BATCH_RUN_ITEM_ID, CREATED_BY, CREATED_AT) "
+                "VALUES (:t, 1, :p, :ds, :pf, :pt, 'Y', 'DONE', 100, :r, :i, 'admin', :now)"
+            ),
+            {
+                "t": int(items[0]["TEMPLATE_ID"]),
+                "p": str(items[0]["PROFILE_CODE"]),
+                "ds": int(items[0]["DATA_SOURCE_ID"]),
+                "pf": now,
+                "pt": now,
+                "r": run_id,
+                "i": item_id,
+                "now": now,
+            },
+        ).lastrowid
+    return run_id, item_id, int(child_id)
+
+
+def _count(batch_env, sql, params=None):
+    with batch_env.connect() as conn:
+        return int(conn.execute(text(sql), params or {}).scalar() or 0)
+
+
 class TestDeleteBatchDef:
     def test_delete_batch_def_success(self, batch_env, admin_ctx):
         from app.services.batch_def import add_batch_def_items, delete_batch_def, get_batch_def
@@ -501,25 +585,78 @@ class TestDeleteBatchDef:
         assert got.ok is False
         assert got.code == "BATCH_NOT_FOUND"
 
-    def test_delete_batch_def_has_runs_rejected(self, batch_env, admin_ctx):
-        from app.services.batch_def import delete_batch_def
+    def test_delete_batch_def_with_done_runs_cascades(self, batch_env, admin_ctx):
+        """Task 86: xóa bộ có 8 lần chạy DONE — bộ + lần chạy + mục + file
+        biến mất, run đối soát con còn nguyên với link batch đã NULL."""
+        from app.services.batch_def import delete_batch_def, get_batch_def
 
-        d = _create_def(admin_ctx)
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        with batch_env.begin() as conn:
-            conn.execute(
-                text(
-                    "INSERT INTO RECON_BATCH_RUN (BATCH_DEF_ID, NAME, PERIOD, PERIOD_FROM, "
-                    "PERIOD_TO, STATUS, INCLUDE_WARN, CNT_ITEMS, CNT_DONE, CNT_FAILED, "
-                    "CNT_SKIPPED, CNT_NOT_RUN, CREATED_BY, CREATED_AT, "
-                    "UPDATED_BY, UPDATED_AT, ROW_VERSION) VALUES (:d, 'Tháng 10/2026', "
-                    "'2026-10', :now, :now, 'DRAFT', 'Y', 1, 0, 0, 0, 0, 'admin', :now, 'admin', :now, 1)"
-                ),
-                {"d": d["id"], "now": now},
+        d, _tmpl, ds_id = _make_active_def(batch_env, admin_ctx)
+        child_ids = []
+        for m in range(1, 9):
+            _rid, _iid, cid = _seed_batch_run(batch_env, admin_ctx, d["id"], ds_id, f"2026-{m:02d}")
+            child_ids.append(cid)
+
+        res = delete_batch_def(admin_ctx, d["id"])
+        assert res.ok is True, res.message
+        assert res.data["deleted"] is True
+        assert res.data["deleted_runs"] == 8
+
+        assert _count(batch_env, "SELECT COUNT(*) FROM RECON_BATCH_DEF WHERE ID=:d", {"d": d["id"]}) == 0
+        assert _count(batch_env, "SELECT COUNT(*) FROM RECON_BATCH_DEF_ITEM WHERE BATCH_DEF_ID=:d", {"d": d["id"]}) == 0
+        assert _count(batch_env, "SELECT COUNT(*) FROM RECON_BATCH_RUN WHERE BATCH_DEF_ID=:d", {"d": d["id"]}) == 0
+        assert _count(batch_env, "SELECT COUNT(*) FROM RECON_BATCH_RUN_ITEM") == 0
+        assert _count(batch_env, "SELECT COUNT(*) FROM RECON_BATCH_RUN_FILE") == 0
+        # Run đối soát con còn nguyên, chỉ cắt link về bộ.
+        for cid in child_ids:
+            with batch_env.connect() as conn:
+                row = (
+                    conn.execute(
+                        text("SELECT BATCH_RUN_ID, BATCH_RUN_ITEM_ID, STATUS FROM RECON_RUN WHERE ID=:c"),
+                        {"c": cid},
+                    )
+                    .mappings()
+                    .first()
+                )
+            assert row is not None
+            assert row["BATCH_RUN_ID"] is None
+            assert row["BATCH_RUN_ITEM_ID"] is None
+            assert row["STATUS"] == "DONE"
+        # Audit DELETE_BATCH_DEF có 1 dòng.
+        assert (
+            _count(
+                batch_env,
+                "SELECT COUNT(*) FROM RECON_AUDIT_LOG WHERE ENTITY='RECON_BATCH_DEF' "
+                "AND ENTITY_ID=:d AND ACTION='DELETE_BATCH_DEF'",
+                {"d": str(d["id"])},
             )
+            == 1
+        )
+        got = get_batch_def(admin_ctx, d["id"])
+        assert got.ok is False
+        assert got.code == "BATCH_NOT_FOUND"
+
+    def test_delete_batch_def_running_run_rejected(self, batch_env, admin_ctx):
+        """Task 86 (D3): còn lần chạy đang RUNNING thì từ chối, không gì bị xóa."""
+        from app.services.batch_def import delete_batch_def, get_batch_def
+
+        d, _tmpl, ds_id = _make_active_def(batch_env, admin_ctx)
+        _seed_batch_run(batch_env, admin_ctx, d["id"], ds_id, "2026-01", status="DONE")
+        _seed_batch_run(batch_env, admin_ctx, d["id"], ds_id, "2026-02", status="RUNNING")
 
         res = delete_batch_def(admin_ctx, d["id"])
         assert res.ok is False
         assert res.code == "CONFLICT"
-        assert "đã có 1 lần chạy" in res.message
+        assert "đang chạy" in res.message
+
+        assert get_batch_def(admin_ctx, d["id"]).ok is True
+        assert _count(batch_env, "SELECT COUNT(*) FROM RECON_BATCH_RUN WHERE BATCH_DEF_ID=:d", {"d": d["id"]}) == 2
+        assert _count(batch_env, "SELECT COUNT(*) FROM RECON_BATCH_RUN_ITEM") == 2
+        assert _count(batch_env, "SELECT COUNT(*) FROM RECON_RUN") == 2
+
+    def test_delete_batch_def_not_found(self, batch_env, admin_ctx):
+        from app.services.batch_def import delete_batch_def
+
+        res = delete_batch_def(admin_ctx, 999999)
+        assert res.ok is False
+        assert res.code == "BATCH_NOT_FOUND"
 

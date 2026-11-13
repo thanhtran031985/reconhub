@@ -153,3 +153,90 @@ def test_render_addable_list_reasons():
     out_focused = _dump(render_addable_list(templates, focused_id=2))
     assert "OLD_TMPL" in out_focused
     assert "Cấu hình này thuộc template" in out_focused
+
+
+def _find_id(comp, target_id):
+    """Tìm component theo id trong cây layout (dump JSON làm phẳng con)."""
+    if getattr(comp, "id", None) == target_id:
+        return comp
+    children = getattr(comp, "children", None)
+    if isinstance(children, (list, tuple)):
+        for c in children:
+            found = _find_id(c, target_id)
+            if found is not None:
+                return found
+    elif children is not None:
+        return _find_id(children, target_id)
+    return None
+
+
+def _texts(comp) -> list[str]:
+    """Lấy mọi chuỗi lá trong cây component (dump JSON cắt ngắn text lồng)."""
+    if isinstance(comp, str):
+        return [comp]
+    if isinstance(comp, (list, tuple)):
+        out: list[str] = []
+        for c in comp:
+            out.extend(_texts(c))
+        return out
+    if hasattr(comp, "children"):
+        return _texts(comp.children)
+    return []
+
+
+def test_delete_modal_warns_runs_deleted_together(monkeypatch):
+    """Task 86: modal Xóa phải cảnh báo các lần chạy của bộ cũng bị xóa cùng,
+    và không còn câu cũ '(chỉ xóa được khi chưa có lần chạy nào)'."""
+    from types import SimpleNamespace
+
+    import app.ui.pages.batch_defs as bdefs
+
+    monkeypatch.setattr(bdefs, "get_current_ctx", lambda: SimpleNamespace(user_id=1, username="admin", roles=["ADMIN"]))
+    modal = _find_id(bdefs.layout(), "bdef-delete-modal")
+    assert modal is not None
+    text = " ".join(_texts(modal))
+    assert "các lần chạy của bộ sẽ bị xóa hoàn toàn khỏi hệ thống" in text
+    assert "vẫn còn trong Lịch sử" in text
+    assert "chỉ xóa được khi chưa có lần chạy nào" not in text
+
+
+def _run_delete_confirm(monkeypatch, deleted_runs: int):
+    """Gọi trực tiếp _run_list_action như khi bấm Xác nhận ở modal Xóa."""
+    from types import SimpleNamespace
+
+    import dash
+
+    import app.ui.pages.batch_defs as bdefs
+    from app.schemas.errors import ServiceResult
+
+    admin = SimpleNamespace(user_id=1, username="admin", full_name="admin", roles=["ADMIN"])
+    monkeypatch.setattr(bdefs, "get_current_ctx", lambda: admin)
+    monkeypatch.setattr(
+        bdefs,
+        "delete_batch_def",
+        lambda _ctx, _did: ServiceResult(
+            ok=True, data={"id": 1, "code": "DOANH_THU", "deleted": True, "deleted_runs": deleted_runs}
+        ),
+    )
+    monkeypatch.setattr(bdefs, "_load_list", lambda _a, _b: [])
+    monkeypatch.setattr(
+        dash,
+        "callback_context",
+        SimpleNamespace(
+            triggered=[{"prop_id": "bdef-delete-modal-confirm.n_clicks", "value": 1}],
+            triggered_id="bdef-delete-modal-confirm",
+        ),
+    )
+    return bdefs._run_list_action(None, 1, [], {"action": "delete", "id": 1})
+
+
+def test_delete_confirm_toast_has_run_count(monkeypatch):
+    """Task 86: xác nhận xóa bộ có 3 lần chạy → toast báo rõ số lần chạy."""
+    _store, notif, _arch, _del = _run_delete_confirm(monkeypatch, deleted_runs=3)
+    assert "cùng 3 lần chạy" in _dump(notif)
+
+
+def test_delete_confirm_toast_no_runs_keeps_old_message(monkeypatch):
+    """Task 86: xóa bộ 0 lần chạy → toast giữ câu cũ."""
+    _store, notif, _arch, _del = _run_delete_confirm(monkeypatch, deleted_runs=0)
+    assert "Đã xóa bộ đối soát thành công." in _dump(notif)

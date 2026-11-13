@@ -11,21 +11,26 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy import Connection, func, select
+from sqlalchemy import Connection, func, select, update
 from sqlalchemy.engine import RowMapping
 
 from app.core.audit import write_audit_log
+from app.core.config import get_settings
 from app.core.context import Ctx, Role, require_role
 from app.db.engine import get_recon_engine
 from app.db.metadata import (
     recon_batch_def,
     recon_batch_def_item,
     recon_batch_run,
+    recon_batch_run_file,
     recon_batch_run_item,
+    recon_run,
     recon_template,
     recon_template_version,
 )
@@ -421,26 +426,52 @@ def archive_batch_def(ctx: Ctx, def_id: int) -> dict[str, Any]:
 @service
 @requires_menu("batch_def")
 def delete_batch_def(ctx: Ctx, def_id: int) -> dict[str, Any]:
-    """Xóa bộ đối soát và các mục con (chỉ cho phép khi chưa có lần chạy nào)."""
+    """Xóa bộ đối soát, các mục con và toàn bộ lần chạy của bộ (task 86).
+
+    Xóa xếp tầng trong 1 transaction, đúng thứ tự FK: cắt link run đối soát
+    con (giữ run + kết quả trong Lịch sử) → file lần chạy → mục lần chạy →
+    lần chạy bộ → mục của bộ → bộ. Chặn duy nhất còn lại: còn lần chạy bộ
+    đang RUNNING (worker đang chạy mà xóa thì lỗi giữa chừng).
+    """
     require_role(ctx, Role.ADMIN, Role.TEMPLATE_OWNER)
     engine = get_recon_engine()
     now = _now()
+    run_ids: list[int] = []
     with engine.begin() as conn:
         row = _load_def(conn, def_id)
-        cnt_runs = (
+        run_rows = (
             conn.execute(
-                select(func.count(recon_batch_run.c.ID)).where(recon_batch_run.c.BATCH_DEF_ID == def_id)
-            ).scalar()
-            or 0
+                select(recon_batch_run.c.ID, recon_batch_run.c.STATUS).where(recon_batch_run.c.BATCH_DEF_ID == def_id)
+            )
+            .mappings()
+            .all()
         )
-        if cnt_runs > 0:
+        if any(str(r["STATUS"]) == "RUNNING" for r in run_rows):
             raise ServiceError(
                 ErrorCode.CONFLICT,
-                f"Không thể xóa bộ đối soát '{row['CODE']}' đã có {cnt_runs} lần chạy trong hệ thống. Hãy sử dụng chức năng Lưu trữ.",
+                f"Bộ đối soát '{row['CODE']}' đang có lần chạy đang chạy, không xóa được. "
+                "Hãy đợi lần chạy xong hoặc hủy trước.",
             )
+        run_ids = [int(r["ID"]) for r in run_rows]
+        if run_ids:
+            # (a) Cắt link run đối soát con — GIỮ run + kết quả trong Lịch
+            # sử, chỉ NULL liên kết về bộ (D2).
+            conn.execute(
+                update(recon_run)
+                .where(recon_run.c.BATCH_RUN_ID.in_(run_ids))
+                .values(BATCH_RUN_ID=None, BATCH_RUN_ITEM_ID=None)
+            )
+            # (b) File của lần chạy bộ.
+            conn.execute(recon_batch_run_file.delete().where(recon_batch_run_file.c.BATCH_RUN_ID.in_(run_ids)))
+            # (c) Mục lần chạy bộ.
+            conn.execute(recon_batch_run_item.delete().where(recon_batch_run_item.c.BATCH_RUN_ID.in_(run_ids)))
+            # (d) Lần chạy bộ.
+            conn.execute(recon_batch_run.delete().where(recon_batch_run.c.ID.in_(run_ids)))
+        # (e) Mục của bộ.
         conn.execute(
             recon_batch_def_item.delete().where(recon_batch_def_item.c.BATCH_DEF_ID == def_id)
         )
+        # (f) Bộ.
         conn.execute(
             recon_batch_def.delete().where(recon_batch_def.c.ID == def_id)
         )
@@ -450,11 +481,31 @@ def delete_batch_def(ctx: Ctx, def_id: int) -> dict[str, Any]:
             entity_id=def_id,
             action="DELETE_BATCH_DEF",
             actor=ctx.username,
-            old_data={"code": str(row["CODE"]), "name": str(row["NAME"]), "status": str(row["STATUS"])},
+            old_data={
+                "code": str(row["CODE"]),
+                "name": str(row["NAME"]),
+                "status": str(row["STATUS"]),
+                "deleted_runs": len(run_ids),
+            },
             new_data=None,
             now=now,
         )
-        return {"id": def_id, "code": str(row["CODE"]), "deleted": True}
+    # File zip kết quả (storage/batch/<run_id>/) dọn sau khi transaction
+    # commit, best-effort: xóa disk lỗi cũng không làm hỏng dữ liệu DB.
+    _remove_batch_run_storage(run_ids)
+    return {"id": def_id, "code": str(row["CODE"]), "deleted": True, "deleted_runs": len(run_ids)}
+
+
+def _remove_batch_run_storage(run_ids: list[int]) -> None:
+    """Xóa thư mục storage/batch/<run_id>/ (file .zip kết quả lần chạy bộ).
+
+    Theo tiền lệ temp_data.py (storage/runs/<run_id>). Chỉ dọn thư mục riêng
+    của lần chạy bộ; file gốc đã tải (RECON_FILE, storage/files/) là dữ liệu
+    dùng chung nên không đụng tới.
+    """
+    storage_dir = Path(get_settings().RECON_STORAGE_DIR)
+    for run_id in run_ids:
+        shutil.rmtree(storage_dir / "batch" / str(run_id), ignore_errors=True)
 
 
 

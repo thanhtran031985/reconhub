@@ -352,7 +352,8 @@ def layout() -> Any:
             modal_confirm(
                 id="bdef-delete-modal",
                 title="Xóa bộ đối soát",
-                description="Bộ đối soát sẽ bị xóa hoàn toàn khỏi hệ thống (chỉ xóa được khi chưa có lần chạy nào). Thao tác này không thể hoàn tác.",
+                description="Bộ đối soát và các lần chạy của bộ sẽ bị xóa hoàn toàn khỏi hệ thống. "
+                "Các lần chạy đối soát đã tạo vẫn còn trong Lịch sử. Thao tác này không thể hoàn tác.",
                 confirm_label="Xóa bộ",
                 danger=True,
             ),
@@ -489,5 +490,12 @@ def _run_list_action(
             res = delete_batch_def(ctx, int(target["id"]))
             if not res.ok:
                 return dash.no_update, notify_error(res.message or "Không xóa được bộ đối soát."), False, False
-            return _load_list(None, None), notify_success("Đã xóa bộ đối soát thành công."), False, False
+            # Task 86: báo rõ số lần chạy của bộ đã bị xóa cùng.
+            data = res.data or {}
+            n_runs = int(data.get("deleted_runs", 0) or 0)
+            if n_runs > 0:
+                msg = f"Đã xóa bộ đối soát {data.get('code', '')} cùng {n_runs} lần chạy."
+            else:
+                msg = "Đã xóa bộ đối soát thành công."
+            return _load_list(None, None), notify_success(msg), False, False
     return dash.no_update, dash.no_update, False, False
