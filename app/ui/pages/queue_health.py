@@ -54,6 +54,18 @@ def format_short_dt(iso_str: str | None) -> str:
         return str(iso_str)
 
 
+def format_full_dt(iso_str: str | None) -> str:
+    """Định dạng ngày giờ đầy đủ DD/MM/YYYY HH:mm:ss (task 80: cột
+    "Tạo lúc" ở /queue-health)."""
+    if not iso_str:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(iso_str)
+        return dt.strftime("%d/%m/%Y %H:%M:%S")
+    except Exception:
+        return str(iso_str)
+
+
 def fetch_queue_health(ctx: Ctx) -> dict[str, Any]:
     """Trạng thái hàng đợi/worker cho trang sức khỏe (task 62, dời từ dashboard ở task 66)."""
     res = get_queue_health(ctx)
@@ -124,7 +136,7 @@ def _health_item_row(item: dict[str, Any], status_label: str | None = None) -> d
             ),
             dmc.TableTd(
                 dmc.Text(
-                    format_short_dt(str(item["created_at"])),
+                    format_full_dt(str(item["created_at"])),
                     size="xs",
                     className="rh-code",
                 ),

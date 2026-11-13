@@ -388,3 +388,26 @@ class TestActiveTable:
         assert kind_sel is not None
         assert status_sel.value == "all"
         assert kind_sel.value == "all"
+
+
+class TestCreatedAtFull:
+    """Task 80: cột "Tạo lúc" ghi đủ dd/mm/yyyy hh:mm:ss."""
+
+    def test_format_full_dt(self):
+        import app.ui.pages.queue_health as page
+
+        assert page.format_full_dt(None) == "—"
+        assert page.format_full_dt("2026-11-12T14:22:05") == "12/11/2026 14:22:05"
+        assert page.format_full_dt("2026-11-12T09:05:03") == "12/11/2026 09:05:03"
+        assert page.format_full_dt("không-phải-ngày") == "không-phải-ngày"
+
+    def test_row_shows_full_created_at(self):
+        """Cả 2 bảng đều ghi đủ ngày/giờ/phút/giây; 'thấy lần cuối'
+        của worker vẫn giữ dạng ngắn."""
+        import app.ui.pages.queue_health as page
+
+        body = page._health_card_body(_active_health())
+        text = _dump(body)
+        assert "11/11/2026 12:20:00" in text
+        assert "11/11/2026 12:10:00" in text
+        assert "thấy lần cuối 11/11 13:00" in text
