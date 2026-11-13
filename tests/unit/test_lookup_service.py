@@ -259,3 +259,79 @@ class TestDeleteLookupCode:
         create_lookup_code(_admin_ctx(), lookup_type="DEL2", lookup_code="Y1", meaning="Y1", display_order=1)
         res = delete_lookup_code(_viewer_ctx(), lookup_type="DEL2", lookup_code="Y1")
         assert not res.ok
+
+
+class TestDeleteLookupType:
+    """Task 84: xóa loại danh mục (dọn loại nhập test)."""
+
+    def test_admin_can_delete_empty_type(self, lookup_env):
+        from app.services.lookup import create_lookup_type, delete_lookup_type, list_lookup_types
+
+        create_lookup_type(_admin_ctx(), lookup_type="DELTYPE", type_name="Delete me")
+        res = delete_lookup_type(_admin_ctx(), lookup_type="DELTYPE")
+        assert res.ok
+        assert res.data == {"lookup_type": "DELTYPE"}
+        types = list_lookup_types(_admin_ctx())
+        assert "DELTYPE" not in [t["lookup_type"] for t in types.data]
+
+    def test_delete_type_removes_its_codes(self, lookup_env):
+        from app.services.lookup import create_lookup_code, create_lookup_type, delete_lookup_type
+
+        create_lookup_type(_admin_ctx(), lookup_type="DELTYPE2", type_name="Delete me 2")
+        create_lookup_code(_admin_ctx(), lookup_type="DELTYPE2", lookup_code="C1", meaning="C1", display_order=1)
+        create_lookup_code(_admin_ctx(), lookup_type="DELTYPE2", lookup_code="C2", meaning="C2", display_order=2)
+        res = delete_lookup_type(_admin_ctx(), lookup_type="DELTYPE2")
+        assert res.ok
+        with lookup_env.connect() as conn:
+            n = conn.execute(text("SELECT COUNT(*) FROM RECON_LOOKUP_CODE WHERE LOOKUP_TYPE='DELTYPE2'")).scalar()
+            assert n == 0
+
+    def test_system_type_cannot_be_deleted(self, lookup_env):
+        from app.services.lookup import delete_lookup_type, ensure_default_lookup_data, list_lookup_types
+
+        with lookup_env.begin() as conn:
+            ensure_default_lookup_data(conn)
+        # ISSUE_STATUS là IS_SYSTEM='Y'
+        res = delete_lookup_type(_admin_ctx(), lookup_type="ISSUE_STATUS")
+        assert not res.ok
+        assert res.code == "FORBIDDEN"
+        types = list_lookup_types(_admin_ctx())
+        assert "ISSUE_STATUS" in [t["lookup_type"] for t in types.data]
+
+    def test_type_with_code_in_use_cannot_be_deleted(self, lookup_env):
+        from app.db.metadata import recon_issue
+        from app.services.lookup import delete_lookup_type, ensure_default_lookup_data
+
+        with lookup_env.begin() as conn:
+            ensure_default_lookup_data(conn)
+            conn.execute(
+                recon_issue.insert().values(
+                    TEMPLATE_ID=1,
+                    PROFILE_CODE="DEFAULT",
+                    KEY_TEXT="K1",
+                    KEY_HASH="h1",
+                    FIRST_RUN_ID=1,
+                    LAST_RUN_ID=1,
+                    STATUS="OPEN",
+                    REASON_CODE="ROUNDING",
+                    ROW_VERSION=1,
+                )
+            )
+        # ROUNDING của ISSUE_REASON đang dùng trong RECON_ISSUE
+        res = delete_lookup_type(_admin_ctx(), lookup_type="ISSUE_REASON")
+        assert not res.ok
+        assert res.code == "CONFLICT"
+
+    def test_delete_missing_type_not_found(self, lookup_env):
+        from app.services.lookup import delete_lookup_type
+
+        res = delete_lookup_type(_admin_ctx(), lookup_type="NOPE")
+        assert not res.ok
+        assert res.code == "NOT_FOUND"
+
+    def test_viewer_cannot_delete_type(self, lookup_env):
+        from app.services.lookup import create_lookup_type, delete_lookup_type
+
+        create_lookup_type(_admin_ctx(), lookup_type="DELTYPE3", type_name="Delete me 3")
+        res = delete_lookup_type(_viewer_ctx(), lookup_type="DELTYPE3")
+        assert not res.ok

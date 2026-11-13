@@ -343,3 +343,237 @@ class TestCodeTableActionIcons83:
         ]
         assert action_groups  # mỗi hàng phải có Group nút thao tác
         assert all(getattr(g, "wrap", None) == "nowrap" for g in action_groups)
+
+
+class TestStatusColumnNoOnOffText84:
+    """Task 84: cột Trạng thái chỉ còn Switch, bỏ chữ "Bật"/"Tắt"."""
+
+    def test_status_cell_has_switch_only(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        from app.ui.pages.lookups import render_code_table
+
+        table = render_code_table(_admin_ctx(), lookup_type="ISSUE_STATUS")
+        switches = [c for c in _walk(table) if type(c).__name__ == "Switch"]
+        assert switches  # mỗi hàng phải có Switch trạng thái
+        assert all(getattr(s, "size", None) == "md" for s in switches)
+        # Không còn text "Bật"/"Tắt" nào trong bảng.
+        texts = [getattr(c, "children", None) for c in _walk(table) if type(c).__name__ == "Text"]
+        assert not [t for t in texts if t in ("Bật", "Tắt")]
+        # Group chứa Switch không còn Text con.
+        for group in [c for c in _walk(table) if type(c).__name__ == "Group"]:
+            children = getattr(group, "children", None) or []
+            if any(type(ch).__name__ == "Switch" for ch in children if ch is not None):
+                assert not [ch for ch in children if ch is not None and type(ch).__name__ == "Text"]
+
+
+class TestDeleteTypeButton84:
+    """Task 84: icon xóa loại ở góc phải mỗi thẻ loại (canh giữa dọc)."""
+
+    def test_type_card_has_delete_icon(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        from app.ui.pages.lookups import render_type_list
+
+        node, _total = render_type_list(_admin_ctx())
+        icons = [
+            c
+            for c in _walk(node)
+            if type(c).__name__ == "ActionIcon"
+            and isinstance(getattr(c, "id", None), dict)
+            and c.id.get("type") == "lookups-delete-type-btn"
+        ]
+        assert len(icons) == 2  # 2 loại seed
+        assert all(getattr(c, "size", None) == "sm" for c in icons)
+        assert all(getattr(c, "color", None) == "crit" for c in icons)
+        assert all(getattr(c, "variant", None) == "subtle" for c in icons)
+        by_index = {c.id.get("index"): c for c in icons}
+        # Loại hệ thống bị khóa, loại thường bấm được (cả 2 seed đều hệ thống
+        # nên kiểm tra disabled theo is_sys: ISSUE_STATUS disabled).
+        assert by_index["ISSUE_STATUS"].disabled is True
+        assert by_index["ISSUE_REASON"].disabled is True
+
+    def test_delete_type_tooltip_has_code_count(self, lookups_env: Any, monkeypatch: Any) -> None:
+        from app.services.lookup import create_lookup_code, create_lookup_type
+
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        from app.ui.pages.lookups import render_type_list
+
+        create_lookup_type(_admin_ctx(), lookup_type="TESTTYPE", type_name="Loại test")
+        create_lookup_code(_admin_ctx(), lookup_type="TESTTYPE", lookup_code="T1", meaning="T1", display_order=1)
+        create_lookup_code(_admin_ctx(), lookup_type="TESTTYPE", lookup_code="T2", meaning="T2", display_order=2)
+        node, _total = render_type_list(_admin_ctx())
+        found = {
+            (tip.label, tip.children.id.get("index"))
+            for tip in [c for c in _walk(node) if type(c).__name__ == "Tooltip"]
+            if type(getattr(tip, "children", None)).__name__ == "ActionIcon"
+            and isinstance(getattr(tip.children, "id", None), dict)
+            and tip.children.id.get("type") == "lookups-delete-type-btn"
+        }
+        assert ("Loại hệ thống, không thể xóa loại Trạng thái đối soát (ISSUE_STATUS)", "ISSUE_STATUS") in found
+        assert ("Loại hệ thống, không thể xóa loại Nguyên nhân chênh lệch (ISSUE_REASON)", "ISSUE_REASON") in found
+        # Loại thường: tooltip mang số mã sẽ bị xóa cùng.
+        assert ("Xóa loại Loại test (TESTTYPE) — 2 mã", "TESTTYPE") in found
+
+    def test_delete_icon_is_sibling_of_select_button(self, lookups_env: Any, monkeypatch: Any) -> None:
+        """Icon xóa nằm ngoài nút chọn (sibling) nên bấm xóa không chọn loại."""
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        from app.ui.pages.lookups import render_type_list
+
+        node, _total = render_type_list(_admin_ctx())
+        groups = []
+        for group in [c for c in _walk(node) if type(c).__name__ == "Group"]:
+            children = [ch for ch in (getattr(group, "children", None) or []) if ch is not None]
+            has_select = any(
+                type(ch).__name__ == "Button"
+                and isinstance(getattr(ch, "id", None), dict)
+                and ch.id.get("type") == "lookups-type-item"
+                for ch in children
+            )
+            has_delete = any(
+                type(ch).__name__ == "Tooltip"
+                and type(getattr(ch, "children", None)).__name__ == "ActionIcon"
+                and isinstance(getattr(ch.children, "id", None), dict)
+                and ch.children.id.get("type") == "lookups-delete-type-btn"
+                for ch in children
+            )
+            if has_select and has_delete:
+                groups.append(group)
+        assert len(groups) == 2  # mỗi thẻ loại có 1 Group [nút chọn + icon xóa]
+        assert all(getattr(g, "align", None) == "center" for g in groups)
+        assert all(getattr(g, "wrap", None) == "nowrap" for g in groups)
+
+    def test_layout_has_delete_type_modal_and_store(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
+        from app.ui.pages.lookups import layout
+
+        result = str(layout())
+        assert "lookups-delete-type-modal" in result
+        assert "lookups-delete-type-target-store" in result
+
+
+class TestDeleteTypeModal84:
+    """Task 84: callback xóa loại — đúng id modal_confirm (bài học task 83)."""
+
+    def _mock_ctx(self, monkeypatch: Any, prop_id: str, value: Any) -> None:
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            "dash.callback_context",
+            SimpleNamespace(triggered=[{"prop_id": prop_id, "value": value}]),
+        )
+
+    def test_no_duplicate_callback_outputs(self) -> None:
+        """Hồi quy: Output dùng chung bởi >1 callback phải có allow_duplicate.
+
+        Không có allow_duplicate, Dash reject toàn bộ callback map và app
+        render trắng (lỗi chỉ thấy ở check live, unit test thường không bắt).
+        Kiểm tra TĨNH trên source của lookups.py thay vì GLOBAL_CALLBACK_LIST:
+        list đó là process-global và create_app() đăng ký lại toàn bộ
+        callback mỗi lần gọi (đã chứng minh: gọi 2 lần → lookups-code-table
+        có 3–4 entry), nên đếm ở đó phụ thuộc lịch sử tiến trình và fail
+        giả trong full suite.
+        """
+        import ast
+        from collections import Counter
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parent.parent.parent / "app" / "ui" / "pages" / "lookups.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        plain: Counter[str] = Counter()
+        dup_marked: Counter[str] = Counter()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            for dec in node.decorator_list:
+                if not (isinstance(dec, ast.Call) and getattr(dec.func, "id", None) == "callback"):
+                    continue
+                for arg in dec.args:
+                    if not (isinstance(arg, ast.Call) and getattr(arg.func, "id", None) == "Output"):
+                        continue
+                    if len(arg.args) < 2 or not all(isinstance(a, ast.Constant) for a in arg.args[:2]):
+                        continue
+                    base = f"{arg.args[0].value}.{arg.args[1].value}"
+                    allow_dup = any(
+                        kw.arg == "allow_duplicate" and isinstance(kw.value, ast.Constant) and kw.value.value is True
+                        for kw in arg.keywords
+                    )
+                    (dup_marked if allow_dup else plain)[base] += 1
+        for base, n in plain.items():
+            total = n + dup_marked[base]
+            assert total <= 1 or n <= 1, (
+                f"Output {base} dùng bởi {total} callback nhưng chỉ "
+                f"{dup_marked[base]} có allow_duplicate (cần tối đa 1 callback không đánh dấu)"
+            )
+        # Cụ thể task 84: lookups-page-alert.children chia sẻ bởi 2 callback xóa.
+        assert plain["lookups-page-alert.children"] == 1
+        assert dup_marked["lookups-page-alert.children"] == 1
+
+    def test_delete_type_callback_string_inputs_exist_in_layout(self, lookups_env: Any, monkeypatch: Any) -> None:
+        import dash._callback as cbmod
+
+        from app.ui.pages.lookups import layout
+
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
+        node = layout()
+        layout_ids = {getattr(c, "id", None) for c in _walk(node) if isinstance(getattr(c, "id", None), str)}
+        entry = next(e for e in cbmod.GLOBAL_CALLBACK_LIST if "lookups-delete-type-modal.opened" in e["output"])
+        input_ids = [(inp.get("id") if isinstance(inp, dict) else getattr(inp, "id", None)) for inp in entry["inputs"]]
+        input_ids = [i for i in input_ids if isinstance(i, str) and not i.startswith("{")]
+        assert "lookups-delete-type-modal-cancel" in input_ids
+        assert "lookups-delete-type-modal-confirm" in input_ids
+        assert "lookups-delete-type-modal-cancel-btn" not in input_ids
+        assert "lookups-delete-type-modal-confirm-btn" not in input_ids
+        missing = [i for i in input_ids if i not in layout_ids]
+        assert not missing, f"callback xóa loại tham chiếu id không có trong layout: {missing}"
+
+    def test_delete_type_click_opens_modal(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        from app.ui.pages.lookups import cb_delete_type_modal
+
+        self._mock_ctx(
+            monkeypatch,
+            '{"type": "lookups-delete-type-btn", "index": "DELTYPE"}.n_clicks',
+            1,
+        )
+        opened, target, _alert = cb_delete_type_modal([1], None, None, None)
+        assert opened is True
+        assert target == {"lookup_type": "DELTYPE"}
+
+    def test_delete_type_click_guard_no_click(self, lookups_env: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        from app.ui.pages.lookups import cb_delete_type_modal
+
+        self._mock_ctx(
+            monkeypatch,
+            '{"type": "lookups-delete-type-btn", "index": "DELTYPE"}.n_clicks',
+            None,
+        )
+        opened, target, _alert = cb_delete_type_modal([None], None, None, None)
+        assert opened is False
+        assert target is None
+
+    def test_delete_type_confirm_removes_type(self, lookups_env: Any, monkeypatch: Any) -> None:
+        from app.services.lookup import create_lookup_type, list_lookup_types
+
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
+        from app.ui.pages.lookups import cb_delete_type_modal
+
+        create_lookup_type(_admin_ctx(), lookup_type="DELTYPE", type_name="Delete me")
+        self._mock_ctx(monkeypatch, "lookups-delete-type-modal-confirm.n_clicks", 1)
+        opened, target, _alert = cb_delete_type_modal(None, None, 1, {"lookup_type": "DELTYPE"})
+        assert opened is False
+        types = list_lookup_types(_admin_ctx())
+        assert "DELTYPE" not in [t["lookup_type"] for t in types.data]
+
+    def test_sync_clears_deleted_selection(self, lookups_env: Any, monkeypatch: Any) -> None:
+        """Loại đang chọn vừa bị xóa thì đồng bộ coi như chưa chọn (D6)."""
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        monkeypatch.setattr("app.ui.pages.lookups.get_current_ctx", lambda: _admin_ctx())
+        from app.ui.pages.lookups import cb_master_detail_sync
+
+        self._mock_ctx(monkeypatch, "lookups-refresh-store.data", 1)
+        result = cb_master_detail_sync([], 1, "", "", "all", "GONE_TYPE")
+        assert result[1] is None  # selected_type
+        assert result[2] == "Chọn loại danh mục ở cột trái"  # header

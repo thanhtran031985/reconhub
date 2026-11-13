@@ -471,3 +471,61 @@ def delete_lookup_code(
         )
     _clear_cache()
     return {"lookup_type": lookup_type, "lookup_code": lookup_code}
+
+
+@service
+@requires_menu("lookup")
+def delete_lookup_type(
+    ctx: Ctx,
+    *,
+    lookup_type: str,
+) -> dict[str, Any]:
+    """Xóa cứng Lookup Type cùng toàn bộ mã của loại (dọn loại nhập test).
+
+    Task 84: chỉ cấm 2 trường hợp — loại hệ thống (IS_SYSTEM='Y') và loại
+    ISSUE_REASON có mã đang dùng trong RECON_ISSUE (giữ lịch sử như
+    `delete_lookup_code`). Còn lại xóa mã của loại trước rồi xóa loại,
+    trong cùng 1 transaction (FK mã → loại).
+    """
+    engine = get_recon_engine()
+    require_admin(ctx, engine)
+    with engine.begin() as conn:
+        row = (
+            conn.execute(select(recon_lookup_type).where(recon_lookup_type.c.LOOKUP_TYPE == lookup_type))
+            .mappings()
+            .first()
+        )
+        if not row:
+            raise ServiceError(ErrorCode.NOT_FOUND, f"Loại danh mục '{lookup_type}' không tồn tại.")
+
+        is_sys = (row.get("IS_SYSTEM") or row.get("is_system") or "N") == "Y"
+
+        # Kiểm tra xem mã của loại đã dùng trong RECON_ISSUE chưa
+        # (chỉ áp dụng cho ISSUE_REASON, như delete_lookup_code).
+        # Kiểm tra TRƯỚC cấm hệ thống: ISSUE_REASON luôn là loại hệ
+        # thống nên kiểm tra sau sẽ không bao giờ tới được nhánh này.
+        if lookup_type == "ISSUE_REASON":
+            in_use = conn.execute(
+                select(func.count(recon_issue.c.ID)).where(
+                    recon_issue.c.REASON_CODE.in_(
+                        select(recon_lookup_code.c.LOOKUP_CODE).where(recon_lookup_code.c.LOOKUP_TYPE == lookup_type)
+                    )
+                )
+            ).scalar()
+            if in_use and in_use > 0:
+                raise ServiceError(
+                    ErrorCode.CONFLICT,
+                    f"Loại '{lookup_type}' có {in_use} mã đang được dùng trong dữ liệu đối soát. "
+                    "Hãy vô hiệu hóa thay vì xóa.",
+                )
+
+        if is_sys:
+            raise ServiceError(
+                ErrorCode.FORBIDDEN,
+                f"Loại '{lookup_type}' là loại hệ thống, không thể xóa.",
+            )
+
+        conn.execute(delete(recon_lookup_code).where(recon_lookup_code.c.LOOKUP_TYPE == lookup_type))
+        conn.execute(delete(recon_lookup_type).where(recon_lookup_type.c.LOOKUP_TYPE == lookup_type))
+    _clear_cache()
+    return {"lookup_type": lookup_type}
