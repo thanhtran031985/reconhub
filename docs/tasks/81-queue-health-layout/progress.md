@@ -16,6 +16,33 @@
   không đụng), probe live khớp số subagent (body scrollHeight ==
   clientHeight 582/714, dòng kẹt bottom 423, "Tạo lúc" đầy đủ,
   không lỗi JS). Full suite parent: 1884 pass, 6 skip.
+- User đã áp patch 80 (08:35) và patch 81 (ảnh 08:52: đúng layout
+  mới + cột "Tạo lúc" đầy đủ + bấm Hủy chạy được, hiện banner xanh
+  "Đã hủy run #51."). User yêu cầu follow-up: đổi banner alert
+  "Đã hủy..." sang toast notification (mẫu report_runs). Nhánh
+  feat/81-queue-health-layout-followup từ 86ca509.
+- Chẩn đoán khi check live (2 lỗi thật, đều có sẵn từ trước):
+  (1) 2 nút Hủy trùng id dict khi cùng 1 mục ở cả 2 bảng → Dash trả
+  n_clicks=None khi bấm nút ở bảng trên, guard chặn hủy (bấm nút
+  thứ 2 thì hủy được) — fix: id nút thêm `section`, Input pattern
+  thêm `"section": ALL`. (2) `dmc.Notification` trần trong html.Div
+  KHÔNG render (response có đủ Notification nhưng div trống 6s);
+  container + children cũng không hiện — đúng API DMC 2.8.1 là
+  NotificationContainer + prop `sendNotifications` (list dict).
+  Thêm helper `toast_success`/`toast_error` (dict) vào
+  notification.py; `notify_*` (trả component, 178 chỗ dùng) giữ
+  nguyên. Container toàn cục shell.py:839 có sẵn nhưng không có id
+  — ngoài phạm vi, không đụng.
+- Kết quả: targeted 34/34 (test mới 7: _do_cancel dict, id nút duy
+  nhất, container đúng loại), probe live PASS (bấm Hủy ở bảng trên
+  → toast "Đã hủy run #1." nổi góc phải, body không còn banner,
+  2 bảng về 0; layout 1366x768/1440x900 không cuộn trang, không lỗi
+  JS), ảnh ~/workspace/probe-qh81f-toast.png. Ruff + typecheck sạch
+  (format --check còn 2 chỗ drift có sẵn, không đụng). Full suite
+  lần 1: 3 test cũ ở test_worker_health62 fail (callback trả 2-tuple,
+  id nút thêm section) — đã sửa test theo hợp đồng mới (unpack
+  2-tuple, kiểm tra toast thay vì body); full suite lần 2: 1891 pass,
+  6 skip.
 - Subagent triển khai xong:
   - `app/ui/pages/queue_health.py`: page_header có actions
     [Làm mới (giữ id), Xem lịch sử]; command bar Paper withBorder

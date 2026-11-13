@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from tests.unit.test_page_dashboard import dashboard_env
 from tests.unit.test_page_report_viewer import _dump, _find_by_id
 from tests.unit.test_report_run_execute import admin_ctx, norole_ctx, operator_ctx, run_env
@@ -433,7 +435,7 @@ class TestLayout81:
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
         node = page.layout()
-        header = node.children[0]
+        header = node.children[1]  # children[0] là #queue-health-alert (follow-up 81).
         header_text = _dump(header)
         assert "Làm mới" in header_text
         assert "Xem lịch sử" in header_text
@@ -451,10 +453,11 @@ class TestLayout81:
         body_text = _dump(body)
         assert "Tất cả trạng thái" not in body_text
         assert "Tất cả loại" not in body_text
-        # 2 Select vẫn có mặt trong layout, ở command bar (con thứ 2).
+        # 2 Select vẫn có mặt trong layout, ở command bar (con thứ 3:
+        # children[0] là #queue-health-alert, [1] là page header).
         assert _find_by_id(node, "queue-health-filter-status") is not None
         assert _find_by_id(node, "queue-health-filter-kind") is not None
-        assert "Tất cả trạng thái" in _dump(node.children[1])
+        assert "Tất cả trạng thái" in _dump(node.children[2])
 
     def test_section_titles_order_5(self):
         import app.ui.pages.queue_health as page
@@ -494,3 +497,92 @@ class TestLayout81:
         assert sum(int(w[:-1]) for w in widths) == 100
         tables = [c for c in _walk(table) if type(c).__name__ == "Table"]
         assert tables and "qh-table" in str(getattr(tables[0], "className", ""))
+
+
+class TestCancelNotification81f:
+    """Follow-up task 81: kết quả Hủy hiện bằng toast notification
+    (notify_success/notify_error vào #queue-health-alert), không còn
+    banner alert_box trong body."""
+
+    def test_do_cancel_run_success(self, monkeypatch):
+        import app.ui.pages.queue_health as page
+        from app.schemas.errors import ServiceResult
+
+        monkeypatch.setattr(page, "cancel_report_run", lambda ctx, run_id: ServiceResult(ok=True))
+        notif = page._do_cancel(object(), "run", 51)
+        assert isinstance(notif, dict)
+        assert notif["message"] == "Đã hủy run #51."
+        assert notif["title"] == "Thành công"
+        assert notif["action"] == "show"
+        assert notif["color"] == "teal"
+
+    def test_do_cancel_export_success(self, monkeypatch):
+        import app.ui.pages.queue_health as page
+        from app.schemas.errors import ServiceResult
+
+        monkeypatch.setattr(page, "cancel_export", lambda ctx, exp_id: ServiceResult(ok=True))
+        notif = page._do_cancel(object(), "export", 7)
+        assert notif["message"] == "Đã hủy export #7."
+        assert notif["action"] == "show"
+
+    def test_do_cancel_failure_shows_error(self, monkeypatch):
+        import app.ui.pages.queue_health as page
+        from app.schemas.errors import ServiceResult
+
+        monkeypatch.setattr(
+            page,
+            "cancel_report_run",
+            lambda ctx, run_id: ServiceResult(ok=False, message="Chỉ hủy được run QUEUED hoặc RUNNING."),
+        )
+        notif = page._do_cancel(object(), "run", 51)
+        assert notif["message"] == "Chỉ hủy được run QUEUED hoặc RUNNING."
+        assert notif["title"] == "Lỗi"
+        assert notif["color"] == "red"
+
+    def test_do_cancel_unknown_kind_raises(self):
+        from dash.exceptions import PreventUpdate
+
+        import app.ui.pages.queue_health as page
+
+        with pytest.raises(PreventUpdate):
+            page._do_cancel(object(), "unknown", 1)
+
+    def test_layout_has_alert_container_first(self, health_env, admin_ctx, monkeypatch):
+        import app.ui.pages.queue_health as page
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: admin_ctx)
+        node = page.layout()
+        alert = _find_by_id(node, "queue-health-alert")
+        assert alert is not None
+        # Phải là NotificationContainer — Notification trần trong Div
+        # không render (chứng minh live ở follow-up 81).
+        assert type(alert).__name__ == "NotificationContainer"
+        assert node.children[0] is alert
+
+    def test_body_no_longer_takes_note(self):
+        import inspect
+
+        import app.ui.pages.queue_health as page
+
+        assert "note" not in inspect.signature(page._health_card_body).parameters
+        assert "note_tone" not in inspect.signature(page._health_card_body).parameters
+        assert "Đã hủy" not in _dump(page._health_card_body(_active_health()))
+
+    def test_cancel_button_ids_unique_across_tables(self):
+        """Cùng 1 mục ở cả 2 bảng thì 2 nút Hủy phải khác id (follow-up
+        81, lỗi thật): trùng id dict khiến Dash trả n_clicks=None khi
+        bấm nút ở bảng Đang chạy / Đang chờ và guard chặn hủy."""
+        import app.ui.pages.queue_health as page
+
+        health = _active_health()
+        health["stuck"] = [dict(health["active"][0])]
+        body = page._health_card_body(health)
+        ids = [
+            c.id
+            for c in _walk(body)
+            if isinstance(getattr(c, "id", None), dict) and getattr(c, "id", {}).get("type") == "health-cancel"
+        ]
+        assert len(ids) == 3  # 2 mục active + 1 mục kẹt (trùng mục active[0])
+        assert len({repr(i) for i in ids}) == len(ids)
+        sections = sorted(i.get("section") for i in ids)
+        assert sections == ["active", "active", "stuck"]

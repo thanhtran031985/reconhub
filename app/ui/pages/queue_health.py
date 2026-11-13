@@ -16,6 +16,7 @@ from typing import Any
 import dash
 import dash_mantine_components as dmc
 from dash import ALL, Input, Output, callback, dcc, html
+from dash.exceptions import PreventUpdate
 
 from app.core.context import Ctx
 from app.core.session import get_current_ctx
@@ -25,6 +26,7 @@ from app.services.report_run import cancel_report_run
 from app.services.worker_health import WORKER_KIND_LABELS, get_queue_health
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_subtle
+from app.ui.components.notification import toast_error, toast_success
 from app.ui.components.page_header import page_header
 from app.ui.components.status_chip import status_chip
 
@@ -82,13 +84,18 @@ def _format_age(minutes: int) -> str:
     return f"{hours} giờ {mins} phút" if mins else f"{hours} giờ"
 
 
-def _health_item_row(item: dict[str, Any], status_label: str | None = None) -> dmc.TableTr:
+def _health_item_row(item: dict[str, Any], status_label: str | None = None, section: str = "active") -> dmc.TableTr:
     """1 dòng trong bảng mục hàng đợi (dùng chung cho bảng Đang chạy /
     Đang chờ và bảng Mục kẹt — follow-up task 66).
 
     status_label ghi đè nhãn badge trạng thái (mặc định theo status_chip):
     bảng đang chạy/chờ truyền "Đang chờ" cho QUEUED để khớp tiêu đề và
     bộ lọc; bảng kẹt giữ mặc định ("Chờ chạy").
+
+    section phân biệt nút Hủy giữa 2 bảng (follow-up task 81): cùng 1
+    mục có thể hiện ở cả 2 bảng; 2 nút Hủy trùng id dict sẽ khiến Dash
+    trả n_clicks=None khi bấm nút ở bảng trên (đã chứng minh live) và
+    guard chặn hủy — nên id nút mang thêm section để luôn duy nhất.
     """
     kind_label = "Export" if item["kind"] == "export" else "Run"
     # Task 66: cả 2 kind đều về /report-runs. Trước đây run gắn
@@ -110,7 +117,7 @@ def _health_item_row(item: dict[str, Any], status_label: str | None = None) -> d
     action: Any = (
         button_subtle(
             "Hủy",
-            id={"type": "health-cancel", "kind": item["kind"], "id": item["id"]},
+            id={"type": "health-cancel", "kind": item["kind"], "id": item["id"], "section": section},
             icon="lucide:x",
             size="xs",
             color="red",
@@ -187,8 +194,6 @@ def _health_items_table(rows: list[dmc.TableTr], age_header: str) -> dmc.TableSc
 
 def _health_card_body(
     health: dict[str, Any],
-    note: str | None = None,
-    note_tone: str = "ok",
     status_filter: str = "all",
     kind_filter: str = "all",
 ) -> Any:
@@ -202,8 +207,6 @@ def _health_card_body(
     if not health:
         return alert_box(message="Không tải được trạng thái hàng đợi.", tone="crit")
     children: list[Any] = []
-    if note:
-        children.append(alert_box(message=note, tone=note_tone))
 
     worker = health.get("worker") or {}
     status = str(worker.get("status", "down"))
@@ -270,6 +273,7 @@ def _health_card_body(
                     _health_item_row(
                         item,
                         status_label="Đang chờ" if str(item["status"]) == "QUEUED" else None,
+                        section="active",
                     )
                     for item in filtered
                 ],
@@ -283,7 +287,7 @@ def _health_card_body(
         children.append(dmc.Text("Không có mục kẹt.", size="sm", c="dimmed"))
     else:
         children.append(
-            _health_items_table([_health_item_row(item) for item in stuck], age_header="Kẹt bao lâu")
+            _health_items_table([_health_item_row(item, section="stuck") for item in stuck], age_header="Kẹt bao lâu")
         )
     return dmc.Stack(children, gap="xs", p="sm")
 
@@ -326,6 +330,12 @@ def layout(**kwargs: Any) -> Any:
         )
     return dmc.Box(
         [
+            # Follow-up task 81: phản hồi Hủy hiện bằng toast notification
+            # (mẫu report_runs) thay cho banner alert trong body. PHẢI là
+            # dmc.NotificationContainer — Notification trần trong html.Div
+            # không render (đã chứng minh live: response có đủ Notification
+            # nhưng div vẫn trống; chỉ container mới quản lý show/hide).
+            dmc.NotificationContainer(id="queue-health-alert", position="top-right", **{"aria-live": "polite"}),
             page_header(
                 title="Hàng đợi & worker",
                 subtitle="Trạng thái worker và các mục kẹt trong hàng đợi export/báo cáo. Làm mới bằng tay; Hủy theo đúng quyền của từng mục.",
@@ -383,10 +393,34 @@ def layout(**kwargs: Any) -> Any:
     )
 
 
+def _do_cancel(ctx: Ctx, kind: str, item_id: int) -> dict[str, Any]:
+    """Hủy 1 export/run → dict toast notification (follow-up task 81).
+
+    Logic thuần cho hành động Hủy để test gọi trực tiếp được (mẫu
+    report_runs._do_export_action). cancel_* được bọc @service nên
+    trả ServiceResult (ok/message), lỗi ném ServiceError đã được
+    @service chuyển thành ServiceResult(ok=False). Trả DICT cho prop
+    `sendNotifications` của NotificationContainer (xem D8) — không
+    trả component Notification (không render).
+    """
+    if kind == "export":
+        res = cancel_export(ctx, item_id)
+        label = "export"
+    elif kind == "run":
+        res = cancel_report_run(ctx, item_id)
+        label = "run"
+    else:
+        raise PreventUpdate
+    if res.ok:
+        return toast_success(f"Đã hủy {label} #{item_id}.")
+    return toast_error(res.message or "Không hủy được.")
+
+
 @callback(
     Output("queue-health-card-body", "children"),
+    Output("queue-health-alert", "sendNotifications"),
     Input("queue-health-refresh-btn", "n_clicks"),
-    Input({"type": "health-cancel", "kind": ALL, "id": ALL}, "n_clicks"),
+    Input({"type": "health-cancel", "kind": ALL, "id": ALL, "section": ALL}, "n_clicks"),
     Input("queue-health-filter-status", "value"),
     Input("queue-health-filter-kind", "value"),
     prevent_initial_call=True,
@@ -404,47 +438,40 @@ def handle_health_actions(
     lọc (tránh 2 callback cùng ghi 1 Output — bài học task 52). Guard
     chặn re-fire khi body vẽ lại (nút Hủy mới tạo có n_clicks=None/0)
     và khi trigger không phải nút bấm (skill dash_callback_safety).
+    Follow-up task 81: kết quả Hủy trả về toast notification ở
+    #queue-health-alert (Output thứ 2, prop sendNotifications),
+    không còn banner alert trong body.
     """
     ctx = get_current_ctx()
     if ctx is None:
-        return dash.no_update
+        return dash.no_update, dash.no_update
     triggered = dash.callback_context.triggered_id
     if triggered is None:
-        return dash.no_update
+        return dash.no_update, dash.no_update
     status = str(status_filter) if status_filter in ("all", "RUNNING", "QUEUED") else "all"
     kind = str(kind_filter) if kind_filter in ("all", "export", "run") else "all"
-    note: str | None = None
-    note_tone = "ok"
+    notif: Any = dash.no_update
     if isinstance(triggered, dict) and triggered.get("type") == "health-cancel":
         triggered_list = dash.callback_context.triggered
         value = triggered_list[0]["value"] if triggered_list else None
         if not value:
-            return dash.no_update
+            return dash.no_update, dash.no_update
         kind_value = str(triggered.get("kind") or "")
         try:
             item_id = int(triggered.get("id"))  # type: ignore[arg-type]
         except (TypeError, ValueError):
-            return dash.no_update
-        if kind_value == "export":
-            res = cancel_export(ctx, item_id)
-            label = "export"
-        elif kind_value == "run":
-            res = cancel_report_run(ctx, item_id)
-            label = "run"
-        else:
-            return dash.no_update
-        if res.ok:
-            note = f"Đã hủy {label} #{item_id}."
-        else:
-            note = res.message or "Không hủy được."
-            note_tone = "crit"
+            return dash.no_update, dash.no_update
+        if kind_value not in ("export", "run"):
+            return dash.no_update, dash.no_update
+        notif = [_do_cancel(ctx, kind_value, item_id)]
     elif triggered == "queue-health-refresh-btn":
         if not refresh_clicks:
-            return dash.no_update
+            return dash.no_update, dash.no_update
     elif triggered in ("queue-health-filter-status", "queue-health-filter-kind"):
         pass  # Đổi filter: chỉ vẽ lại body với filter mới.
     else:
-        return dash.no_update
-    return _health_card_body(
-        fetch_queue_health(ctx), note=note, note_tone=note_tone, status_filter=status, kind_filter=kind
+        return dash.no_update, dash.no_update
+    return (
+        _health_card_body(fetch_queue_health(ctx), status_filter=status, kind_filter=kind),
+        notif,
     )

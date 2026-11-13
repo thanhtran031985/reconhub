@@ -55,3 +55,29 @@ def notify_info(message: str, title: str = "Thông tin", notif_id: str | None = 
         action="show",
         autoClose=4000,
     )
+
+
+def _toast_dict(message: str, title: str, color: str, icon: str, auto_close_ms: int) -> dict[str, Any]:
+    """Dict cho prop `sendNotifications` của dmc.NotificationContainer
+    (DMC 2.8.1) — cách duy nhất để toast hiện: `dmc.Notification` trần
+    trong html.Div không render (đã chứng minh live, task 81 follow-up).
+    Icon ở dạng dict component Dash (namespace/type/props)."""
+    return {
+        "id": f"notif-{uuid.uuid4().hex[:8]}",
+        "title": title,
+        "message": message,
+        "color": color,
+        "icon": {"namespace": "dash_iconify", "type": "DashIconify", "props": {"icon": icon, "width": 18}},
+        "action": "show",
+        "autoClose": auto_close_ms,
+    }
+
+
+def toast_success(message: str, title: str = "Thành công") -> dict[str, Any]:
+    """Dict toast thành công cho sendNotifications (xem _toast_dict)."""
+    return _toast_dict(message, title, "teal", "lucide:check", 4000)
+
+
+def toast_error(message: str, title: str = "Lỗi") -> dict[str, Any]:
+    """Dict toast lỗi cho sendNotifications (xem _toast_dict)."""
+    return _toast_dict(message, title, "red", "lucide:alert-circle", 6000)
