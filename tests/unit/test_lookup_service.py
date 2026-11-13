@@ -398,3 +398,58 @@ class TestListActiveLookupCodes:
         res = list_active_lookup_codes(_admin_ctx(), lookup_type="NO_SUCH_TYPE")
         assert res.ok
         assert res.data == []
+
+
+class TestLookupAutoSeed85f:
+    """Task 85-followup: hàm seed mặc định có sẵn nhưng app không gọi nên DB
+    thật chỉ có loại tự tạo (DB_COLUMN_MAPPING). Các hàm list phải tự seed
+    khi đọc (theo tiền lệ ensure_default_reasons trong list_reasons)."""
+
+    def test_list_types_seeds_defaults(self, lookup_env):
+        from app.services.lookup import list_lookup_codes, list_lookup_types
+
+        res = list_lookup_types(_admin_ctx())
+        assert res.ok
+        codes = [t["lookup_type"] for t in res.data]
+        assert "ISSUE_STATUS" in codes
+        assert "ISSUE_REASON" in codes
+        assert len(list_lookup_codes(_admin_ctx(), lookup_type="ISSUE_STATUS").data) == 4
+        assert len(list_lookup_codes(_admin_ctx(), lookup_type="ISSUE_REASON").data) == 6
+
+    def test_list_active_codes_seeds_defaults(self, lookup_env):
+        from app.services.lookup import list_active_lookup_codes
+
+        res = list_active_lookup_codes(_admin_ctx(), lookup_type="ISSUE_REASON")
+        assert res.ok
+        assert [c["lookup_code"] for c in res.data] == [
+            "ROUNDING",
+            "TIMING",
+            "SYSTEM_BUG",
+            "DATA_INPUT",
+            "POLICY_EXCEPTION",
+            "OTHER",
+        ]
+
+    def test_seed_idempotent(self, lookup_env):
+        from sqlalchemy import text
+
+        from app.services.lookup import list_lookup_types
+
+        list_lookup_types(_admin_ctx())
+        res = list_lookup_types(_admin_ctx())
+        assert res.ok
+        assert len(res.data) == 2
+        with lookup_env.connect() as conn:
+            n_types = conn.execute(text("SELECT COUNT(*) FROM RECON_LOOKUP_TYPE")).scalar()
+            n_codes = conn.execute(text("SELECT COUNT(*) FROM RECON_LOOKUP_CODE")).scalar()
+        assert n_types == 2
+        assert n_codes == 10
+
+    def test_seed_keeps_user_types(self, lookup_env):
+        from app.services.lookup import create_lookup_type, list_lookup_types
+
+        create_lookup_type(_admin_ctx(), lookup_type="CURRENCY", type_name="Loại tiền tệ")
+        res = list_lookup_types(_admin_ctx())
+        assert res.ok
+        codes = [t["lookup_type"] for t in res.data]
+        assert codes == ["CURRENCY", "ISSUE_REASON", "ISSUE_STATUS"]

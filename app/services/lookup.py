@@ -140,7 +140,13 @@ def list_lookup_types(ctx: Ctx) -> list[dict[str, Any]]:
     """Trả danh sách tất cả Lookup Type đang hoạt động kèm số lượng mã con."""
 
     engine = get_recon_engine()
-    with engine.connect() as conn:
+    # Task 85-followup: tự seed dữ liệu mặc định khi đọc — hàm seed có sẵn
+    # nhưng app không gọi nên DB thật không có 2 loại ISSUE_STATUS /
+    # ISSUE_REASON (chỉ có loại tự tạo). Idempotent, theo tiền lệ
+    # ensure_default_reasons trong list_reasons. Dùng begin() để INSERT
+    # được commit (connect() không commit sẽ mất dữ liệu khi đóng).
+    with engine.begin() as conn:
+        ensure_default_lookup_data(conn)
         rows = conn.execute(select(recon_lookup_type).order_by(recon_lookup_type.c.LOOKUP_TYPE)).mappings().all()
         # Đếm số code active cho từng type
         counts_rows = conn.execute(
@@ -175,8 +181,10 @@ def list_lookup_codes(ctx: Ctx, *, lookup_type: str) -> list[dict[str, Any]]:
     """Trả danh sách các Lookup Code (kể cả inactive) theo Lookup Type."""
 
     # Không dùng cache nếu đang test (cache có thể chứa data từ DB khác)
+    # Task 85-followup: tự seed mặc định khi đọc (xem list_lookup_types).
     engine = get_recon_engine()
-    with engine.connect() as conn:
+    with engine.begin() as conn:
+        ensure_default_lookup_data(conn)
         rows = (
             conn.execute(
                 select(recon_lookup_code)
@@ -207,7 +215,11 @@ def list_active_lookup_codes(ctx: Ctx, *, lookup_type: str) -> list[dict[str, An
     và issue — nếu không, đúng người xử lý chênh lệch sẽ luôn rơi fallback.
     """
     engine = get_recon_engine()
-    with engine.connect() as conn:
+    # Task 85-followup: tự seed mặc định khi đọc (xem list_lookup_types) —
+    # drawer mở trên DB mới cũng phải đọc được nhãn từ lookup, không rơi
+    # fallback chỉ vì /lookups chưa từng được mở.
+    with engine.begin() as conn:
+        ensure_default_lookup_data(conn)
         rows = (
             conn.execute(
                 select(recon_lookup_code)
