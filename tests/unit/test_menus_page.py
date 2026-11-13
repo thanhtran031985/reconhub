@@ -447,3 +447,145 @@ class TestMenusLayout:
         text = _dump(menus_page.render_menus_preview(_admin(), tree, draft))
         assert "Tổng quan" in text
         assert "Dashboard" not in text
+
+
+def _walk(component):
+    """Yield component + mọi hậu duệ (duyệt đệ quy children)."""
+    yield component
+    children = getattr(component, "children", None)
+    if isinstance(children, (list, tuple)):
+        for child in children:
+            yield from _walk(child)
+    elif children is not None:
+        yield from _walk(children)
+
+
+def _find_by_id(component, target_id):
+    for node in _walk(component):
+        if getattr(node, "id", None) == target_id:
+            return node
+    return None
+
+
+class TestMenusUi82:
+    """Task 82: /menus UI chuẩn ui-dash — icon thao tác + hint, command bar
+    riêng, preview 227px, ẩn/hiện preview."""
+
+    def test_actions_render_icons_with_tooltips(self):
+        import app.ui.pages.menus as menus_page
+
+        table = menus_page.render_menus_table(_saved(), _draft())
+        # Không còn Button chữ ở cột Thao tác.
+        buttons = [c for c in _walk(table) if type(c).__name__ == "Button"]
+        assert not [b for b in buttons if (b.children or "") in ("Tạm ẩn", "Bỏ ẩn", "Đã xem", "Mặc định")]
+        # Tooltip + ActionIcon, id dict giữ nguyên (callback bám theo id).
+        found = set()
+        for tip in [c for c in _walk(table) if type(c).__name__ == "Tooltip"]:
+            child = tip.children
+            assert type(child).__name__ == "ActionIcon"
+            assert child.variant == "subtle"
+            assert child.size == "sm"
+            found.add((tip.label, child.id.get("type"), child.id.get("index")))
+        assert ("Tạm ẩn", "menus-hide-btn", "history") in found
+        assert ("Đã xem", "menus-seen-btn", "dashboard") in found
+        assert ("Mặc định", "menus-reset-btn", "dashboard") in found
+        assert ("Mặc định", "menus-group-reset-btn", "DOI_SOAT") in found
+        # Icon đúng theo D2.
+        icons = {
+            (tip.label, tip.children.id.get("type")): tip.children.children
+            for tip in [c for c in _walk(table) if type(c).__name__ == "Tooltip"]
+        }
+        assert getattr(icons[("Tạm ẩn", "menus-hide-btn")], "icon", None) == "lucide:eye-off"
+        assert getattr(icons[("Đã xem", "menus-seen-btn")], "icon", None) == "lucide:check"
+        assert getattr(icons[("Mặc định", "menus-reset-btn")], "icon", None) == "lucide:rotate-ccw"
+
+    def test_hidden_menu_shows_unhide_icon(self):
+        import app.ui.pages.menus as menus_page
+
+        draft = _draft()
+        draft["groups"][0]["menus"][0]["is_hidden"] = True
+        table = menus_page.render_menus_table(_saved(), draft)
+        found = {
+            (tip.label, tip.children.id.get("type"), tip.children.id.get("index"))
+            for tip in [c for c in _walk(table) if type(c).__name__ == "Tooltip"]
+        }
+        assert ("Bỏ ẩn", "menus-unhide-btn", "dashboard") in found
+        assert ("Tạm ẩn", "menus-hide-btn", "dashboard") not in found
+
+    def test_layout_has_command_bar_toggle_close_and_store(self, menus_env, monkeypatch):
+        import app.ui.pages.menus as menus_page
+
+        monkeypatch.setattr(menus_page, "get_current_ctx", lambda: _admin())
+        node = menus_page.layout()
+        # Command bar riêng: Paper chứa search + toggle nhưng KHÔNG chứa bảng.
+        papers = [c for c in _walk(node) if type(c).__name__ == "Paper"]
+        bar = next(
+            (
+                p
+                for p in papers
+                if _find_by_id(p, "menus-search-input") is not None
+                and _find_by_id(p, "menus-toggle-preview-btn") is not None
+            ),
+            None,
+        )
+        assert bar is not None
+        assert _find_by_id(bar, "menus-table-box") is None
+        master = next(
+            (p for p in papers if _find_by_id(p, "menus-table-box") is not None),
+            None,
+        )
+        assert master is not None
+        assert _find_by_id(master, "menus-search-input") is None
+        # Toggle + nút X + store + cột phải.
+        assert _find_by_id(node, "menus-toggle-preview-btn") is not None
+        assert _find_by_id(node, "menus-preview-close-btn") is not None
+        assert _find_by_id(node, "menus-preview-visible-store") is not None
+        detail = _find_by_id(node, "menus-detail-col")
+        assert detail is not None
+        assert "menus-detail" in str(getattr(detail, "className", ""))
+
+    def _mock_ctx(self, monkeypatch, triggered_id, value):
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            "dash.callback_context",
+            SimpleNamespace(triggered_id=triggered_id, triggered=[{"prop_id": "x", "value": value}]),
+        )
+
+    def test_toggle_guard_no_click(self, monkeypatch):
+        import dash
+
+        import app.ui.pages.menus as menus_page
+
+        self._mock_ctx(monkeypatch, "menus-toggle-preview-btn", None)
+        with pytest.raises(dash.exceptions.PreventUpdate):
+            menus_page.handle_preview_toggle(None, None, True)
+
+    def test_toggle_guard_zero_clicks(self, monkeypatch):
+        import dash
+
+        import app.ui.pages.menus as menus_page
+
+        self._mock_ctx(monkeypatch, "menus-toggle-preview-btn", 0)
+        with pytest.raises(dash.exceptions.PreventUpdate):
+            menus_page.handle_preview_toggle(0, 0, True)
+
+    def test_toggle_hides_preview(self, monkeypatch):
+        import app.ui.pages.menus as menus_page
+
+        self._mock_ctx(monkeypatch, "menus-toggle-preview-btn", 1)
+        visible, style, text, icon = menus_page.handle_preview_toggle(1, None, True)
+        assert visible is False
+        assert style == {"display": "none"}
+        assert text == "Hiện xem trước"
+        assert getattr(icon, "icon", None) == "lucide:panel-right-open"
+
+    def test_close_button_shows_preview(self, monkeypatch):
+        import app.ui.pages.menus as menus_page
+
+        self._mock_ctx(monkeypatch, "menus-preview-close-btn", 1)
+        visible, style, text, icon = menus_page.handle_preview_toggle(None, 1, False)
+        assert visible is True
+        assert style == {}
+        assert text == "Ẩn xem trước"
+        assert getattr(icon, "icon", None) == "lucide:panel-right-close"

@@ -512,3 +512,87 @@ main > div > div,
     overflow: visible;
   }
 }
+
+/* Task 82: Danh sách menu — command bar riêng, cột preview 227px (2/3
+   của 340px), không px inline ở vùng chạm tới; dưới 900px trang được
+   cuộn và 2 cột xếp dọc (quy tắc ui-dash). */
+.menus-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 48px);
+  overflow: hidden;
+  /* padding 8px 12px giữ inline ở root (test task 41 khóa style padding). */
+}
+
+.menus-main {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.menus-master {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.menus-detail {
+  width: 227px;
+  min-width: 227px;
+  max-width: 227px;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.menus-search {
+  flex: 1;
+}
+
+.menus-filter {
+  width: 180px;
+}
+
+.menus-group-label-input {
+  width: 220px;
+}
+
+.menus-label-input {
+  width: 200px;
+}
+
+.menus-group-select {
+  width: 140px;
+}
+
+@media (max-width: 900px) {
+  .menus-page {
+    height: auto;
+    overflow: visible;
+  }
+
+  .menus-main {
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .menus-master {
+    height: auto;
+  }
+
+  .menus-detail {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: auto;
+    overflow-y: visible;
+  }
+}

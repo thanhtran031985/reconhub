@@ -219,6 +219,26 @@ def _status_badges(menu: dict[str, Any]) -> Any:
     return html.Div(items)
 
 
+def _action_icon(label: str, icon: str, id: Any, disabled: bool = False) -> Any:
+    """Nút thao tác dạng icon + hint (task 82, tiền lệ data_sources.py:184).
+
+    Id dict và điều kiện disabled giữ nguyên — callback bám theo id,
+    không bám theo text nút nên đổi cách render không ảnh hưởng logic.
+    """
+    return dmc.Tooltip(
+        label=label,
+        withArrow=True,
+        children=dmc.ActionIcon(
+            DashIconify(icon=icon, width=16),
+            id=id,
+            variant="subtle",
+            size="sm",
+            disabled=disabled,
+            **{"aria-label": label},
+        ),
+    )
+
+
 def render_menus_table(saved: dict[str, Any], draft: dict[str, Any], q: str = "", filter_value: str = "all") -> Any:
     """Bảng nhóm + menu theo Screen15. Nhóm và menu đổi so với bản đã
     lưu có vạch tím ở cạnh trái; nút ↑↓ khóa ở đầu/cuối nhóm."""
@@ -285,7 +305,7 @@ def render_menus_table(saved: dict[str, Any], draft: dict[str, Any], q: str = ""
                                         value=group["label"],
                                         debounce=500,
                                         disabled=bool(group.get("is_removed")),
-                                        style={"width": 220},
+                                        className="menus-group-label-input",
                                     ),
                                     dmc.Text(
                                         f"Mặc định: {group['source_label']}",
@@ -297,9 +317,10 @@ def render_menus_table(saved: dict[str, Any], draft: dict[str, Any], q: str = ""
                             ),
                             dmc.Text(group["code"], size="xs", c="dimmed", ff="monospace"),
                             dmc.Badge(f"{len(group['menus'])} menu", size="xs", color="gray", variant="light"),
-                            button_subtle(
+                            _action_icon(
                                 "Mặc định",
-                                id={"type": "menus-group-reset-btn", "index": gcode},
+                                "lucide:rotate-ccw",
+                                {"type": "menus-group-reset-btn", "index": gcode},
                                 disabled=not group_changed,
                             ),
                         ],
@@ -327,26 +348,31 @@ def render_menus_table(saved: dict[str, Any], draft: dict[str, Any], q: str = ""
             actions: list[Any] = []
             if menu["is_hidden"]:
                 actions.append(
-                    button_subtle(
+                    _action_icon(
                         "Bỏ ẩn",
-                        id={"type": "menus-unhide-btn", "index": menu["code"]},
+                        "lucide:eye",
+                        {"type": "menus-unhide-btn", "index": menu["code"]},
                         disabled=removed,
                     )
                 )
             else:
                 actions.append(
-                    button_subtle(
+                    _action_icon(
                         "Tạm ẩn",
-                        id={"type": "menus-hide-btn", "index": menu["code"]},
+                        "lucide:eye-off",
+                        {"type": "menus-hide-btn", "index": menu["code"]},
                         disabled=removed or not menu["is_hideable"],
                     )
                 )
             if menu["is_new"]:
-                actions.append(button_subtle("Đã xem", id={"type": "menus-seen-btn", "index": menu["code"]}))
+                actions.append(
+                    _action_icon("Đã xem", "lucide:check", {"type": "menus-seen-btn", "index": menu["code"]})
+                )
             actions.append(
-                button_subtle(
+                _action_icon(
                     "Mặc định",
-                    id={"type": "menus-reset-btn", "index": menu["code"]},
+                    "lucide:rotate-ccw",
+                    {"type": "menus-reset-btn", "index": menu["code"]},
                     disabled=not changed,
                 )
             )
@@ -384,7 +410,7 @@ def render_menus_table(saved: dict[str, Any], draft: dict[str, Any], q: str = ""
                                         value=menu["label"],
                                         debounce=500,
                                         disabled=removed,
-                                        style={"width": 200},
+                                        className="menus-label-input",
                                     ),
                                     dmc.Text(
                                         f"Mặc định: {menu['source_label']}",
@@ -411,7 +437,7 @@ def render_menus_table(saved: dict[str, Any], draft: dict[str, Any], q: str = ""
                                         data=group_options,
                                         value=menu["group"],
                                         disabled=removed,
-                                        style={"width": 140},
+                                        className="menus-group-select",
                                     ),
                                     dmc.Text(
                                         f"Mặc định: {source_group_label}",
@@ -596,18 +622,15 @@ def layout() -> Any:
     new_alert, removed_alert = _alerts(tree, tree)
     return html.Div(
         id="menus-page-root",
-        style={
-            "height": "calc(100vh - 48px)",
-            "display": "flex",
-            "flexDirection": "column",
-            "overflow": "hidden",
-            "padding": "8px 12px",
-        },
+        className="menus-page",
+        style={"padding": "8px 12px"},
         children=[
             dcc.Store(id="menus-saved-store", data=tree),
             dcc.Store(id="menus-draft-store", data=tree),
             dcc.Store(id="menus-dirty-store", data=False),
             dcc.Store(id="menus-hide-target-store", data=None),
+            # Task 82: trạng thái ẩn/hiện cột xem trước (mặc định hiện).
+            dcc.Store(id="menus-preview-visible-store", data=True),
             html.Div(id="menus-beforeunload-sink", style={"display": "none"}),
             # Header
             page_header(
@@ -622,53 +645,60 @@ def layout() -> Any:
             ),
             html.Div(id="menus-error-box"),
             dmc.Box(id="menus-toast"),
+            # Command bar riêng (task 82, chuẩn ui-dash 3 vùng)
+            dmc.Paper(
+                dmc.Group(
+                    [
+                        dmc.TextInput(
+                            id="menus-search-input",
+                            placeholder="Tìm menu theo tên, mã hoặc đường dẫn",
+                            leftSection=DashIconify(icon="lucide:search", width=14),
+                            debounce=300,
+                            size="xs",
+                            className="menus-search",
+                        ),
+                        dmc.Select(
+                            id="menus-filter-select",
+                            data=_FILTER_OPTIONS,
+                            value="all",
+                            size="xs",
+                            className="menus-filter",
+                            **{"aria-label": "Lọc menu"},
+                        ),
+                        button_subtle(
+                            "Khôi phục mặc định",
+                            id="menus-reset-all-btn",
+                            icon="lucide:rotate-ccw",
+                            size="xs",
+                        ),
+                        button_subtle(
+                            "Đã xem tất cả",
+                            id="menus-mark-all-seen-btn",
+                            icon="lucide:check-check",
+                            size="xs",
+                        ),
+                        button_subtle(
+                            "Ẩn xem trước",
+                            id="menus-toggle-preview-btn",
+                            icon="lucide:panel-right-close",
+                            size="xs",
+                        ),
+                    ],
+                    gap="xs",
+                    justify="space-between",
+                ),
+                withBorder=True,
+                radius="sm",
+                p="xs",
+                mb="xs",
+            ),
             # Master–Detail 2 cột
             dmc.Box(
-                style={
-                    "display": "flex",
-                    "flexDirection": "row",
-                    "flex": 1,
-                    "minHeight": 0,
-                    "gap": "12px",
-                    "overflow": "hidden",
-                },
+                className="menus-main",
                 children=[
                     # Master (Trái): Table Box
                     dmc.Paper(
                         [
-                            dmc.Group(
-                                [
-                                    dmc.TextInput(
-                                        id="menus-search-input",
-                                        placeholder="Tìm menu theo tên, mã hoặc đường dẫn",
-                                        leftSection=DashIconify(icon="lucide:search", width=14),
-                                        debounce=300,
-                                        size="xs",
-                                        style={"flex": 1},
-                                    ),
-                                    dmc.Select(
-                                        id="menus-filter-select",
-                                        data=_FILTER_OPTIONS,
-                                        value="all",
-                                        size="xs",
-                                        style={"width": 180},
-                                    ),
-                                    button_subtle(
-                                        "Khôi phục mặc định",
-                                        id="menus-reset-all-btn",
-                                        icon="lucide:rotate-ccw",
-                                        size="xs",
-                                    ),
-                                    button_subtle(
-                                        "Đã xem tất cả",
-                                        id="menus-mark-all-seen-btn",
-                                        icon="lucide:check-check",
-                                        size="xs",
-                                    ),
-                                ],
-                                mb="xs",
-                                gap="xs",
-                            ),
                             html.Div(
                                 id="menus-table-box",
                                 children=[render_menus_table(tree, tree)],
@@ -678,21 +708,27 @@ def layout() -> Any:
                         withBorder=True,
                         radius="sm",
                         p="xs",
-                        style={
-                            "flex": 1,
-                            "minWidth": 0,
-                            "minHeight": 0,
-                            "height": "100%",
-                            "display": "flex",
-                            "flexDirection": "column",
-                        },
+                        className="menus-master",
                     ),
                     # Detail (Phải): Preview Box
                     dmc.Paper(
                         [
                             dmc.Paper(
                                 [
-                                    dmc.Text("Xem trước thanh bên", fw=700, size="sm", mb="xs"),
+                                    dmc.Group(
+                                        [
+                                            dmc.Text("Xem trước thanh bên", fw=700, size="sm"),
+                                            dmc.ActionIcon(
+                                                DashIconify(icon="lucide:x", width=14),
+                                                id="menus-preview-close-btn",
+                                                variant="subtle",
+                                                size="xs",
+                                                **{"aria-label": "Ẩn xem trước"},
+                                            ),
+                                        ],
+                                        justify="space-between",
+                                        mb="xs",
+                                    ),
                                     html.Div(
                                         id="menus-preview-box",
                                         children=[render_menus_preview(ctx, tree, tree)],
@@ -726,16 +762,8 @@ def layout() -> Any:
                         withBorder=True,
                         radius="sm",
                         p="xs",
-                        style={
-                            "width": "340px",
-                            "minWidth": "340px",
-                            "maxWidth": "340px",
-                            "minHeight": 0,
-                            "height": "100%",
-                            "overflowY": "auto",
-                            "display": "flex",
-                            "flexDirection": "column",
-                        },
+                        id="menus-detail-col",
+                        className="menus-detail",
                     ),
                 ],
             ),
@@ -823,6 +851,48 @@ def _update_draft(draft: dict[str, Any], code: str, **fields: Any) -> dict[str, 
         raise dash.exceptions.PreventUpdate
     menu.update(fields)
     return new_draft
+
+
+@callback(
+    Output("menus-preview-visible-store", "data"),
+    Output("menus-detail-col", "style"),
+    Output("menus-toggle-preview-btn", "children"),
+    Output("menus-toggle-preview-btn", "leftSection"),
+    Input("menus-toggle-preview-btn", "n_clicks"),
+    Input("menus-preview-close-btn", "n_clicks"),
+    State("menus-preview-visible-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_preview_toggle(
+    toggle_clicks: int | None,
+    close_clicks: int | None,
+    visible: bool | None,
+) -> Any:
+    """Ẩn/hiện cột xem trước (task 82, D3/D4).
+
+    Cả 2 nút (toggle ở command bar + X ở đầu card) đều lật trạng thái.
+    Guard n_clicks truthy cho cả 2 nút (skill dash_callback_safety):
+    nút bị remount khi vùng chứa vẽ lại sẽ bắn n_clicks=None.
+    """
+    if not toggle_clicks and not close_clicks:
+        raise dash.exceptions.PreventUpdate
+    triggered = dash.callback_context.triggered_id
+    if triggered not in ("menus-toggle-preview-btn", "menus-preview-close-btn"):
+        raise dash.exceptions.PreventUpdate
+    new_visible = not bool(visible)
+    if new_visible:
+        return (
+            True,
+            {},
+            "Ẩn xem trước",
+            DashIconify(icon="lucide:panel-right-close", width=16),
+        )
+    return (
+        False,
+        {"display": "none"},
+        "Hiện xem trước",
+        DashIconify(icon="lucide:panel-right-open", width=16),
+    )
 
 
 @callback(
