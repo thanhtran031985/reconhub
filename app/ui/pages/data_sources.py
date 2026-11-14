@@ -1024,6 +1024,18 @@ def handle_ds_active_toggle(checked_values: list[bool], id_list: list[dict[str, 
             new_checked = bool(val)
             break
 
+    # Task 91 D1: Switch mount lại (bảng vẽ lại) cũng bắn callback này với
+    # đúng trạng thái hiện tại trong DB — bỏ qua, không gọi service (tránh
+    # ghi audit giả + bump trigger làm tải lại danh sách).
+    target_active = "Y" if new_checked else "N"
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        current_active = conn.execute(
+            select(recon_data_source.c.IS_ACTIVE).where(recon_data_source.c.ID == int(ds_id))
+        ).scalar_one_or_none()
+    if current_active == target_active:
+        raise dash.exceptions.PreventUpdate
+
     if new_checked:
         res = activate_data_source(ctx, int(ds_id))
     else:
@@ -1072,8 +1084,24 @@ def update_sources_table(store_data: Any) -> Any:
     Input("ds-mig-delete-sqlite-modal-confirm", "n_clicks"),
     # Task 63: nạp lại sau khi migration thật xong (khối SQLite cũ đổi trạng thái).
     Input("ds-mig-done-store", "data"),
+    # Task 91 D2: chỉ tải khi tab Lưu trữ đang mở.
+    Input("ds-tabs", "value"),
+    # Task 91 D2: chặn luôn lần bắn khi load trang (mọi Input đều có sẵn
+    # trong layout nên prevent_initial_call có tác dụng ở đây).
+    prevent_initial_call=True,
 )
-def load_storage_data(*args: Any) -> Any:
+def load_storage_data(
+    _refresh_clicks: Any,
+    _purge_confirm_clicks: Any,
+    _mig_delete_confirm_clicks: Any,
+    _mig_done_data: Any,
+    tab_val: Any,
+) -> Any:
+    # Task 91 D2: mở trang (tab Nguồn đối soát) không cần dữ liệu tab Lưu
+    # trữ; tab sẽ tải khi user bấm sang.
+    if tab_val != "storage":
+        return dash.no_update
+
     ctx = get_current_ctx()
     if ctx is None or not is_admin(ctx):
         return {}
@@ -1173,14 +1201,20 @@ def update_storage_content(store_data: Any) -> Any:
 def handle_drawer_open(*args: Any) -> Any:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
-        return False, None, "", "DEV", "", 1521, "", "", "", "", 600, None
+        return (dash.no_update,) * 12
 
     trigger = ctx_dash.triggered[0]
     trigger_val = trigger.get("value")
     trigger_id = trigger["prop_id"].split(".")[0]
 
-    if "ds-drawer-cancel-btn" in trigger_id or not trigger_val:
+    if "ds-drawer-cancel-btn" in trigger_id:
         return False, None, "", "DEV", "", 1521, "", "", "", "", 600, None
+
+    # Task 91 D4: nút Sửa mount lại (bảng vẽ lại) bắn callback với
+    # n_clicks=None — không động vào drawer (trước đây trả tuple reset,
+    # vô tình đóng drawer đang mở).
+    if not trigger_val:
+        return (dash.no_update,) * 12
 
     if trigger_id == "ds-add-btn":
         return True, None, "", "DEV", "", 1521, "", "", "", "", 600, None
@@ -1235,6 +1269,11 @@ def handle_purge_preview(
     days_val: Any,
     user_val: str | None,
 ) -> tuple[Any, Any]:
+    # Task 91 D3: nút Xem trước mount lại (tab vẽ lại) cũng bắn callback
+    # này — chỉ chạy preview khi user bấm thật.
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
     ctx = get_current_ctx()
     if ctx is None or not is_admin(ctx):
         return alert_box("Lỗi", "Chưa đăng nhập", tone="crit"), None
