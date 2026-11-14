@@ -23,9 +23,15 @@ EXEMPT_PAGES = {"account", "login", "forbidden", "suspended", "dev_gallery"}
 # - file_service.get_file: quyền tải file theo chủ sở hữu (Q8), kiểm tra ở bước 4.
 # - user.change_password: tự đổi mật khẩu của chính mình, không gắn menu.
 # - menu_sync.sync_from_code / sync_menus_safely: chạy khi khởi động, không có ctx.
+# - telegram_notify.* (task 94): tự liên kết Telegram của chính mình
+#   (trang /account miễn menu như trang tài khoản; chỉ chạm user_id của ctx).
 EXEMPT_SERVICES = {
     ("file_service", "get_file"): "quyền tải file theo chủ sở hữu (Q8, bước 4)",
     ("user", "change_password"): "tự đổi mật khẩu của chính mình",
+    ("telegram_notify", "generate_link_code"): "tự liên kết Telegram của chính mình (task 94)",
+    ("telegram_notify", "get_telegram_link_status"): "tự xem liên kết Telegram của chính mình (task 94)",
+    ("telegram_notify", "set_telegram_enabled"): "tự bật/tắt nhận tin Telegram của chính mình (task 94)",
+    ("telegram_notify", "unlink_telegram"): "tự hủy liên kết Telegram của chính mình (task 94)",
 }
 
 

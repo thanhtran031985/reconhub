@@ -583,5 +583,32 @@
     "migration_id": "0011_notification_related",
     "task_id": null,
     "timestamp": "2026-11-12T15:09:47.116083+00:00"
+  },
+  {
+    "after": "VARCHAR(64), nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_USER.TELEGRAM_CHAT_ID",
+    "migration_id": "0012_telegram_link",
+    "task_id": null,
+    "timestamp": "2026-11-14T10:48:01.567574+00:00"
+  },
+  {
+    "after": "VARCHAR(32), nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_USER.TELEGRAM_LINK_CODE",
+    "migration_id": "0012_telegram_link",
+    "task_id": null,
+    "timestamp": "2026-11-14T10:48:01.567574+00:00"
+  },
+  {
+    "after": "DATETIME, nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_USER.TELEGRAM_LINK_EXPIRES_AT",
+    "migration_id": "0012_telegram_link",
+    "task_id": null,
+    "timestamp": "2026-11-14T10:48:01.567574+00:00"
   }
 ]

@@ -12,6 +12,30 @@ from worker.runner import ReconWorker
 logger = structlog.get_logger("worker")
 
 
+def _telegram_poller(stop_event: threading.Event, interval_seconds: float = 30.0) -> threading.Thread:
+    """Poll getUpdates của bot Telegram để liên kết tài khoản (task 94).
+
+    Vòng lặp 30s; lỗi 1 vòng không giết worker (bọc try/except quanh
+    mỗi vòng, poll_telegram_updates_once bản thân nó cũng không raise).
+    """
+
+    def _run() -> None:
+        from app.db.engine import get_db_engine
+        from app.services.telegram_notify import poll_telegram_updates_once
+
+        engine = get_db_engine()
+        while not stop_event.is_set():
+            try:
+                poll_telegram_updates_once(engine)
+            except Exception as exc:  # noqa: BLE001 — lỗi poll không giết worker
+                logger.warn("Lỗi vòng poll Telegram", error=str(exc))
+            stop_event.wait(timeout=interval_seconds)
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return thread
+
+
 def main() -> None:
     stop_event = threading.Event()
 
@@ -37,6 +61,8 @@ def main() -> None:
     )
     recon_thread.start()
     export_thread.start()
+    # Task 94: poller Telegram (daemon, 30s/vòng) để liên kết tài khoản.
+    telegram_thread = _telegram_poller(stop_event)
     try:
         while not stop_event.is_set():
             stop_event.wait(timeout=1.0)
@@ -45,6 +71,7 @@ def main() -> None:
         stop_event.set()
     recon_thread.join()
     export_thread.join()
+    telegram_thread.join()
 
 
 if __name__ == "__main__":

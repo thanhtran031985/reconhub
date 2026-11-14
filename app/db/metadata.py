@@ -111,6 +111,10 @@ recon_user = Table(
     Column("CREATED_BY", String(60), nullable=False),
     Column("CREATED_AT", DateTime, nullable=False),
     Column("UPDATED_AT", DateTime, nullable=False),
+    # Task 94: liên kết Telegram — chat_id sau khi nhắn /start <mã>.
+    Column("TELEGRAM_CHAT_ID", String(64), nullable=True),
+    Column("TELEGRAM_LINK_CODE", String(32), nullable=True),
+    Column("TELEGRAM_LINK_EXPIRES_AT", DateTime, nullable=True),
     Column("ROW_VERSION", Integer, nullable=False, default=1),
 )
 

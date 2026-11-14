@@ -14,6 +14,7 @@ from app.db.engine import get_db_engine
 from app.db.metadata import recon_run, recon_run_queue
 from app.services.notification import notify_for_run
 from app.services.run_executor import execute_run
+from app.services.telegram_notify import notify_telegram_for_run
 from app.services.worker_health import write_worker_heartbeat
 
 logger = structlog.get_logger("worker")
@@ -87,6 +88,8 @@ class ReconWorker:
                     f"Run đối soát #{r_id} lỗi",
                     "Worker bị ngắt đột ngột, job bị treo.",
                 )
+                # Task 94: báo thêm qua Telegram cho chủ run (kênh riêng, không raise).
+                notify_telegram_for_run(self.engine, r_id, "RUN_FAILED")
 
         return reset_count
 

@@ -38,6 +38,7 @@ from app.schemas.template_config import TemplateConfig
 from app.services.excel_load import load_excel_to_temp
 from app.services.notification import notify_for_run
 from app.services.source_conn import open_source_connection
+from app.services.telegram_notify import notify_telegram_for_run
 
 logger = structlog.get_logger("executor")
 
@@ -606,6 +607,8 @@ def execute_run(
 
         # Task 78: báo chủ run (DONE chỉ khi chủ bật RUN_DONE; lỗi luôn bật mặc định).
         notify_for_run(engine, run_id, "RUN_DONE", f"Run đối soát #{run_id} đã xong", "Run đối soát đã hoàn thành. Bấm để xem kết quả.")
+        # Task 94: báo thêm qua Telegram cho chủ run (kênh riêng, không raise).
+        notify_telegram_for_run(engine, run_id, "RUN_DONE")
 
         return {"run_id": run_id, "status": "DONE", "summary": summary_dict}
 
@@ -671,6 +674,8 @@ def execute_run(
 
         # Task 78: báo chủ run khi lỗi.
         notify_for_run(engine, run_id, "RUN_FAILED", f"Run đối soát #{run_id} lỗi", str(err_msg)[:500])
+        # Task 94: báo thêm qua Telegram cho chủ run (kênh riêng, không raise).
+        notify_telegram_for_run(engine, run_id, "RUN_FAILED")
 
         return {
             "run_id": run_id,

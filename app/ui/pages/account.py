@@ -8,6 +8,12 @@ from dash import Input, Output, State, callback, html
 from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
+from app.services.telegram_notify import (
+    generate_link_code,
+    get_telegram_link_status,
+    set_telegram_enabled,
+    unlink_telegram,
+)
 from app.services.user import change_password
 from app.ui.components.page_header import page_header
 
@@ -21,6 +27,17 @@ except Exception:
     pass
 
 
+def _telegram_status_text(linked: bool, chat_id: Any, enabled: bool) -> Any:
+    """Dòng trạng thái liên kết Telegram (task 94)."""
+    if linked:
+        return dmc.Text(
+            f"Đã liên kết Telegram (chat {chat_id}). Run đối soát xong/lỗi sẽ báo về đây."
+            + ("" if enabled else " Hiện đang tắt nhận thông báo Telegram."),
+            size="sm",
+        )
+    return dmc.Text("Chưa liên kết Telegram.", size="sm", c="dimmed")
+
+
 def layout(**kwargs: Any) -> Any:
     ctx = get_current_ctx()
     if ctx is None:
@@ -30,6 +47,13 @@ def layout(**kwargs: Any) -> Any:
         )
 
     roles_badges = [dmc.Badge(r, variant="light", color="primary", size="sm") for r in ctx.roles]
+
+    tg_linked, tg_chat_id, tg_enabled = False, None, True
+    tg_res = get_telegram_link_status(ctx)
+    if tg_res.ok and isinstance(tg_res.data, dict):
+        tg_linked = bool(tg_res.data.get("linked"))
+        tg_chat_id = tg_res.data.get("chat_id")
+        tg_enabled = bool(tg_res.data.get("enabled"))
 
     return html.Div(
         [
@@ -160,6 +184,53 @@ def layout(**kwargs: Any) -> Any:
                             p="md",
                             radius="sm",
                         ),
+                        dmc.Paper(
+                            dmc.Stack(
+                                [
+                                    dmc.Title("Telegram", order=5),
+                                    dmc.Text(
+                                        "Liên kết Telegram để nhận tin khi run đối soát xong "
+                                        "hoặc lỗi. Bấm 'Lấy mã liên kết', nhắn /start kèm mã "
+                                        "cho bot, hệ thống tự lưu chat của bạn.",
+                                        size="sm",
+                                        c="dimmed",
+                                    ),
+                                    html.Div(
+                                        id="account-telegram-status",
+                                        children=_telegram_status_text(tg_linked, tg_chat_id, tg_enabled),
+                                    ),
+                                    dmc.Group(
+                                        [
+                                            dmc.Button(
+                                                "Lấy mã liên kết",
+                                                id="account-telegram-link-btn",
+                                                color="primary",
+                                                size="sm",
+                                            ),
+                                            dmc.Button(
+                                                "Hủy liên kết",
+                                                id="account-telegram-unlink-btn",
+                                                variant="outline",
+                                                color="red",
+                                                size="sm",
+                                            ),
+                                        ],
+                                        gap="sm",
+                                    ),
+                                    html.Div(id="account-telegram-code"),
+                                    dmc.Switch(
+                                        id="account-telegram-enabled",
+                                        label="Nhận thông báo Telegram",
+                                        checked=tg_enabled,
+                                        size="sm",
+                                    ),
+                                ],
+                                gap="sm",
+                            ),
+                            withBorder=True,
+                            p="md",
+                            radius="sm",
+                        ),
                     ],
                     gap="md",
                     maw=640,
@@ -236,3 +307,75 @@ def handle_account_change_password(
         color="green",
         icon=DashIconify(icon="lucide:check-circle"),
     )
+
+
+@callback(
+    Output("account-telegram-status", "children"),
+    Output("account-telegram-code", "children"),
+    Input("account-telegram-link-btn", "n_clicks"),
+    Input("account-telegram-unlink-btn", "n_clicks"),
+    Input("account-telegram-enabled", "checked"),
+    prevent_initial_call=True,
+)
+def handle_account_telegram_actions(
+    link_clicks: int | None,
+    unlink_clicks: int | None,
+    enabled: bool | None,
+) -> tuple[Any, Any]:
+    """Liên kết / hủy liên kết / bật-tắt nhận tin Telegram (task 94)."""
+    ctx = get_current_ctx()
+    if ctx is None:
+        return dash.no_update, dash.no_update
+    triggered = dash.callback_context.triggered_id
+    if triggered == "account-telegram-link-btn":
+        if not link_clicks:
+            return dash.no_update, dash.no_update
+        res = generate_link_code(ctx)
+        if not res.ok:
+            return dash.no_update, dmc.Alert(
+                res.message or "Không lấy được mã liên kết.",
+                color="red",
+                icon=DashIconify(icon="lucide:alert-triangle"),
+            )
+        data = res.data or {}
+        return dash.no_update, dmc.Stack(
+            [
+                dmc.Group(
+                    [
+                        dmc.Text("Mã liên kết:", size="sm", c="dimmed"),
+                        dmc.Code(str(data.get("code") or "")),
+                    ],
+                    gap="xs",
+                ),
+                dmc.Anchor(
+                    str(data.get("link") or ""),
+                    href=str(data.get("link") or ""),
+                    target="_blank",
+                    size="sm",
+                ),
+                dmc.Text("Mã hết hạn sau 15 phút. Nhắn /start kèm mã cho bot.", size="xs", c="dimmed"),
+            ],
+            gap="xs",
+        )
+    if triggered == "account-telegram-unlink-btn":
+        if not unlink_clicks:
+            return dash.no_update, dash.no_update
+        res = unlink_telegram(ctx)
+        if not res.ok:
+            return dash.no_update, dmc.Alert(
+                res.message or "Không hủy được liên kết.",
+                color="red",
+                icon=DashIconify(icon="lucide:alert-triangle"),
+            )
+        return _telegram_status_text(False, None, False), ""
+    if triggered == "account-telegram-enabled":
+        res = set_telegram_enabled(ctx, bool(enabled))
+        if not res.ok:
+            return dash.no_update, dash.no_update
+        status = get_telegram_link_status(ctx)
+        data = status.data if status.ok and isinstance(status.data, dict) else {}
+        return (
+            _telegram_status_text(bool(data.get("linked")), data.get("chat_id"), bool(data.get("enabled"))),
+            dash.no_update,
+        )
+    return dash.no_update, dash.no_update

@@ -1,7 +1,7 @@
 {
   "database": "sqlite",
   "generated": true,
-  "generated_at": "2026-11-12T15:09:47.092366+00:00",
+  "generated_at": "2026-11-14T10:48:01.534223+00:00",
   "generator": "schema-introspect",
   "schema": "main",
   "tables": [
@@ -6166,6 +6166,33 @@
           "unique": false
         },
         {
+          "default": null,
+          "foreign_key": null,
+          "name": "TELEGRAM_CHAT_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(64)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TELEGRAM_LINK_CODE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(32)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TELEGRAM_LINK_EXPIRES_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
           "default": "1",
           "foreign_key": null,
           "name": "ROW_VERSION",
@@ -6277,6 +6304,6 @@
       "unique_constraints": []
     }
   ],
-  "version": "0011_notification_related",
+  "version": "0012_telegram_link",
   "warnings": []
 }

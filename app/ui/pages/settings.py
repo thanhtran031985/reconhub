@@ -26,6 +26,11 @@ from app.services.report_timeouts import (
     get_report_timeout_settings,
     set_report_timeouts,
 )
+from app.services.telegram_notify import (
+    get_telegram_settings,
+    send_telegram_test,
+    set_telegram_settings,
+)
 from app.ui.components.alert_box import alert_box
 from app.ui.components.notification import notify_error, notify_success
 from app.ui.components.page_header import page_header
@@ -52,6 +57,7 @@ def layout(**kwargs: Any) -> Any:
     mode, days = "manual", 30
     max_concurrent = 10
     count_timeout, data_timeout = 300, 300
+    tg_configured, tg_username = False, ""
     if ctx is not None:
         res = get_export_retention_settings(ctx)
         if res.ok and isinstance(res.data, dict):
@@ -64,6 +70,10 @@ def layout(**kwargs: Any) -> Any:
         if t_res.ok and isinstance(t_res.data, dict):
             count_timeout = int(t_res.data.get("count_timeout_sec") or 300)
             data_timeout = int(t_res.data.get("data_timeout_sec") or 300)
+        tg_res = get_telegram_settings(ctx)
+        if tg_res.ok and isinstance(tg_res.data, dict):
+            tg_configured = bool(tg_res.data.get("configured"))
+            tg_username = str(tg_res.data.get("username") or "")
     return dmc.Box(
         [
             html.Div(
@@ -192,6 +202,46 @@ def layout(**kwargs: Any) -> Any:
                         p="md",
                         w="100%",
                     ),
+                    dmc.Paper(
+                        dmc.Stack(
+                            [
+                                dmc.Title("Telegram", order=4, size="sm"),
+                                dmc.Text(
+                                    "Khi run đối soát xong hoặc lỗi, hệ thống gửi tin "
+                                    "Telegram cho chính người chạy (task 94). Tạo bot qua "
+                                    "@BotFather rồi nhập token và username vào đây; mỗi "
+                                    "người dùng liên kết Telegram của mình ở trang Tài khoản.",
+                                    size="sm",
+                                    c="dimmed",
+                                ),
+                                dmc.PasswordInput(
+                                    id="settings-telegram-token",
+                                    label="Token bot Telegram",
+                                    placeholder="Đã lưu" if tg_configured else "Nhập token bot (từ @BotFather)",
+                                    w=320,
+                                ),
+                                dmc.TextInput(
+                                    id="settings-telegram-username",
+                                    label="Username bot",
+                                    placeholder="vd: reconhub_bot",
+                                    value=tg_username,
+                                    w=320,
+                                ),
+                                html.Div(id="settings-telegram-alert"),
+                                dmc.Button(
+                                    "Gửi thử",
+                                    id="settings-telegram-test-btn",
+                                    variant="outline",
+                                    size="sm",
+                                ),
+                            ],
+                            gap="md",
+                        ),
+                        withBorder=True,
+                        radius="sm",
+                        p="md",
+                        w="100%",
+                    ),
                 ],
             ),
             dmc.Group(
@@ -226,6 +276,8 @@ def layout(**kwargs: Any) -> Any:
     State("settings-concurrent-input", "value"),
     State("settings-count-timeout-input", "value"),
     State("settings-data-timeout-input", "value"),
+    State("settings-telegram-token", "value"),
+    State("settings-telegram-username", "value"),
     prevent_initial_call=True,
 )
 def handle_settings_save(
@@ -235,8 +287,10 @@ def handle_settings_save(
     max_concurrent: int | float | None,
     count_timeout: int | float | None,
     data_timeout: int | float | None,
+    telegram_token: str | None,
+    telegram_username: str | None,
 ) -> Any:
-    """Lưu cài đặt dọn file + song song export + timeout báo cáo (task 52, 57, 71)."""
+    """Lưu cài đặt dọn file + song song export + timeout báo cáo + Telegram (task 52, 57, 71, 94)."""
     if not n_clicks:
         raise PreventUpdate
     ctx = get_current_ctx()
@@ -267,12 +321,35 @@ def handle_settings_save(
     t_res = set_report_timeouts(ctx, count_int, data_int)
     if not t_res.ok:
         return notify_error(t_res.message or "Không lưu được timeout báo cáo.")
+    tg_res = set_telegram_settings(ctx, telegram_token, telegram_username)
+    if not tg_res.ok:
+        return notify_error(tg_res.message or "Không lưu được cài đặt Telegram.")
     data = res.data or {}
     c_data = c_res.data or {}
     t_data = t_res.data or {}
+    tg_data = tg_res.data or {}
     return notify_success(
         f"Đã lưu: chế độ {data.get('mode')}, giữ file {data.get('days')} ngày, "
         f"tối đa {c_data.get('max_concurrent')} export chạy song song, "
         f"timeout COUNT {t_data.get('count_timeout_sec')}s, "
-        f"timeout dữ liệu {t_data.get('data_timeout_sec')}s."
+        f"timeout dữ liệu {t_data.get('data_timeout_sec')}s, "
+        f"Telegram {'đã cấu hình' if tg_data.get('configured') else 'chưa cấu hình'}."
     )
+
+
+@callback(
+    Output("settings-telegram-alert", "children"),
+    Input("settings-telegram-test-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def handle_settings_telegram_test(n_clicks: int | None) -> Any:
+    """Gửi tin thử Telegram tới tài khoản đã liên kết của ADMIN (task 94)."""
+    if not n_clicks:
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    res = send_telegram_test(ctx)
+    if not res.ok:
+        return notify_error(res.message or "Không gửi được tin thử.")
+    return notify_success("Đã gửi tin thử tới Telegram của bạn.")
