@@ -170,21 +170,33 @@ def _profile_main_measure(ctx: Any, run_info: dict[str, Any] | None) -> dict[str
             # Task 88 (C): map tên trường logic → tên cột gốc trong file
             # (field.excel + field.excel_aliases) để drawer tra DATA_JSON
             # theo đúng mapping của template đang chạy, không hardcode.
+            # Follow-up (D9/D10): thêm vị trí 1-based của trường trong
+            # config["fields"] (cầu nối khi DATA_JSON chỉ còn khóa _COL_n)
+            # và map f.db → tên logic (group-by dùng tên cột DB).
             field_excel_map: dict[str, list[str]] = {}
-            for f in config.get("fields") or []:
+            field_pos_map: dict[str, int] = {}
+            field_db_map: dict[str, str] = {}
+            for idx, f in enumerate(config.get("fields") or []):
                 f_name = f.get("name")
                 if not f_name:
                     continue
+                f_name = str(f_name)
                 raw_keys = [f.get("excel"), *(f.get("excel_aliases") or [])]
                 raw_keys = [k for k in raw_keys if k]
                 if raw_keys:
-                    field_excel_map[str(f_name)] = raw_keys
+                    field_excel_map[f_name] = raw_keys
+                field_pos_map[f_name] = idx + 1
+                f_db = f.get("db")
+                if f_db:
+                    field_db_map.setdefault(str(f_db), f_name)
             return {
                 "name": chosen.get("name"),
                 "label": chosen.get("label") or chosen.get("name"),
                 "field": chosen.get("field"),
                 "group_by": list(prof.get("group_by") or []),
                 "field_excel_map": field_excel_map,
+                "field_pos_map": field_pos_map,
+                "field_db_map": field_db_map,
             }
     except Exception:
         return None
@@ -1015,6 +1027,8 @@ def render_detail_drawer(
     main_measure_field: str | None = None,
     group_by_fields: list[str] | None = None,
     field_excel_map: dict[str, list[str]] | None = None,
+    field_pos_map: dict[str, int] | None = None,
+    field_db_map: dict[str, str] | None = None,
     **kwargs: Any,
 ) -> Any:
     """Dựng nội dung Drawer chi tiết: Trạng thái đối soát, ghi chú chênh lệch, dòng Excel gốc và dòng DB."""
@@ -1195,22 +1209,46 @@ def render_detail_drawer(
         # Task 88 (C): DATA_JSON lưu theo tên cột gốc trong file (vd _COL_17),
         # nên tra khóa qua mapping của template: tên cột gốc → tên trường
         # logic → fallback cũ. Không hardcode bất cứ tên cột nào.
+        # Follow-up (D9/D10): group-by dùng tên cột DB nên resolve field qua
+        # f.name rồi f.db; khi tra tên không trúng thì thử vị trí cột
+        # _COL_<n>, nhưng chỉ khi dòng đang xét thực sự có khóa _COL_.
         # Không tìm thấy trường nào thì hiện "—", không hiện 0 gây hiểu lầm.
         excel_map = field_excel_map or {}
+        pos_map = field_pos_map or {}
+        db_map = field_db_map or {}
 
-        def _keys_for_field(logical: str | None) -> list[str]:
-            if not logical:
+        def _resolve_logical(ref: str) -> str:
+            """Khớp tên trường logic (f.name) trước, rồi tên cột DB (f.db)."""
+            if ref in pos_map or ref in excel_map:
+                return ref
+            if ref in db_map:
+                return db_map[ref]
+            return ref
+
+        def _keys_for_ref(ref: str | None, data_map: dict[str, Any]) -> list[str]:
+            if not ref:
                 return []
-            return [k for k in (excel_map.get(logical) or []) if k] + [logical]
+            logical = _resolve_logical(ref)
+            keys: list[str] = [k for k in (excel_map.get(logical) or []) if k]
+            if logical and logical not in keys:
+                keys.append(logical)
+            if ref != logical and ref not in keys:
+                keys.append(ref)
+            if logical and logical in pos_map and any(k.startswith("_COL_") for k in data_map):
+                keys.append(f"_COL_{pos_map[logical]}")
+            return keys
 
-        amount_keys = _keys_for_field(main_measure_field) + ["TOTAL_AMOUNT", "AMOUNT"]
-        invoice_keys: list[str] = []
-        for gb in group_by_fields or []:
-            invoice_keys.extend(_keys_for_field(gb))
-        invoice_keys.append("INVOICE_NO")
         xl_rows_ui = []
         for r in excel_raw:
             data_map = r.get("data") or {}
+            # D11: cột "Số hóa đơn" phải ưu tiên trường số hóa đơn (INVOICE_NO)
+            # trước các mục group-by khác (vd INVOICE_DATE), nếu không _COL_3
+            # (ngày) sẽ được chọn nhầm làm số hóa đơn.
+            amount_keys = _keys_for_ref(main_measure_field, data_map) + ["TOTAL_AMOUNT", "AMOUNT"]
+            invoice_keys = _keys_for_ref("INVOICE_NO", data_map)
+            for gb in group_by_fields or []:
+                invoice_keys.extend(_keys_for_ref(gb, data_map))
+            invoice_keys.append("INVOICE_NO")
             invoice_val = _pick_value(data_map, *invoice_keys)
             if invoice_val is None:
                 invoice_val = r.get("inv_no") or key_text
@@ -1942,6 +1980,8 @@ def handle_row_click_open_drawer(
         main_measure_field=main_measure["field"] if main_measure else None,
         group_by_fields=main_measure["group_by"] if main_measure else None,
         field_excel_map=main_measure["field_excel_map"] if main_measure else None,
+        field_pos_map=main_measure["field_pos_map"] if main_measure else None,
+        field_db_map=main_measure["field_db_map"] if main_measure else None,
     )
     return True, drawer_ui
 

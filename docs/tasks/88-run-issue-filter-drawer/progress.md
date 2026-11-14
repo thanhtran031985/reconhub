@@ -23,5 +23,25 @@
   Full suite: 1974 passed, 6 skipped (base 1961 + 13 test mới).
 - [x] Bước 6 — Parent review độc lập: diff đúng plan (D7/D8 đã ghi); targeted 75
   xanh; typecheck sạch; lint chỉ còn I001 có sẵn; live check PASS (S0–S5, không
-  cuộn, 0 lỗi JS); full suite 1974 passed, 6 skipped. Commit, xuất patch,
-  verify `git am` tại `bf2eafd`, giao patch.
+  cuộn, 0 lỗi JS); full suite 1974 passed, 6 skipped. Commit `f0edcc8`, xuất
+  patch `~/workspace/reconhub-task88.patch` (1025 dòng), verify `git am` tại
+  `bf2eafd`, giao patch. User đã áp (HEAD 949a4a5).
+- [x] Follow-up 14/11/2026 — Chẩn đoán: trên app thật, template khác hiện đúng
+  Thành tiền/Số hóa đơn (nhóm C26TBD0157530: 1.620.000 khớp tổng), nhưng BILL_VTOS
+  vẫn "—" vì `DATA_JSON` khóa `_COL_n` không giao với tên trong config; cầu nối
+  là vị trí cột (khớp tuyệt đối 24/24). Người dùng duyệt "làm luôn".
+- [x] Follow-up F1 — Test đỏ trước (map vị trí + map DB, drawer `_COL_n`, không hồi quy).
+- [x] Follow-up F2 — Triển khai fallback vị trí + tra qua `f.db` (D9/D10; thêm D11:
+  cột Số hóa đơn ưu tiên trường INVOICE_NO trước các mục group-by khác, khôi phục
+  thứ tự code trước task 88).
+- [x] Follow-up F3 — Targeted 80 xanh (5 test mới); typecheck sạch; lint chỉ còn
+  I001 có sẵn; live check ~/workspace/check-88f-followup.py (cổng 8145): PASS —
+  S0–S4 hồi quy, S5 config BILL_VTOS v4 thật → Thành tiền 493.500.000 /
+  131.000.000 + Số HĐ chỉ mã (không hiện ngày _COL_3), S6 run 1041 tra tên
+  logic vẫn đúng; không cuộn ở 1366×768 + 1440×900, 0 lỗi JS.
+  Full suite: 1979 passed, 6 skipped (base 1974 + 5 test mới).
+- [x] Follow-up F3 — Parent review độc lập: diff đúng plan (D11 đã ghi); targeted 80
+  xanh; typecheck sạch; lint chỉ còn I001 có sẵn; live check PASS (S0–S6, không
+  cuộn, 0 lỗi JS); full suite 1979 passed, 6 skipped. Commit, xuất patch
+  `~/workspace/reconhub-task88-followup.patch`, verify `git am` tại `f0edcc8`,
+  giao patch.

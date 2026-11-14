@@ -1323,3 +1323,194 @@ class TestDrawerRawExcelFieldMap88:
             {"INVOICE_NO": "C26TBD0100011", "TONG_TIEN": 1425000},
         )
         assert "1.425.000" in str(drawer)
+
+
+class TestDrawerRawExcelFieldPos88f:
+    """Follow-up task 88 (D9/D10): drawer tra khóa dòng Excel gốc qua f.db +
+    fallback vị trí _COL_<n> khi DATA_JSON lưu theo tên cột gốc."""
+
+    # Config fields thật của template BILL_VTOS v4 (run #1040), đúng thứ tự cột file.
+    BILL_VTOS_FIELDS: list[dict[str, Any]] = [
+        {"name": "STT", "excel": "STT"},
+        {"name": "SO_HD", "excel": "Số HĐ", "db": "INVOICE_NO"},
+        {"name": "NGAY_HD", "excel": "Ngày HĐ", "db": "INVOICE_DATE"},
+        {"name": "SO_PTC", "excel": "Số PTC"},
+        {"name": "SO_LENH", "excel": "Số Lệnh"},
+        {"name": "SO_PINCODE", "excel": "Số PinCode"},
+        {"name": "TAU_CHUYEN", "excel": "Tàu Chuyến"},
+        {"name": "MA_BIEU_CUOC", "excel": "Mã Biểu Cước"},
+        {"name": "DIEN_GIAI", "excel": "Diễn Giải"},
+        {"name": "HANG_KT", "excel": "Hãng KT"},
+        {"name": "KICH_CO", "excel": "Kích Cỡ"},
+        {"name": "SO_LUONG", "excel": "Số Lượng"},
+        {"name": "THANH_TIEN", "excel": "Thành Tiền"},
+        {"name": "CHIET_KHAU", "excel": "Chiết Khấu"},
+        {"name": "THUE", "excel": "% Thuế"},
+        {"name": "TIEN_THUE", "excel": "Tiền Thuế"},
+        {"name": "TONG_TIEN", "excel": "Tổng Tiền"},
+        {"name": "LOAI_HD", "excel": "Loại HĐ"},
+        {"name": "HTTT", "excel": "HTTT"},
+        {"name": "DTTT", "excel": "ĐTTT"},
+        {"name": "MST", "excel": "MST"},
+        {"name": "LAP_BOI", "excel": "Lập Bởi"},
+        {"name": "DEPOT", "excel": "Depot"},
+        {"name": "GHI_CHU", "excel": "Ghi Chú"},
+    ]
+
+    # DATA_JSON thật 2 dòng Excel gốc của nhóm C26TBD0100011 (run #1040).
+    ROW_4104: dict[str, Any] = {
+        "Báo cáo doanh thu hoá đơn thu ngay": "4102",
+        "_COL_2": "C26TBD0100011",
+        "_COL_3": "29/04/2026 11:00:45",
+        "_COL_4": "DR/2026/0008908",
+        "_COL_5": None,
+        "_COL_6": "TOS26042917307",
+        "_COL_7": None,
+        "_COL_8": "TRUCK",
+        "_COL_9": "Phí vận chuyển cont",
+        "_COL_10": None,
+        "_COL_11": "40",
+        "_COL_12": "329",
+        "_COL_13": "456944444",
+        "_COL_14": "0",
+        "_COL_15": "8",
+        "_COL_16": "36555556",
+        "_COL_17": "493500000",
+        "_COL_18": "HĐ gốc",
+        "_COL_19": "CK",
+        "_COL_20": "CÔNG TY TNHH XUẤT NHẬP KHẨU AMAZON",
+        "_COL_21": "3702728821",
+        "_COL_22": "LEPT",
+        "_COL_23": "DBP",
+        "_COL_24": None,
+    }
+    ROW_4105: dict[str, Any] = dict(ROW_4104)
+    ROW_4105.update(
+        {
+            "Báo cáo doanh thu hoá đơn thu ngay": "4103",
+            "_COL_12": "131",
+            "_COL_13": "121296296",
+            "_COL_16": "9703704",
+            "_COL_17": "131000000",
+        }
+    )
+
+    def _bill_vtos_maps(self) -> dict[str, Any]:
+        return {
+            "field_excel_map": {
+                "TONG_TIEN": ["Tổng Tiền"],
+                "SO_HD": ["Số HĐ"],
+                "NGAY_HD": ["Ngày HĐ"],
+            },
+            "field_pos_map": {"TONG_TIEN": 17, "SO_HD": 2, "NGAY_HD": 3},
+            "field_db_map": {"INVOICE_NO": "SO_HD", "INVOICE_DATE": "NGAY_HD"},
+        }
+
+    def _drawer_bill_vtos(self, rows: list[dict[str, Any]], **maps: Any) -> Any:
+        return render_detail_drawer(
+            row_detail={
+                # key_text cố ý khác mã hóa đơn để test bắt được trường hợp
+                # drawer rơi về key_text thay vì tra ra số hóa đơn.
+                "key_text": "GROUP-88F",
+                "status": "MISSING_IN_DB",
+                "row_no": 1,
+                "run_id": 1040,
+                "issue": {},
+                "excel_raw_rows": [
+                    {"excel_row_no": 4104 + i, "data": data} for i, data in enumerate(rows)
+                ],
+                "excel": {},
+                "db": {},
+                "diff": {},
+            },
+            reasons_list=[],
+            main_measure_field="TONG_TIEN",
+            group_by_fields=["INVOICE_DATE", "INVOICE_NO"],
+            **maps,
+        )
+
+    def test_profile_main_measure_returns_field_pos_and_db_maps(self, monkeypatch: Any) -> None:
+        """_profile_main_measure trả thêm map vị trí + map f.db → tên logic."""
+        from app.schemas.errors import ServiceResult
+        from app.ui.pages.run_result import _profile_main_measure
+
+        monkeypatch.setattr(
+            "app.ui.pages.run_result.get_template",
+            lambda *a, **kw: ServiceResult(
+                ok=True,
+                data={
+                    "config": {
+                        "fields": self.BILL_VTOS_FIELDS,
+                        "profiles": [
+                            {
+                                "code": "BY_INVOICE_VTOS",
+                                "group_by": ["INVOICE_DATE", "INVOICE_NO"],
+                                "main_measure": "TOTAL_AMOUNT",
+                                "measures": [{"name": "TOTAL_AMOUNT", "label": "Tổng tiền", "field": "TONG_TIEN"}],
+                            }
+                        ],
+                    }
+                },
+            ),
+        )
+        ctx = Ctx(user_id=1, username="admin", full_name="Admin", roles=[Role.ADMIN])
+        res = _profile_main_measure(
+            ctx, {"profile_code": "BY_INVOICE_VTOS", "template_id": 7, "template_version": 4}
+        )
+        assert res is not None
+        assert res["field"] == "TONG_TIEN"
+        assert res["field_pos_map"]["TONG_TIEN"] == 17
+        assert res["field_pos_map"]["SO_HD"] == 2
+        assert res["field_pos_map"]["NGAY_HD"] == 3
+        assert res["field_pos_map"]["STT"] == 1
+        assert res["field_db_map"] == {"INVOICE_NO": "SO_HD", "INVOICE_DATE": "NGAY_HD"}
+        assert res["field_excel_map"]["TONG_TIEN"] == ["Tổng Tiền"]
+
+    def test_raw_excel_col_keys_bill_vtos_real_shape(self) -> None:
+        """DATA_JSON _COL_n (BILL_VTOS v4 thật): Thành tiền đúng số, Số HĐ chỉ mã.
+
+        Group-by dùng tên cột DB nên phải tra qua f.db; amount tra theo vị trí
+        _COL_17; invoice phải là _COL_2 (số hóa đơn), không phải _COL_3 (ngày).
+        """
+        drawer = self._drawer_bill_vtos([self.ROW_4104, self.ROW_4105], **self._bill_vtos_maps())
+        s = str(drawer)
+        assert "493.500.000" in s
+        assert "131.000.000" in s
+        assert "C26TBD0100011" in s
+        assert "29/04/2026" not in s
+
+    def test_raw_excel_no_col_keys_ignores_position(self) -> None:
+        """D10: dòng không có khóa _COL_ nào thì KHÔNG dùng vị trí.
+
+        Thứ tự fields bị xáo (TONG_TIEN gán sai vị trí 2) nhưng DATA_JSON không
+        có khóa _COL_ nào → không hiện sai số, Thành tiền vẫn "—".
+        """
+        drawer = self._drawer_bill_vtos(
+            [{"INVOICE_NO": "C26TBD0100011", "RANDOM_COL": 999999}],
+            field_excel_map={"TONG_TIEN": ["Tổng Tiền"], "SO_HD": ["Số HĐ"]},
+            field_pos_map={"TONG_TIEN": 2, "SO_HD": 17},
+            field_db_map={"INVOICE_NO": "SO_HD"},
+        )
+        s = str(drawer)
+        assert "999.999" not in s
+        assert "C26TBD0100011" in s
+
+    def test_raw_excel_vietnamese_excel_names_still_work(self) -> None:
+        """Không hồi quy: DATA_JSON lưu theo tên cột gốc tiếng Việt thì tra tên được."""
+        drawer = self._drawer_bill_vtos(
+            [{"Số HĐ": "C26TBD0100011", "Ngày HĐ": "29/04/2026", "Tổng Tiền": 500000}],
+            **self._bill_vtos_maps(),
+        )
+        s = str(drawer)
+        assert "500.000" in s
+        assert "C26TBD0100011" in s
+
+    def test_raw_excel_logical_names_via_db(self) -> None:
+        """Group-by INVOICE_NO tra qua f.db → field SO_HD → khóa tên logic SO_HD."""
+        drawer = self._drawer_bill_vtos(
+            [{"SO_HD": "C26TBD0100011", "NGAY_HD": "29/04/2026", "TONG_TIEN": 750000}],
+            **self._bill_vtos_maps(),
+        )
+        s = str(drawer)
+        assert "750.000" in s
+        assert "C26TBD0100011" in s

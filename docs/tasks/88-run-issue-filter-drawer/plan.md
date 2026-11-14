@@ -122,3 +122,48 @@ File: `app/ui/pages/run_result.py` (hàm `render_detail_drawer`, ~dòng 1137-116
   task, KHÔNG `git add -A` vì cây còn 2 file progress.md đã sửa từ trước) →
   xuất patch `~/workspace/reconhub-task88.patch` → verify `git am` trên worktree
   sạch tại `bf2eafd` → cập nhật MEMORY.md → giao patch kèm lệnh áp + kiểm chứng.
+
+## Follow-up (14/11/2026, người dùng duyệt) — fallback vị trí `_COL_n` + tra qua `f.db`
+
+Nhánh: `feat/88-run-issue-filter-drawer-followup`, từ `f0edcc8`. Patch áp SAU
+patch 88. Không db-migrate; chỉ khởi động lại app.
+
+### F1 — Test đỏ trước
+
+- `test_profile_main_measure_returns_field_maps`: `_profile_main_measure` trả
+  thêm map vị trí (`field_pos_map`: tên logic → vị trí 1-based trong
+  `config["fields"]`) và map DB (`field_db_map`: `f.db` → tên logic); các map
+  rỗng khi không lấy được config.
+- Drawer raw rows với `DATA_JSON` khóa `_COL_n` (template BILL_VTOS v4 thật:
+  measure field `TONG_TIEN`, group-by `INVOICE_DATE`/`INVOICE_NO`, fields
+  `TONG_TIEN`→`Tổng Tiền` vị trí 17, `SO_HD` (`db=INVOICE_NO`) vị trí 2,
+  `NGAY_HD` (`db=INVOICE_DATE`) vị trí 3): Thành tiền hiện đúng số, Số hóa đơn
+  chỉ hiện số hóa đơn.
+- Không hồi quy: template tra tên được (DATA_JSON khóa tên logic hoặc tên cột
+  gốc) vẫn hiển thị đúng như trước; dòng không có khóa `_COL_` nào thì KHÔNG
+  dùng vị trí (test: xáo thứ tự fields mà không có `_COL_` → vẫn "—", không
+  hiện sai số).
+
+### F2 — Triển khai
+
+File: `app/ui/pages/run_result.py` (hàm `_profile_main_measure`,
+`render_detail_drawer`).
+1. `_profile_main_measure` trả thêm `field_pos_map` và `field_db_map` (cùng
+   tính chất nuốt exception → None như hiện tại; đặt tên/shape cuối do người
+   triển khai chọn, ghi lại nếu khác plan).
+2. `render_detail_drawer`: khi dựng khóa cho measure field và từng mục group-by,
+   resolve field qua `f.name` rồi `f.db` (D9); thứ tự khóa theo D10, ứng viên
+   vị trí chỉ thêm khi dòng `DATA_JSON` đang xét có khóa `_COL_`.
+3. `handle_row_click_open_drawer` truyền các map mới vào drawer như cách đã
+   truyền `field_excel_map`.
+4. Không đụng filter (A), nút drawer (B), lưới, phần DB, `header_row`.
+
+### F3 — Kiểm tra
+
+Targeted tests xanh; typecheck/lint sạch; live check mở rộng script
+`~/workspace/check-88-run-issue-filter.py` (cổng 8145, seed BILL_VTOS v4 thật
+như F1): drawer nhóm `2026-04-29 11:00:45 | C26TBD0100011` hiện Thành tiền
+493.500.000 / 131.000.000 và Số hóa đơn `C26TBD0100011`; template tra tên
+được vẫn đúng; không cuộn trang, 0 lỗi JS. Full suite xanh.
+Sau đó commit, xuất patch `~/workspace/reconhub-task88-followup.patch`, verify
+`git am` tại `f0edcc8`, cập nhật MEMORY.md, giao patch.

@@ -45,6 +45,48 @@ Cùng hành vi với ô tìm kiếm và tab trạng thái trong `handle_filter_o
 đổi filter là tập kết quả khác nên phải về trang 1, tránh ở trang N mà kết quả
 mới không đủ dòng.
 
+## D9 — Tra trường group-by qua cả `f.db` (follow-up 14/11/2026)
+
+Group-by trong profile dùng **tên cột DB** (vd `INVOICE_NO`, `INVOICE_DATE`),
+trong khi `fields` đặt **tên logic** (`SO_HD`, `NGAY_HD`). Muốn tra cột Excel
+gốc của một mục group-by phải map qua field: khớp `f.name` trước, rồi `f.db`
+(`FieldSpec.db`, xem `app/schemas/template_config.py:65`). Không khớp field nào
+thì giữ nguyên chuỗi group-by làm khóa dự phòng như cũ. Áp dụng cho cả việc
+tìm tên cột gốc lẫn vị trí cột (D10).
+
+## D10 — Fallback vị trí `_COL_<n>` (follow-up 14/11/2026)
+
+Bằng chứng thật (run #1040, template BILL_VTOS v4): `DATA_JSON` lưu theo
+`_COL_n` trong khi config map tên logic sang tên cột tiếng Việt (`TONG_TIEN` →
+`Tổng Tiền`, `SO_HD` → `Số HĐ`) — hai bộ tên không giao nhau nên tra tên kiểu
+nào cũng trượt. Cầu nối duy nhất là vị trí cột: đối chiếu 24 cột khớp tuyệt
+đối (cột 2 = Số HĐ, 3 = Ngày HĐ, 13 = Thành Tiền, 16 = Tiền Thuế,
+17 = Tổng Tiền), đúng thứ tự `fields` trong config.
+Quy tắc: khi tra tên (excel/aliases/logic/db) đều không trúng, thử thêm
+`_COL_<vị trí 1-based của trường trong config["fields"]>` — cùng quy tắc reader
+đặt tên cho ô tiêu đề trống (`app/engine/reader.py:123`). **Rào chắn:** chỉ thêm
+ứng viên vị trí khi dòng `DATA_JSON` đang xét thực sự chứa khóa `_COL_`
+(bằng chứng file bị mất tên cột); nếu không có khóa `_COL_` nào thì không dùng
+vị trí, tránh hiện sai số khi thứ tự fields lệch với file. Thứ tự khóa:
+excel/aliases → tên logic (hoặc tên group-by) → `_COL_<n>` → fallback cũ
+(`TOTAL_AMOUNT`/`AMOUNT`/`INVOICE_NO`). Áp dụng cho cả amount (measure field)
+và invoice (group-by fields). Không hardcode bất cứ tên cột hay vị trí cụ thể
+nào; trường dẫn xuất (`config["derived"]`, không có excel/vị trí) chỉ tra theo
+tên logic như cũ.
+
+## D11 — Cột "Số hóa đơn" ưu tiên trường số hóa đơn trước các mục group-by khác
+
+Khi triển khai follow-up mới thấy: group-by của BILL_VTOS là
+`[INVOICE_DATE, INVOICE_NO]` — nếu dựng khóa invoice theo đúng thứ tự group-by
+thì `_COL_3` (ngày) sẽ được chọn trước `_COL_2` (số hóa đơn) và cột "Số hóa
+đơn" hiện nhầm ngày. Sửa: khóa invoice resolve ref `"INVOICE_NO"` trước (qua
+`f.name`/`f.db` như D9), rồi mới tới từng mục group-by theo thứ tự. Đây là
+khôi phục thứ tự của code trước task 88 (`["INVOICE_NO"] + group_by`), không
+phải hardcode case riêng: cột này vốn mang ngữ nghĩa số hóa đơn, và
+`"INVOICE_NO"` đã là fallback cũ trong code. Test hồi quy:
+`test_raw_excel_col_keys_bill_vtos_real_shape` assert `"29/04/2026"` không xuất
+hiện trong drawer.
+
 ## D7 — `render_result_grid` nhận options filter đã hoàn chỉnh, không bọc lại
 
 Lúc triển khai, `layout()`/`handle_filter_or_tab_change` truyền
