@@ -2006,10 +2006,10 @@ def handle_save_issue_from_drawer(
     note_val: str | None = None,
     meta: dict[str, Any] | str | None = None,
     **kwargs: Any,
-) -> tuple[Any, int]:
+) -> tuple[Any, Any]:
     """Lưu trạng thái đối soát và ghi chú nguyên nhân chênh lệch vào database."""
     if not n_clicks or not meta:
-        return dash.no_update, 0
+        return dash.no_update, dash.no_update
 
     if isinstance(meta, str):
         try:
@@ -2018,16 +2018,16 @@ def handle_save_issue_from_drawer(
             meta = {}
 
     if not isinstance(meta, dict):
-        return dash.no_update, 0
+        return dash.no_update, dash.no_update
 
     ctx = get_current_ctx()
     if not ctx:
-        return alert_box("Bạn chưa đăng nhập.", tone="crit"), 0
+        return alert_box("Bạn chưa đăng nhập.", tone="crit"), dash.no_update
 
     r_id = int(meta.get("run_id", 0))
     r_no = int(meta.get("row_no", 0))
     if r_id <= 0 or r_no <= 0:
-        return alert_box("Thông tin dòng không hợp lệ.", tone="crit"), 0
+        return alert_box("Thông tin dòng không hợp lệ.", tone="crit"), dash.no_update
 
     r_code = reason_code.strip() if reason_code and str(reason_code).strip() else None
     note_clean = note_val.strip() if note_val and str(note_val).strip() else None
@@ -2042,7 +2042,7 @@ def handle_save_issue_from_drawer(
     )
 
     if not res.ok:
-        return alert_box(res.message or "Lỗi khi lưu thông tin đối soát.", tone="crit"), 0
+        return alert_box(res.message or "Lỗi khi lưu thông tin đối soát.", tone="crit"), dash.no_update
 
     feedback = dmc.Alert(
         "Đã lưu trạng thái đối soát và ghi chú thành công.",

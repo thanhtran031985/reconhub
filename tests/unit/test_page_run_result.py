@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+import dash
 import pytest
 from sqlalchemy import create_engine
 
@@ -690,7 +691,8 @@ def test_handle_save_issue_from_drawer(run_result_env, monkeypatch) -> None:
 
     # 1. Test when no click or no meta
     fb, trig = handle_save_issue_from_drawer(None, "OPEN", None, None, None)
-    assert trig == 0
+    # Task 90: nhánh chặn không được kích hoạt vẽ lại grid (trigger Store).
+    assert trig is dash.no_update
 
     # 2. Test saving with valid meta
     meta = {"run_id": 1042, "row_no": 1}
@@ -717,6 +719,40 @@ def test_handle_save_issue_from_drawer(run_result_env, monkeypatch) -> None:
     )
     assert trig == 2
     assert "Đã lưu trạng thái đối soát" in str(fb)
+
+
+def test_handle_save_issue_from_drawer_no_trigger_on_failure(run_result_env, monkeypatch) -> None:
+    """Task 90: các nhánh lỗi đều trả no_update cho trigger Store (không vẽ lại grid thừa)."""
+    from app.schemas.errors import ServiceResult
+    from app.ui.pages.run_result import handle_save_issue_from_drawer
+
+    ctx = Ctx(user_id=1, username="operator", full_name="Operator", roles=[Role.OPERATOR])
+    monkeypatch.setattr("app.ui.pages.run_result.get_current_ctx", lambda: ctx)
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.upsert_issue_for_row", lambda *a, **kw: ServiceResult(ok=True, data={"issue_id": 1})
+    )
+
+    # meta không phải dict (và không phải str) -> chặn, không trigger.
+    _fb, trig = handle_save_issue_from_drawer(1, "OPEN", None, None, ["not", "a", "dict"])
+    assert trig is dash.no_update
+
+    # Chưa đăng nhập -> alert, không trigger.
+    monkeypatch.setattr("app.ui.pages.run_result.get_current_ctx", lambda: None)
+    _fb, trig = handle_save_issue_from_drawer(1, "OPEN", None, None, {"run_id": 1042, "row_no": 1})
+    assert trig is dash.no_update
+    monkeypatch.setattr("app.ui.pages.run_result.get_current_ctx", lambda: ctx)
+
+    # run/row không hợp lệ -> alert, không trigger.
+    _fb, trig = handle_save_issue_from_drawer(1, "OPEN", None, None, {"run_id": 0, "row_no": 0})
+    assert trig is dash.no_update
+
+    # upsert lỗi -> alert, không trigger.
+    monkeypatch.setattr(
+        "app.ui.pages.run_result.upsert_issue_for_row",
+        lambda *a, **kw: ServiceResult(ok=False, message="Lỗi test"),
+    )
+    _fb, trig = handle_save_issue_from_drawer(1, "OPEN", None, None, {"run_id": 1042, "row_no": 1})
+    assert trig is dash.no_update
 
 
 def test_handle_export_excel(run_result_env, monkeypatch, tmp_path) -> None:
