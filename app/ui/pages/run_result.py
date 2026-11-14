@@ -232,6 +232,84 @@ def _resolve_grid_measures(
     return fallback
 
 
+def _flow_context(ctx: Any, run_info: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Trích dữ liệu cấu hình cho tab 'Luồng xử lý' từ template đã chạy.
+
+    Task 93 (D7): helper MỚI, không sửa `_profile_main_measure`. Gọi
+    `get_template` đúng 1 lần, trích `db_source` (bảng, nguồn) và profile
+    đã chạy (group_by, measures, measure chính + compare/tolerance/round).
+    Lỗi hoặc thiếu dữ liệu thì trả None; nơi gọi dự phòng "—" thay vì raise.
+    """
+    run_info = run_info or {}
+    profile_code = str(run_info.get("profile_code") or "")
+    template_id = run_info.get("template_id")
+    template_version = run_info.get("template_version")
+    if ctx is None or not template_id or not profile_code:
+        return None
+    try:
+        tmpl_res = get_template(ctx, template_id=template_id, version=template_version)
+        if not tmpl_res.ok or not tmpl_res.data:
+            return None
+        config = tmpl_res.data.get("config") or {}
+        if not isinstance(config, dict):
+            return None
+        db_spec = config.get("db_source") or {}
+        if not isinstance(db_spec, dict):
+            db_spec = {}
+        profile = next(
+            (
+                p
+                for p in (config.get("profiles") or [])
+                if isinstance(p, dict) and str(p.get("code") or "") == profile_code
+            ),
+            None,
+        )
+        if profile is None:
+            return None
+        measures: list[dict[str, Any]] = []
+        for m in profile.get("measures") or []:
+            if not isinstance(m, dict) or not m.get("name"):
+                continue
+            measures.append(
+                {
+                    "name": str(m.get("name")),
+                    "label": str(m.get("label") or m.get("name")),
+                    "agg": str(m.get("agg") or ""),
+                    "field": m.get("field"),
+                    "compare": str(m.get("compare") or "exact"),
+                    "tolerance": m.get("tolerance"),
+                    "round": m.get("round"),
+                }
+            )
+        if not measures:
+            return None
+        main_name = profile.get("main_measure")
+        main = next((m for m in measures if m["name"] == main_name), measures[0])
+        filter_params: list[str] = []
+        for flt in db_spec.get("filters") or []:
+            if isinstance(flt, dict) and flt.get("param"):
+                filter_params.append(str(flt["param"]))
+        return {
+            "template_code": str(run_info.get("template_code") or ""),
+            "template_name": str(run_info.get("template_name") or ""),
+            "template_version": template_version,
+            "profile_code": profile_code,
+            "profile_name": str(profile.get("name") or profile_code),
+            "db_table": str(db_spec.get("table")) if db_spec.get("table") else None,
+            "db_source": str(db_spec.get("source_id")) if db_spec.get("source_id") else None,
+            "db_kind": str(db_spec.get("kind") or "table"),
+            "db_sql": str(db_spec.get("sql")) if db_spec.get("sql") else None,
+            "pushdown": bool(db_spec.get("pushdown_aggregate", True)),
+            "group_by": [str(g) for g in (profile.get("group_by") or [])],
+            "measures": measures,
+            "main_measure": main,
+            "field_count": len(config.get("fields") or []),
+            "filter_params": filter_params,
+        }
+    except Exception:
+        return None
+
+
 def fmt_size(bytes_val: int | None) -> str:
     """Định dạng dung lượng file theo chuẩn KB/MB."""
     if not bytes_val or bytes_val <= 0:
@@ -1011,6 +1089,390 @@ def render_sql_tab_content(run_info: dict[str, Any], summary: dict[str, Any]) ->
     )
 
 
+def render_flow_tab_content(
+    run_info: dict[str, Any],
+    summary: dict[str, Any],
+    initial_rows: list[dict[str, Any]] | None,
+    flow_ctx: dict[str, Any] | None = None,
+) -> Any:
+    """Dựng nội dung Tab 'Luồng xử lý' (task 93).
+
+    Sơ đồ 4 chặng (component Dash) + 4 thẻ chi tiết từng bước (kèm tên
+    hàm Python xử lý) + ô ví dụ nhóm lệch nhất. Mọi số liệu lấy từ run
+    đang mở (run_info/summary/config template); thiếu thì hiện "—".
+    Mỗi khối đều bọc try/except để lỗi chỉ nằm trong tab này (D10).
+    `flow_ctx` do `layout()` tính 1 lần bằng `_flow_context` (D12).
+    """
+    run_info = run_info or {}
+    summary = summary or {}
+    initial_rows = list(initial_rows or [])
+    flow_ctx = flow_ctx if isinstance(flow_ctx, dict) else None
+
+    def _count(val: Any) -> str:
+        try:
+            return f"{int(val):,}".replace(",", ".")
+        except (TypeError, ValueError):
+            return "—"
+
+    def _int_or_none(val: Any) -> int | None:
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return None
+
+    filename = str(run_info.get("filename") or "—")
+    template_code = str(run_info.get("template_code") or "—")
+    template_version = run_info.get("template_version")
+    version_txt = f"v{template_version}" if template_version else "—"
+    profile_code = str(run_info.get("profile_code") or "—")
+
+    db_table = (flow_ctx or {}).get("db_table") or "—"
+    db_source = (flow_ctx or {}).get("db_source")
+    if not db_source:
+        ds_id = run_info.get("data_source_id")
+        db_source = f"Data Source #{ds_id}" if ds_id else "—"
+    pushdown = (flow_ctx or {}).get("pushdown")
+    group_by = list((flow_ctx or {}).get("group_by") or [])
+    group_by_txt = ", ".join(group_by) if group_by else "—"
+    filter_params = list((flow_ctx or {}).get("filter_params") or [])
+    filter_txt = ", ".join(filter_params) if filter_params else "—"
+    main_measure = (flow_ctx or {}).get("main_measure") or {}
+    main_name = str(main_measure.get("name") or "—")
+    main_compare = str(main_measure.get("compare") or "—")
+    main_tol = main_measure.get("tolerance")
+    rule_txt = f"So {main_name} · {main_compare}"
+    if main_tol is not None:
+        rule_txt += f" · sai số {main_tol}"
+
+    c_matched = _int_or_none(summary.get("CNT_MATCHED"))
+    c_mismatch = _int_or_none(summary.get("CNT_MISMATCH", summary.get("CNT_DIFF")))
+    c_mis_db = _int_or_none(summary.get("CNT_MISSING_IN_DB", summary.get("CNT_MISSING_DB")))
+    c_mis_xl = _int_or_none(summary.get("CNT_MISSING_IN_EXCEL", summary.get("CNT_MISSING_EXCEL")))
+    c_incon = _int_or_none(summary.get("CNT_INCONSISTENT"))
+    c_dup = _int_or_none(summary.get("CNT_DUPLICATE"))
+    known_counts = [c for c in (c_matched, c_mismatch, c_mis_db, c_mis_xl, c_incon, c_dup) if c is not None]
+    total_groups = sum(known_counts) if known_counts else None
+
+    def _show(val: int | None) -> str:
+        return _count(val) if val is not None else "—"
+
+    children: list[Any] = []
+
+    # Alert lỗi khi run FAILED (mirror tab SQL, task 67 D3).
+    try:
+        if str(run_info.get("status")) == "FAILED" and run_info.get("error_msg"):
+            children.append(
+                alert_box(
+                    title="Chi tiết lỗi",
+                    message=str(run_info.get("error_msg")),
+                    tone="crit",
+                )
+            )
+    except Exception:
+        pass
+
+    # Giới thiệu + điểm vào (tên hàm là text tĩnh, D6).
+    children.append(
+        dmc.Text(
+            "Luồng xử lý của run này theo đúng template đang chạy. Các bước "
+            "và số liệu lấy từ chính run này — đổi template hay profile thì "
+            "sơ đồ đổi theo.",
+            size="sm",
+        )
+    )
+    children.append(
+        dmc.Group(
+            [
+                dmc.Text("Template:", size="sm", c="dimmed"),
+                dmc.Code(f"{template_code} ({version_txt})"),
+                dmc.Text("Profile:", size="sm", c="dimmed"),
+                dmc.Code(profile_code),
+            ],
+            gap="xs",
+        )
+    )
+    children.append(
+        dmc.Text(
+            [
+                "Điểm vào: ",
+                dmc.Code("run_executor.execute_run"),
+                " → ",
+                dmc.Code("pipeline.run_pipeline"),
+                " (5 giai đoạn READ → FILTER → FETCH_DB → COMPARE → PERSIST)",
+            ],
+            size="sm",
+        )
+    )
+
+    # Sơ đồ 4 chặng (D2): hộp Paper nối bằng mũi tên text.
+    try:
+        arrow = dmc.Text("→", size="lg", c="dimmed")
+
+        def _stage(title: str, lines: list[str]) -> Any:
+            return dmc.Paper(
+                p="sm",
+                withBorder=True,
+                radius="sm",
+                style={"flex": 1},
+                children=dmc.Stack(
+                    gap="xs",
+                    children=[dmc.Text(title, fw=600, size="sm")]
+                    + [dmc.Text(ln, size="xs", c="dimmed") for ln in lines],
+                ),
+            )
+
+        children.append(
+            dmc.Group(
+                [
+                    _stage(
+                        "Nguồn & lấy dữ liệu",
+                        [f"File: {filename}", f"Bảng: {db_table}", f"Nguồn: {db_source}"],
+                    ),
+                    arrow,
+                    _stage(
+                        "Chuẩn hóa & gộp",
+                        [
+                            f"Excel: {_show(_int_or_none(summary.get('EXCEL_ROWS_READ')))} dòng → "
+                            f"{_show(_int_or_none(summary.get('EXCEL_GROUPS')))} nhóm",
+                            f"DB: {_show(_int_or_none(summary.get('DB_ROWS')))} bản ghi → "
+                            f"{_show(_int_or_none(summary.get('DB_GROUPS')))} nhóm",
+                            f"Gộp theo: {group_by_txt}",
+                        ],
+                    ),
+                    arrow,
+                    _stage(
+                        "Ghép & kết luận",
+                        [
+                            f"{_show(total_groups)} nhóm · Khớp {_show(c_matched)} · Lệch {_show(c_mismatch)}",
+                            f"Thiếu DB {_show(c_mis_db)} · Thiếu Excel {_show(c_mis_xl)}",
+                            rule_txt,
+                        ],
+                    ),
+                    arrow,
+                    _stage(
+                        "Kết quả",
+                        [
+                            f"{_show(total_groups)} dòng kết quả",
+                            "Lưu vào RECON_RESULT_ROW",
+                            "Xem chi tiết ở tab Kết quả",
+                        ],
+                    ),
+                ],
+                gap="xs",
+                align="stretch",
+            )
+        )
+    except Exception:
+        children.append(alert_box("Không hiển thị được sơ đồ luồng xử lý.", tone="warn"))
+
+    # 4 thẻ chi tiết từng bước (D6: tên hàm là text tĩnh).
+    try:
+        pushdown_txt = (
+            "Đẩy phép gộp xuống DB (pushdown GROUP BY)"
+            if pushdown is True
+            else ("Không đẩy phép gộp xuống DB" if pushdown is False else "—")
+        )
+
+        def _step_card(step_no: str, title: str, bullets: list[str], fns: list[Any]) -> Any:
+            return dmc.Paper(
+                p="sm",
+                withBorder=True,
+                radius="sm",
+                children=dmc.Stack(
+                    gap="xs",
+                    children=[
+                        dmc.Text(step_no, size="xs", c="dimmed", fw=700),
+                        dmc.Text(title, fw=600, size="sm"),
+                    ]
+                    + [dmc.Text(f"• {b}", size="xs") for b in bullets]
+                    + [dmc.Divider(), dmc.Stack(gap="xs", children=fns)],
+                ),
+            )
+
+        def _fn_line(*parts: Any) -> Any:
+            return dmc.Text(list(parts), size="xs")
+
+        children.append(
+            dmc.SimpleGrid(
+                cols={"base": 1, "sm": 2, "lg": 4},
+                spacing="md",
+                children=[
+                    _step_card(
+                        "BƯỚC 1",
+                        "Nguồn & lấy dữ liệu",
+                        [
+                            f"File Excel: {filename}",
+                            f"Bảng: {db_table} ({db_source})",
+                            f"Lọc: {filter_txt}",
+                            pushdown_txt,
+                        ],
+                        [
+                            _fn_line(
+                                "Excel: ",
+                                dmc.Code("reader.read_sheets"),
+                                " → ",
+                                dmc.Code("mapping.resolve_columns"),
+                            ),
+                            _fn_line(
+                                "DB: ",
+                                dmc.Code("sql_builder.build_source_sql"),
+                                " → ",
+                                dmc.Code("fetch.fetch_df"),
+                            ),
+                        ],
+                    ),
+                    _step_card(
+                        "BƯỚC 2",
+                        "Chuẩn hóa & gộp",
+                        [
+                            f"Excel: {_show(_int_or_none(summary.get('EXCEL_ROWS_READ')))} dòng → "
+                            f"{_show(_int_or_none(summary.get('EXCEL_GROUPS')))} nhóm",
+                            f"DB: {_show(_int_or_none(summary.get('DB_ROWS')))} bản ghi → "
+                            f"{_show(_int_or_none(summary.get('DB_GROUPS')))} nhóm",
+                            f"Gộp theo: {group_by_txt}",
+                        ],
+                        [
+                            _fn_line(
+                                dmc.Code("normalize.normalize"),
+                                " · ",
+                                dmc.Code("aggregate.aggregate"),
+                                " (",
+                                dmc.Code("build_key"),
+                                ")",
+                            ),
+                        ],
+                    ),
+                    _step_card(
+                        "BƯỚC 3",
+                        "Ghép & kết luận",
+                        [
+                            "Ghép full outer join theo khóa __key",
+                            rule_txt,
+                            f"{_show(total_groups)} nhóm: Khớp {_show(c_matched)} · "
+                            f"Lệch {_show(c_mismatch)} · Thiếu DB {_show(c_mis_db)} · "
+                            f"Thiếu Excel {_show(c_mis_xl)}",
+                        ],
+                        [
+                            _fn_line(
+                                dmc.Code("compare.compare"),
+                                " · ",
+                                dmc.Code("compare._evaluate_measure"),
+                            ),
+                        ],
+                    ),
+                    _step_card(
+                        "BƯỚC 4",
+                        "Kết quả",
+                        [
+                            f"Lưu {_show(total_groups)} dòng vào RECON_RESULT_ROW",
+                            "Hiển thị bảng + drawer chi tiết từng nhóm",
+                            "Bấm 1 nhóm ở tab Kết quả để xem dòng Excel gốc",
+                        ],
+                        [
+                            _fn_line("Lưu: ", dmc.Code("run_executor.execute_run")),
+                            _fn_line(
+                                "Hiển thị: ",
+                                dmc.Code("run_result.render_result_grid"),
+                                " · ",
+                                dmc.Code("render_detail_drawer"),
+                            ),
+                        ],
+                    ),
+                ],
+            )
+        )
+    except Exception:
+        children.append(alert_box("Không hiển thị được chi tiết từng bước.", tone="warn"))
+
+    # Ô ví dụ: nhóm đầu tiên của initial_rows (đã xếp theo độ nặng + |diff|).
+    try:
+        if initial_rows:
+            first = initial_rows[0]
+            key_text = str(first.get("key_text") or "—")
+            status = str(first.get("status") or "")
+            color, label, _icon = STATUS_INFO.get(status, ("gray", status or "—", ""))
+            example_measure = main_name
+            if example_measure == "—":
+                excel_keys = (first.get("excel") or {}).keys() if isinstance(first.get("excel"), dict) else []
+                first_key = next(iter(excel_keys), "")
+                example_measure = _strip_measure_prefix(str(first_key)) if first_key else "—"
+            xl_raw = first.get("excel")
+            xl_json = xl_raw if isinstance(xl_raw, dict) else {}
+            db_raw = first.get("db")
+            db_json = db_raw if isinstance(db_raw, dict) else {}
+            diff_raw = first.get("diff")
+            diff_json = diff_raw if isinstance(diff_raw, dict) else {}
+            children.append(
+                dmc.Paper(
+                    p="md",
+                    withBorder=True,
+                    radius="sm",
+                    children=dmc.Stack(
+                        gap="sm",
+                        children=[
+                            dmc.Group(
+                                [
+                                    dmc.Text("Ví dụ — nhóm lệch nhất", fw=600),
+                                    dmc.Badge(label, color=color, variant="light", size="sm"),
+                                ],
+                                gap="xs",
+                            ),
+                            dmc.Group(
+                                [
+                                    dmc.Text("Khóa:", size="xs", c="dimmed"),
+                                    dmc.Code(key_text),
+                                ],
+                                gap="xs",
+                            ),
+                            dmc.SimpleGrid(
+                                cols={"base": 1, "sm": 3},
+                                spacing="md",
+                                children=[
+                                    dmc.Stack(
+                                        gap=0,
+                                        children=[
+                                            dmc.Text(f"Excel ({example_measure})", size="xs", c="dimmed"),
+                                            dmc.Text(
+                                                fmt_num(xl_json.get(f"x__{example_measure}")),
+                                                fw=700,
+                                                size="sm",
+                                            ),
+                                        ],
+                                    ),
+                                    dmc.Stack(
+                                        gap=0,
+                                        children=[
+                                            dmc.Text(f"DB ({example_measure})", size="xs", c="dimmed"),
+                                            dmc.Text(
+                                                fmt_num(db_json.get(f"d__{example_measure}")),
+                                                fw=700,
+                                                size="sm",
+                                            ),
+                                        ],
+                                    ),
+                                    dmc.Stack(
+                                        gap=0,
+                                        children=[
+                                            dmc.Text("Chênh lệch", size="xs", c="dimmed"),
+                                            dmc.Text(
+                                                fmt_num(diff_json.get(f"diff__{example_measure}")),
+                                                fw=700,
+                                                size="sm",
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                )
+            )
+    except Exception:
+        children.append(alert_box("Không hiển thị được ô ví dụ.", tone="warn"))
+
+    return dmc.Stack(children, gap="md")
+
+
 def render_detail_drawer(
     row_detail: dict[str, Any] | None = None,
     reasons_list: list[dict[str, Any]] | None = None,
@@ -1696,6 +2158,17 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
     total_rows = rows_res.data.get("total", len(initial_rows)) if rows_res.ok and rows_res.data else len(initial_rows)
     measures = _resolve_grid_measures(ctx, run_data, initial_rows)
 
+    # Task 93 (D1/D10): nội dung tab "Luồng xử lý" tính 1 lần ở đây; lỗi
+    # thì panel chỉ hiện alert, trang run vẫn mở bình thường.
+    try:
+        flow_ctx = _flow_context(ctx, run_data)
+    except Exception:
+        flow_ctx = None
+    try:
+        flow_panel_children = render_flow_tab_content(run_data, summary_data, initial_rows, flow_ctx)
+    except Exception:
+        flow_panel_children = alert_box("Không hiển thị được tab Luồng xử lý.", tone="warn")
+
     return dmc.Box(
         id="run-result-root",
         children=[
@@ -1733,6 +2206,11 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
                                 value="sql",
                                 leftSection=DashIconify(icon="lucide:database", width=14),
                             ),
+                            dmc.TabsTab(
+                                "Luồng xử lý",
+                                value="flow",
+                                leftSection=DashIconify(icon="lucide:workflow", width=14),
+                            ),
                         ],
                         mb="xs",
                     ),
@@ -1767,6 +2245,11 @@ def layout(run_id: str | int | None = 1, **kwargs: Any) -> Any:
                         value="sql",
                         style={"flex": 1, "minHeight": 0, "overflow": "auto", "padding": "8px"},
                         children=render_sql_tab_content(run_data, summary_data),
+                    ),
+                    dmc.TabsPanel(
+                        value="flow",
+                        style={"flex": 1, "minHeight": 0, "overflow": "auto"},
+                        children=flow_panel_children,
                     ),
                 ],
                 style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
