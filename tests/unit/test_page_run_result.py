@@ -207,8 +207,8 @@ def test_render_kpi_cards() -> None:
     assert "Tổng tiền Excel (trong khoảng)" in s
     assert "Tổng tiền DB" in s
     assert "Chênh lệch" in s
-    assert "366.732.000" in s
-    assert "367.310.000" in s
+    assert "366,732,000" in s
+    assert "367,310,000" in s
 
 
 def test_render_ratio_bar_and_tabs() -> None:
@@ -355,10 +355,10 @@ def test_grid_measures_follow_profile_main_measure_not_hardcoded_total_amount(mo
         ],
     )
     s = str(grid_ui)
-    assert "1.425.000" in s
+    assert "1,425,000" in s
     assert "Tổng tiền" in s
     # Dòng 0 phải hiện "0" ở cột Excel, không bị `or` đẩy thành "—".
-    assert s.count("1.425.000") >= 2
+    assert s.count("1,425,000") >= 2
 
 
 def test_other_status_tabs_and_detail_drawer_use_profile_measure() -> None:
@@ -403,7 +403,7 @@ def test_other_status_tabs_and_detail_drawer_use_profile_measure() -> None:
     s_grid = str(render_result_grid(measures=measures, rows=rows))
     for key in ("K1", "K2", "K3", "K4"):
         assert key in s_grid
-    for amount in ("1.000.000", "2.000.000", "1.425.000", "900.000"):
+    for amount in ("1,000,000", "2,000,000", "1,425,000", "900,000"):
         assert amount in s_grid
 
     # Drawer: dòng Excel gốc lấy theo trường của measure chính, bản ghi DB
@@ -431,10 +431,10 @@ def test_other_status_tabs_and_detail_drawer_use_profile_measure() -> None:
         group_by_fields=["HOA_DON"],
     )
     s_drawer = str(drawer_ui)
-    assert "1.425.000" in s_drawer
+    assert "1,425,000" in s_drawer
     assert "TOTAL_TONG_TIEN (DB)" in s_drawer
     # Dòng Excel gốc phải hiện đúng 1.425.000, không phải 0 do tra TOTAL_AMOUNT.
-    assert s_drawer.count("1.425.000") >= 2
+    assert s_drawer.count("1,425,000") >= 2
 
     # KPI: khi truyền tên measure chính thì lấy đúng chỉ tiêu đó, không lấy
     # measure đầu tiên trong dict (ở đây là số lượng).
@@ -447,7 +447,7 @@ def test_other_status_tabs_and_detail_drawer_use_profile_measure() -> None:
         },
         main_measure_name="TOTAL_TONG_TIEN",
     )
-    assert "1.425.000" in str(kpi_ui)
+    assert "1,425,000" in str(kpi_ui)
 
 
 def test_result_grid_headers_centered_rows_hoverable_and_tabs_xs() -> None:
@@ -556,7 +556,7 @@ def test_render_detail_drawer_temp_purged_and_active() -> None:
     s_act = str(drawer_active)
     assert "C26TBD0031338" in s_act
     assert "Dòng Excel gốc" in s_act
-    assert "2.592.000" in s_act or "2592000" in s_act
+    assert "2,592,000" in s_act or "2592000" in s_act
 
     # 2. Dữ liệu tạm đã xóa
     drawer_purged = render_detail_drawer(
@@ -907,7 +907,7 @@ def test_handle_row_click_open_drawer_missing_in_db_name_file_ref(run_result_env
     assert opened is True
     text = str(drawer_ui)
     assert "C26TBD0084556" in text
-    assert "66.805.000" in text
+    assert "66,805,000" in text
     assert "Dòng Excel gốc" in text
 
 
@@ -1305,7 +1305,7 @@ class TestDrawerRawExcelFieldMap88:
             {"_COL_2": "C26TBD0100011", "_COL_3": "29/04/2026 11:00:45", "_COL_17": 493500000},
         )
         s = str(drawer)
-        assert "493.500.000" in s
+        assert "493,500,000" in s
         assert "C26TBD0100011" in s
 
     def test_raw_excel_col_keys_alias_fallback(self) -> None:
@@ -1314,7 +1314,7 @@ class TestDrawerRawExcelFieldMap88:
             {"TONG_TIEN": ["_COL_X", "_COL_17"], "INVOICE_NO": ["_COL_2"]},
             {"_COL_2": "C26TBD0100011", "_COL_17": 131000000},
         )
-        assert "131.000.000" in str(drawer)
+        assert "131,000,000" in str(drawer)
 
     def test_raw_excel_logical_names_still_work_without_map(self) -> None:
         """Không lấy được config (map rỗng) → tra tên trường logic như cũ (mẫu DTP)."""
@@ -1322,7 +1322,7 @@ class TestDrawerRawExcelFieldMap88:
             None,
             {"INVOICE_NO": "C26TBD0100011", "TONG_TIEN": 1425000},
         )
-        assert "1.425.000" in str(drawer)
+        assert "1,425,000" in str(drawer)
 
 
 class TestDrawerRawExcelFieldPos88f:
@@ -1474,8 +1474,8 @@ class TestDrawerRawExcelFieldPos88f:
         """
         drawer = self._drawer_bill_vtos([self.ROW_4104, self.ROW_4105], **self._bill_vtos_maps())
         s = str(drawer)
-        assert "493.500.000" in s
-        assert "131.000.000" in s
+        assert "493,500,000" in s
+        assert "131,000,000" in s
         assert "C26TBD0100011" in s
         assert "29/04/2026" not in s
 
@@ -1492,7 +1492,7 @@ class TestDrawerRawExcelFieldPos88f:
             field_db_map={"INVOICE_NO": "SO_HD"},
         )
         s = str(drawer)
-        assert "999.999" not in s
+        assert "999,999" not in s
         assert "C26TBD0100011" in s
 
     def test_raw_excel_vietnamese_excel_names_still_work(self) -> None:
@@ -1502,7 +1502,7 @@ class TestDrawerRawExcelFieldPos88f:
             **self._bill_vtos_maps(),
         )
         s = str(drawer)
-        assert "500.000" in s
+        assert "500,000" in s
         assert "C26TBD0100011" in s
 
     def test_raw_excel_logical_names_via_db(self) -> None:
@@ -1512,5 +1512,5 @@ class TestDrawerRawExcelFieldPos88f:
             **self._bill_vtos_maps(),
         )
         s = str(drawer)
-        assert "750.000" in s
+        assert "750,000" in s
         assert "C26TBD0100011" in s

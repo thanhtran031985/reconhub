@@ -109,7 +109,10 @@ def _lookup_reason_options(ctx: Any) -> list[dict[str, Any]]:
 
 
 def fmt_num(val: Any) -> str:
-    """Định dạng số theo chuẩn tiếng Việt có phân cách hàng nghìn."""
+    """Định dạng số: hàng nghìn phân cách bằng dấu ',', số lẻ bằng dấu '.'.
+
+    Ví dụ: 1910000 -> "1,910,000"; 1234567.89 -> "1,234,567.89".
+    """
     if val is None or val == "":
         return "—"
     try:
@@ -117,8 +120,8 @@ def fmt_num(val: Any) -> str:
         if num == 0:
             return "0"
         if num.is_integer():
-            return f"{int(num):,}".replace(",", ".")
-        return f"{num:,.2f}".replace(",", ".").rstrip("0").rstrip(".")
+            return f"{int(num):,}"
+        return f"{num:,.2f}".rstrip("0").rstrip(".")
     except (ValueError, TypeError):
         return str(val)
 
