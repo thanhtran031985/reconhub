@@ -29,6 +29,7 @@ from app.engine.sql_dialect import quote_identifier
 from app.engine.sql_guard import check_report_sql
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
+from app.services.lookup import get_db_column_mappings
 from app.services.perm import requires_menu
 from app.services.source_conn import open_source_connection
 
@@ -96,12 +97,24 @@ def prettify_column_label(field_name: str) -> str:
     return " ".join(p[:1].upper() + p[1:].lower() for p in parts)
 
 
-def effective_column_label(field_name: str, stored_label: str | None) -> str:
-    """Nhãn hiển thị của cột: giá trị user đã lưu thắng; chưa sửa (nhãn lưu
-    bằng đúng tên cột) thì dùng dạng Title Case mặc định."""
-    stored = str(stored_label or "")
-    if stored and stored != str(field_name):
+def effective_column_label(
+    field_name: str,
+    stored_label: str | None,
+    lookup_map: dict[str, str] | None = None,
+) -> str:
+    """Nhãn hiển thị của cột:
+    1. Giá trị user đã lưu thắng (nếu đã lưu và khác đúng tên cột).
+    2. Nếu chưa lưu (hoặc nhãn lưu bằng đúng tên cột):
+       Ưu tiên tra cứu DB_COLUMN_MAPPING theo mã in hoa.
+       Nếu không khớp thì dùng dạng Title Case mặc định (prettify_column_label).
+    """
+    stored = str(stored_label or "").strip()
+    if stored and stored != str(field_name).strip():
         return stored
+    if lookup_map:
+        name_upper = str(field_name or "").strip().upper()
+        if name_upper in lookup_map:
+            return lookup_map[name_upper]
     return prettify_column_label(field_name)
 
 
@@ -572,6 +585,7 @@ def apply_source_diff(ctx: Ctx, version_id: int, diff: dict[str, Any]) -> dict[s
             )
         current = {str(c["FIELD_NAME"]).upper(): c for c in columns}
         max_order = max((int(c["DISPLAY_ORDER"]) for c in columns), default=0)
+        lookup_map = get_db_column_mappings(conn)
         n_added = 0
         for col in diff.get("added") or []:
             name = str(col["name"]).upper()
@@ -580,11 +594,12 @@ def apply_source_diff(ctx: Ctx, version_id: int, diff: dict[str, Any]) -> dict[s
             max_order += 10
             data_type = str(col.get("data_type") or "STRING")
             alignment, width = column_display_defaults(data_type)
+            initial_label = lookup_map.get(name.strip().upper()) or prettify_column_label(name)
             conn.execute(
                 recon_rpt_column.insert().values(
                     VERSION_ID=version_id,
                     FIELD_NAME=name,
-                    LABEL=prettify_column_label(name),
+                    LABEL=initial_label,
                     DATA_TYPE=data_type,
                     DISPLAY_ORDER=max_order,
                     WEB_VISIBLE="Y",

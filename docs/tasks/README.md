@@ -39,6 +39,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 32 | [32-report-delete](32-report-delete/task.md) — Xóa hẳn báo cáo (Report Master) trên /report-admin + sửa cột Thao tác trống với báo cáo chưa có template | ✅ | 21, 27, 28 | feat/32-report-delete |
 | 34 | [34-version-reopen](34-version-reopen/task.md) — Mở lại version ACTIVE/DRY_RUN_OK về DRAFT + dry-run preview trên ACTIVE | ✅ | 21, 25, 33 | feat/34-version-reopen |
 | 35 | [35-report-aggrid](35-report-aggrid/task.md) — Thay grid cột bước 4 bằng AG Grid (hết treo trang khi lưu/kéo-thả) | ✅ | 21, 24, 33, 34 | feat/35-report-aggrid |
+| 95 | [95-db-column-lookup-mapping](95-db-column-lookup-mapping/task.md) — Đồng bộ nhãn cột từ lookup DB_COLUMN_MAPPING khi tạo report template và migrate cột fact_bill | ✅ | 17, 24, 27 | feat/95-db-column-lookup-mapping |
 
 Thiết kế: 11 màn (designs/components/Screen01–Screen11), 13 thành phần, Gallery. Giao diện dựng bằng Dash Mantine Components.
 

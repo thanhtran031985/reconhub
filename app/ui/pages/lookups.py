@@ -289,8 +289,10 @@ def render_code_table(
     can_edit: bool = True,
     search_query: str = "",
     active_filter: str = "all",
+    page: int = 1,
+    page_size: int = 15,
 ) -> Any:
-    """Render bảng Lookup Code ở cột phải kèm bộ lọc tìm kiếm & trạng thái."""
+    """Render bảng Lookup Code ở cột phải kèm bộ lọc tìm kiếm & trạng thái, hỗ trợ phân trang."""
     if not lookup_type:
         return empty_state(
             title="Chọn loại danh mục",
@@ -354,8 +356,16 @@ def render_code_table(
         dmc.TableTh("Thao tác", style={"width": "90px", **th_style}),
     ]
 
+    total_items = len(filtered_codes)
+    total_pages = max(1, (total_items + page_size - 1) // page_size)
+    current_page = min(max(1, page), total_pages)
+    start_idx = (current_page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_items)
+    page_codes = filtered_codes[start_idx:end_idx]
+
     rows = []
-    for i, c in enumerate(filtered_codes, 1):
+    for idx, c in enumerate(page_codes):
+        i = start_idx + idx + 1
         code = c.get("lookup_code", "")
         meaning = c.get("meaning", "")
         color = c.get("color_badge") or "gray"
@@ -480,6 +490,26 @@ def render_code_table(
                 ),
             ),
             dmc.Divider(mt="md", mb="xs"),
+            dmc.Group(
+                justify="space-between",
+                align="center",
+                px="xs",
+                py=4,
+                children=[
+                    dmc.Text(
+                        f"Hiển thị {start_idx + 1 if total_items > 0 else 0} – {end_idx} trong tổng số {total_items} giá trị",
+                        size="xs",
+                        c="dimmed",
+                    ),
+                    dmc.Pagination(
+                        id="lookups-code-pagination",
+                        total=total_pages,
+                        value=current_page,
+                        size="xs",
+                        style={} if total_pages > 1 else {"display": "none"},
+                    ),
+                ],
+            ),
             dmc.Text(
                 "Mã ngừng dùng vẫn hiển thị trong lịch sử, nhưng không còn trong lựa chọn tạo mới.",
                 size="xs",
@@ -573,6 +603,7 @@ def _modal_code_form(
         opened=False,
         centered=True,
         size="lg",
+        trapFocus=False,
         children=dmc.Stack(
             [
                 dmc.Group(
@@ -715,6 +746,7 @@ def layout(**kwargs: Any) -> Any:
         children=[
             dcc.Store(id="lookups-selected-type-store", data=None),
             dcc.Store(id="lookups-refresh-store", data=0),
+            dcc.Store(id="lookups-code-page-store", data=1),
             # Tiêu đề & mô tả màn hình
             page_header(
                 title="Danh mục hệ thống",
@@ -966,6 +998,7 @@ def handle_select_type(selected_type: str | None) -> tuple[Any, str | None]:
     Input("lookups-type-search-input", "value"),
     Input("lookups-code-search-input", "value"),
     Input("lookups-code-active-filter", "value"),
+    Input("lookups-code-page-store", "data"),
     State("lookups-selected-type-store", "data"),
     prevent_initial_call=True,
 )
@@ -975,14 +1008,26 @@ def cb_master_detail_sync(
     type_search: str | None,
     code_search: str | None,
     active_filter: str | None,
-    current_selected: str | None,
+    arg6: Any = None,
+    arg7: Any = None,
 ) -> tuple[Any, str | None, str, str, dict[str, str], bool, bool, Any, Any, str]:
-    """Đồng bộ Master–Detail: chọn type, tìm kiếm, lọc trạng thái, refresh."""
+    """Đồng bộ Master–Detail: chọn type, tìm kiếm, lọc trạng thái, phân trang, refresh."""
     ctx = get_current_ctx()
     ctx_dash = dash.callback_context
     triggered = ctx_dash.triggered[0]["prop_id"] if ctx_dash.triggered else ""
 
-    selected_type = current_selected
+    # Hỗ trợ cả 6 tham số (test Task 84: current_selected ở vị trí 6)
+    # lẫn 7 tham số Dash callback (code_page ở vị trí 6, current_selected ở vị trí 7)
+    selected_type: str | None = None
+    if isinstance(arg6, str):
+        selected_type = arg6
+        code_page = int(arg7 or 1) if isinstance(arg7, (int, str)) and str(arg7).isdigit() else 1
+    elif isinstance(arg6, int):
+        code_page = arg6
+        selected_type = arg7 if isinstance(arg7, str) else None
+    else:
+        code_page = 1
+        selected_type = arg7 if isinstance(arg7, str) else None
     # Guard: khi danh sách loại được render lại (tìm kiếm/refresh), Dash
     # có thể kích hoạt callback với n_clicks=0 của nút mới xuất hiện.
     # Chỉ coi là bấm chọn khi giá trị kích hoạt > 0.
@@ -1020,6 +1065,8 @@ def cb_master_detail_sync(
         lookup_type=selected_type,
         search_query=code_search or "",
         active_filter=active_filter or "all",
+        page=int(code_page or 1),
+        page_size=15,
     )
 
     policy_ui = render_policy_alert(selected_type)
@@ -1064,6 +1111,34 @@ def cb_master_detail_sync(
     )
 
 
+# --- Phân trang bảng Lookup Code ---
+
+
+@callback(
+    Output("lookups-code-page-store", "data"),
+    Input("lookups-code-pagination", "value"),
+    Input("lookups-code-search-input", "value"),
+    Input("lookups-code-active-filter", "value"),
+    Input({"type": "lookups-type-item", "index": dash.ALL}, "n_clicks"),
+    State("lookups-code-page-store", "data"),
+    prevent_initial_call=True,
+)
+def cb_code_pagination(
+    page_val: int | None,
+    _search: str | None,
+    _filter: str | None,
+    _type_clicks: list[int | None],
+    current_page: int | None,
+) -> int:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return 1
+    trigger_prop = ctx_dash.triggered[0]["prop_id"]
+    if "lookups-code-pagination" in trigger_prop and page_val:
+        return int(page_val)
+    return 1
+
+
 # --- Modal Thêm Lookup Type ---
 
 
@@ -1102,7 +1177,7 @@ def cb_add_type_modal(
             # Giữ modal mở và giữ dữ liệu đã nhập, hiện lỗi gần nút Lưu.
             return True, alert_box("Chưa lưu được", err, tone="crit")
         return False, None
-    return False, None
+    raise dash.exceptions.PreventUpdate
 
 
 # --- Modal Sửa Lookup Type ---
@@ -1135,15 +1210,15 @@ def cb_edit_type_modal(
 
     if "lookups-edit-type-btn" in triggered:
         if not selected_type:
-            return False, "", "", "", None
+            raise dash.exceptions.PreventUpdate
         ctx = get_current_ctx()
         if not ctx:
-            return False, "", "", "", None
+            raise dash.exceptions.PreventUpdate
         res = list_lookup_types(ctx)
         types = res.data if res.ok and res.data else []
         found = next((t for t in types if t.get("lookup_type") == selected_type), None)
         if not found:
-            return False, "", "", "", None
+            raise dash.exceptions.PreventUpdate
         return (
             True,
             found.get("lookup_type", ""),
@@ -1171,7 +1246,7 @@ def cb_edit_type_modal(
             return True, selected_type, name_val, desc_val or "", alert_box("Chưa lưu được", err, tone="crit")
         return False, "", "", "", None
 
-    return False, "", "", "", None
+    raise dash.exceptions.PreventUpdate
 
 
 # --- Refresh Store Trigger ---
@@ -1311,7 +1386,7 @@ def cb_add_code_modal(
         if err:
             return True, context, alert_box("Chưa lưu được", err, tone="crit")
         return False, context, None
-    return False, context, None
+    raise dash.exceptions.PreventUpdate
 
 
 # --- Modal Sửa Lookup Code ---
@@ -1356,26 +1431,26 @@ def cb_edit_code_modal(
     if "lookups-edit-code-btn" in triggered:
         _edit_triggered_value = ctx_dash.triggered[0].get("value") if ctx_dash.triggered else None
         if not _edit_triggered_value:
-            # Bảng vừa render lại, nút Sửa mới xuất hiện với n_clicks=0:
-            # không phải người dùng bấm, không được tự mở modal.
-            return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None
+            # Bảng vừa render lại, nút Sửa mới xuất hiện với n_clicks=0 hoặc None:
+            # không phải người dùng bấm, tuyệt đối không trả output để tránh kích hoạt refresh cascade.
+            raise dash.exceptions.PreventUpdate
         try:
             id_dict = json.loads(triggered.split(".")[0])
             idx = id_dict.get("index", "")
             parts = idx.split("|", 1)
             lt, code = parts[0], parts[1] if len(parts) > 1 else ""
         except Exception:
-            return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None
+            raise dash.exceptions.PreventUpdate from None
 
         user_ctx = get_current_ctx()
         if not user_ctx:
-            return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None
+            raise dash.exceptions.PreventUpdate
 
         res = list_lookup_codes(user_ctx, lookup_type=lt)
         codes = res.data if res.ok and res.data else []
         found = next((c for c in codes if c.get("lookup_code") == code), None)
         if not found:
-            return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None
+            raise dash.exceptions.PreventUpdate
 
         return (
             True,
@@ -1434,7 +1509,7 @@ def cb_edit_code_modal(
             )
         return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None
 
-    return False, "", "", 0, "gray", "lucide:tag", "", empty_ctx, None
+    raise dash.exceptions.PreventUpdate
 
 
 # --- Switch Toggle Active ---
@@ -1489,7 +1564,7 @@ def cb_delete_code_modal(
     if "lookups-delete-code-btn" in triggered:
         _del_triggered_value = ctx_dash.triggered[0].get("value") if ctx_dash.triggered else None
         if not _del_triggered_value:
-            return False, None, None
+            raise dash.exceptions.PreventUpdate
         try:
             id_dict = json.loads(triggered.split(".")[0])
             idx = id_dict.get("index", "")
@@ -1497,7 +1572,7 @@ def cb_delete_code_modal(
             lt, code = parts[0], parts[1] if len(parts) > 1 else ""
             return True, {"lookup_type": lt, "lookup_code": code}, None
         except Exception:
-            return False, None, None
+            raise dash.exceptions.PreventUpdate from None
 
     if "cancel" in triggered:
         return False, None, None
@@ -1518,7 +1593,7 @@ def cb_delete_code_modal(
                 return False, None, alert_box("Chưa xóa được", err, tone="crit")
         return False, None, None
 
-    return False, None, None
+    raise dash.exceptions.PreventUpdate
 
 
 # --- Nút Xóa Loại (task 84) ---
@@ -1553,13 +1628,13 @@ def cb_delete_type_modal(
     if "lookups-delete-type-btn" in triggered:
         _del_triggered_value = ctx_dash.triggered[0].get("value") if ctx_dash.triggered else None
         if not _del_triggered_value:
-            return False, None, None
+            raise dash.exceptions.PreventUpdate
         try:
             id_dict = json.loads(triggered.split(".")[0])
             lt = id_dict.get("index", "")
             return True, {"lookup_type": lt}, None
         except Exception:
-            return False, None, None
+            raise dash.exceptions.PreventUpdate from None
 
     if "cancel" in triggered:
         return False, None, None
@@ -1578,4 +1653,4 @@ def cb_delete_type_modal(
                 return False, None, alert_box("Chưa xóa được", err, tone="crit")
         return False, None, None
 
-    return False, None, None
+    raise dash.exceptions.PreventUpdate

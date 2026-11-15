@@ -40,7 +40,7 @@ data/ storage/ backup/   SQLite, file upload/cache/export, bản sao lưu (gitig
 ```
 
 ## Cấu trúc task
-`docs/tasks/README.md` là bảng tổng (cột #, Task, Trạng thái, Phụ thuộc, Nhánh git). Mỗi task `docs/tasks/NN-slug/` có `task.md` (yêu cầu, KHÔNG tự sửa), `progress.md` (agent cập nhật sau mỗi bước), `plan.md` (kế hoạch đã duyệt), `decisions.md`, `_archive/`. Nhánh `feat/NN-slug`. `docs/tasks/dashboard.html` sinh bởi `uv run poe tasks-dashboard`, không sửa tay.
+`docs/tasks/README.md` là bảng tổng (cột #, Task, Trạng thái, Phụ thuộc, Nhánh git). Mỗi task `docs/tasks/NN-slug/` có `task.md` (yêu cầu, KHÔNG tự sửa), `progress.md` (agent cập nhật sau mỗi bước), `plan.md` (kế hoạch đã duyệt), `decisions.md`, `checklist.md` (ghi và cập nhật test case), `_archive/`. Nhánh `feat/NN-slug`. `docs/tasks/dashboard.html` sinh bởi `uv run poe tasks-dashboard`, không sửa tay.
 Trạng thái: ⬜ chưa làm · 🔄 đang làm · ❓ có code chưa rà soát · ⚠️ khác task.md · ❌ thiếu · ✅ xong.
 
 ## Quy trình khi làm một task (chi tiết: skill `lam-task`)

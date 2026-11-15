@@ -28,6 +28,7 @@ from app.db.metadata import (
 from app.engine.sql_dialect import quote_identifier
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
+from app.services.lookup import get_db_column_mappings
 from app.services.notification import notify_for_report_run
 from app.services.perm import is_admin, requires_menu
 from app.services.report import load_report_row
@@ -88,6 +89,7 @@ def load_version_detail(conn: Connection, version_id: int) -> dict[str, Any]:
         .mappings()
         .all()
     )
+    lookup_map = get_db_column_mappings(conn)
     return {
         "id": int(row["ID"]),
         "template_id": int(row["TEMPLATE_ID"]),
@@ -115,7 +117,7 @@ def load_version_detail(conn: Connection, version_id: int) -> dict[str, Any]:
         "columns": [
             {
                 "field_name": str(c["FIELD_NAME"]),
-                "label": effective_column_label(str(c["FIELD_NAME"]), str(c["LABEL"])),
+                "label": effective_column_label(str(c["FIELD_NAME"]), str(c["LABEL"]), lookup_map),
                 "data_type": str(c["DATA_TYPE"]),
                 "display_order": int(c["DISPLAY_ORDER"]),
                 "web_visible": c["WEB_VISIBLE"] == "Y",

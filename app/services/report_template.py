@@ -32,6 +32,7 @@ from app.db.metadata import (
 )
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
+from app.services.lookup import get_db_column_mappings
 from app.services.perm import is_admin, requires_menu
 from app.services.report import load_report_row
 from app.services.report_param import (
@@ -216,11 +217,12 @@ def _version_detail(conn: Connection, version_row: Any) -> dict[str, Any]:
         .all()
     )
     data["params"] = param_list
+    lookup_map = get_db_column_mappings(conn)
     data["columns"] = [
         {
             "id": int(col["ID"]),
             "field_name": str(col["FIELD_NAME"]),
-            "label": effective_column_label(str(col["FIELD_NAME"]), str(col["LABEL"])),
+            "label": effective_column_label(str(col["FIELD_NAME"]), str(col["LABEL"]), lookup_map),
             "data_type": str(col["DATA_TYPE"]),
             "display_order": int(col["DISPLAY_ORDER"]),
             "web_visible": col["WEB_VISIBLE"] == "Y",

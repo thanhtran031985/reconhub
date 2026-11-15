@@ -1,0 +1,8 @@
+# Quyết định — 95-db-column-lookup-mapping
+
+- D1: Migration nạp 112 cột chưa tồn tại của `DATARAW.FACT_BILL` vào `RECON_LOOKUP_CODE` với `LOOKUP_TYPE = 'DB_COLUMN_MAPPING'`. Giữ nguyên 7 cột đã có do người dùng đã tùy biến trước đó.
+- D2: So sánh `field_name.strip().upper() == lookup_code.strip().upper()` để đảm bảo khớp mã chính xác.
+- D3: Khi tạo template mới hoặc discover cột lần đầu: gán nhãn từ `DB_COLUMN_MAPPING` nếu khớp; nếu không khớp thì sinh dạng Title Case (`prettify_column_label`).
+- D4: Khi mở lại hoặc chỉnh sửa (edit) template: giữ nguyên nhãn người dùng đã nhập/đã lưu (`RECON_RPT_COLUMN.LABEL`), tuyệt đối không tự động ghi đè từ lookup theo đúng yêu cầu người dùng.
+- D5: Sửa lỗi "Page Unresponsive" trên trang `/lookups`: khi bảng vẽ lại (với 119 mã), Dash client remount các nút pattern-matching (`dash.ALL`) với `n_clicks=None`. Callback `cb_edit_code_modal`, `cb_delete_code_modal`, `cb_delete_type_modal` trước đây trả về `False` cho prop `opened`, vô tình kích hoạt `cb_trigger_refresh` (vốn lắng nghe `opened is False`) tăng counter refresh, dẫn tới vòng lặp vô hạn (infinite loop) làm sập trình duyệt. Giải pháp: chuyển tất cả các nhánh remount / unclicked sang `raise dash.exceptions.PreventUpdate` để ngắt hoàn toàn chuỗi cascade refresh không mong muốn.
+- D6: Thêm phân trang (`dmc.Pagination`, 15 dòng/trang) cho bảng Lookup Code và đặt `trapFocus=False` cho `dmc.Modal`: khi nạp 119 cột của `FACT_BILL`, việc vẽ 119 dòng cùng lúc tạo ra hơn 1.800 DOM components, 238 Tooltip floating-UI listeners và 119 Switches làm khóa Main Thread trình duyệt khi đóng modal. Phân trang 15 dòng/trang giúp giảm 90% tải DOM, phản hồi lưu và mở lại chỉ ~0.3-0.7s, tương thích hoàn toàn thiết kế Fluent Compact.

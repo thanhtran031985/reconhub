@@ -241,6 +241,7 @@ class TestDeleteModalCallbackIds83:
         assert target == {"lookup_type": "ISSUE_REASON", "lookup_code": "EXTRA"}
 
     def test_delete_click_guard_no_click(self, lookups_env: Any, monkeypatch: Any) -> None:
+        import dash.exceptions
         monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
         from app.ui.pages.lookups import cb_delete_code_modal
 
@@ -249,9 +250,22 @@ class TestDeleteModalCallbackIds83:
             '{"type": "lookups-delete-code-btn", "index": "ISSUE_REASON|EXTRA"}.n_clicks',
             None,
         )
-        opened, target, _alert = cb_delete_code_modal([None], None, None, None)
-        assert opened is False
-        assert target is None
+        with pytest.raises(dash.exceptions.PreventUpdate):
+            cb_delete_code_modal([None], None, None, None)
+
+    def test_edit_click_guard_no_click_prevents_update(self, lookups_env: Any, monkeypatch: Any) -> None:
+        """Nút Sửa remount với n_clicks=None/0 phải raise PreventUpdate để chặn loop."""
+        import dash.exceptions
+        monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
+        from app.ui.pages.lookups import cb_edit_code_modal
+
+        self._mock_ctx(
+            monkeypatch,
+            '{"type": "lookups-edit-code-btn", "index": "ISSUE_REASON|EXTRA"}.n_clicks',
+            None,
+        )
+        with pytest.raises(dash.exceptions.PreventUpdate):
+            cb_edit_code_modal([None], None, None, "Nhãn", 1, "blue", "lucide:circle", "", None)
 
 
 def _walk(component: Any) -> Any:
@@ -541,6 +555,7 @@ class TestDeleteTypeModal84:
         assert target == {"lookup_type": "DELTYPE"}
 
     def test_delete_type_click_guard_no_click(self, lookups_env: Any, monkeypatch: Any) -> None:
+        import dash.exceptions
         monkeypatch.setattr("app.services.lookup.get_recon_engine", lambda: lookups_env)
         from app.ui.pages.lookups import cb_delete_type_modal
 
@@ -549,9 +564,8 @@ class TestDeleteTypeModal84:
             '{"type": "lookups-delete-type-btn", "index": "DELTYPE"}.n_clicks',
             None,
         )
-        opened, target, _alert = cb_delete_type_modal([None], None, None, None)
-        assert opened is False
-        assert target is None
+        with pytest.raises(dash.exceptions.PreventUpdate):
+            cb_delete_type_modal([None], None, None, None)
 
     def test_delete_type_confirm_removes_type(self, lookups_env: Any, monkeypatch: Any) -> None:
         from app.services.lookup import create_lookup_type, list_lookup_types

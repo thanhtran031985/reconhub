@@ -22,6 +22,7 @@ from app.db.metadata import (
 )
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
+from app.services.lookup import get_db_column_mappings
 from app.services.perm import is_admin, requires_menu
 from app.services.report_source import (
     analyze_version_source,
@@ -82,11 +83,11 @@ def _load_version_draft(conn: Connection, version_id: int) -> Any:
     return row
 
 
-def _column_dict(row: Any) -> dict[str, Any]:
+def _column_dict(row: Any, lookup_map: dict[str, str] | None = None) -> dict[str, Any]:
     return {
         "id": int(row["ID"]),
         "field_name": str(row["FIELD_NAME"]),
-        "label": effective_column_label(str(row["FIELD_NAME"]), str(row["LABEL"])),
+        "label": effective_column_label(str(row["FIELD_NAME"]), str(row["LABEL"]), lookup_map),
         "data_type": str(row["DATA_TYPE"]),
         "display_order": int(row["DISPLAY_ORDER"]),
         "web_visible": row["WEB_VISIBLE"] == "Y",
@@ -108,7 +109,8 @@ def _load_columns(conn: Connection, version_id: int) -> list[dict[str, Any]]:
         .mappings()
         .all()
     )
-    return [_column_dict(row) for row in rows]
+    lookup_map = get_db_column_mappings(conn)
+    return [_column_dict(row, lookup_map) for row in rows]
 
 
 @service
@@ -314,7 +316,7 @@ def update_column(
             new_data={"version_id": version_id, **values},
         )
         updated = _load_column_row(conn, version_id, column_id)
-        return _column_dict(updated)
+        return _column_dict(updated, get_db_column_mappings(conn))
 
 
 @service
@@ -394,7 +396,7 @@ def move_column(
             new_data={"version_id": version_id, "index": to_index},
         )
         updated = _load_column_row(conn, version_id, column_id)
-        return _column_dict(updated)
+        return _column_dict(updated, get_db_column_mappings(conn))
 
 
 @service
@@ -464,10 +466,11 @@ def _result_layout(
         .mappings()
         .all()
     )
+    lookup_map = get_db_column_mappings(conn)
     columns = [
         {
             "field_name": str(r["FIELD_NAME"]),
-            "label": effective_column_label(str(r["FIELD_NAME"]), str(r["LABEL"])),
+            "label": effective_column_label(str(r["FIELD_NAME"]), str(r["LABEL"]), lookup_map),
             "data_type": str(r["DATA_TYPE"]),
             "format_mask": r["FORMAT_MASK"],
             "alignment": str(r["ALIGNMENT"]),

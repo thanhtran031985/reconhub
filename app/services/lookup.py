@@ -27,6 +27,7 @@ ADMIN_ONLY = (Role.ADMIN,)
 
 # Cache đơn giản trong bộ nhớ, xóa sau mỗi write
 _lookup_cache: dict[str, list[dict[str, Any]]] = {}
+_col_mapping_cache: dict[str, dict[str, str]] = {}
 
 # ─── Dữ liệu mặc định khởi tạo ──────────────────────────────────────────────
 
@@ -99,8 +100,218 @@ def ensure_default_lookup_data(conn: Connection) -> None:
             )
 
 
+# Danh sách 119 cột chuẩn của DATARAW.FACT_BILL kèm nhãn mặc định
+FACT_BILL_COLUMNS: list[tuple[str, str]] = [
+    ("TRANSACTION_DATE", "Ngày PS"),
+    ("CONT_NO", "Số container"),
+    ("INVOICE_STATUS", "Trạng thái"),
+    ("CONFIRM_DATE", "Ngày xác nhận"),
+    ("REVISE_DATE", "Revise Date"),
+    ("CANCEL_DATE", "Cancel Date"),
+    ("COMPLETE_DATE", "Complete Date"),
+    ("CONT_TYPE", "Loại Cont"),
+    ("CONT_STATE", "Cont State"),
+    ("SZTP", "Sztp"),
+    ("CONT_SIZE", "Cont Size"),
+    ("SZTP2", "Sztp2"),
+    ("BOX", "Box"),
+    ("EXCHANGE_RATE", "Exchange Rate"),
+    ("TEU", "Teu"),
+    ("FE", "Fe"),
+    ("INV_CURRENCY", "Tiền HĐ"),
+    ("UNIT_PRICE", "Unit Price"),
+    ("NET_AMOUNT", "Net Amount"),
+    ("TAX_RATE", "Tax Rate"),
+    ("TAX_AMOUNT", "Tax Amount"),
+    ("VAT_RATE", "Vat Rate"),
+    ("VAT_AMOUNT", "Vat Amount"),
+    ("DISCOUNT_RATE", "Discount Rate"),
+    ("DISCOUNT_AMOUNT", "Discount Amount"),
+    ("AMOUNT", "Amount"),
+    ("TOTAL_AMOUNT_VND", "Total Amount Vnd"),
+    ("PAYER_CODE", "Payer Code"),
+    ("PAYER_TYPE", "Payer Type"),
+    ("PAYMENT_TYPE", "Payment Type"),
+    ("PAYMENT_TYPE_NAME", "Payment Type Name"),
+    ("PAYMENT_CURRENCY", "Payment Currency"),
+    ("CONT_OPR_CODE", "Cont Opr Code"),
+    ("CARGO_TYPE", "Cargo Type"),
+    ("IX_CD", "Ix Cd"),
+    ("JOB_MODE", "Job Mode"),
+    ("JOB_MODE_NAME", "Job Mode Name"),
+    ("TARIFF_CODE", "Tariff Code"),
+    ("TARIFF_UNIT", "Tariff Unit"),
+    ("PTNR_CODE", "Ptnr Code"),
+    ("VPTNR_CODE", "Vptnr Code"),
+    ("VESSEL_CODE", "Vessel Code"),
+    ("CALL_YEAR", "Call Year"),
+    ("CALL_SEQ", "Call Seq"),
+    ("IN_VOY", "In Voy"),
+    ("OUT_VOY", "Out Voy"),
+    ("ATB", "Atb"),
+    ("ATD", "Atd"),
+    ("ATW", "Atw"),
+    ("ATC", "Atc"),
+    ("POL", "Pol"),
+    ("POD", "Pod"),
+    ("CONSIGNEE_NAME", "Consignee Name"),
+    ("D_ORG_ID", "D Org Id"),
+    ("ORG_CODE", "Org Code"),
+    ("D_LINE_SHIP_ID", "D Line Ship Id"),
+    ("D_VSL_ID", "D Vsl Id"),
+    ("D_CONT_TYPE_ID", "D Cont Type Id"),
+    ("D_CONT_STATE_ID", "D Cont State Id"),
+    ("D_CONT_SIZE_ID", "D Cont Size Id"),
+    ("INTERIM_INV_NO", "Interim Inv No"),
+    ("EIR_NO", "Eir No"),
+    ("IN_LANE", "In Lane"),
+    ("OUT_LANE", "Out Lane"),
+    ("IN_DATE", "In Date"),
+    ("OUT_DATE", "Out Date"),
+    ("JOB_TYPE", "Job Type"),
+    ("CONTRACT_NO", "Contract No"),
+    ("REF_INVOICE_NO", "Ref Invoice No"),
+    ("MANUAL_CHECK", "Manual Check"),
+    ("D_PAYER_ID", "D Payer Id"),
+    ("D_BILL_MODE_ID", "D Bill Mode Id"),
+    ("UNBILL_NO", "Unbill No"),
+    ("BILL_LOCATION", "Bill Location"),
+    ("BOOKING_NO", "Booking No"),
+    ("CF_CODE", "Cf Code"),
+    ("REMARK", "Remark"),
+    ("INV_UNIT_ID", "Inv Unit Id"),
+    ("SRC_ROWGUID", "Src Rowguid"),
+    ("TRX_TYPE", "Trx Type"),
+    ("APPLICATION", "Application"),
+    ("DATA_SOURCE", "Data Source"),
+    ("DESCRIPTION", "Description"),
+    ("CREATION_DATE", "Creation Date"),
+    ("ETL_DATE", "Etl Date"),
+    ("ETL_BY", "Etl By"),
+    ("LAST_UPDATED_BY", "Last Updated By"),
+    ("ID_PK", "Id Pk"),
+    ("FACT_REF_ID", "Fact Ref Id"),
+    ("ADJUST_INVOICE_NO", "Adjust Invoice No"),
+    ("D_LINE_CONT_OPR_ID", "D Line Cont Opr Id"),
+    ("MLO", "Mlo"),
+    ("D_MLO_ID", "D Mlo Id"),
+    ("VESSEL_KEY", "Vessel Key"),
+    ("CANCEL_FLAG", "Cancel Flag"),
+    ("ADJUST_FLAG", "Adjust Flag"),
+    ("REVENUE_LEVEL_4_CODE", "Revenue Level 4 Code"),
+    ("D_REVENUE_LEVEL_4_ID", "D Revenue Level 4 Id"),
+    ("METHOD_CODE", "Method Code"),
+    ("DEPOT_CODE", "Depot Code"),
+    ("INV_TARIFF_NAME", "Inv Tariff Name"),
+    ("D_DATE_ID", "D Date Id"),
+    ("DATE_VALUE", "Date Value"),
+    ("INVOICE_NO", "Số hóa đơn"),
+    ("INVOICE_DATE", "Ngày hóa đơn"),
+    ("INVOICE_TYPE", "Invoice Type"),
+    ("CNTR_ID", "Cntr Id"),
+    ("TOTAL_AMOUNT", "Total Amount"),
+    ("E_INVOICE", "E Invoice"),
+    ("LAST_UPDATE_DATE", "Last Update Date"),
+    ("D_DEPOT_ID", "D Depot Id"),
+    ("TRANSTYPE_IN", "Transtype In"),
+    ("TRANSTYPE_OUT", "Transtype Out"),
+    ("JOB_CODE", "Job Code"),
+    ("ISLOCALFOREIGN", "Islocalforeign"),
+    ("TRANSIT_CODE", "Transit Code"),
+    ("NET_AMOUNT_VND", "Net Amount Vnd"),
+    ("D_TARIFF_ID", "D Tariff Id"),
+    ("BILL_CREATED_BY", "Bill Created By"),
+]
+
+
+def migrate_fact_bill_columns(conn: Connection) -> int:
+    """Nạp tất cả các field của bảng FACT_BILL vào DB_COLUMN_MAPPING nếu chưa tồn tại (idempotent)."""
+    # 1. Đảm bảo loại danh mục DB_COLUMN_MAPPING tồn tại
+    exists_type = conn.execute(
+        select(recon_lookup_type.c.LOOKUP_TYPE).where(recon_lookup_type.c.LOOKUP_TYPE == "DB_COLUMN_MAPPING")
+    ).scalar()
+    if not exists_type:
+        conn.execute(
+            recon_lookup_type.insert().values(
+                LOOKUP_TYPE="DB_COLUMN_MAPPING",
+                TYPE_NAME="Hiển thị tự động tên database column sang header của báo cáo",
+                DESCRIPTION="Hiển thị tự động tên database column sang header của báo cáo (DB_COLUMN_MAPPING)",
+                IS_SYSTEM="N",
+                IS_ACTIVE="Y",
+            )
+        )
+
+    # 2. Lấy các code đã tồn tại
+    existing_codes = set(
+        conn.execute(
+            select(recon_lookup_code.c.LOOKUP_CODE).where(recon_lookup_code.c.LOOKUP_TYPE == "DB_COLUMN_MAPPING")
+        ).scalars().all()
+    )
+    existing_codes_upper = {str(c).strip().upper() for c in existing_codes}
+
+    # 3. Tìm max order hiện tại
+    max_order = conn.execute(
+        select(func.max(recon_lookup_code.c.DISPLAY_ORDER)).where(
+            recon_lookup_code.c.LOOKUP_TYPE == "DB_COLUMN_MAPPING"
+        )
+    ).scalar() or 0
+
+    added = 0
+    for field_name, label in FACT_BILL_COLUMNS:
+        field_upper = field_name.strip().upper()
+        if field_upper in existing_codes_upper:
+            continue
+        max_order += 1
+        conn.execute(
+            recon_lookup_code.insert().values(
+                LOOKUP_TYPE="DB_COLUMN_MAPPING",
+                LOOKUP_CODE=field_upper,
+                MEANING=label,
+                DISPLAY_ORDER=max_order,
+                COLOR_BADGE="blue",
+                ICON_NAME="lucide:circle",
+                IS_DEFAULT="N",
+                IS_SYSTEM="N",
+                IS_ACTIVE="Y",
+            )
+        )
+        existing_codes_upper.add(field_upper)
+        added += 1
+
+    if added > 0:
+        _clear_cache()
+    return added
+
+
+def get_db_column_mappings(conn: Connection | None = None) -> dict[str, str]:
+    """Trả về từ điển mapping {LOOKUP_CODE_UPPER: MEANING} của DB_COLUMN_MAPPING (chỉ lấy IS_ACTIVE='Y')."""
+    engine = get_recon_engine()
+    cache_key = f"db_col_map:{engine.url}"
+    if cache_key in _col_mapping_cache:
+        return _col_mapping_cache[cache_key]
+
+    def _query(c: Connection) -> dict[str, str]:
+        rows = c.execute(
+            select(recon_lookup_code.c.LOOKUP_CODE, recon_lookup_code.c.MEANING).where(
+                recon_lookup_code.c.LOOKUP_TYPE == "DB_COLUMN_MAPPING",
+                recon_lookup_code.c.IS_ACTIVE == "Y",
+            )
+        ).all()
+        return {str(r[0]).strip().upper(): str(r[1]) for r in rows}
+
+    if conn is not None:
+        mapping = _query(conn)
+    else:
+        with engine.begin() as c:
+            mapping = _query(c)
+
+    _col_mapping_cache[cache_key] = mapping
+    return mapping
+
+
 def _clear_cache() -> None:
     _lookup_cache.clear()
+    _col_mapping_cache.clear()
 
 
 def _row_to_type_dict(r: Any) -> dict[str, Any]:
