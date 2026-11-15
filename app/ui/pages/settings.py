@@ -3,6 +3,8 @@
 Cài đặt dọn file export chạy ngầm: chế độ manual (mặc định, không tự
 xóa) hoặc scheduler (worker tự xóa file export đã kết thúc quá N ngày).
 Task 57: số export chạy song song tối đa (mặc định 10).
+Task 71: timeout truy vấn báo cáo (COUNT và dữ liệu).
+Task 94: cấu hình bot Telegram gửi thông báo kết quả run.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import dash
 import dash_mantine_components as dmc
 from dash import Input, Output, State, callback, dcc, html
 from dash.exceptions import PreventUpdate
+from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
 from app.services.export_retention import (
@@ -32,6 +35,7 @@ from app.services.telegram_notify import (
     set_telegram_settings,
 )
 from app.ui.components.alert_box import alert_box
+from app.ui.components.button import button_primary
 from app.ui.components.notification import notify_error, notify_success
 from app.ui.components.page_header import page_header
 
@@ -44,7 +48,7 @@ MENU_CODE = "system_settings"
 
 
 def layout(**kwargs: Any) -> Any:
-    """Form cài đặt dọn file export (ADMIN-only qua menu)."""
+    """Form cài đặt dọn file export, concurrency, timeouts và Telegram (ADMIN-only qua menu)."""
     ctx = get_current_ctx()
     gate = page_gate(ctx, MENU_CODE)
     if gate:
@@ -74,196 +78,223 @@ def layout(**kwargs: Any) -> Any:
         if tg_res.ok and isinstance(tg_res.data, dict):
             tg_configured = bool(tg_res.data.get("configured"))
             tg_username = str(tg_res.data.get("username") or "")
+
     return dmc.Box(
         [
-            html.Div(
-                id="settings-alert",
-                style={"width": "100%", "maxWidth": 640},
-                **{"aria-live": "polite"},  # type: ignore[arg-type]
-            ),
             page_header(
                 title="Cài đặt hệ thống",
-                subtitle="Chỉ ADMIN. Áp dụng cho file export chạy ngầm và timeout truy vấn báo cáo.",
-                style={"width": "fit-content"},
-            ),
-            dmc.SimpleGrid(
-                cols={"base": 1, "lg": 3},
-                spacing="md",
-                w="100%",
-                maw=1400,
-                children=[
-                    dmc.Paper(
-                        dmc.Stack(
-                            [
-                                dmc.Title("Dọn file export", order=4, size="sm"),
-                                dmc.Text(
-                                    "File export đã kết thúc (DONE/FAILED/CANCELLED) được giữ "
-                                    "lại để tải trong Lịch sử báo cáo. Chế độ manual: không tự "
-                                    "xóa, ADMIN xóa tay từng file. Chế độ scheduler: worker tự "
-                                    "xóa file quá số ngày đã chọn.",
-                                    size="sm",
-                                    c="dimmed",
-                                ),
-                                dmc.Select(
-                                    id="settings-mode-select",
-                                    label="Chế độ dọn file",
-                                    data=[
-                                        {"label": "Manual — không tự xóa", "value": "manual"},
-                                        {"label": "Scheduler — tự xóa file quá hạn", "value": "scheduler"},
-                                    ],
-                                    value=mode,
-                                    w=320,
-                                    clearable=False,
-                                ),
-                                dmc.NumberInput(
-                                    id="settings-days-input",
-                                    label="Giữ file (ngày)",
-                                    value=days,
-                                    min=1,
-                                    max=365,
-                                    step=1,
-                                    w=320,
-                                    description="Chỉ dùng khi chế độ là Scheduler.",
-                                ),
-                            ],
-                            gap="md",
-                        ),
-                        withBorder=True,
-                        radius="sm",
-                        p="md",
-                        w="100%",
-                    ),
-                    dmc.Paper(
-                        dmc.Stack(
-                            [
-                                dmc.Title("Export chạy song song", order=4, size="sm"),
-                                dmc.Text(
-                                    "Worker xử lý tối đa từng này export cùng lúc "
-                                    "(mỗi người dùng tối đa từng này export đang chạy). "
-                                    "Đổi xong có hiệu lực ở vòng poll tiếp theo, "
-                                    "không cần khởi động lại worker.",
-                                    size="sm",
-                                    c="dimmed",
-                                ),
-                                dmc.NumberInput(
-                                    id="settings-concurrent-input",
-                                    label="Số export chạy song song tối đa",
-                                    value=max_concurrent,
-                                    min=1,
-                                    max=50,
-                                    step=1,
-                                    w=320,
-                                ),
-                            ],
-                            gap="md",
-                        ),
-                        withBorder=True,
-                        radius="sm",
-                        p="md",
-                        w="100%",
-                    ),
-                    dmc.Paper(
-                        dmc.Stack(
-                            [
-                                dmc.Title("Timeout truy vấn báo cáo", order=4, size="sm"),
-                                dmc.Text(
-                                    "Khi xem báo cáo, app chạy câu COUNT để đếm tổng số dòng "
-                                    "rồi mới lấy 1 trang dữ liệu. Câu COUNT quét toàn bộ dữ "
-                                    "liệu trong khoảng ngày nên với khoảng rộng có thể chạy "
-                                    "lâu hơn câu lấy dữ liệu. Hai timeout này (giây) áp dụng "
-                                    "cho mọi báo cáo khi xem và xem trước; đổi xong có hiệu "
-                                    "lực ngay, không cần khởi động lại.",
-                                    size="sm",
-                                    c="dimmed",
-                                ),
-                                dmc.NumberInput(
-                                    id="settings-count-timeout-input",
-                                    label="Timeout câu COUNT (giây)",
-                                    value=count_timeout,
-                                    min=1,
-                                    max=3600,
-                                    step=1,
-                                    w=320,
-                                ),
-                                dmc.NumberInput(
-                                    id="settings-data-timeout-input",
-                                    label="Timeout câu dữ liệu (giây)",
-                                    value=data_timeout,
-                                    min=1,
-                                    max=3600,
-                                    step=1,
-                                    w=320,
-                                ),
-                            ],
-                            gap="md",
-                        ),
-                        withBorder=True,
-                        radius="sm",
-                        p="md",
-                        w="100%",
-                    ),
-                    dmc.Paper(
-                        dmc.Stack(
-                            [
-                                dmc.Title("Telegram", order=4, size="sm"),
-                                dmc.Text(
-                                    "Khi run đối soát xong hoặc lỗi, hệ thống gửi tin "
-                                    "Telegram cho chính người chạy (task 94). Tạo bot qua "
-                                    "@BotFather rồi nhập token và username vào đây; mỗi "
-                                    "người dùng liên kết Telegram của mình ở trang Tài khoản.",
-                                    size="sm",
-                                    c="dimmed",
-                                ),
-                                dmc.PasswordInput(
-                                    id="settings-telegram-token",
-                                    label="Token bot Telegram",
-                                    placeholder="Đã lưu" if tg_configured else "Nhập token bot (từ @BotFather)",
-                                    w=320,
-                                ),
-                                dmc.TextInput(
-                                    id="settings-telegram-username",
-                                    label="Username bot",
-                                    placeholder="vd: reconhub_bot",
-                                    value=tg_username,
-                                    w=320,
-                                ),
-                                html.Div(id="settings-telegram-alert"),
-                                dmc.Button(
-                                    "Gửi thử",
-                                    id="settings-telegram-test-btn",
-                                    variant="outline",
-                                    size="sm",
-                                ),
-                            ],
-                            gap="md",
-                        ),
-                        withBorder=True,
-                        radius="sm",
-                        p="md",
-                        w="100%",
-                    ),
-                ],
-            ),
-            dmc.Group(
-                [
-                    dmc.Button(
+                subtitle="Chỉ ADMIN. Cấu hình dọn file export, số export song song, timeout báo cáo và Telegram.",
+                actions=[
+                    button_primary(
                         "Lưu cài đặt",
                         id="settings-save-btn",
-                        variant="filled",
+                        icon="lucide:save",
                         size="sm",
                     ),
                 ],
-                justify="center",
-                w="100%",
-                maw=640,
+            ),
+            html.Div(
+                id="settings-alert",
+                style={"width": "100%", "maxWidth": 1200, "marginBottom": "4px"},
+                **{"aria-live": "polite"},  # type: ignore[arg-type]
+            ),
+            html.Div(
+                [
+                    dmc.SimpleGrid(
+                        cols={"base": 1, "md": 2},
+                        spacing="md",
+                        w="100%",
+                        maw=1200,
+                        children=[
+                            dmc.Paper(
+                                dmc.Stack(
+                                    [
+                                        dmc.Title("Dọn file export", order=4, size="sm"),
+                                        dmc.Text(
+                                            "File export đã kết thúc (DONE/FAILED/CANCELLED) được giữ "
+                                            "lại để tải trong Lịch sử báo cáo. Chế độ manual: không tự "
+                                            "xóa, ADMIN xóa tay từng file. Chế độ scheduler: worker tự "
+                                            "xóa file quá số ngày đã chọn.",
+                                            size="sm",
+                                            c="dimmed",
+                                        ),
+                                        dmc.Select(
+                                            id="settings-mode-select",
+                                            label="Chế độ dọn file",
+                                            data=[
+                                                {"label": "Manual — không tự xóa", "value": "manual"},
+                                                {"label": "Scheduler — tự xóa file quá hạn", "value": "scheduler"},
+                                            ],
+                                            value=mode,
+                                            maw=360,
+                                            w="100%",
+                                            clearable=False,
+                                        ),
+                                        dmc.NumberInput(
+                                            id="settings-days-input",
+                                            label="Giữ file (ngày)",
+                                            value=days,
+                                            min=1,
+                                            max=365,
+                                            step=1,
+                                            maw=360,
+                                            w="100%",
+                                            description="Chỉ dùng khi chế độ là Scheduler.",
+                                        ),
+                                    ],
+                                    gap="xs",
+                                ),
+                                withBorder=True,
+                                radius="sm",
+                                p="md",
+                                w="100%",
+                            ),
+                            dmc.Paper(
+                                dmc.Stack(
+                                    [
+                                        dmc.Title("Export chạy song song", order=4, size="sm"),
+                                        dmc.Text(
+                                            "Worker xử lý tối đa từng này export cùng lúc "
+                                            "(mỗi người dùng tối đa từng này export đang chạy). "
+                                            "Đổi xong có hiệu lực ở vòng poll tiếp theo, "
+                                            "không cần khởi động lại worker.",
+                                            size="sm",
+                                            c="dimmed",
+                                        ),
+                                        dmc.NumberInput(
+                                            id="settings-concurrent-input",
+                                            label="Số export chạy song song tối đa",
+                                            value=max_concurrent,
+                                            min=1,
+                                            max=50,
+                                            step=1,
+                                            maw=360,
+                                            w="100%",
+                                        ),
+                                    ],
+                                    gap="xs",
+                                ),
+                                withBorder=True,
+                                radius="sm",
+                                p="md",
+                                w="100%",
+                            ),
+                            dmc.Paper(
+                                dmc.Stack(
+                                    [
+                                        dmc.Title("Timeout truy vấn báo cáo", order=4, size="sm"),
+                                        dmc.Text(
+                                            "Khi xem báo cáo, app chạy câu COUNT để đếm tổng số dòng "
+                                            "rồi mới lấy 1 trang dữ liệu. Câu COUNT quét toàn bộ dữ "
+                                            "liệu trong khoảng ngày nên có thể chạy lâu hơn. "
+                                            "Hai timeout này (giây) áp dụng khi xem và xem trước.",
+                                            size="sm",
+                                            c="dimmed",
+                                        ),
+                                        dmc.Group(
+                                            [
+                                                dmc.NumberInput(
+                                                    id="settings-count-timeout-input",
+                                                    label="Timeout câu COUNT (giây)",
+                                                    value=count_timeout,
+                                                    min=1,
+                                                    max=3600,
+                                                    step=1,
+                                                    style={"flex": 1},
+                                                ),
+                                                dmc.NumberInput(
+                                                    id="settings-data-timeout-input",
+                                                    label="Timeout câu dữ liệu (giây)",
+                                                    value=data_timeout,
+                                                    min=1,
+                                                    max=3600,
+                                                    step=1,
+                                                    style={"flex": 1},
+                                                ),
+                                            ],
+                                            grow=True,
+                                            gap="sm",
+                                            maw=360,
+                                            w="100%",
+                                        ),
+                                    ],
+                                    gap="xs",
+                                ),
+                                withBorder=True,
+                                radius="sm",
+                                p="md",
+                                w="100%",
+                            ),
+                            dmc.Paper(
+                                dmc.Stack(
+                                    [
+                                        dmc.Title("Telegram", order=4, size="sm"),
+                                        dmc.Text(
+                                            "Khi run đối soát xong hoặc lỗi, hệ thống gửi tin "
+                                            "Telegram cho chính người chạy (task 94). Tạo bot qua "
+                                            "@BotFather rồi nhập token và username vào đây; mỗi "
+                                            "người dùng liên kết Telegram ở trang Tài khoản.",
+                                            size="sm",
+                                            c="dimmed",
+                                        ),
+                                        dmc.PasswordInput(
+                                            id="settings-telegram-token",
+                                            label="Token bot Telegram",
+                                            placeholder="Đã lưu" if tg_configured else "Nhập token bot (từ @BotFather)",
+                                            maw=360,
+                                            w="100%",
+                                        ),
+                                        dmc.Group(
+                                            [
+                                                dmc.TextInput(
+                                                    id="settings-telegram-username",
+                                                    label="Username bot",
+                                                    placeholder="vd: reconhub_bot",
+                                                    value=tg_username,
+                                                    style={"flex": 1},
+                                                ),
+                                                dmc.Button(
+                                                    "Gửi thử",
+                                                    id="settings-telegram-test-btn",
+                                                    variant="outline",
+                                                    size="sm",
+                                                    leftSection=DashIconify(icon="lucide:send", width=14),
+                                                ),
+                                            ],
+                                            align="flex-end",
+                                            gap="sm",
+                                            maw=360,
+                                            w="100%",
+                                        ),
+                                        html.Div(id="settings-telegram-alert"),
+                                    ],
+                                    gap="xs",
+                                ),
+                                withBorder=True,
+                                radius="sm",
+                                p="md",
+                                w="100%",
+                            ),
+                        ],
+                    ),
+                ],
+                style={
+                    "flex": "1 1 0%",
+                    "minHeight": 0,
+                    "overflowY": "auto",
+                    "padding": "4px 0 24px 0",
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "alignItems": "center",
+                },
             ),
         ],
         style={
-            "padding": "12px 16px",
+            "height": "100%",
             "display": "flex",
             "flexDirection": "column",
-            "alignItems": "center",
-            "gap": "10px",
+            "overflow": "hidden",
+            "padding": "12px 16px",
         },
     )
 

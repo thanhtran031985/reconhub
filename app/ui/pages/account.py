@@ -64,64 +64,38 @@ def layout(**kwargs: Any) -> Any:
             html.Div(
                 dmc.Stack(
                     [
-                        dmc.Group(
-                            [
-                                dmc.Avatar(
-                                    ctx.full_name[:2].upper() if ctx.full_name else "RH",
-                                    radius="xl",
-                                    color="primary",
-                                    size="md",
-                                ),
-                                dmc.Stack(
-                                    [
-                                        dmc.Title(ctx.full_name, order=4),
-                                        dmc.Text(
-                                            f"@{ctx.username}",
-                                            c="dimmed",
-                                            size="xs",
-                                            style={"fontFamily": "var(--font-mono)"},
-                                        ),
-                                    ],
-                                    gap=0,
-                                ),
-                            ],
-                            gap="sm",
-                        ),
                         dmc.Paper(
-                            dmc.Stack(
+                            dmc.Group(
                                 [
-                                    dmc.Title("Thông tin tài khoản", order=5),
-                                    dmc.Table(
+                                    dmc.Avatar(
+                                        ctx.full_name[:2].upper() if ctx.full_name else "RH",
+                                        radius="xl",
+                                        color="primary",
+                                        size="lg",
+                                    ),
+                                    dmc.Stack(
                                         [
-                                            dmc.TableTbody(
+                                            dmc.Group(
                                                 [
-                                                    dmc.TableTr(
-                                                        [
-                                                            dmc.TableTd("Tên đăng nhập", fw=500, w=160),
-                                                            dmc.TableTd(
-                                                                ctx.username,
-                                                                style={"fontFamily": "var(--font-mono)"},
-                                                            ),
-                                                        ]
-                                                    ),
-                                                    dmc.TableTr(
-                                                        [
-                                                            dmc.TableTd("Họ và tên", fw=500),
-                                                            dmc.TableTd(ctx.full_name),
-                                                        ]
-                                                    ),
-                                                    dmc.TableTr(
-                                                        [
-                                                            dmc.TableTd("Vai trò", fw=500),
-                                                            dmc.TableTd(dmc.Group(roles_badges, gap="xs")),
-                                                        ]
-                                                    ),
-                                                ]
-                                            )
-                                        ]
+                                                    dmc.Title(ctx.full_name or ctx.username, order=4),
+                                                    dmc.Group(roles_badges, gap="xs"),
+                                                ],
+                                                gap="sm",
+                                                align="center",
+                                            ),
+                                            dmc.Text(
+                                                f"Tên đăng nhập: @{ctx.username}",
+                                                c="dimmed",
+                                                size="xs",
+                                                style={"fontFamily": "var(--font-mono)"},
+                                            ),
+                                        ],
+                                        gap=2,
+                                        style={"flex": 1},
                                     ),
                                 ],
-                                gap="sm",
+                                gap="md",
+                                align="center",
                             ),
                             withBorder=True,
                             p="md",
@@ -175,10 +149,11 @@ def layout(**kwargs: Any) -> Any:
                                             ),
                                         ],
                                         justify="space-between",
+                                        align="center",
                                         mt="xs",
                                     ),
                                 ],
-                                gap="sm",
+                                gap="xs",
                             ),
                             withBorder=True,
                             p="md",
@@ -189,9 +164,7 @@ def layout(**kwargs: Any) -> Any:
                                 [
                                     dmc.Title("Telegram", order=5),
                                     dmc.Text(
-                                        "Liên kết Telegram để nhận tin khi run đối soát xong "
-                                        "hoặc lỗi. Bấm 'Lấy mã liên kết', nhắn /start kèm mã "
-                                        "cho bot, hệ thống tự lưu chat của bạn.",
+                                        "Liên kết Telegram để nhận thông báo khi run đối soát xong hoặc lỗi.",
                                         size="sm",
                                         c="dimmed",
                                     ),
@@ -201,38 +174,45 @@ def layout(**kwargs: Any) -> Any:
                                     ),
                                     dmc.Group(
                                         [
-                                            dmc.Button(
-                                                "Lấy mã liên kết",
-                                                id="account-telegram-link-btn",
-                                                color="primary",
-                                                size="sm",
+                                            dmc.Group(
+                                                [
+                                                    dmc.Button(
+                                                        "Lấy mã liên kết",
+                                                        id="account-telegram-link-btn",
+                                                        color="primary",
+                                                        size="sm",
+                                                    ),
+                                                    dmc.Button(
+                                                        "Hủy liên kết",
+                                                        id="account-telegram-unlink-btn",
+                                                        variant="outline",
+                                                        color="red",
+                                                        size="sm",
+                                                    ),
+                                                ],
+                                                gap="sm",
                                             ),
-                                            dmc.Button(
-                                                "Hủy liên kết",
-                                                id="account-telegram-unlink-btn",
-                                                variant="outline",
-                                                color="red",
+                                            dmc.Switch(
+                                                id="account-telegram-enabled",
+                                                label="Nhận thông báo",
+                                                checked=tg_enabled,
                                                 size="sm",
                                             ),
                                         ],
-                                        gap="sm",
+                                        justify="space-between",
+                                        align="center",
+                                        w="100%",
                                     ),
                                     html.Div(id="account-telegram-code"),
-                                    dmc.Switch(
-                                        id="account-telegram-enabled",
-                                        label="Nhận thông báo Telegram",
-                                        checked=tg_enabled,
-                                        size="sm",
-                                    ),
                                 ],
-                                gap="sm",
+                                gap="xs",
                             ),
                             withBorder=True,
                             p="md",
                             radius="sm",
                         ),
                     ],
-                    gap="md",
+                    gap="sm",
                     maw=640,
                     mx="auto",
                 ),
@@ -240,7 +220,7 @@ def layout(**kwargs: Any) -> Any:
                     "flex": "1 1 0%",
                     "minHeight": 0,
                     "overflowY": "auto",
-                    "padding": "16px 20px",
+                    "padding": "8px 12px 24px 12px",
                 },
             ),
         ],
