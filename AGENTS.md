@@ -89,6 +89,6 @@ Phong cách: Fluent Compact + Master–Detail (chi tiết rule ui-dash, mẫu de
 KHÔNG đọc `.env` (biến nằm trong `.env.example`; cần biến mới thì thêm vào đó và báo người dùng điền). KHÔNG ghi vào Oracle UAT/PROD. Test chỉ dùng schema test do người dùng chỉ định.
 
 ## Lệnh (`uv run poe <tên>`)
-- `install` (`uv sync`), `dev` (Dash cổng 8050 + worker), `worker`, `test`, `test-engine` (không cần Oracle), `test-oracle` (cần VPN + biến ORACLE_TEST_*), `typecheck`, `lint`, `format`.
+- `install` (`uv sync`), `dev` (Dash cổng 8050 + worker), `worker`, `test`, `test-engine` (không cần Oracle), `test-oracle` (cần VPN + biến ORACLE_TEST_*), `typecheck`, `lint`, `format`, `security-check`.
 - `db-migrate` (Alembic trên `RECON_DB_URL`), `db-seed` (user mẫu, template DTP, Data Source test), `theme` (sinh theme DMC), `design-system` (sinh DESIGN_SYSTEM.md + tokens.css), `e2e`, `tasks-dashboard`.
 - Quản trị: `uv run python -m app.cli create-admin`, `reset-password`, `purge-temp`, `migrate-metadata` (thêm dần theo task).

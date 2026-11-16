@@ -13,3 +13,4 @@ description: Áp dụng khi làm việc với đăng nhập, người dùng, ph�
 - Upload: tối đa 50MB, kiểm phần mở rộng + magic bytes, chống zip bomb, không mở macro.
 - SQL nguồn: user chỉ đọc, timeout, giới hạn dòng, bind param, whitelist định danh.
 - Log JSON không chứa giá trị dữ liệu nghiệp vụ, SQL kèm giá trị bind, mật khẩu.
+- Kiểm tra bảo mật tự động: Chạy `uv run poe security-check` (quét bí mật/private keys, chặn đọc .env trực tiếp, kiểm tra thuật toán băm argon2id, kiểm soát SQL injection, che giấu mật khẩu Data Source trong UI/audit, baseline cấu hình an toàn).

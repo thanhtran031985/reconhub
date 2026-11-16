@@ -161,6 +161,35 @@ def test_navbar_active_item_exact_templates_new() -> None:
     assert active_links == ["/templates"]
 
 
+def test_navbar_collapsible_groups() -> None:
+    """Kiểm tra thanh bên có Accordion collapsible với persistence và đầy đủ nhóm menu."""
+    from app.core.context import Ctx
+
+    ctx = Ctx(user_id=1, username="admin", full_name="Admin", roles=[Role.ADMIN])
+    navbar = create_navbar(ctx, pathname="/")
+
+    def find_accordion(comp: object) -> object | None:
+        if type(comp).__name__ == "Accordion":
+            return comp
+        children = getattr(comp, "children", None)
+        if isinstance(children, list):
+            for child in children:
+                res = find_accordion(child)
+                if res:
+                    return res
+        return None
+
+    accordion = find_accordion(navbar)
+    assert accordion is not None
+    assert getattr(accordion, "id", None) == "sidebar-nav-accordion"
+    assert getattr(accordion, "multiple", False) is True
+    assert getattr(accordion, "persistence", False) is True
+    val = getattr(accordion, "value", [])
+    assert "ĐỐI SOÁT" in val
+    assert "CẤU HÌNH" in val
+    assert "QUẢN TRỊ" in val
+
+
 def test_navbar_mini_mode_and_tooltips() -> None:
     from app.core.context import Ctx
 

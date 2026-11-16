@@ -670,25 +670,16 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
             )
         )
 
-        # 2. Các nhóm menu
+        # 2. Các nhóm menu (Accordion collapsible theo nhóm, lưu trạng thái)
+        accordion_items: list[Any] = []
+        all_group_titles: list[str] = [str(g["title"]) for g in nav_groups]
         for group in nav_groups:
-            content_children.append(
-                dmc.Text(
-                    group["title"],
-                    size="xs",
-                    fw=600,
-                    c="dimmed",
-                    px="sm",
-                    pt="xs",
-                    pb=2,
-                    style={"letterSpacing": "0.3px", "fontSize": "11px"},
-                )
-            )
+            group_links: list[Any] = []
             for item in group["items"]:
                 is_active = item["href"] == active_href
                 # Task 30: bỏ hẳn badge "Mới" ở menu thanh bên (kể cả menu thêm sau này).
                 label_node: Any = item["label"]
-                content_children.append(
+                group_links.append(
                     dmc.NavLink(
                         label=label_node,
                         leftSection=DashIconify(icon=item["icon"], width=16),
@@ -696,10 +687,10 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
                         active=is_active,
                         variant="subtle",
                         px="xs",
-                        py=2,
+                        py=0,
                         styles={
                             "root": {
-                                "height": "32px",
+                                "height": "30px",
                                 "borderRadius": "4px",
                                 "borderLeft": "3px solid var(--primary, #0F6CBD)"
                                 if is_active
@@ -715,6 +706,54 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
                         },
                     )
                 )
+            accordion_items.append(
+                dmc.AccordionItem(
+                    children=[
+                        dmc.AccordionControl(
+                            dmc.Text(
+                                group["title"],
+                                size="xs",
+                                fw=600,
+                                c="dimmed",
+                                style={"letterSpacing": "0.3px", "fontSize": "11px", "userSelect": "none"},
+                            ),
+                            px="sm",
+                            py=4,
+                            h="28px",
+                        ),
+                        dmc.AccordionPanel(group_links),
+                    ],
+                    value=group["title"],
+                    style={"border": "none"},
+                )
+            )
+
+        content_children.append(
+            dmc.Accordion(
+                id="sidebar-nav-accordion",
+                multiple=True,
+                value=all_group_titles,
+                persistence=True,
+                persistence_type="local",
+                chevronPosition="right",
+                chevronSize=14,
+                styles={
+                    "item": {"border": "none"},
+                    "control": {
+                        "padding": "4px 8px 4px 12px",
+                        "borderRadius": "4px",
+                        "backgroundColor": "transparent",
+                    },
+                    "content": {"padding": "0"},
+                    "chevron": {
+                        "width": 14,
+                        "height": 14,
+                        "color": "var(--ink-soft, #888)",
+                    },
+                },
+                children=accordion_items,
+            )
+        )
     else:
         # Mini mode (Rail 48px)
         # 1. Logo Icon centered kèm Tooltip (44px)
@@ -819,7 +858,7 @@ def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) 
         gap=0,
         h="100%",
         align="center" if is_mini else "stretch",
-        style={"overflowX": "hidden"},
+        style={"overflowX": "hidden", "overflowY": "auto"},
     )
 
 

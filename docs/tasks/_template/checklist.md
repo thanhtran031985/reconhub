@@ -27,3 +27,13 @@ Mục đích: Ghi nhận và cập nhật danh sách test case chi tiết cho ta
 | **TC-REG-01** | `uv run poe lint` | Không có lỗi ruff | ⬜ |
 | **TC-REG-02** | `uv run poe typecheck` | Không có lỗi mypy | ⬜ |
 | **TC-REG-03** | `uv run poe test` | Toàn bộ test suite xanh | ⬜ |
+
+---
+
+## 4. Kiểm thử bảo mật tự động & An toàn (Security & Safety)
+
+| Mã TC | Lệnh / Nội dung kiểm thử | Tiêu chí đạt | Trạng thái |
+|---|---|---|---|
+| **TC-SEC-01** | `uv run poe security-check` | Toàn bộ 6/6 kiểm tra bảo mật tự động đạt (zero leaks/injections) | ⬜ |
+| **TC-SEC-02** | Phân quyền truy cập (RBAC) | Service gọi `require_role(ctx, ...)` đúng vai trò quy định | ⬜ |
+| **TC-SEC-03** | Bảo vệ dữ liệu & Bí mật | Mật khẩu argon2id, kết nối Fernet, không leak ra UI/Store/log | ⬜ |

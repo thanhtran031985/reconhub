@@ -5,7 +5,12 @@ Mô phỏng phạm vi dữ liệu. Bảng "Phạm vi dữ liệu và thao tác �
 của prototype được thay bằng một dòng ghi chú (spec 11 mục 7.1).
 Chỉ ADMIN truy cập (menu `role`).
 
-Phân quyền: chỉ ADMIN truy cập; người khác thấy thông báo không có quyền.
+Giao diện Fluent Compact + Master–Detail theo đúng .agents/rules/ui-dash.md:
+- Khung cố định, không cuộn toàn trang ở 1366×768 trở lên (flex 1, minHeight 0).
+- Mật độ Compact (size="xs", gap="xs", padding="sm", radius="sm").
+- Bảng hiển thị dùng dmc.Table có sọc, hover, theme-aware (không dùng html.Table thô).
+- Master–Detail: Trái là danh sách vai trò (320px), Phải là chi tiết & phân quyền.
+- Chế độ sáng/tối tự động tương thích với Theme tokens.
 """
 
 from __future__ import annotations
@@ -101,11 +106,7 @@ def _effective_role_menus(ctx: Ctx, role: dict[str, Any]) -> list[str]:
 
 
 def _role_snapshot(ctx: Ctx, role: dict[str, Any]) -> dict[str, Any]:
-    """Snapshot form để so sánh thay đổi (dirty check).
-
-    Vai trò hệ thống không lưu dòng role_menu nhưng luôn có toàn bộ menu,
-    nên snapshot ghi đủ các mã menu để tránh báo thay đổi giả.
-    """
+    """Snapshot form để so sánh thay đổi (dirty check)."""
     menus = _effective_role_menus(ctx, role)
     return {
         "menus": menus,
@@ -117,7 +118,7 @@ def _role_snapshot(ctx: Ctx, role: dict[str, Any]) -> dict[str, Any]:
 
 
 def render_roles_list(ctx: Ctx, q: str | None = None, selected_id: int | None = None) -> Any:
-    """Cột trái: ô tìm kiếm + danh sách vai trò."""
+    """Cột trái: danh sách vai trò dạng thẻ Compact theo chuẩn Fluent Master-Detail."""
     rows = _role_rows(ctx)
     if q:
         term = q.strip().lower()
@@ -127,12 +128,15 @@ def render_roles_list(ctx: Ctx, q: str | None = None, selected_id: int | None = 
             "Chưa có vai trò nào khớp.",
             "Thử từ khóa khác hoặc thêm vai trò mới.",
         )
-    items = []
+    items: list[Any] = []
     tree = _menu_tree(ctx)
     total_menus = sum(len(g["menus"]) for g in tree)
+
     for r in rows:
-        is_selected = selected_id is not None and int(r["id"]) == selected_id
+        rid = int(r["id"])
+        is_selected = selected_id is not None and rid == selected_id
         menu_count = total_menus if r["is_system"] else len(r["menus"])
+
         meta_badges = [
             dmc.Badge(
                 f"{r['user_count']} người dùng",
@@ -147,45 +151,59 @@ def render_roles_list(ctx: Ctx, q: str | None = None, selected_id: int | None = 
                 variant="light",
             ),
         ]
+        status_badges = []
         if r["is_system"]:
-            meta_badges.append(dmc.Badge("Hệ thống", size="xs", color="blue", variant="light"))
+            status_badges.append(dmc.Badge("Hệ thống", size="xs", color="blue", variant="light"))
         if not r["is_active"]:
-            meta_badges.append(dmc.Badge("Đã tắt", size="xs", color="orange", variant="light"))
+            status_badges.append(dmc.Badge("Đã tắt", size="xs", color="orange", variant="light"))
+
         items.append(
             dmc.Button(
-                dmc.Stack(
+                children=dmc.Stack(
                     [
-                        dmc.Text(str(r["name"]), fw=600, size="sm"),
+                        dmc.Group(
+                            [
+                                dmc.Text(str(r["name"]), fw=600, size="sm", style={"textAlign": "left"}),
+                                *status_badges,
+                            ],
+                            justify="space-between",
+                            align="center",
+                            w="100%",
+                        ),
                         dmc.Text(
                             str(r["code"]),
                             size="xs",
                             c="dimmed",
-                            style={"fontFamily": "monospace"},
+                            style={"fontFamily": "monospace", "textAlign": "left"},
                         ),
-                        dmc.Group(meta_badges, gap="xs"),
+                        dmc.Group(meta_badges, gap="xs", style={"marginTop": 2}),
                     ],
                     gap=2,
                     w="100%",
                 ),
-                id={"type": "role-select-btn", "index": int(r["id"])},
+                id={"type": "role-select-btn", "index": rid},
                 variant="light" if is_selected else "subtle",
                 color="blue" if is_selected else "gray",
                 fullWidth=True,
                 justify="flex-start",
                 h="auto",
-                py="sm",
+                py="xs",
+                px="sm",
                 mb="xs",
+                radius="sm",
+                style={
+                    "borderLeft": "3px solid var(--mantine-color-blue-filled)"
+                    if is_selected
+                    else "3px solid transparent",
+                    "textAlign": "left",
+                },
             )
         )
     return html.Div(items)
 
 
 def render_menu_checkboxes(ctx: Ctx, role_id: int) -> Any:
-    """Checkbox menu theo nhóm trong lưới 3 cột, kèm nhãn Mới / Đang ẩn (spec 11 mục 7.1).
-
-    Nhãn "Mới" chỉ hiện khi menu thật sự mới (IS_NEW='Y'); sau khi Admin
-    đánh dấu đã xem hoặc bật menu cho vai trò (task 20, Q7) thì nhãn mất.
-    """
+    """Checkbox menu theo nhóm trong lưới 3 cột, kèm nhãn Mới / Đang ẩn (spec 11 mục 7.1)."""
     res = get_role(ctx, role_id)
     if not res.ok or not res.data:
         return alert_box("Không tìm thấy vai trò.", tone="crit")
@@ -194,14 +212,12 @@ def render_menu_checkboxes(ctx: Ctx, role_id: int) -> Any:
     current = set(role["menus"])
     tree = _menu_tree(ctx)
     if is_system:
-        # Vai trò hệ thống luôn có toàn bộ menu (không lưu dòng role_menu):
-        # hiển thị tất cả đã tick, chỉ đọc.
         current = {m["code"] for g in tree for m in g["menus"]}
-    group_cols = []
+    group_cols: list[Any] = []
     for group in tree:
-        boxes = []
+        boxes: list[Any] = []
         for menu in group["menus"]:
-            badges = []
+            badges: list[Any] = []
             if menu["is_new"]:
                 badges.append(dmc.Badge("Mới", size="xs", color="green", variant="light"))
             if menu["is_hidden"]:
@@ -209,113 +225,136 @@ def render_menu_checkboxes(ctx: Ctx, role_id: int) -> Any:
             boxes.append(
                 dmc.Checkbox(
                     label=dmc.Group(
-                        [dmc.Text(menu["label"], size="sm"), *badges],
+                        [dmc.Text(menu["label"], size="xs"), *badges],
                         gap="xs",
+                        align="center",
                     ),
                     value=menu["code"],
                     disabled=is_system,
+                    size="xs",
                 )
             )
         checked = len({m["code"] for m in group["menus"]} & current)
+
+        # Nếu số lượng menu > 4, chia thành 2 phần (2 cột) để vừa vặn chiều cao, không bị dài/scroll
+        if len(boxes) > 4:
+            mid = (len(boxes) + 1) // 2
+            boxes_content = dmc.Grid(
+                [
+                    dmc.GridCol(dmc.Stack(boxes[:mid], gap="xs"), span=6),
+                    dmc.GridCol(dmc.Stack(boxes[mid:], gap="xs"), span=6),
+                ],
+                gutter="xs",
+            )
+        else:
+            boxes_content = dmc.Stack(boxes, gap="xs")
+
         group_cols.append(
             dmc.GridCol(
                 dmc.Paper(
                     [
                         dmc.Group(
                             [
-                                dmc.Text(group["label"], fw=600, size="sm"),
-                                dmc.Text(
+                                dmc.Text(group["label"], fw=600, size="xs"),
+                                dmc.Badge(
                                     f"{checked}/{len(group['menus'])}",
                                     size="xs",
-                                    c="dimmed",
+                                    color="gray",
+                                    variant="light",
                                 ),
                             ],
                             justify="space-between",
                             mb="xs",
                         ),
-                        dmc.Stack(boxes, gap="xs"),
+                        boxes_content,
                     ],
                     withBorder=True,
-                    radius="md",
-                    p="sm",
+                    radius="sm",
+                    p="xs",
+                    bg="var(--surface-2, #f8fafc)",
+                    style={"height": "100%", "display": "flex", "flexDirection": "column", "width": "100%"},
                 ),
                 span={"base": 12, "sm": 6, "lg": 4},
+                style={"display": "flex"},
             )
         )
+
+    action_buttons = (
+        dmc.Group(
+            [
+                button_subtle("Chọn tất cả", id="roles-select-all-menus", size="xs"),
+                button_subtle("Bỏ chọn tất cả", id="roles-deselect-all-menus", size="xs"),
+            ],
+            gap="xs",
+        )
+        if not is_system
+        else None
+    )
+
     return dmc.Paper(
         [
             dmc.Group(
                 [
-                    dmc.Text("Menu được truy cập", fw=600, size="sm"),
-                    dmc.Text(
-                        f"{len(current)}/{sum(len(g['menus']) for g in tree)} menu",
-                        size="xs",
-                        c="dimmed",
+                    dmc.Group(
+                        [
+                            DashIconify(icon="lucide:shield-check", width=16),
+                            dmc.Text("Menu được truy cập", fw=600, size="sm"),
+                            dmc.Badge(
+                                f"{len(current)}/{sum(len(g['menus']) for g in tree)} menu",
+                                size="xs",
+                                color="gray",
+                                variant="light",
+                            ),
+                        ],
+                        gap="xs",
+                        align="center",
                     ),
-                    button_subtle("Chọn tất cả", id="roles-select-all-menus", size="xs"),
-                    button_subtle("Bỏ chọn tất cả", id="roles-deselect-all-menus", size="xs"),
+                    action_buttons if action_buttons else html.Div(),
                 ],
-                gap="sm",
-            )
-            if not is_system
-            else dmc.Group(
-                [
-                    dmc.Text("Menu được truy cập", fw=600, size="sm"),
-                    dmc.Text(
-                        f"{len(current)}/{sum(len(g['menus']) for g in tree)} menu",
-                        size="xs",
-                        c="dimmed",
-                    ),
-                ],
-                gap="sm",
+                justify="space-between",
+                align="center",
+                mb=4,
             ),
             dmc.Text(
                 "Có menu = thấy menu ở thanh bên và thao tác được trong màn đó. "
                 "Quyền được kiểm ở server, không chỉ ẩn menu.",
                 size="xs",
                 c="dimmed",
-                mb="md",
+                mb="xs",
             ),
             dmc.CheckboxGroup(
                 id="roles-menus-group",
                 value=sorted(current),
-                children=dmc.Grid(group_cols),
+                children=dmc.Grid(group_cols, gutter="xs"),
             ),
         ],
         withBorder=True,
-        radius="md",
-        p="md",
-        mb="md",
+        radius="sm",
+        p="sm",
     )
 
 
 def render_sidebar_preview(ctx: Ctx, menu_codes: list[str], is_admin: bool = False) -> Any:
-    """Xem trước thanh bên người có các menu này sẽ thấy.
-
-    Khung mô phỏng thanh bên thật của app (nền sáng, nhóm + mục như navbar),
-    khác khung tối navy của prototype Screen14 vì thanh bên thật của app
-    là nền sáng. Chỉ menu có mục trên thanh bên mới hiện; menu đã chọn
-    nhưng không có mục thanh bên (trang chi tiết, task chưa làm) được ghi
-    chú riêng để đối chiếu đủ với ô đã tick. `is_admin=True` thì menu đang
-    ẩn vẫn hiện kèm nhãn "Đang ẩn" như thanh bên thật của ADMIN.
-    """
+    """Xem trước thanh bên người có các menu này sẽ thấy."""
     groups = get_nav_items_for_menus(set(menu_codes), is_admin=is_admin)
     items: list[Any] = []
     if not groups:
-        items.append(dmc.Text("Không thấy menu nào ở thanh bên.", size="sm", c="dimmed"))
+        items.append(dmc.Text("Không thấy menu nào ở thanh bên.", size="xs", c="dimmed"))
     for group in groups:
-        items.append(dmc.Text(group["title"], size="xs", fw=700, c="dimmed", mt="sm"))
+        items.append(dmc.Text(group["title"], size="xs", fw=700, c="dimmed", mt=6, mb=2))
         for item in group["items"]:
             items.append(
                 dmc.Group(
                     [
-                        DashIconify(icon=item["icon"], width=16),
-                        dmc.Text(item["label"], size="sm"),
+                        DashIconify(icon=item["icon"], width=14),
+                        dmc.Text(item["label"], size="xs"),
                     ],
                     gap="xs",
+                    align="center",
+                    py=2,
                 )
             )
-    panel = dmc.Paper(items, bg="var(--surface-2)", withBorder=True, radius="md", p="sm")
+    panel = dmc.Paper(items, bg="var(--surface-2, #f8fafc)", withBorder=True, radius="sm", p="xs")
     blocks: list[Any] = [panel]
     labels = _menu_label_map(ctx)
     not_shown = [labels.get(c, c) for c in menu_codes if c in _SIDEBAR_SKIP_CODES and c in labels]
@@ -325,14 +364,14 @@ def render_sidebar_preview(ctx: Ctx, menu_codes: list[str], is_admin: bool = Fal
                 f"Không hiện ở thanh bên: {', '.join(not_shown)}.",
                 size="xs",
                 c="dimmed",
-                mt="sm",
+                mt="xs",
             )
         )
     return html.Div(blocks)
 
 
 def render_role_detail(ctx: Ctx, role_id: int) -> Any:
-    """Cột phải: form sửa vai trò + người dùng mang vai trò."""
+    """Cột phải: form sửa vai trò + phân quyền + xem trước + người dùng mang vai trò."""
     res = get_role(ctx, role_id)
     if not res.ok or not res.data:
         return alert_box("Không tìm thấy vai trò.", tone="crit")
@@ -340,188 +379,295 @@ def render_role_detail(ctx: Ctx, role_id: int) -> Any:
     is_system = bool(role["is_system"])
     users_res = users_of(ctx, role_id)
     users = users_res.data if users_res.ok and users_res.data else []
-    user_rows = []
+
+    user_rows: list[Any] = []
     for u in users:
+        is_u_active = bool(u["is_active"])
         user_rows.append(
-            html.Tr(
+            dmc.TableTr(
                 [
-                    html.Td(u["username"]),
-                    html.Td(u["full_name"]),
-                    html.Td("Đang dùng" if u["is_active"] else "Đã tắt"),
+                    dmc.TableTd(
+                        dmc.Text(str(u["username"]), size="xs", fw=500, style={"fontFamily": "monospace"})
+                    ),
+                    dmc.TableTd(dmc.Text(str(u["full_name"]), size="xs")),
+                    dmc.TableTd(
+                        dmc.Badge(
+                            "Đang dùng" if is_u_active else "Đã tắt",
+                            size="xs",
+                            color="green" if is_u_active else "gray",
+                            variant="light",
+                        )
+                    ),
                 ]
             )
         )
+
+    users_table = (
+        dmc.Table(
+            striped=True,
+            highlightOnHover=True,
+            withTableBorder=True,
+            withColumnBorders=False,
+            children=[
+                dmc.TableThead(
+                    dmc.TableTr(
+                        [
+                            dmc.TableTh("Username", style={"background": "var(--surface-2, #f8fafc)", "fontSize": 12}),
+                            dmc.TableTh("Họ tên", style={"background": "var(--surface-2, #f8fafc)", "fontSize": 12}),
+                            dmc.TableTh(
+                                "Trạng thái", style={"background": "var(--surface-2, #f8fafc)", "fontSize": 12}
+                            ),
+                        ]
+                    )
+                ),
+                dmc.TableTbody(user_rows),
+            ],
+        )
+        if user_rows
+        else dmc.Text(
+            "Chưa có người dùng nào mang vai trò này.",
+            size="xs",
+            c="dimmed",
+            py="sm",
+            style={"textAlign": "center"},
+        )
+    )
+
+    role_status_badge = (
+        dmc.Badge("Hệ thống", size="xs", color="blue", variant="light")
+        if is_system
+        else (
+            dmc.Badge("Đang dùng", size="xs", color="green", variant="light")
+            if role["is_active"]
+            else dmc.Badge("Đã tắt", size="xs", color="orange", variant="light")
+        )
+    )
+
     return html.Div(
-        [
+        style={"display": "flex", "flexDirection": "column", "height": "100%", "overflow": "hidden"},
+        children=[
+            # Header cố định của Detail panel
             dmc.Paper(
                 [
                     dmc.Group(
                         [
-                            dmc.Stack(
+                            dmc.Group(
                                 [
-                                    dmc.Text(str(role["name"]), fw=700, size="lg"),
+                                    DashIconify(
+                                        icon="lucide:shield", width=20, color="var(--mantine-color-blue-filled)"
+                                    ),
+                                    dmc.Title(str(role["name"]), order=4, size=16, fw=600),
                                     dmc.Text(
                                         str(role["code"]),
-                                        size="sm",
+                                        size="xs",
                                         c="dimmed",
                                         style={"fontFamily": "monospace"},
                                     ),
+                                    role_status_badge,
                                 ],
-                                gap=0,
+                                gap="xs",
+                                align="center",
                             ),
                             dmc.Group(
                                 [
-                                    button_subtle("Nhân bản", id="roles-clone-btn", icon="lucide:copy"),
+                                    button_subtle(
+                                        "Nhân bản",
+                                        id="roles-clone-btn",
+                                        icon="lucide:copy",
+                                        size="xs",
+                                    ),
                                     button_subtle(
                                         "Xóa vai trò",
                                         id="roles-delete-btn",
                                         icon="lucide:trash-2",
                                         color="red",
                                         disabled=is_system,
+                                        size="xs",
                                     ),
                                 ],
-                                gap="sm",
+                                gap="xs",
                             ),
                         ],
                         justify="space-between",
+                        align="center",
                     ),
+                ],
+                withBorder=True,
+                radius="sm",
+                p="xs",
+                mb="xs",
+            ),
+            # Nội dung Detail cuộn độc lập bên trong
+            html.Div(
+                style={
+                    "flex": 1,
+                    "minHeight": 0,
+                    "overflowY": "auto",
+                    "overflowX": "hidden",
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "gap": "8px",
+                    "paddingRight": "2px",
+                },
+                children=[
+                    # Section 1: Thông tin cơ bản
+                    dmc.Paper(
+                        [
+                            dmc.Grid(
+                                [
+                                    dmc.GridCol(
+                                        dmc.TextInput(
+                                            id="roles-name-input",
+                                            label="Tên vai trò",
+                                            value=str(role["name"]),
+                                            required=True,
+                                            disabled=is_system,
+                                            size="xs",
+                                        ),
+                                        span={"base": 12, "md": 5},
+                                    ),
+                                    dmc.GridCol(
+                                        dmc.TextInput(
+                                            id="roles-desc-input",
+                                            label="Mô tả vai trò",
+                                            value=str(role["description"] or ""),
+                                            placeholder="Diễn giải vai trò...",
+                                            size="xs",
+                                        ),
+                                        span={"base": 12, "md": 5},
+                                    ),
+                                    dmc.GridCol(
+                                        dmc.Stack(
+                                            [
+                                                dmc.Text("Kích hoạt", size="xs", fw=500),
+                                                dmc.Switch(
+                                                    id="roles-active-switch",
+                                                    label="Đang dùng",
+                                                    checked=bool(role["is_active"]),
+                                                    disabled=is_system,
+                                                    size="xs",
+                                                ),
+                                            ],
+                                            gap=2,
+                                        ),
+                                        span={"base": 12, "md": 2},
+                                    ),
+                                ],
+                                gutter="xs",
+                                align="flex-end",
+                            ),
+                            dmc.Text(
+                                "Tắt thì người có vai trò này mất các menu của vai trò khi đăng nhập lại hoặc trong vài giây.",
+                                size="xs",
+                                c="dimmed",
+                                mt="xs",
+                            ),
+                            dmc.Alert(
+                                "Vai trò hệ thống Admin luôn có toàn bộ menu, xem tất cả dữ liệu và làm được "
+                                "các thao tác nhạy cảm. Không sửa, không xóa được.",
+                                color="blue",
+                                mt="xs",
+                            )
+                            if is_system
+                            else html.Div(),
+                        ],
+                        withBorder=True,
+                        radius="sm",
+                        p="sm",
+                    ),
+                    # Section 2: Menu được truy cập
+                    render_menu_checkboxes(ctx, role_id),
+                    # Section 3: Xem trước thanh bên & Người dùng mang vai trò (chia 2 cột)
                     dmc.Grid(
-                        [
+                        gutter="xs",
+                        children=[
                             dmc.GridCol(
-                                dmc.TextInput(
-                                    id="roles-name-input",
-                                    label="Tên vai trò",
-                                    value=str(role["name"]),
-                                    required=True,
-                                    disabled=is_system,
-                                ),
-                                span={"base": 12, "md": 6},
-                            ),
-                            dmc.GridCol(
-                                dmc.TextInput(
-                                    id="roles-desc-input",
-                                    label="Mô tả",
-                                    value=str(role["description"] or ""),
-                                ),
-                                span={"base": 12, "md": 6},
-                            ),
-                        ],
-                        mt="md",
-                    ),
-                    dmc.Switch(
-                        id="roles-active-switch",
-                        label="Đang dùng",
-                        checked=bool(role["is_active"]),
-                        disabled=is_system,
-                        mt="md",
-                    ),
-                    dmc.Text(
-                        "Tắt thì người có vai trò này mất các menu của vai trò khi đăng nhập lại hoặc trong vài giây.",
-                        size="xs",
-                        c="dimmed",
-                        mt="xs",
-                    ),
-                    dmc.Alert(
-                        "Vai trò hệ thống Admin luôn có toàn bộ menu, xem tất cả dữ liệu và làm được "
-                        "các thao tác nhạy cảm. Không sửa, không xóa được.",
-                        color="blue",
-                        mt="md",
-                    )
-                    if is_system
-                    else html.Div(),
-                ],
-                withBorder=True,
-                radius="md",
-                p="md",
-                mb="md",
-            ),
-            render_menu_checkboxes(ctx, role_id),
-            dmc.Paper(
-                [
-                    dmc.Group(
-                        [
-                            dmc.Text("Xem trước thanh bên", fw=600, size="sm"),
-                            dmc.Text("Người có vai trò này sẽ thấy", size="xs", c="dimmed"),
-                        ],
-                        justify="space-between",
-                        mb="sm",
-                    ),
-                    html.Div(
-                        id="roles-sidebar-preview",
-                        children=render_sidebar_preview(ctx, _effective_role_menus(ctx, role), is_admin=is_system),
-                    ),
-                    dmc.Divider(mt="md", mb="sm"),
-                    dmc.Text(_SCOPE_NOTE, size="sm", c="dimmed"),
-                ],
-                withBorder=True,
-                radius="md",
-                p="md",
-                mb="md",
-            ),
-            dmc.Paper(
-                [
-                    dmc.Group(
-                        [
-                            dmc.Text(f"Người dùng có vai trò này ({len(users)})", fw=600, size="sm"),
-                            dmc.Text("Gán vai trò ở màn Người dùng", size="xs", c="dimmed"),
-                        ],
-                        justify="space-between",
-                        mb="sm",
-                    ),
-                    html.Table(
-                        [
-                            html.Thead(
-                                html.Tr(
+                                dmc.Paper(
                                     [
-                                        html.Th("Username", style={"textAlign": "center"}),
-                                        html.Th("Họ tên", style={"textAlign": "center"}),
-                                        html.Th("Trạng thái", style={"textAlign": "center"}),
-                                    ]
-                                )
+                                        dmc.Group(
+                                            [
+                                                dmc.Text("Xem trước thanh bên", fw=600, size="sm"),
+                                                dmc.Text("Người có vai trò này sẽ thấy", size="xs", c="dimmed"),
+                                            ],
+                                            justify="space-between",
+                                            mb="xs",
+                                        ),
+                                        html.Div(
+                                            id="roles-sidebar-preview",
+                                            children=render_sidebar_preview(
+                                                ctx, _effective_role_menus(ctx, role), is_admin=is_system
+                                            ),
+                                            style={"maxHeight": "240px", "overflowY": "auto"},
+                                        ),
+                                        dmc.Divider(my="xs"),
+                                        dmc.Text(_SCOPE_NOTE, size="xs", c="dimmed"),
+                                    ],
+                                    withBorder=True,
+                                    radius="sm",
+                                    p="sm",
+                                    style={"height": "100%"},
+                                ),
+                                span={"base": 12, "lg": 6},
                             ),
-                            html.Tbody(user_rows),
+                            dmc.GridCol(
+                                dmc.Paper(
+                                    [
+                                        dmc.Group(
+                                            [
+                                                dmc.Text(
+                                                    f"Người dùng có vai trò này ({len(users)})", fw=600, size="sm"
+                                                ),
+                                                dmc.Text("Gán vai trò ở màn Người dùng", size="xs", c="dimmed"),
+                                            ],
+                                            justify="space-between",
+                                            mb="xs",
+                                        ),
+                                        html.Div(
+                                            users_table,
+                                            style={"maxHeight": "260px", "overflowY": "auto"},
+                                        ),
+                                    ],
+                                    withBorder=True,
+                                    radius="sm",
+                                    p="sm",
+                                    style={"height": "100%"},
+                                ),
+                                span={"base": 12, "lg": 6},
+                            ),
                         ],
-                        style={"width": "100%"},
-                    )
-                    if users
-                    else dmc.Text(
-                        "Chưa có người dùng nào mang vai trò này.",
-                        size="sm",
-                        c="dimmed",
                     ),
                 ],
-                withBorder=True,
-                radius="md",
-                p="md",
-                mb="md",
             ),
+            # Sticky Dirty Bar ở chân panel
             dmc.Paper(
                 dmc.Group(
                     [
-                        dmc.Text("Chưa có thay đổi.", size="sm", c="dimmed", id="roles-dirty-text"),
+                        dmc.Text("Chưa có thay đổi.", size="xs", c="dimmed", id="roles-dirty-text"),
                         dmc.Group(
                             [
-                                button_subtle("Hủy thay đổi", id="roles-discard-btn", disabled=True),
-                                button_primary("Lưu vai trò", id="roles-save-btn", disabled=True),
+                                button_subtle("Hủy thay đổi", id="roles-discard-btn", size="xs", disabled=True),
+                                button_primary("Lưu vai trò", id="roles-save-btn", size="xs", disabled=True),
                             ],
-                            gap="sm",
+                            gap="xs",
                         ),
                     ],
                     justify="space-between",
+                    align="center",
                 ),
                 id="roles-dirty-bar",
                 withBorder=True,
-                radius="md",
-                shadow="sm",
-                p="sm",
+                radius="sm",
+                shadow="xs",
+                p="xs",
+                mt="xs",
                 style={"position": "sticky", "bottom": 0, "zIndex": 10},
             ),
-        ]
+        ],
     )
 
 
 def render_effective_panel(ctx: Ctx, user_id: int) -> Any:
-    """Tab 2: quyền thực tế của một người dùng."""
+    """Tab 2: quyền thực tế của một người dùng (Fluent Compact Grid 2 cột)."""
     res = effective_of_user(ctx, user_id)
     if not res.ok or not res.data:
         return alert_box("Không tìm thấy người dùng.", tone="crit")
@@ -529,89 +675,141 @@ def render_effective_panel(ctx: Ctx, user_id: int) -> Any:
     labels = _menu_label_map(ctx)
     all_roles = _role_rows(ctx)
     role_menus = {str(r["code"]): set(r["menus"]) for r in all_roles}
-    rows = []
+
+    rows: list[Any] = []
     for code in data["menus"]:
         granters = [rc for rc in data["roles"] if code in role_menus.get(rc, set())]
         if data["is_admin"]:
             granters = ["ADMIN (hệ thống)"]
         rows.append(
-            html.Tr(
+            dmc.TableTr(
                 [
-                    html.Td(labels.get(code, code)),
-                    html.Td(", ".join(granters) if granters else "—"),
+                    dmc.TableTd(dmc.Text(labels.get(code, code), size="xs", fw=500)),
+                    dmc.TableTd(
+                        dmc.Text(
+                            ", ".join(granters) if granters else "—",
+                            size="xs",
+                            c="dimmed",
+                            style={"fontFamily": "monospace"},
+                        )
+                    ),
                 ]
             )
         )
+
     menu_table = (
-        html.Table(
-            [
-                html.Thead(
-                    html.Tr(
+        dmc.Table(
+            striped=True,
+            highlightOnHover=True,
+            withTableBorder=True,
+            withColumnBorders=False,
+            children=[
+                dmc.TableThead(
+                    dmc.TableTr(
                         [
-                            html.Th("Menu", style={"textAlign": "center"}),
-                            html.Th("Có từ vai trò", style={"textAlign": "center"}),
+                            dmc.TableTh("Menu", style={"background": "var(--surface-2, #f8fafc)", "fontSize": 12}),
+                            dmc.TableTh(
+                                "Có từ vai trò", style={"background": "var(--surface-2, #f8fafc)", "fontSize": 12}
+                            ),
                         ]
                     )
                 ),
-                html.Tbody(rows),
+                dmc.TableTbody(rows),
             ],
-            style={"width": "100%"},
         )
         if rows
         else empty_state("Người dùng này chưa có menu nào.", "")
     )
+
     return html.Div(
-        [
-            dmc.Group(
-                [
-                    dmc.Text(f"{data['full_name']} ({data['username']})", fw=600, size="md"),
-                    dmc.Badge(
-                        "Admin" if data["is_admin"] else "Vai trò thường", color="blue" if data["is_admin"] else "gray"
-                    ),
-                ],
-                gap="sm",
-            ),
-            dmc.Text(
-                "Xem tất cả dữ liệu." if data["is_admin"] else "Chỉ thấy run do mình chạy.",
-                size="sm",
-                c="dimmed",
-                mt="xs",
+        style={"display": "flex", "flexDirection": "column", "gap": "8px"},
+        children=[
+            dmc.Paper(
+                dmc.Group(
+                    [
+                        dmc.Group(
+                            [
+                                DashIconify(
+                                    icon="lucide:user", width=18, color="var(--mantine-color-blue-filled)"
+                                ),
+                                dmc.Text(f"{data['full_name']} ({data['username']})", fw=600, size="sm"),
+                                dmc.Badge(
+                                    "Admin" if data["is_admin"] else "Vai trò thường",
+                                    color="blue" if data["is_admin"] else "gray",
+                                    size="xs",
+                                    variant="light",
+                                ),
+                            ],
+                            gap="xs",
+                            align="center",
+                        ),
+                        dmc.Text(
+                            "Xem tất cả dữ liệu." if data["is_admin"] else "Chỉ thấy run do mình chạy.",
+                            size="xs",
+                            c="dimmed",
+                        ),
+                    ],
+                    justify="space-between",
+                    align="center",
+                ),
+                withBorder=True,
+                radius="sm",
+                p="xs",
             ),
             dmc.Grid(
-                [
+                gutter="xs",
+                children=[
                     dmc.GridCol(
                         dmc.Paper(
                             [
-                                dmc.Text("Menu thực tế", fw=600, size="sm", mb="sm"),
-                                menu_table,
+                                dmc.Group(
+                                    [
+                                        dmc.Text("Menu thực tế", fw=600, size="sm"),
+                                        dmc.Badge(
+                                            f"{len(data['menus'])} menu", size="xs", color="gray", variant="light"
+                                        ),
+                                    ],
+                                    justify="space-between",
+                                    mb="xs",
+                                ),
+                                html.Div(
+                                    menu_table,
+                                    style={"maxHeight": "calc(100vh - 240px)", "overflowY": "auto"},
+                                ),
                             ],
                             withBorder=True,
-                            radius="md",
-                            p="md",
+                            radius="sm",
+                            p="sm",
+                            style={"height": "100%"},
                         ),
                         span={"base": 12, "lg": 6},
                     ),
                     dmc.GridCol(
                         dmc.Paper(
                             [
-                                dmc.Text("Thanh bên người này thấy", fw=600, size="sm", mb="sm"),
-                                render_sidebar_preview(ctx, list(data["menus"]), is_admin=bool(data["is_admin"])),
+                                dmc.Text("Thanh bên người này thấy", fw=600, size="sm", mb="xs"),
+                                html.Div(
+                                    render_sidebar_preview(
+                                        ctx, list(data["menus"]), is_admin=bool(data["is_admin"])
+                                    ),
+                                    style={"maxHeight": "calc(100vh - 240px)", "overflowY": "auto"},
+                                ),
                             ],
                             withBorder=True,
-                            radius="md",
-                            p="md",
+                            radius="sm",
+                            p="sm",
+                            style={"height": "100%"},
                         ),
                         span={"base": 12, "lg": 6},
                     ),
                 ],
-                mt="md",
             ),
-        ]
+        ],
     )
 
 
 def render_sim_panel(ctx: Ctx, user_id: int) -> Any:
-    """Tab 3: mô phỏng — cùng dữ liệu run, mỗi người thấy khác nhau."""
+    """Tab 3: mô phỏng — cùng dữ liệu run, mỗi người thấy khác nhau (Fluent Compact Table)."""
     users_res = list_users(ctx)
     if not users_res.ok or not users_res.data:
         return alert_box("Không tải được danh sách người dùng.", tone="crit")
@@ -628,44 +826,89 @@ def render_sim_panel(ctx: Ctx, user_id: int) -> Any:
     if not res.ok:
         return alert_box(f"Không tải được lịch sử cho {target.username}: {res.message}", tone="crit")
     items = res.data.get("items", []) if isinstance(res.data, dict) else []
-    rows = []
+
+    rows: list[Any] = []
     for run in items:
+        status_val = str(run.get("status") or "")
+        st_color = (
+            "green"
+            if status_val == "DONE"
+            else ("red" if status_val == "FAILED" else ("blue" if status_val == "RUNNING" else "gray"))
+        )
         rows.append(
-            html.Tr(
+            dmc.TableTr(
                 [
-                    html.Td(f"Run #{run.get('id')}"),
-                    html.Td(str(run.get("template_code") or run.get("template_name") or "")),
-                    html.Td(str(run.get("created_by") or "")),
-                    html.Td(str(run.get("status") or "")),
+                    dmc.TableTd(
+                        dmc.Text(f"Run #{run.get('id')}", size="xs", fw=500, style={"fontFamily": "monospace"})
+                    ),
+                    dmc.TableTd(
+                        dmc.Text(str(run.get("template_code") or run.get("template_name") or ""), size="xs")
+                    ),
+                    dmc.TableTd(
+                        dmc.Text(str(run.get("created_by") or ""), size="xs", style={"fontFamily": "monospace"})
+                    ),
+                    dmc.TableTd(
+                        dmc.Badge(status_val, size="xs", color=st_color, variant="light")
+                        if status_val
+                        else dmc.Text("—", size="xs", c="dimmed")
+                    ),
                 ]
             )
         )
-    return html.Div(
+
+    sim_table = (
+        dmc.Table(
+            striped=True,
+            highlightOnHover=True,
+            withTableBorder=True,
+            withColumnBorders=False,
+            children=[
+                dmc.TableThead(
+                    dmc.TableTr(
+                        [
+                            dmc.TableTh("Run", style={"background": "var(--surface-2, #f8fafc)", "fontSize": 12}),
+                            dmc.TableTh(
+                                "Template", style={"background": "var(--surface-2, #f8fafc)", "fontSize": 12}
+                            ),
+                            dmc.TableTh(
+                                "Người chạy", style={"background": "var(--surface-2, #f8fafc)", "fontSize": 12}
+                            ),
+                            dmc.TableTh(
+                                "Trạng thái", style={"background": "var(--surface-2, #f8fafc)", "fontSize": 12}
+                            ),
+                        ]
+                    )
+                ),
+                dmc.TableTbody(rows),
+            ],
+        )
+        if rows
+        else empty_state("Người dùng này chưa thấy run nào.", "Run mới do họ chạy sẽ hiện ở đây.")
+    )
+
+    return dmc.Paper(
         [
-            dmc.Text(
-                f"Minh họa màn Lịch sử: {target.username} thấy {len(rows)} run.",
-                size="sm",
-                c="dimmed",
-            ),
-            html.Table(
+            dmc.Group(
                 [
-                    html.Thead(
-                        html.Tr(
-                            [
-                                html.Th("Run", style={"textAlign": "center"}),
-                                html.Th("Template", style={"textAlign": "center"}),
-                                html.Th("Người chạy", style={"textAlign": "center"}),
-                                html.Th("Trạng thái", style={"textAlign": "center"}),
-                            ]
-                        )
+                    dmc.Text(
+                        f"Minh họa màn Lịch sử: {target.username} thấy {len(rows)} run.",
+                        size="xs",
+                        c="dimmed",
                     ),
-                    html.Tbody(rows),
+                    dmc.Badge(f"{len(rows)} run", size="xs", color="gray", variant="light"),
                 ],
-                style={"width": "100%", "marginTop": 12},
-            )
-            if rows
-            else empty_state("Người dùng này chưa thấy run nào.", "Run mới do họ chạy sẽ hiện ở đây."),
-        ]
+                justify="space-between",
+                align="center",
+                mb="xs",
+            ),
+            html.Div(
+                sim_table,
+                style={"maxHeight": "calc(100vh - 220px)", "overflowY": "auto"},
+            ),
+        ],
+        withBorder=True,
+        radius="sm",
+        p="sm",
     )
 
 
@@ -677,7 +920,7 @@ def _user_options(ctx: Ctx) -> list[dict[str, str]]:
 
 
 def layout() -> Any:
-    """Layout chính màn hình Vai trò và phân quyền (Screen14)."""
+    """Layout chính màn hình Vai trò và phân quyền (Screen14) theo Fluent Compact."""
     ctx = _ctx_or_none()
     gate = page_gate(ctx, MENU_CODE)
     if gate:
@@ -718,11 +961,13 @@ def layout() -> Any:
             dcc.Store(id="roles-selected-store", data=first_id),
             dcc.Store(id="roles-form-store", data=first_snapshot),
             dcc.Store(id="roles-dirty-store", data=False),
+            # 1. Header trang 1 dòng chuẩn Fluent Compact
             page_header(
                 title="Vai trò và phân quyền",
                 subtitle="Phân quyền theo menu: vai trò có menu nào thì người dùng thấy menu đó và thao tác được trong màn đó.",
                 style={"marginBottom": "8px"},
             ),
+            # 2. Tabs Bar
             dmc.Tabs(
                 id="roles-tabs",
                 value="roles",
@@ -739,8 +984,10 @@ def layout() -> Any:
                             dmc.TabsTab("Vai trò", value="roles"),
                             dmc.TabsTab("Quyền thực tế của người dùng", value="users"),
                             dmc.TabsTab("Mô phỏng phạm vi dữ liệu", value="sim"),
-                        ]
+                        ],
+                        mb="xs",
                     ),
+                    # Tab 1: Vai trò (Master–Detail 2 cột)
                     dmc.TabsPanel(
                         value="roles",
                         style={
@@ -749,7 +996,6 @@ def layout() -> Any:
                             "display": "flex",
                             "flexDirection": "column",
                             "overflow": "hidden",
-                            "paddingTop": "8px",
                         },
                         children=[
                             dmc.Box(
@@ -762,43 +1008,51 @@ def layout() -> Any:
                                     "overflow": "hidden",
                                 },
                                 children=[
-                                    # Master (Trái): Danh sách vai trò
+                                    # Master (Trái): Danh sách vai trò (320px)
                                     dmc.Paper(
                                         [
+                                            # Header danh sách vai trò
                                             dmc.Group(
                                                 [
-                                                    dmc.Text("Vai trò", fw=700, size="sm"),
-                                                    dmc.Badge(
-                                                        f"{len(rows)} vai trò",
-                                                        id="roles-count-badge",
+                                                    dmc.Group(
+                                                        [
+                                                            dmc.Text("Vai trò", fw=700, size="sm"),
+                                                            dmc.Badge(
+                                                                f"{len(rows)} vai trò",
+                                                                id="roles-count-badge",
+                                                                size="xs",
+                                                                color="gray",
+                                                                variant="light",
+                                                            ),
+                                                        ],
+                                                        gap="xs",
+                                                        align="center",
+                                                    ),
+                                                    button_primary(
+                                                        "+ Thêm vai trò",
+                                                        id="roles-add-btn",
+                                                        icon="lucide:plus",
                                                         size="xs",
-                                                        color="gray",
-                                                        variant="light",
                                                     ),
                                                 ],
                                                 justify="space-between",
+                                                align="center",
                                                 mb="xs",
                                             ),
+                                            # Ô tìm kiếm vai trò
                                             dmc.TextInput(
                                                 id="roles-search-input",
-                                                placeholder="Tên hoặc mã vai trò",
+                                                placeholder="Tên hoặc mã vai trò...",
                                                 leftSection=DashIconify(icon="lucide:search", width=14),
                                                 size="xs",
                                                 debounce=300,
                                                 mb="xs",
                                             ),
+                                            # Danh sách thẻ vai trò cuộn độc lập
                                             dmc.Box(
                                                 id="roles-list",
                                                 children=render_roles_list(ctx, selected_id=first_id),
                                                 style={"flex": 1, "minHeight": 0, "overflowY": "auto"},
-                                            ),
-                                            button_primary(
-                                                "+ Thêm vai trò",
-                                                id="roles-add-btn",
-                                                icon="lucide:plus",
-                                                fullWidth=True,
-                                                size="xs",
-                                                mt="xs",
                                             ),
                                         ],
                                         withBorder=True,
@@ -814,7 +1068,7 @@ def layout() -> Any:
                                             "height": "100%",
                                         },
                                     ),
-                                    # Detail (Phải): Form vai trò & phân quyền
+                                    # Detail (Phải): Chi tiết & Phân quyền vai trò
                                     html.Div(
                                         id="roles-detail",
                                         children=render_role_detail(ctx, first_id)
@@ -828,7 +1082,7 @@ def layout() -> Any:
                                             "minWidth": 0,
                                             "minHeight": 0,
                                             "height": "100%",
-                                            "overflowY": "auto",
+                                            "overflow": "hidden",
                                             "display": "flex",
                                             "flexDirection": "column",
                                         },
@@ -837,6 +1091,7 @@ def layout() -> Any:
                             ),
                         ],
                     ),
+                    # Tab 2: Quyền thực tế của người dùng
                     dmc.TabsPanel(
                         value="users",
                         style={
@@ -844,26 +1099,45 @@ def layout() -> Any:
                             "minHeight": 0,
                             "display": "flex",
                             "flexDirection": "column",
-                            "overflowY": "auto",
-                            "paddingTop": "8px",
+                            "overflow": "hidden",
                         },
                         children=[
-                            dmc.Select(
-                                id="roles-effective-user",
-                                label="Người dùng",
-                                data=user_opts,
-                                value=first_user,
-                                style={"width": 320},
+                            dmc.Paper(
+                                dmc.Group(
+                                    [
+                                        dmc.Select(
+                                            id="roles-effective-user",
+                                            label="Chọn người dùng",
+                                            data=user_opts,
+                                            value=first_user,
+                                            size="xs",
+                                            w=320,
+                                            leftSection=DashIconify(icon="lucide:user", width=14),
+                                        ),
+                                        dmc.Text(
+                                            "Kiểm tra tổng hợp các menu mà người dùng được cấp quyền từ tất cả vai trò.",
+                                            size="xs",
+                                            c="dimmed",
+                                        ),
+                                    ],
+                                    justify="space-between",
+                                    align="flex-end",
+                                ),
+                                withBorder=True,
+                                radius="sm",
+                                p="xs",
+                                mb="xs",
                             ),
                             dmc.Box(
                                 id="roles-effective-panel",
                                 children=render_effective_panel(ctx, int(first_user))
                                 if first_user
                                 else empty_state("Chưa có người dùng nào.", ""),
-                                mt="md",
+                                style={"flex": 1, "minHeight": 0, "overflowY": "auto"},
                             ),
                         ],
                     ),
+                    # Tab 3: Mô phỏng phạm vi dữ liệu
                     dmc.TabsPanel(
                         value="sim",
                         style={
@@ -871,76 +1145,113 @@ def layout() -> Any:
                             "minHeight": 0,
                             "display": "flex",
                             "flexDirection": "column",
-                            "overflowY": "auto",
-                            "paddingTop": "8px",
+                            "overflow": "hidden",
                         },
                         children=[
-                            dmc.Select(
-                                id="roles-sim-user",
-                                label="Đăng nhập như",
-                                data=user_opts,
-                                value=first_user,
-                                style={"width": 320},
+                            dmc.Paper(
+                                dmc.Group(
+                                    [
+                                        dmc.Select(
+                                            id="roles-sim-user",
+                                            label="Đăng nhập như",
+                                            data=user_opts,
+                                            value=first_user,
+                                            size="xs",
+                                            w=320,
+                                            leftSection=DashIconify(icon="lucide:user-check", width=14),
+                                        ),
+                                        dmc.Text(
+                                            "Xem trước danh sách Run mà người dùng này có thể nhìn thấy theo phân quyền.",
+                                            size="xs",
+                                            c="dimmed",
+                                        ),
+                                    ],
+                                    justify="space-between",
+                                    align="flex-end",
+                                ),
+                                withBorder=True,
+                                radius="sm",
+                                p="xs",
+                                mb="xs",
                             ),
                             dmc.Box(
                                 id="roles-sim-panel",
                                 children=render_sim_panel(ctx, int(first_user))
                                 if first_user
                                 else empty_state("Chưa có người dùng nào.", ""),
-                                mt="md",
+                                style={"flex": 1, "minHeight": 0, "overflowY": "auto"},
                             ),
                         ],
                     ),
                 ],
             ),
-            # Modal thêm vai trò
+            # Modals
             dmc.Modal(
                 id="roles-create-modal",
                 title="Thêm vai trò",
                 opened=False,
+                radius="sm",
+                size="md",
+                trapFocus=False,
                 children=[
-                    dmc.TextInput(id="roles-create-code", label="Mã vai trò", placeholder="VD: AUDITOR", required=True),
+                    dmc.TextInput(
+                        id="roles-create-code",
+                        label="Mã vai trò",
+                        placeholder="VD: AUDITOR",
+                        required=True,
+                        size="xs",
+                    ),
                     dmc.TextInput(
                         id="roles-create-name",
                         label="Tên vai trò",
                         placeholder="VD: Kiểm toán viên",
                         required=True,
-                        mt="sm",
+                        size="xs",
+                        mt="xs",
                     ),
-                    dmc.Textarea(id="roles-create-desc", label="Mô tả", mt="sm"),
+                    dmc.Textarea(
+                        id="roles-create-desc",
+                        label="Mô tả",
+                        placeholder="Mô tả vai trò...",
+                        size="xs",
+                        mt="xs",
+                    ),
                     dmc.Select(
                         id="roles-create-copy-from",
                         label="Sao chép menu từ vai trò",
                         data=[{"label": "Không sao chép", "value": ""}]
                         + [{"label": f"{r['name']} ({r['code']})", "value": str(r["id"])} for r in rows],
                         value="",
-                        mt="sm",
+                        size="xs",
+                        mt="xs",
                     ),
-                    html.Div(id="roles-create-error"),
+                    html.Div(id="roles-create-error", style={"marginTop": "8px"}),
                     dmc.Group(
                         [
-                            button_subtle("Hủy", id="roles-create-cancel"),
-                            button_primary("Tạo vai trò", id="roles-create-confirm"),
+                            button_subtle("Hủy", id="roles-create-cancel", size="xs"),
+                            button_primary("Tạo vai trò", id="roles-create-confirm", size="xs"),
                         ],
                         justify="flex-end",
-                        mt="lg",
+                        mt="md",
                     ),
                 ],
             ),
-            # Modal xác nhận lưu (liệt kê menu thêm/bỏ + số người ảnh hưởng)
             dmc.Modal(
                 id="roles-save-modal",
                 title="Lưu vai trò",
                 opened=False,
+                radius="sm",
+                size="sm",
+                trapFocus=False,
                 children=[
                     html.Div(id="roles-save-modal-body"),
                     dmc.Group(
                         [
-                            button_subtle("Hủy", id="roles-save-cancel"),
-                            button_primary("Lưu", id="roles-save-confirm"),
+                            button_subtle("Hủy", id="roles-save-cancel", size="xs"),
+                            button_primary("Lưu", id="roles-save-confirm", size="xs"),
                         ],
                         justify="flex-end",
-                        mt="lg",
+                        mt="md",
                     ),
                 ],
             ),
@@ -976,10 +1287,12 @@ def handle_roles_search(q: str | None, selected_id: int | None) -> Any:
     Output("roles-detail", "children"),
     Output("roles-dirty-store", "data", allow_duplicate=True),
     Output("roles-form-store", "data", allow_duplicate=True),
+    Output("roles-list", "children", allow_duplicate=True),
     Input({"type": "role-select-btn", "index": ALL}, "n_clicks"),
+    State("roles-search-input", "value"),
     prevent_initial_call=True,
 )
-def handle_select_role(n_clicks_list: list[int | None]) -> Any:
+def handle_select_role(n_clicks_list: list[int | None], search_q: str | None = None) -> Any:
     ctx = _ctx_or_none()
     if ctx is None or not any(n_clicks_list):
         raise dash.exceptions.PreventUpdate
@@ -987,7 +1300,13 @@ def handle_select_role(n_clicks_list: list[int | None]) -> Any:
     role_id = int(triggered["index"])
     res = get_role(ctx, role_id)
     snapshot = _role_snapshot(ctx, res.data) if res.ok and res.data else None
-    return role_id, render_role_detail(ctx, role_id), False, snapshot
+    return (
+        role_id,
+        render_role_detail(ctx, role_id),
+        False,
+        snapshot,
+        render_roles_list(ctx, q=search_q, selected_id=role_id),
+    )
 
 
 @callback(
@@ -1115,7 +1434,6 @@ def handle_save_modal_open(
     menus: list[str] | None,
     snapshot: dict[str, Any] | None,
 ) -> Any:
-    # Nút Lưu nằm trong cột chi tiết, bị tạo lại mỗi lần chọn vai trò.
     if not _n:
         raise dash.exceptions.PreventUpdate
     ctx = _ctx_or_none()
@@ -1126,28 +1444,28 @@ def handle_save_modal_open(
     removed = sorted(set(snapshot["menus"]) - set(menus or []))
     role_res = get_role(ctx, role_id)
     affected = int(role_res.data["user_count"]) if role_res.ok and role_res.data else 0
-    lines = []
+    lines: list[Any] = []
     if added:
-        lines.append(dmc.Text(f"Thêm menu: {', '.join(labels.get(c, c) for c in added)}", size="sm"))
+        lines.append(dmc.Text(f"Thêm menu: {', '.join(labels.get(c, c) for c in added)}", size="xs"))
     if removed:
-        lines.append(dmc.Text(f"Bỏ menu: {', '.join(labels.get(c, c) for c in removed)}", size="sm"))
+        lines.append(dmc.Text(f"Bỏ menu: {', '.join(labels.get(c, c) for c in removed)}", size="xs"))
     if (name or "") != snapshot["name"]:
-        lines.append(dmc.Text(f"Đổi tên: {snapshot['name']} → {name}", size="sm"))
+        lines.append(dmc.Text(f"Đổi tên: {snapshot['name']} → {name}", size="xs"))
     if bool(is_active) != bool(snapshot["is_active"]):
         lines.append(
             dmc.Text(
                 "Tắt vai trò." if not is_active else "Bật lại vai trò.",
-                size="sm",
+                size="xs",
             )
         )
     if not lines:
-        lines.append(dmc.Text("Không có thay đổi nào.", size="sm"))
+        lines.append(dmc.Text("Không có thay đổi nào.", size="xs"))
     lines.append(
         dmc.Text(
             f"Ảnh hưởng tới {affected} người dùng đang mang vai trò này. Quyền mới có hiệu lực trong tối đa 5 giây.",
-            size="sm",
+            size="xs",
             c="dimmed",
-            mt="sm",
+            mt="xs",
         )
     )
     return True, html.Div(lines)
@@ -1225,7 +1543,6 @@ def handle_save_role(
     prevent_initial_call=True,
 )
 def handle_discard_role(_n: int | None, role_id: int | None) -> Any:
-    # Nút Hủy thay đổi nằm trong cột chi tiết, bị tạo lại mỗi lần chọn vai trò.
     if not _n:
         raise dash.exceptions.PreventUpdate
     ctx = _ctx_or_none()
@@ -1247,7 +1564,6 @@ def handle_discard_role(_n: int | None, role_id: int | None) -> Any:
     prevent_initial_call=True,
 )
 def handle_clone_role(_n: int | None, role_id: int | None) -> Any:
-    # Nút Nhân bản nằm trong cột chi tiết, bị tạo lại mỗi lần chọn vai trò.
     if not _n:
         raise dash.exceptions.PreventUpdate
     ctx = _ctx_or_none()
@@ -1296,8 +1612,6 @@ def handle_clone_role(_n: int | None, role_id: int | None) -> Any:
     prevent_initial_call=True,
 )
 def handle_delete_modal(_del: int | None, _cancel: int | None, opened: bool) -> bool:
-    # Nút Xóa nằm trong cột chi tiết, bị tạo lại mỗi lần chọn vai trò:
-    # Dash kích hoạt lại callback với n_clicks=None, phải chặn như handle_create_modal.
     if not _del and not _cancel:
         raise dash.exceptions.PreventUpdate
     triggered = dash.callback_context.triggered_id
@@ -1337,7 +1651,6 @@ def handle_delete_role(_n: int | None, role_id: int | None) -> Any:
     prevent_initial_call=True,
 )
 def handle_select_all_menus(_on: int | None, _off: int | None) -> list[str]:
-    # 2 nút nằm trong cột chi tiết, bị tạo lại mỗi lần chọn vai trò.
     if not _on and not _off:
         raise dash.exceptions.PreventUpdate
     triggered = dash.callback_context.triggered_id

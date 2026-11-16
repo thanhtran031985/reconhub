@@ -72,6 +72,7 @@ reset-password = "python -m app.cli reset-password"
 purge-temp = "python -m app.cli purge-temp"
 migrate-metadata = "python -m app.cli migrate-metadata"
 demo-run = "python scripts/demo_run.py"
+security-check = "python scripts/security_check.py"
 
 [tool.ruff]
 line-length = 120
