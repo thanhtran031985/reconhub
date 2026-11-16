@@ -27,6 +27,7 @@ from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.drawer import drawer_right
 from app.ui.components.empty_state import empty_state
 from app.ui.components.field import form_field
+from app.ui.components.page_header import page_header
 from app.ui.components.status_chip import status_chip
 from app.ui.formatters import format_datetime
 
@@ -127,29 +128,52 @@ def render_users_table(
                 gap=4,
             )
 
-            # Thao tác
+            # Thao tác: chuyển sang ActionIcon kèm Tooltip hover
             actions_list: list[Any] = [
-                dmc.Button(
-                    "Sửa",
-                    size="xs",
-                    variant="default",
-                    id={"type": "user-edit-btn", "index": u.id},
+                dmc.Tooltip(
+                    dmc.ActionIcon(
+                        DashIconify(icon="lucide:pencil", width=14),
+                        id={"type": "user-edit-btn", "index": u.id},
+                        size="sm",
+                        variant="subtle",
+                        color="blue",
+                        radius="sm",
+                        **{"aria-label": "Sửa người dùng"},
+                    ),
+                    label="Sửa người dùng",
+                    position="top",
+                    withArrow=True,
                 ),
-                dmc.Button(
-                    "Đặt lại mật khẩu",
-                    size="xs",
-                    variant="default",
-                    id={"type": "user-reset-pw-btn", "index": u.id},
+                dmc.Tooltip(
+                    dmc.ActionIcon(
+                        DashIconify(icon="lucide:key-round", width=14),
+                        id={"type": "user-reset-pw-btn", "index": u.id},
+                        size="sm",
+                        variant="subtle",
+                        color="gray",
+                        radius="sm",
+                        **{"aria-label": "Đặt lại mật khẩu"},
+                    ),
+                    label="Đặt lại mật khẩu",
+                    position="top",
+                    withArrow=True,
                 ),
             ]
             if is_locked:
                 actions_list.append(
-                    dmc.Button(
-                        "Mở khóa",
-                        size="xs",
-                        variant="default",
-                        leftSection=DashIconify(icon="lucide:unlock", width=14),
-                        id={"type": "user-unlock-btn", "index": u.id},
+                    dmc.Tooltip(
+                        dmc.ActionIcon(
+                            DashIconify(icon="lucide:unlock", width=14),
+                            id={"type": "user-unlock-btn", "index": u.id},
+                            size="sm",
+                            variant="subtle",
+                            color="orange",
+                            radius="sm",
+                            **{"aria-label": "Mở khóa tài khoản"},
+                        ),
+                        label="Mở khóa tài khoản",
+                        position="top",
+                        withArrow=True,
                     )
                 )
 
@@ -157,16 +181,24 @@ def render_users_table(
                 [
                     html.Td(
                         html.Span(u.username, className="mono", style={"fontWeight": 600}),
-                        style={"padding": "10px 14px"},
+                        style={"padding": "8px 12px"},
                     ),
-                    html.Td(u.full_name, style={"padding": "10px 14px"}),
-                    html.Td(u.email or "—", style={"padding": "10px 14px"}),
-                    html.Td(roles_badges, style={"padding": "10px 14px"}),
-                    html.Td(user_status, style={"padding": "10px 14px"}),
-                    html.Td(format_datetime(u.last_login_at), style={"padding": "10px 14px"}),
+                    html.Td(u.full_name, style={"padding": "8px 12px"}),
                     html.Td(
-                        dmc.Group(actions_list, gap="xs"),
-                        style={"padding": "10px 14px", "textAlign": "right"},
+                        u.email or html.Span("—", style={"color": "var(--ink-soft, #94a3b8)"}),
+                        style={"padding": "8px 12px"},
+                    ),
+                    html.Td(roles_badges, style={"padding": "8px 12px"}),
+                    html.Td(user_status, style={"padding": "8px 12px"}),
+                    html.Td(
+                        format_datetime(u.last_login_at)
+                        if u.last_login_at
+                        else html.Span("—", style={"color": "var(--ink-soft, #94a3b8)"}),
+                        style={"padding": "8px 12px", "fontSize": "12px", "color": "var(--ink-soft, #616161)"},
+                    ),
+                    html.Td(
+                        dmc.Group(actions_list, gap=4, justify="flex-end"),
+                        style={"padding": "6px 12px", "textAlign": "right"},
                     ),
                 ],
                 style={"borderBottom": "1px solid var(--line, #e2e8f0)"},
@@ -179,6 +211,9 @@ def render_users_table(
             "top": 0,
             "background": "var(--surface-2, #f8fafc)",
             "zIndex": 1,
+            "fontSize": "12px",
+            "fontWeight": 600,
+            "color": "var(--ink-soft, #616161)",
         }
         table = dmc.Table(
             striped=True,
@@ -193,7 +228,7 @@ def render_users_table(
                             html.Th("Vai trò", style=th_style),
                             html.Th("Trạng thái", style=th_style),
                             html.Th("Đăng nhập cuối", style=th_style),
-                            html.Th("", style=th_style),
+                            html.Th("Thao tác", style={**th_style, "textAlign": "right"}),
                         ],
                     )
                 ),
@@ -205,7 +240,6 @@ def render_users_table(
             table,
             withBorder=True,
             radius="sm",
-            shadow="xs",
             style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflowY": "auto"},
         )
     except Exception as exc:
@@ -263,75 +297,61 @@ def layout() -> Any:
         },
         children=[
             # Header
-            dmc.Group(
-                justify="space-between",
-                align="center",
-                mb="xs",
-                style={"flexShrink": 0},
-                children=[
-                    dmc.Group(
-                        gap="xs",
-                        align="baseline",
-                        children=[
-                            dmc.Title(
-                                header_title_text,
-                                id="users-header-title",
-                                order=4,
-                                size=18,
-                                fw=600,
-                                style={"lineHeight": 1.3},
-                            ),
-                            dmc.Text(
-                                "Một người có thể có nhiều vai trò. Luôn còn ít nhất một Admin hoạt động.",
-                                size="xs",
-                                c="dimmed",
-                            ),
-                        ],
-                    ),
-                    dmc.Group(
-                        [
-                            button_primary("Thêm người dùng", id="users-add-btn", icon="lucide:plus", size="xs"),
-                            button_subtle("", id="users-refresh-btn", icon="lucide:refresh-cw", size="xs"),
-                        ],
-                        gap="xs",
-                    ),
+            page_header(
+                title=dmc.Title(
+                    header_title_text,
+                    id="users-header-title",
+                    order=4,
+                    size=18,
+                    fw=600,
+                    style={"lineHeight": 1.3, "whiteSpace": "nowrap"},
+                ),
+                subtitle="Một người có thể có nhiều vai trò. Luôn còn ít nhất một Admin hoạt động.",
+                actions=[
+                    button_primary("Thêm người dùng", id="users-add-btn", icon="lucide:plus", size="xs"),
+                    button_subtle("", id="users-refresh-btn", icon="lucide:refresh-cw", size="xs"),
                 ],
             ),
             # Filter bar
-            dmc.Group(
-                align="flex-end",
+            dmc.Paper(
+                dmc.Group(
+                    [
+                        dmc.TextInput(
+                            id="users-search-input",
+                            placeholder="Tìm username, họ tên, email…",
+                            leftSection=DashIconify(icon="lucide:search", width=14),
+                            style={"width": 260},
+                            size="xs",
+                            debounce=300,
+                        ),
+                        dmc.Select(
+                            id="users-role-filter",
+                            data=[{"label": "Tất cả vai trò", "value": "ALL"}, *_role_options(ctx)],
+                            value="ALL",
+                            size="xs",
+                            style={"width": 160},
+                        ),
+                        dmc.Select(
+                            id="users-status-filter",
+                            data=[
+                                {"label": "Tất cả trạng thái", "value": "ALL"},
+                                {"label": "Hoạt động", "value": "ACTIVE"},
+                                {"label": "Tạm khóa", "value": "LOCKED"},
+                                {"label": "Đã tắt", "value": "DISABLED"},
+                            ],
+                            value="ALL",
+                            size="xs",
+                            style={"width": 160},
+                        ),
+                    ],
+                    gap="xs",
+                    align="center",
+                ),
+                withBorder=True,
+                p="xs",
+                radius="sm",
                 mb="xs",
-                gap="xs",
                 style={"flexShrink": 0},
-                children=[
-                    dmc.TextInput(
-                        id="users-search-input",
-                        placeholder="Tìm username, họ tên, email…",
-                        leftSection=DashIconify(icon="lucide:search", width=14),
-                        style={"width": 260},
-                        size="xs",
-                        debounce=300,
-                    ),
-                    dmc.Select(
-                        id="users-role-filter",
-                        data=[{"label": "Tất cả vai trò", "value": "ALL"}, *_role_options(ctx)],
-                        value="ALL",
-                        size="xs",
-                        style={"width": 160},
-                    ),
-                    dmc.Select(
-                        id="users-status-filter",
-                        data=[
-                            {"label": "Tất cả trạng thái", "value": "ALL"},
-                            {"label": "Hoạt động", "value": "ACTIVE"},
-                            {"label": "Tạm khóa", "value": "LOCKED"},
-                            {"label": "Đã tắt", "value": "DISABLED"},
-                        ],
-                        value="ALL",
-                        size="xs",
-                        style={"width": 160},
-                    ),
-                ],
             ),
             # Table container
             html.Div(
@@ -351,11 +371,6 @@ def layout() -> Any:
                 title="Thêm người dùng",
                 size=540,
                 opened=False,
-                # Drawer thành cột flex để chân nút luôn ở đáy màn hình:
-                # nội dung cuộn trong vùng flex:1, chân nút không cuộn theo
-                # và không phụ thuộc nội dung dài hay ngắn (ví dụ có hay
-                # không có lịch sử đăng nhập). Chỉ áp cho drawer này, không
-                # đổi drawer_right dùng chung.
                 styles={
                     "content": {"display": "flex", "flexDirection": "column"},
                     "body": {"flex": "1", "display": "flex", "flexDirection": "column", "minHeight": 0},
@@ -370,31 +385,42 @@ def layout() -> Any:
                                         id="users-input-username",
                                         placeholder="vd nguyenvana",
                                         className="mono",
+                                        size="xs",
                                     ),
                                     label="Tên đăng nhập",
                                     hint="Chữ thường, số, dấu chấm, gạch dưới. Không đổi được sau khi tạo.",
                                     required=True,
                                 ),
                                 form_field(
-                                    dmc.TextInput(id="users-input-fullname", placeholder="vd Nguyễn Văn A"),
+                                    dmc.TextInput(
+                                        id="users-input-fullname",
+                                        placeholder="vd Nguyễn Văn A",
+                                        size="xs",
+                                    ),
                                     label="Họ tên",
                                     required=True,
                                 ),
                                 form_field(
-                                    dmc.TextInput(id="users-input-email", placeholder="vd a.nguyen@example.com"),
+                                    dmc.TextInput(
+                                        id="users-input-email",
+                                        placeholder="vd a.nguyen@example.com",
+                                        size="xs",
+                                    ),
                                     label="Email",
                                 ),
                                 form_field(
                                     dmc.CheckboxGroup(
                                         id="users-input-roles",
                                         value=["VIEWER"],
-                                        children=dmc.Group(
-                                            [
-                                                dmc.Checkbox(label=o["label"], value=o["value"])
+                                        size="xs",
+                                        children=dmc.SimpleGrid(
+                                            cols=2,
+                                            spacing="xs",
+                                            mt=4,
+                                            children=[
+                                                dmc.Checkbox(label=o["label"], value=o["value"], size="xs")
                                                 for o in _role_options(ctx)
                                             ],
-                                            gap="md",
-                                            mt=4,
                                         ),
                                     ),
                                     label="Vai trò",
@@ -405,7 +431,11 @@ def layout() -> Any:
                                     id="users-create-pw-box",
                                     children=[
                                         form_field(
-                                            dmc.PasswordInput(id="users-input-password"),
+                                            dmc.PasswordInput(
+                                                id="users-input-password",
+                                                placeholder="Nhập mật khẩu ban đầu...",
+                                                size="xs",
+                                            ),
                                             label="Mật khẩu ban đầu",
                                             hint="Không được để trống.",
                                             required=True,
@@ -414,18 +444,17 @@ def layout() -> Any:
                                             id="users-input-must-change-pw",
                                             label="Bắt đổi mật khẩu ở lần đăng nhập đầu",
                                             checked=True,
+                                            size="xs",
                                             mt="sm",
                                         ),
                                     ],
                                 ),
-                                # Khối trạng thái (chỉ khi sửa). Lịch sử đăng
-                                # nhập tách ra vùng riêng bên dưới để cuộn
-                                # riêng, form phía trên luôn cố định.
+                                # Khối trạng thái (chỉ khi sửa)
                                 html.Div(
                                     id="users-edit-status-box",
                                     style={"display": "none"},
                                     children=[
-                                        dmc.Text("Trạng thái tài khoản", size="sm", fw=600),
+                                        dmc.Text("Trạng thái tài khoản", size="xs", fw=600),
                                         dmc.Group(
                                             [
                                                 dmc.Button(
@@ -433,7 +462,7 @@ def layout() -> Any:
                                                     id="users-toggle-active-btn",
                                                     color="red",
                                                     variant="light",
-                                                    size="sm",
+                                                    size="xs",
                                                     leftSection=DashIconify(icon="lucide:lock", width=14),
                                                 ),
                                             ],
@@ -446,13 +475,10 @@ def layout() -> Any:
                             ],
                             style={"flex": "0 1 auto", "overflowY": "auto", "minHeight": 0},
                         ),
-                        # Vùng lịch sử đăng nhập: chiếm phần còn lại của
-                        # drawer và cuộn riêng trong đó, form nhập liệu phía
-                        # trên và chân nút phía dưới đều đứng yên. Ẩn ở chế
-                        # độ tạo mới (callback mở drawer điều khiển style).
+                        # Vùng lịch sử đăng nhập
                         html.Div(
                             [
-                                dmc.Text("Lịch sử đăng nhập gần nhất", size="sm", fw=600, mt="sm"),
+                                dmc.Text("Lịch sử đăng nhập gần nhất", size="xs", fw=600, mt="sm"),
                                 dmc.Box(
                                     id="users-history-container",
                                     mt="xs",
@@ -467,14 +493,11 @@ def layout() -> Any:
                                 "minHeight": 0,
                             },
                         ),
-                        # Chân drawer cố định ở đáy màn hình: marginTop auto
-                        # đẩy chân xuống đáy kể cả khi vùng lịch sử đang ẩn
-                        # (chế độ tạo mới), còn khi lịch sử hiện thì vùng
-                        # flex:1 đã chiếm hết phần còn lại.
+                        # Chân drawer cố định ở đáy màn hình
                         dmc.Group(
                             [
-                                button_subtle("Hủy", id="users-drawer-cancel-btn"),
-                                button_primary("Lưu", id="users-drawer-save-btn"),
+                                button_subtle("Hủy", id="users-drawer-cancel-btn", size="xs"),
+                                button_primary("Lưu", id="users-drawer-save-btn", size="xs"),
                             ],
                             justify="flex-end",
                             pt="md",
@@ -493,44 +516,54 @@ def layout() -> Any:
             # Modal Đặt lại mật khẩu
             dmc.Modal(
                 id="users-reset-modal",
-                title="Đặt lại mật khẩu",
+                title=dmc.Text("Đặt lại mật khẩu", fw=600, size="sm"),
                 opened=False,
+                centered=True,
+                radius="sm",
+                size="md",
                 children=html.Div(
-                    [
-                        dcc.Store(id="users-reset-target-store", data=None),
-                        dmc.Text(
-                            id="users-reset-modal-desc",
-                            size="sm",
-                            c="dimmed",
-                            mb="md",
-                        ),
-                        form_field(
-                            dmc.PasswordInput(id="users-reset-input-pw"),
-                            label="Mật khẩu mới",
-                            required=True,
-                        ),
-                        dmc.Checkbox(
-                            id="users-reset-must-change-cb",
-                            label="Bắt đổi mật khẩu ở lần đăng nhập tới",
-                            checked=True,
-                            mt="sm",
-                            mb="md",
-                        ),
-                        alert_box(
-                            "Các phiên đang mở của người dùng này sẽ bị đăng xuất. "
-                            "Nếu đang bị khóa, tài khoản cũng được mở khóa.",
-                            tone="info",
-                        ),
-                        dmc.Box(id="users-reset-error-msg", mt="sm"),
-                        dmc.Group(
-                            [
-                                button_subtle("Hủy", id="users-reset-cancel-btn"),
-                                button_primary("Đặt lại", id="users-reset-confirm-btn"),
-                            ],
-                            justify="flex-end",
-                            mt="lg",
-                        ),
-                    ]
+                    dmc.Stack(
+                        [
+                            dcc.Store(id="users-reset-target-store", data=None),
+                            dmc.Text(
+                                id="users-reset-modal-desc",
+                                size="xs",
+                                c="dimmed",
+                            ),
+                            form_field(
+                                dmc.PasswordInput(
+                                    id="users-reset-input-pw",
+                                    placeholder="Nhập mật khẩu mới cho người dùng...",
+                                    size="xs",
+                                ),
+                                label="Mật khẩu mới",
+                                required=True,
+                            ),
+                            dmc.Checkbox(
+                                id="users-reset-must-change-cb",
+                                label="Bắt đổi mật khẩu ở lần đăng nhập tới",
+                                checked=True,
+                                size="xs",
+                            ),
+                            alert_box(
+                                "Các phiên đang mở của người dùng này sẽ bị đăng xuất. "
+                                "Nếu đang bị khóa, tài khoản cũng được mở khóa.",
+                                tone="info",
+                            ),
+                            dmc.Box(id="users-reset-error-msg"),
+                            dmc.Group(
+                                [
+                                    button_subtle("Hủy", id="users-reset-cancel-btn", size="xs"),
+                                    button_primary("Đặt lại mật khẩu", id="users-reset-confirm-btn", size="xs"),
+                                ],
+                                justify="flex-end",
+                                gap="xs",
+                                pt="xs",
+                                style={"borderTop": "1px solid var(--line, #e2e8f0)"},
+                            ),
+                        ],
+                        gap="sm",
+                    )
                 ),
             ),
             # Notification container
@@ -638,6 +671,7 @@ def handle_filter_users(q: str | None, role: str | None, status_filter: str | No
 
 @callback(
     Output("users-drawer", "opened", allow_duplicate=True),
+    Output("users-drawer", "title", allow_duplicate=True),
     Output("users-drawer-state-store", "data", allow_duplicate=True),
     Output("users-input-username", "value"),
     Output("users-input-username", "disabled"),
@@ -665,6 +699,7 @@ def handle_open_create_drawer(n_clicks: int | None) -> Any:
     )
     return (
         True,
+        "Thêm người dùng",
         {"mode": "create", "user_id": None},
         "",  # username
         False,  # username not disabled
@@ -684,6 +719,7 @@ def handle_open_create_drawer(n_clicks: int | None) -> Any:
 
 @callback(
     Output("users-drawer", "opened", allow_duplicate=True),
+    Output("users-drawer", "title", allow_duplicate=True),
     Output("users-drawer-state-store", "data", allow_duplicate=True),
     Output("users-input-username", "value", allow_duplicate=True),
     Output("users-input-username", "disabled", allow_duplicate=True),
@@ -741,6 +777,7 @@ def handle_open_edit_drawer(n_clicks_list: list[int | None]) -> Any:
 
     return (
         True,
+        f"Sửa người dùng: {target_user.username}",
         {"mode": "edit", "user_id": target_user.id, "is_active": target_user.is_active},
         target_user.username,
         True,  # username disabled

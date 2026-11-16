@@ -486,21 +486,11 @@ class TestDetailActionButtons:
             page.handle_notif_settings_cancel(0)
 
     def test_system_detail_keeps_action_buttons(self, _patch_engine, operator_ctx):
-        """Panel SYSTEM vẫn render nút Mở/Sao chép (ẩn) để callback
+        """Action buttons vẫn render nút Mở/Sao chép (ẩn) để callback
         list/copy không chết khi dòng chọn không có link/mã."""
         import app.ui.pages.notifications as page
 
-        engine = _patch_engine["engine"]
-        nid = notif.insert_notification(
-            engine,
-            2,
-            "WORKER_DOWN",
-            "Worker ngừng hoạt động",
-            "Mất heartbeat",
-            related_type="SYSTEM",
-            related_id=None,
-        )
-        nodes = page._detail_panel(operator_ctx, nid)
+        group = page._action_buttons(None, None, None, show_delete=True)
 
         ids: set[str] = set()
 
@@ -516,16 +506,16 @@ class TestDetailActionButtons:
             if children is not None:
                 _walk(children)
 
-        _walk(nodes)
+        _walk(group)
         assert "notif-detail-open-btn" in ids
         assert "notif-detail-copy-btn" in ids
 
     def test_empty_detail_keeps_action_buttons(self, operator_ctx):
-        """Panel trống (không chọn dòng / list rỗng) cũng phải có 2
+        """Action buttons trống (không chọn dòng / list rỗng) cũng phải có 2
         nút — nếu không, lọc ra 0 dòng xong callback list chết."""
         import app.ui.pages.notifications as page
 
-        nodes = page._detail_panel(operator_ctx, None)
+        group = page._action_buttons(None, None, None, show_delete=False)
         ids: set[str] = set()
 
         def _walk(node):
@@ -540,7 +530,7 @@ class TestDetailActionButtons:
             if children is not None:
                 _walk(children)
 
-        _walk(nodes)
+        _walk(group)
         assert "notif-detail-open-btn" in ids
         assert "notif-detail-copy-btn" in ids
 
@@ -557,18 +547,22 @@ class TestParentFixes79:
         assert icon.variant == "filled"
         assert page._status_icon("WORKER_DOWN").color == "orange"
 
-    def test_copy_button_is_labeled_button(self):
-        """Nút sao chép là Button có nhãn 'Sao chép mã run' (như
-        thiết kế), không phải ActionIcon chỉ có icon."""
+    def test_copy_button_is_action_icon_with_tooltip(self):
+        """Nút sao chép là ActionIcon nằm trong Tooltip có nhãn 'Sao chép mã run'
+        trên master bên trái (theo yêu cầu UI UX)."""
         import dash_mantine_components as dmc
 
         import app.ui.pages.notifications as page
 
         group = page._action_buttons("/runs/1", "RUN_00001", "Mở kết quả Run")
-        found = [c for c in group.children if getattr(c, "id", None) == "notif-detail-copy-btn"]
+        found = [
+            c
+            for c in group.children
+            if isinstance(c, dmc.Tooltip) and getattr(c.children, "id", None) == "notif-detail-copy-btn"
+        ]
         assert len(found) == 1
-        assert isinstance(found[0], dmc.Button)
-        assert found[0].children == "Sao chép mã run"
+        assert found[0].label == "Sao chép mã run"
+        assert isinstance(found[0].children, dmc.ActionIcon)
 
     def test_menu_orders_unique_in_quan_tri(self):
         """Order menu trong nhóm QUẢN TRỊ không trùng (trước đây
@@ -580,29 +574,21 @@ class TestParentFixes79:
         notif = next(m for m in MENUS if m.code == "notifications")
         assert notif.order == 70
 
-    def test_delete_button_present_in_panel(self, _patch_engine, operator_ctx):
-        """Panel chi tiết có nút Xóa (task 78 có, task 79 giữ lại)."""
+    def test_delete_button_present_in_master_actions(self, _patch_engine, operator_ctx):
+        """Master actions có nút Xóa dạng ActionIcon kèm Tooltip."""
+        import dash_mantine_components as dmc
+
         import app.ui.pages.notifications as page
 
-        engine = _patch_engine["engine"]
-        nid = notif.insert_notification(engine, 2, "WORKER_DOWN", "Worker ngừng hoạt động", "Mất heartbeat")
-        nodes = page._detail_panel(operator_ctx, nid)
-        ids: set[str] = set()
-
-        def _walk(node):
-            if isinstance(node, (list, tuple)):
-                for child in node:
-                    _walk(child)
-                return
-            node_id = getattr(node, "id", None)
-            if isinstance(node_id, str):
-                ids.add(node_id)
-            children = getattr(node, "children", None)
-            if children is not None:
-                _walk(children)
-
-        _walk(nodes)
-        assert "notif-detail-delete-btn" in ids
+        group = page._action_buttons(None, None, None, show_delete=True)
+        found = [
+            c
+            for c in group.children
+            if isinstance(c, dmc.Tooltip) and getattr(c.children, "id", None) == "notif-detail-delete-btn"
+        ]
+        assert len(found) == 1
+        assert found[0].label == "Xóa thông báo"
+        assert isinstance(found[0].children, dmc.ActionIcon)
 
     def test_delete_modal_open_close(self, monkeypatch):
         """Modal xác nhận xóa: bấm Xóa mở, Hủy/Xác nhận đóng."""

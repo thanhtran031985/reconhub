@@ -43,6 +43,7 @@ from app.services.notification import (
 )
 from app.services.perm import page_gate
 from app.ui.components.alert_box import alert_box
+from app.ui.components.empty_state import empty_state
 from app.ui.components.modal_confirm import modal_confirm
 from app.ui.components.notification import notify_error, notify_success
 from app.ui.components.page_header import page_header
@@ -146,16 +147,23 @@ def _notif_row(item: dict[str, Any], selected_id: int | None, now: datetime) -> 
     is_read = bool(item.get("is_read"))
     title = str(item.get("title") or "")
     message = str(item.get("message") or "")
+    is_selected = nid == selected_id
     return html.Div(
         dmc.Group(
             [
                 _status_icon(str(item.get("type") or "")),
                 dmc.Stack(
                     [
-                        dmc.Text(title, size="sm", fw=600 if not is_read else 400, lineClamp=1),
+                        dmc.Text(
+                            title,
+                            size="sm",
+                            fw=600 if not is_read else 400,
+                            c="var(--ink, #242424)" if not is_read else "var(--ink-soft, #616161)",
+                            lineClamp=1,
+                        ),
                         dmc.Text(message, size="xs", c="dimmed", lineClamp=1) if message else html.Div(),
                     ],
-                    gap=0,
+                    gap=2,
                     style={"flex": "1", "minWidth": 0},
                 ),
                 dmc.Stack(
@@ -163,30 +171,57 @@ def _notif_row(item: dict[str, Any], selected_id: int | None, now: datetime) -> 
                         dmc.Text(format_relative_time(item.get("created_at"), now), size="xs", c="dimmed"),
                         html.Div(className="notif-unread-dot") if not is_read else html.Div(),
                     ],
-                    gap="xs",
+                    gap=4,
                     align="flex-end",
+                    justify="flex-start",
                 ),
             ],
             gap="sm",
-            align="flex-start",
+            align="center",
             wrap="nowrap",
         ),
         id={"type": "notif-row", "index": nid},
-        className="notif-row notif-row-selected" if nid == selected_id else "notif-row",
+        className="notif-row notif-row-selected" if is_selected else "notif-row",
     )
 
 
 def _grouped_rows(items: list[dict[str, Any]], selected_id: int | None, now: datetime) -> list[Any]:
     """List nhóm theo ngày (HÔM NAY/HÔM QUA/ngày cũ)."""
     if not items:
-        return [dmc.Text("Chưa có thông báo.", size="sm", c="dimmed", p="sm")]
+        return [
+            dmc.Box(
+                empty_state(
+                    title="Không có thông báo nào",
+                    description="Không tìm thấy thông báo phù hợp với bộ lọc hiện tại.",
+                    icon="lucide:bell-off",
+                ),
+                p="md",
+            )
+        ]
     children: list[Any] = []
     current_group: str | None = None
-    for item in items:
+    for idx, item in enumerate(items):
         group = day_group_label(item.get("created_at"), now)
         if group != current_group:
             current_group = group
-            children.append(dmc.Text(group, size="xs", fw=600, c="dimmed", px="sm", pt="xs", pb="xs"))
+            children.append(
+                dmc.Box(
+                    dmc.Text(
+                        group,
+                        size="xs",
+                        fw=600,
+                        c="dimmed",
+                        style={"letterSpacing": "0.5px", "fontSize": "11px"},
+                    ),
+                    px="sm",
+                    py=4,
+                    bg="var(--surface-2, #FAFAFA)",
+                    style={
+                        "borderBottom": "1px solid var(--line, #E0E0E0)",
+                        "borderTop": "1px solid var(--line, #E0E0E0)" if idx > 0 else "none",
+                    },
+                )
+            )
         children.append(_notif_row(item, selected_id, now))
     return children
 
@@ -245,39 +280,67 @@ def _list_body(
 
 
 def _action_buttons(link: Any, code: Any, open_label: Any, show_delete: bool = True) -> Any:
-    """Nút Mở kết quả + Sao chép mã + Xóa: luôn render (ẩn khi không
-    áp dụng) vì Dash yêu cầu Input của callback phải tồn tại trong
-    layout — panel trống/SYSTEM không render nút làm callback
-    list/copy chết, mọi bộ lọc sau đó kẹt (hồi quy live)."""
+    """Nút hành động dạng icon-only trên master bên trái kèm tooltip khi hover:
+    - Mở kết quả Run: ActionIcon external-link (hiện tooltip tiêu đề)
+    - Sao chép mã run: ActionIcon copy (hiện tooltip tiêu đề)
+    - Xóa: ActionIcon trash-2 (hiện tooltip tiêu đề)
+    Luôn render (ẩn khi không áp dụng) để Dash callbacks không bị lỗi."""
+    open_title = str(open_label or "Mở kết quả Run")
+    copy_title = "Sao chép mã run"
+    delete_title = "Xóa thông báo"
+
     return dmc.Group(
         [
-            dmc.Button(
-                str(open_label or "Mở kết quả"),
-                id="notif-detail-open-btn",
-                size="sm",
-                leftSection=DashIconify(icon="lucide:external-link", width=16),
+            dmc.Tooltip(
+                dmc.ActionIcon(
+                    DashIconify(icon="lucide:external-link", width=15),
+                    id="notif-detail-open-btn",
+                    variant="light",
+                    color="blue",
+                    size="sm",
+                    radius="sm",
+                    style={} if link else {"display": "none"},
+                    **{"aria-label": open_title},
+                ),
+                label=open_title,
+                position="top",
+                withArrow=True,
                 style={} if link else {"display": "none"},
             ),
-            dmc.Button(
-                "Sao chép mã run",
-                id="notif-detail-copy-btn",
-                variant="light",
-                size="sm",
-                leftSection=DashIconify(icon="lucide:copy", width=16),
+            dmc.Tooltip(
+                dmc.ActionIcon(
+                    DashIconify(icon="lucide:copy", width=15),
+                    id="notif-detail-copy-btn",
+                    variant="light",
+                    color="gray",
+                    size="sm",
+                    radius="sm",
+                    style={} if code else {"display": "none"},
+                    **{"aria-label": copy_title},
+                ),
+                label=copy_title,
+                position="top",
+                withArrow=True,
                 style={} if code else {"display": "none"},
-                **{"aria-label": "Sao chép mã run"},
             ),
-            dmc.Button(
-                "Xóa",
-                id="notif-detail-delete-btn",
-                variant="subtle",
-                color="red",
-                size="sm",
-                leftSection=DashIconify(icon="lucide:trash-2", width=16),
+            dmc.Tooltip(
+                dmc.ActionIcon(
+                    DashIconify(icon="lucide:trash-2", width=15),
+                    id="notif-detail-delete-btn",
+                    variant="subtle",
+                    color="red",
+                    size="sm",
+                    radius="sm",
+                    style={} if show_delete else {"display": "none"},
+                    **{"aria-label": delete_title},
+                ),
+                label=delete_title,
+                position="top",
+                withArrow=True,
                 style={} if show_delete else {"display": "none"},
             ),
         ],
-        gap="sm",
+        gap=4,
         align="center",
     )
 
@@ -286,68 +349,119 @@ def _detail_panel(ctx: Ctx, selected_id: int | None) -> list[Any]:
     """Nội dung panel chi tiết bên phải."""
     if not selected_id:
         return [
-            dmc.Text("Chọn dòng để xem chi tiết.", size="sm", c="dimmed", p="sm"),
-            _action_buttons(None, None, None, show_delete=False),
+            dmc.Box(
+                empty_state(
+                    title="Chi tiết thông báo",
+                    description="Chọn một thông báo trong danh sách để xem nội dung.",
+                    icon="lucide:mail-open",
+                ),
+                p="md",
+            ),
         ]
     res = get_notification_detail(ctx, selected_id)
     if not res.ok or not isinstance(res.data, dict):
         return [
             alert_box(res.message or "Không tải được chi tiết.", tone="crit"),
-            _action_buttons(None, None, None, show_delete=True),
         ]
     d = res.data
     meta = _status_meta(str(d.get("type") or ""))
-    nodes: list[Any] = [
-        dmc.Title(str(d.get("title") or ""), order=5, size=16, fw=600),
+    created = _parse_dt(d.get("created_at"))
+
+    sections: list[Any] = []
+
+    # 1. Header: Tiêu đề + Badges + Thời gian
+    header_items: list[Any] = [
+        dmc.Title(str(d.get("title") or ""), order=5, size=15, fw=600, style={"lineHeight": "1.3"}),
         dmc.Group(
             [
-                dmc.Badge(meta["label"], color=meta["color"], size="sm"),
-                dmc.Badge(str(d.get("type") or ""), variant="outline", color="gray", size="sm"),
+                dmc.Badge(meta["label"], color=meta["color"], variant="light", size="xs"),
+                dmc.Badge(str(d.get("type") or ""), variant="outline", color="gray", size="xs"),
             ],
             gap="xs",
         ),
     ]
-    created = _parse_dt(d.get("created_at"))
     if created:
-        nodes.append(dmc.Text(created.strftime("%d/%m/%Y · %H:%M:%S"), size="xs", c="dimmed"))
-    if d.get("message"):
-        nodes.append(dmc.Text(str(d["message"]), size="sm", c="dimmed"))
-    if d.get("code"):
-        nodes.append(
+        header_items.append(
             dmc.Group(
                 [
-                    dmc.Text(str(d.get("code_label") or "Mã"), size="sm", c="dimmed"),
-                    dmc.Text(str(d["code"]), size="sm", fw=600, id="notif-detail-code"),
+                    DashIconify(icon="lucide:calendar", width=13, color="var(--ink-soft, #616161)"),
+                    dmc.Text(created.strftime("%d/%m/%Y · %H:%M:%S"), size="xs", c="dimmed"),
                 ],
-                gap="sm",
-                align="center",
+                gap=4,
+            )
+        )
+    sections.append(dmc.Stack(header_items, gap=6))
+
+    # 2. Nội dung thông báo
+    if d.get("message"):
+        sections.append(
+            dmc.Paper(
+                dmc.Text(str(d["message"]), size="xs", c="var(--ink, #242424)", style={"lineHeight": "1.5"}),
+                p="xs",
+                radius="sm",
+                withBorder=True,
+            )
+        )
+
+    # 3. Thuộc tính kỹ thuật
+    attr_rows: list[Any] = []
+    if d.get("code"):
+        attr_rows.append(
+            dmc.Group(
+                [
+                    dmc.Text(str(d.get("code_label") or "Mã"), size="xs", c="dimmed", style={"minWidth": "90px"}),
+                    dmc.Text(
+                        str(d["code"]),
+                        size="xs",
+                        fw=600,
+                        id="notif-detail-code",
+                        style={"fontFamily": "var(--font-mono, monospace)"},
+                    ),
+                ],
                 justify="space-between",
+                gap="xs",
             )
         )
     for field in d.get("fields") or []:
-        nodes.append(
+        attr_rows.append(
             dmc.Group(
                 [
-                    dmc.Text(str(field.get("label")), size="sm", c="dimmed"),
-                    dmc.Text(str(field.get("value")), size="sm", fw=500),
+                    dmc.Text(str(field.get("label")), size="xs", c="dimmed", style={"minWidth": "90px"}),
+                    dmc.Text(
+                        str(field.get("value")),
+                        size="xs",
+                        fw=500,
+                        style={"wordBreak": "break-word", "textAlign": "right"},
+                    ),
                 ],
-                gap="sm",
-                align="center",
                 justify="space-between",
+                gap="xs",
             )
         )
+    if attr_rows:
+        sections.append(
+            dmc.Paper(
+                dmc.Stack(attr_rows, gap=6),
+                withBorder=True,
+                radius="sm",
+                p="xs",
+            )
+        )
+
+    # 4. Lỗi nếu có
     if d.get("error"):
-        nodes.append(
+        sections.append(
             dmc.Alert(
                 str(d["error"]),
-                title="Nguyên nhân",
+                title="Nguyên nhân lỗi",
                 color="red",
                 variant="light",
+                radius="sm",
                 icon=DashIconify(icon="lucide:x-circle", width=16),
             )
         )
-    nodes.append(_action_buttons(d.get("link"), d.get("code"), d.get("open_label")))
-    return nodes
+
+    return [dmc.Stack(sections, gap="sm", p="sm")]
 
 
 def _prefs_modal_body(ctx: Ctx) -> list[Any]:
@@ -368,35 +482,60 @@ def _prefs_modal_body(ctx: Ctx) -> list[Any]:
                 label=str(EVENT_TYPES[code]["label"]),
                 id={"type": "notif-pref-switch", "index": code},
                 checked=prefs[code],
-                size="sm",
+                size="xs",
             )
             for code in group["types"]
             if code in EVENT_TYPES
         ]
         groups.append(
-            dmc.Stack(
-                [dmc.Text(str(group["label"]), size="sm", fw=600), *switches],
-                gap="xs",
+            dmc.Paper(
+                dmc.Stack(
+                    [
+                        dmc.Text(
+                            str(group["label"]),
+                            size="xs",
+                            fw=600,
+                            c="dimmed",
+                            style={"letterSpacing": "0.3px"},
+                        ),
+                        *switches,
+                    ],
+                    gap="xs",
+                ),
+                withBorder=True,
+                radius="sm",
+                p="xs",
             )
         )
     return [
-        dmc.Text("Chỉ áp dụng cho tài khoản của bạn.", size="sm", c="dimmed"),
-        dmc.Switch(
-            label="Nhận thông báo trong ứng dụng",
-            id="notif-master-switch",
-            checked=master,
-            size="sm",
-        ),
-        dmc.SimpleGrid(cols={"base": 1, "sm": 2}, spacing="md", children=groups),
-        html.Div(id="notif-settings-alert"),
-        dmc.Group(
+        dmc.Stack(
             [
-                dmc.Button("Hủy", id="notif-settings-cancel-btn", variant="default", size="sm"),
-                dmc.Button("Lưu thay đổi", id="notif-settings-save-btn", size="sm"),
+                dmc.Group(
+                    [
+                        dmc.Switch(
+                            label="Nhận thông báo trong ứng dụng",
+                            id="notif-master-switch",
+                            checked=master,
+                            size="xs",
+                        ),
+                        dmc.Text("Chỉ áp dụng cho tài khoản của bạn.", size="xs", c="dimmed"),
+                    ],
+                    justify="space-between",
+                    align="center",
+                ),
+                dmc.SimpleGrid(cols={"base": 1, "sm": 2}, spacing="xs", children=groups),
+                html.Div(id="notif-settings-alert"),
+                dmc.Group(
+                    [
+                        dmc.Button("Hủy", id="notif-settings-cancel-btn", variant="default", size="xs"),
+                        dmc.Button("Lưu thay đổi", id="notif-settings-save-btn", size="xs"),
+                    ],
+                    justify="flex-end",
+                    gap="xs",
+                ),
             ],
-            justify="flex-end",
             gap="sm",
-        ),
+        )
     ]
 
 
@@ -418,6 +557,15 @@ def layout(**kwargs: Any) -> Any:
     type_options = [{"value": "", "label": "Tất cả sự kiện"}] + [
         {"value": code, "label": str(info["label"])} for code, info in EVENT_TYPES.items()
     ]
+    init_link, init_code, init_open_label = None, None, None
+    if selected is not None:
+        det_init = get_notification_detail(ctx, selected)
+        if det_init.ok and isinstance(det_init.data, dict):
+            init_link = det_init.data.get("link")
+            init_code = det_init.data.get("code")
+            init_open_label = det_init.data.get("open_label")
+    init_actions = _action_buttons(init_link, init_code, init_open_label, show_delete=selected is not None)
+
     return dmc.Box(
         [
             page_header(
@@ -428,15 +576,15 @@ def layout(**kwargs: Any) -> Any:
                         "Đánh dấu tất cả đã đọc",
                         id="notif-mark-all-read-btn",
                         variant="light",
-                        size="sm",
-                        leftSection=DashIconify(icon="lucide:check", width=16),
+                        size="xs",
+                        leftSection=DashIconify(icon="lucide:check", width=14),
                     ),
                     dmc.Button(
                         "Cài đặt",
                         id="notif-settings-btn",
                         variant="light",
-                        size="sm",
-                        leftSection=DashIconify(icon="lucide:settings", width=16),
+                        size="xs",
+                        leftSection=DashIconify(icon="lucide:settings", width=14),
                     ),
                 ],
             ),
@@ -451,9 +599,9 @@ def layout(**kwargs: Any) -> Any:
                             dmc.TextInput(
                                 id="notif-search",
                                 placeholder="Tìm thông báo...",
-                                leftSection=DashIconify(icon="lucide:search", width=16),
+                                leftSection=DashIconify(icon="lucide:search", width=14),
                                 debounce=500,
-                                size="sm",
+                                size="xs",
                             ),
                             className="notif-search-wrap",
                         ),
@@ -461,40 +609,40 @@ def layout(**kwargs: Any) -> Any:
                             id="notif-type-filter",
                             data=type_options,
                             value="",
-                            size="sm",
-                            w=220,
+                            size="xs",
+                            w=180,
                             **{"aria-label": "Lọc loại sự kiện"},
                         ),
                         dmc.Select(
                             id="notif-read-filter",
                             data=READ_OPTIONS,
                             value="all",
-                            size="sm",
-                            w=130,
+                            size="xs",
+                            w=110,
                             **{"aria-label": "Lọc đã đọc"},
                         ),
                         dmc.Select(
                             id="notif-time-filter",
                             data=TIME_OPTIONS,
                             value="7d",
-                            size="sm",
-                            w=150,
+                            size="xs",
+                            w=130,
                             **{"aria-label": "Lọc thời gian"},
                         ),
                         dmc.Button(
                             "Làm mới",
                             id="notif-refresh-btn",
                             variant="light",
-                            size="sm",
-                            leftSection=DashIconify(icon="lucide:refresh-cw", width=16),
+                            size="xs",
+                            leftSection=DashIconify(icon="lucide:refresh-cw", width=14),
                         ),
                     ],
-                    gap="sm",
+                    gap="xs",
                     align="center",
                 ),
                 withBorder=True,
-                p="sm",
-                radius="md",
+                p="xs",
+                radius="sm",
             ),
             html.Div(
                 [
@@ -502,18 +650,30 @@ def layout(**kwargs: Any) -> Any:
                         [
                             dmc.Group(
                                 [
-                                    dmc.Title("Thông báo", order=5, size=16, fw=600),
-                                    dmc.Badge(
-                                        f"{unread} chưa đọc",
-                                        id="notif-list-unread-badge",
-                                        color="red",
-                                        variant="filled",
-                                        size="sm",
+                                    dmc.Group(
+                                        [
+                                            dmc.Text("Danh sách thông báo", fw=600, size="sm"),
+                                            dmc.Badge(
+                                                f"{unread} chưa đọc",
+                                                id="notif-list-unread-badge",
+                                                color="red" if unread > 0 else "gray",
+                                                variant="light",
+                                                size="xs",
+                                            ),
+                                        ],
+                                        gap="xs",
+                                        align="center",
+                                    ),
+                                    html.Div(
+                                        id="notif-master-actions",
+                                        children=init_actions,
                                     ),
                                 ],
-                                gap="sm",
+                                justify="space-between",
                                 align="center",
-                                p="sm",
+                                px="sm",
+                                py="xs",
+                                style={"borderBottom": "1px solid var(--line, #E0E0E0)", "minHeight": "41px"},
                             ),
                             dmc.ScrollArea(
                                 html.Div(id="notif-list-container", children=children),
@@ -521,7 +681,7 @@ def layout(**kwargs: Any) -> Any:
                             ),
                         ],
                         withBorder=True,
-                        radius="md",
+                        radius="sm",
                         className="notif-list",
                     ),
                     dmc.Paper(
@@ -530,7 +690,7 @@ def layout(**kwargs: Any) -> Any:
                             className="notif-detail-scroll",
                         ),
                         withBorder=True,
-                        radius="md",
+                        radius="sm",
                         bg="var(--surface-2)",
                         w="var(--size-detail-panel)",
                         className="notif-detail",
@@ -542,22 +702,24 @@ def layout(**kwargs: Any) -> Any:
                 [
                     dmc.Group(
                         [
-                            dmc.Text(footer, id="notif-footer-summary", size="sm", c="dimmed"),
-                            dmc.Text(updated, id="notif-footer-updated", size="sm", c="dimmed"),
+                            dmc.Text(footer, id="notif-footer-summary", size="xs", c="dimmed"),
+                            dmc.Text(updated, id="notif-footer-updated", size="xs", c="dimmed"),
                         ],
                         gap="md",
                     ),
-                    dmc.Pagination(id="notif-pagination", total=max_page, value=1, size="sm"),
+                    dmc.Pagination(id="notif-pagination", total=max_page, value=1, size="xs"),
                 ],
                 justify="space-between",
                 align="center",
+                px="xs",
+                py=4,
             ),
             html.Div(id="notif-list-toast"),
             html.Div(id="notif-copy-sink", hidden=True),
             dmc.Modal(
                 title="Cài đặt thông báo",
                 id="notif-settings-modal",
-                size="lg",
+                size="md",
                 opened=False,
                 children=_prefs_modal_body(ctx),
             ),
@@ -569,7 +731,7 @@ def layout(**kwargs: Any) -> Any:
             ),
         ],
         className="notif-page",
-        p="md",
+        p="sm",
     )
 
 
@@ -615,6 +777,7 @@ def handle_notif_filters(
     Output("notif-selected-store", "data"),
     Output("app-notif-indicator", "label", allow_duplicate=True),
     Output("app-notif-indicator", "disabled", allow_duplicate=True),
+    Output("notif-master-actions", "children"),
     Input("notif-page-store", "data"),
     Input("notif-filter-store", "data"),
     Input("notif-refresh-btn", "n_clicks"),
@@ -634,11 +797,11 @@ def handle_notif_list_actions(
     _open_clicks: int | None,
     _delete_confirm_clicks: int | None,
     selected_data: Any,
-) -> tuple[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]:
+) -> tuple[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]:
     """1 callback cho mọi hành động trên danh sách (mẫu task 66).
 
     Đổi trang / đổi lọc / Làm mới / Đánh dấu tất cả đã đọc /
-    bấm dòng (chỉ chọn, vẽ panel) / nút "Mở kết quả" trong panel
+    bấm dòng (chỉ chọn, vẽ panel) / nút "Mở kết quả" trên master
     (đánh dấu đã đọc rồi mới điều hướng, mẫu D18 task 78) /
     xác nhận xóa trong modal (xóa dòng đang chọn, bỏ chọn).
     """
@@ -710,6 +873,14 @@ def handle_notif_list_actions(
         children, footer, updated, max_page, total, unread, selected = _list_body(ctx, page, filters, selected)
         store_out = {"page": page}
     detail_nodes = _detail_panel(ctx, selected)
+    cur_link, cur_code, cur_open_label = None, None, None
+    if selected is not None:
+        det_cur = get_notification_detail(ctx, selected)
+        if det_cur.ok and isinstance(det_cur.data, dict):
+            cur_link = det_cur.data.get("link")
+            cur_code = det_cur.data.get("code")
+            cur_open_label = det_cur.data.get("open_label")
+    master_actions = _action_buttons(cur_link, cur_code, cur_open_label, show_delete=selected is not None)
     # Đồng bộ badge chuông ở header ngay (như bấm mục trong popover) —
     # không chờ tick Interval 60s.
     bell_label = str(unread) if unread > 0 else ""
@@ -727,6 +898,7 @@ def handle_notif_list_actions(
         {"id": selected},
         bell_label,
         bell_disabled,
+        master_actions,
     )
 
 

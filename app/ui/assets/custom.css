@@ -374,14 +374,14 @@ main > div > div,
 .notif-page {
   display: flex;
   flex-direction: column;
-  gap: var(--mantine-spacing-sm);
+  gap: var(--mantine-spacing-xs);
   height: 100%;
   min-height: 0;
 }
 
 .notif-main {
   display: flex;
-  gap: var(--mantine-spacing-sm);
+  gap: var(--mantine-spacing-xs);
   flex: 1;
   min-height: 0;
 }
@@ -392,6 +392,7 @@ main > div > div,
   flex: 1;
   min-width: 0;
   min-height: 0;
+  background: var(--surface);
 }
 
 .notif-scroll {
@@ -404,6 +405,7 @@ main > div > div,
   flex-direction: column;
   flex: none;
   min-height: 0;
+  background: var(--surface-2);
 }
 
 .notif-detail-scroll {
@@ -419,7 +421,9 @@ main > div > div,
 .notif-row {
   cursor: pointer;
   border-left: 3px solid transparent;
-  padding: 6px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  transition: background-color 100ms;
 }
 
 .notif-row:hover {
@@ -427,15 +431,15 @@ main > div > div,
 }
 
 .notif-row-selected {
-  background: var(--surface-2);
-  border-left-color: var(--info);
+  background: var(--primary-soft) !important;
+  border-left-color: var(--primary) !important;
 }
 
 .notif-unread-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--info);
+  background: var(--primary);
 }
 
 @media (max-width: 900px) {

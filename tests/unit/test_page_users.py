@@ -294,3 +294,40 @@ def test_last_admin_protection_and_unlock(users_env, monkeypatch):
     assert unlock_res.ok
     assert unlock_res.data.locked_until is None
     assert unlock_res.data.failed_count == 0
+
+
+def test_user_row_actions_are_action_icons_with_tooltips(users_env, monkeypatch):
+    """Nút Sửa, Đặt lại mật khẩu, Mở khóa là ActionIcon nằm trong Tooltip (hiển thị title khi hover)."""
+    import dash_mantine_components as dmc
+
+    from app.ui.pages.users import render_users_table
+
+    admin_ctx = Ctx(user_id=1, username="admin", full_name="Quản trị viên", roles=[Role.ADMIN])
+    monkeypatch.setattr("app.ui.pages.users.get_current_ctx", lambda: admin_ctx)
+
+    table_paper = render_users_table(admin_ctx)
+    assert table_paper is not None
+
+    tooltips: list[dmc.Tooltip] = []
+
+    def _collect_tooltips(node):
+        if isinstance(node, dmc.Tooltip):
+            tooltips.append(node)
+        children = getattr(node, "children", None)
+        if isinstance(children, list):
+            for c in children:
+                _collect_tooltips(c)
+        elif children is not None and not isinstance(children, (str, int, float, bool)):
+            _collect_tooltips(children)
+
+    _collect_tooltips(table_paper)
+
+    labels = [t.label for t in tooltips]
+    assert "Sửa người dùng" in labels
+    assert "Đặt lại mật khẩu" in labels
+    assert "Mở khóa tài khoản" in labels
+
+    # Mỗi tooltip chứa 1 dmc.ActionIcon
+    for t in tooltips:
+        assert isinstance(t.children, dmc.ActionIcon)
+

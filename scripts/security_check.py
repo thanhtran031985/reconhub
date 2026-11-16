@@ -211,8 +211,13 @@ def check_sec02_env_reads(tracked_files: list[str]) -> CheckResult:
             continue
         if not (fpath.startswith("app/") or fpath.startswith("worker/") or fpath.startswith("scripts/")):
             continue
-        # app/core/config.py được phép khai báo env_file=".env" cho pydantic-settings
-        if fpath == "app/core/config.py" or fpath == "app\\core\\config.py":
+        # Bỏ qua chính script kiểm tra bảo mật và config
+        if fpath in (
+            "app/core/config.py",
+            "app\\core\\config.py",
+            "scripts/security_check.py",
+            "scripts\\security_check.py",
+        ):
             continue
 
         abs_path = ROOT / fpath
