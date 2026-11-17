@@ -754,83 +754,133 @@ def layout() -> Any:
                     ),
                 ],
             ),
-            # Drawer Thêm/Sửa Nguồn
+            # Drawer Thêm/Sửa Nguồn (bố cục 2 cột cân đối, hiển thị trọn vẹn, nút ở footer)
             drawer_right(
                 id="ds-drawer",
                 title="Cấu hình nguồn đối soát",
+                size=720,
                 opened=False,
+                styles={
+                    "content": {"display": "flex", "flexDirection": "column", "overflow": "hidden"},
+                    "body": {"display": "flex", "flexDirection": "column", "flex": 1, "minHeight": 0, "overflow": "hidden"},
+                },
                 children=dmc.Stack(
                     [
                         dcc.Store(id="ds-drawer-id"),
-                        dmc.Select(
-                            id="ds-drawer-env",
-                            label="Môi trường",
-                            data=[
-                                {"value": "DEV", "label": "DEV (Phát triển)"},
-                                {"value": "UAT", "label": "UAT (Kiểm thử)"},
-                                {"value": "PROD", "label": "PROD (Vận hành)"},
-                            ],
-                            value="DEV",
-                            withAsterisk=True,
+                        dmc.Box(
+                            dmc.Grid(
+                                [
+                                    dmc.GridCol(
+                                        dmc.Select(
+                                            id="ds-drawer-env",
+                                            label="Môi trường",
+                                            data=[
+                                                {"value": "DEV", "label": "DEV (Phát triển)"},
+                                                {"value": "UAT", "label": "UAT (Kiểm thử)"},
+                                                {"value": "PROD", "label": "PROD (Vận hành)"},
+                                            ],
+                                            value="DEV",
+                                            withAsterisk=True,
+                                        ),
+                                        span=6,
+                                    ),
+                                    dmc.GridCol(
+                                        dmc.TextInput(
+                                            id="ds-drawer-name",
+                                            label="Tên nguồn đối soát",
+                                            placeholder="VD: Oracle ERP Billing",
+                                            withAsterisk=True,
+                                        ),
+                                        span=6,
+                                    ),
+                                    dmc.GridCol(
+                                        dmc.TextInput(
+                                            id="ds-drawer-host",
+                                            label="Host / IP",
+                                            placeholder="VD: 10.0.1.50",
+                                            withAsterisk=True,
+                                        ),
+                                        span=6,
+                                    ),
+                                    dmc.GridCol(
+                                        dmc.NumberInput(
+                                            id="ds-drawer-port",
+                                            label="Port",
+                                            value=1521,
+                                            withAsterisk=True,
+                                        ),
+                                        span=6,
+                                    ),
+                                    dmc.GridCol(
+                                        dmc.TextInput(
+                                            id="ds-drawer-service",
+                                            label="Service Name",
+                                            placeholder="VD: ORCLPDB1",
+                                            withAsterisk=True,
+                                        ),
+                                        span=6,
+                                    ),
+                                    dmc.GridCol(
+                                        dmc.TextInput(
+                                            id="ds-drawer-schema",
+                                            label="Schema mặc định",
+                                            placeholder="VD: BILLING",
+                                        ),
+                                        span=6,
+                                    ),
+                                    dmc.GridCol(
+                                        dmc.TextInput(
+                                            id="ds-drawer-user",
+                                            label="Username (chỉ đọc)",
+                                            placeholder="VD: RECON_RO",
+                                            withAsterisk=True,
+                                        ),
+                                        span=6,
+                                    ),
+                                    dmc.GridCol(
+                                        dmc.PasswordInput(
+                                            id="ds-drawer-pwd",
+                                            label="Mật khẩu",
+                                            placeholder="Để trống nếu không muốn đổi mật khẩu",
+                                        ),
+                                        span=6,
+                                    ),
+                                    dmc.GridCol(
+                                        dmc.NumberInput(
+                                            id="ds-drawer-timeout",
+                                            label="Timeout (giây)",
+                                            value=600,
+                                        ),
+                                        span=6,
+                                    ),
+                                ],
+                                gutter="sm",
+                            ),
+                            style={"flex": "1 1 auto", "minHeight": 0},
                         ),
-                        dmc.TextInput(
-                            id="ds-drawer-name",
-                            label="Tên nguồn đối soát",
-                            placeholder="VD: Oracle ERP Billing",
-                            withAsterisk=True,
-                        ),
-                        dmc.TextInput(
-                            id="ds-drawer-host",
-                            label="Host / IP",
-                            placeholder="VD: 10.0.1.50",
-                            withAsterisk=True,
-                        ),
-                        dmc.NumberInput(
-                            id="ds-drawer-port",
-                            label="Port",
-                            value=1521,
-                            withAsterisk=True,
-                        ),
-                        dmc.TextInput(
-                            id="ds-drawer-service",
-                            label="Service Name",
-                            placeholder="VD: ORCLPDB1",
-                            withAsterisk=True,
-                        ),
-                        dmc.TextInput(
-                            id="ds-drawer-user",
-                            label="Username (chỉ đọc)",
-                            placeholder="VD: RECON_RO",
-                            withAsterisk=True,
-                        ),
-                        dmc.PasswordInput(
-                            id="ds-drawer-pwd",
-                            label="Mật khẩu",
-                            description="Để trống nếu không muốn thay đổi mật khẩu đã lưu",
-                        ),
-                        dmc.TextInput(
-                            id="ds-drawer-schema",
-                            label="Schema mặc định",
-                            placeholder="VD: BILLING",
-                        ),
-                        dmc.NumberInput(
-                            id="ds-drawer-timeout",
-                            label="Timeout (giây)",
-                            value=600,
-                        ),
-                        html.Div(id="ds-drawer-alert"),
-                        dmc.Group(
+                        dmc.Box(
                             [
-                                button_subtle("Kiểm tra kết nối", id="ds-drawer-test-btn", icon="lucide:activity"),
-                                button_subtle("Hủy", id="ds-drawer-cancel-btn"),
-                                button_primary("Lưu", id="ds-drawer-save-btn", icon="lucide:save"),
+                                html.Div(id="ds-drawer-alert"),
+                                dmc.Group(
+                                    [
+                                        button_subtle("Kiểm tra kết nối", id="ds-drawer-test-btn", icon="lucide:activity"),
+                                        button_subtle("Hủy", id="ds-drawer-cancel-btn"),
+                                        button_primary("Lưu", id="ds-drawer-save-btn", icon="lucide:save"),
+                                    ],
+                                    justify="flex-end",
+                                    gap="sm",
+                                ),
                             ],
-                            justify="flex-end",
-                            gap="sm",
-                            mt="lg",
+                            style={
+                                "marginTop": "auto",
+                                "paddingTop": "12px",
+                                "borderTop": "1px solid var(--line, #E0E0E0)",
+                                "flexShrink": 0,
+                            },
                         ),
                     ],
-                    gap="md",
+                    style={"height": "100%", "display": "flex", "flexDirection": "column", "minHeight": 0},
+                    gap="sm",
                 ),
             ),
             # Modal xác nhận Xóa dữ liệu tạm với từ khóa XOA

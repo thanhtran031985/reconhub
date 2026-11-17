@@ -87,8 +87,9 @@ def page_header(
     if "style" in kwargs:
         root_style.update(kwargs.pop("style"))
 
+    mb_val = kwargs.pop("mb", "xs")
     root_kwargs: dict[str, Any] = {
-        "mb": "xs",
+        "mb": mb_val,
         "style": root_style,
     }
     if id is not None:

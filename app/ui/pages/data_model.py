@@ -9,6 +9,7 @@ drift live); page chỉ đọc metadata, không đọc dữ liệu dòng.
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -111,6 +112,9 @@ def render_command_bar(domain: str, mode: str, health_status: str, generated_at:
     return command_bar(
         search_id="data-model-search",
         search_placeholder="Tìm table hoặc column…",
+        search_debounce=300,
+        mb=0,
+        p="4px 8px",
         filters=[
             dmc.Select(
                 id="data-model-domain-filter",
@@ -323,8 +327,25 @@ def _render_table_row(
     matched = matching_columns(table, query)
     label_children: list[Any] = [
         html.Span(className="dm-dot"),
-        dmc.Text(name, className="rh-code", size="sm", fw=600 if is_selected else 500),
-        dmc.Text(f"{len(table.get('columns', []))} cột", size="xs", c="dimmed"),
+        dmc.Text(
+            name,
+            className="rh-code",
+            size="sm",
+            fw=600 if is_selected else 500,
+            style={
+                "minWidth": 0,
+                "overflow": "hidden",
+                "textOverflow": "ellipsis",
+                "whiteSpace": "nowrap",
+                "flex": "1 1 auto",
+            },
+        ),
+        dmc.Text(
+            f"{len(table.get('columns', []))} cột",
+            size="xs",
+            c="dimmed",
+            style={"flexShrink": 0, "whiteSpace": "nowrap"},
+        ),
     ]
     if matched:
         label_children.append(
@@ -538,10 +559,27 @@ def render_canvas(
         header = dmc.Group(
             [
                 html.Span(className="dm-dot"),
-                dmc.Text(name, className="rh-code", size="sm", fw=600),
-                dmc.Text(f"{len(columns)} cột", size="xs", c="dimmed"),
+                dmc.Text(
+                    name,
+                    className="rh-code",
+                    size="xs",
+                    fw=600,
+                    style={
+                        "minWidth": 0,
+                        "overflow": "hidden",
+                        "textOverflow": "ellipsis",
+                        "whiteSpace": "nowrap",
+                        "flex": "1 1 auto",
+                    },
+                ),
+                dmc.Text(
+                    f"{len(columns)} cột",
+                    size="xs",
+                    c="dimmed",
+                    style={"flexShrink": 0, "whiteSpace": "nowrap", "fontSize": "11px"},
+                ),
             ],
-            gap="xs",
+            gap=4,
             align="center",
             style={"minWidth": 0, "flexWrap": "nowrap"},
         )
@@ -563,10 +601,27 @@ def render_canvas(
                     html.Div(
                         [
                             html.Span(marker, className="dm-col-marker"),
-                            dmc.Text(col["name"], className="rh-code", size="xs"),
-                            dmc.Text(str(col.get("type", "")), size="xs", c="dimmed"),
+                            dmc.Text(
+                                col["name"],
+                                className="rh-code",
+                                size="xs",
+                                style={
+                                    "minWidth": 0,
+                                    "overflow": "hidden",
+                                    "textOverflow": "ellipsis",
+                                    "whiteSpace": "nowrap",
+                                    "flex": "1 1 auto",
+                                },
+                            ),
+                            dmc.Text(
+                                str(col.get("type", "")),
+                                size="xs",
+                                c="dimmed",
+                                style={"flexShrink": 0, "fontSize": "10px", "whiteSpace": "nowrap"},
+                            ),
                         ],
                         className="dm-col-row dm-match" if col["name"] in matched else "dm-col-row",
+                        style={"minWidth": 0},
                     )
                 )
         entity_nodes.append(
@@ -610,7 +665,7 @@ def render_canvas(
 
 # --- Bước 5: ER Canvas (helper thuần) ---
 
-ENTITY_W = 205
+ENTITY_W = 240
 GAP_X = 40
 GAP_Y = 24
 
@@ -664,8 +719,6 @@ def relationship_lines(tables: list[dict[str, Any]], layout: dict[str, dict[str,
             dx = x2 - x1
             dy = y2 - y1
             length = (dx * dx + dy * dy) ** 0.5
-            import math
-
             angle = math.degrees(math.atan2(dy, dx))
             lines.append(
                 {
@@ -1263,6 +1316,7 @@ def layout(**kwargs: Any) -> Any:
             page_header(
                 title="Mô hình dữ liệu",
                 subtitle="ER Diagram được sinh tự động từ metadata database, migrations và model của ứng dụng.",
+                mb=0,
                 actions=[
                     button_subtle(
                         "Lịch sử thay đổi",
@@ -1464,8 +1518,8 @@ def layout(**kwargs: Any) -> Any:
                     ),
                 ],
                 justify="space-between",
-                px="xs",
-                pt=4,
+                px=4,
+                pt=2,
                 id="data-model-status-bar",
                 style={"flexShrink": 0},
             ),
@@ -1524,8 +1578,8 @@ def layout(**kwargs: Any) -> Any:
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
-            "padding": "12px 16px",
-            "gap": "8px",
+            "padding": "6px 12px 4px 12px",
+            "gap": "4px",
         },
         className="dm-page",
     )
@@ -2013,6 +2067,23 @@ clientside_callback(
                 ent.className = cls;
             }
         } catch (e3) {}
+        try {
+            if (selTable) {
+                var targetEl = document.querySelector('.dm-entity[data-table="' + selTable + '"]');
+                var container = document.getElementById('data-model-canvas-container');
+                var inner = document.getElementById('data-model-canvas-inner');
+                if (targetEl && container && inner) {
+                    var zoom = parseFloat(inner.dataset.zoom || '1');
+                    var left = targetEl.offsetLeft * zoom + targetEl.offsetWidth * zoom / 2 - container.clientWidth / 2;
+                    var top = targetEl.offsetTop * zoom + targetEl.offsetHeight * zoom / 2 - container.clientHeight / 2;
+                    container.scrollTo({
+                        left: Math.max(0, left),
+                        top: Math.max(0, top),
+                        behavior: 'smooth'
+                    });
+                }
+            }
+        } catch (e4) {}
         return window.dash_clientside.no_update;
     }
     """,

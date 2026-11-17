@@ -10,6 +10,7 @@ def command_bar(
     search_id: str | None = None,
     search_placeholder: str = "Tìm kiếm...",
     search_value: str | None = "",
+    search_debounce: int | bool | None = None,
     filters: list[Any] | Any = None,
     actions: list[Any] | Any = None,
     id: str | None = None,
@@ -24,23 +25,24 @@ def command_bar(
     left_items: list[Any] = []
 
     if search_id:
-        left_items.append(
-            dmc.TextInput(
-                id=search_id,
-                placeholder=search_placeholder,
-                value=search_value if search_value is not None else "",
-                leftSection=DashIconify(icon="lucide:search", width=14),
-                size="xs",
-                style={"width": 260, "minWidth": 160},
-                styles={
-                    "input": {
-                        "height": "28px",
-                        "minHeight": "28px",
-                        "fontSize": "13px",
-                    }
-                },
-            )
-        )
+        text_input_kwargs: dict[str, Any] = {
+            "id": search_id,
+            "placeholder": search_placeholder,
+            "value": search_value if search_value is not None else "",
+            "leftSection": DashIconify(icon="lucide:search", width=14),
+            "size": "xs",
+            "style": {"width": 260, "minWidth": 160},
+            "styles": {
+                "input": {
+                    "height": "28px",
+                    "minHeight": "28px",
+                    "fontSize": "13px",
+                }
+            },
+        }
+        if search_debounce is not None:
+            text_input_kwargs["debounce"] = search_debounce
+        left_items.append(dmc.TextInput(**text_input_kwargs))
 
     if filters:
         if left_items:
@@ -64,11 +66,13 @@ def command_bar(
         else:
             right_items.append(actions)
 
+    paper_p = kwargs.pop("p", "xs")
+    paper_mb = kwargs.pop("mb", "xs")
     paper_kwargs: dict[str, Any] = {
         "withBorder": True,
         "radius": "sm",
-        "p": "xs",
-        "mb": "xs",
+        "p": paper_p,
+        "mb": paper_mb,
         "bg": "var(--surface, #FFFFFF)",
         "style": {"flexShrink": 0, "minWidth": 0},
     }

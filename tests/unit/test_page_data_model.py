@@ -550,10 +550,11 @@ def test_layout_entities_deterministic(dm_manifest):
     assert first == second
     assert len(first) == 45
     # Cột theo domain, thứ tự Core, Đối soát, Báo cáo, Quản trị.
+    ew = page.ENTITY_W
     assert first["RECON_USER"]["x"] == 0
-    assert first["RECON_RUN"]["x"] == 205 + 40
-    assert first["RECON_REPORT"]["x"] == 2 * (205 + 40)
-    assert first["RECON_DATA_SOURCE"]["x"] == 3 * (205 + 40)
+    assert first["RECON_RUN"]["x"] == ew + 40
+    assert first["RECON_REPORT"]["x"] == 2 * (ew + 40)
+    assert first["RECON_DATA_SOURCE"]["x"] == 3 * (ew + 40)
     # Trong domain xếp theo tên bảng alphabet: y tăng dần theo tên.
     core_names = sorted(t["name"] for t in tables if t["domain"] == "core")
     core_ys = [first[n]["y"] for n in core_names]
@@ -561,10 +562,10 @@ def test_layout_entities_deterministic(dm_manifest):
     # Chiều cao relations = 34 + 24 * số cột.
     run_table = next(t for t in tables if t["name"] == "RECON_RUN")
     assert first["RECON_RUN"]["h"] == 34 + 24 * len(run_table["columns"])
-    assert first["RECON_RUN"]["w"] == 205
+    assert first["RECON_RUN"]["w"] == ew
     # Canvas đủ chứa mọi entity.
     w, h = page.canvas_size(first)
-    assert w == 4 * 205 + 3 * 40
+    assert w == 4 * ew + 3 * 40
     assert h >= max(v["y"] + v["h"] for v in first.values())
 
 
