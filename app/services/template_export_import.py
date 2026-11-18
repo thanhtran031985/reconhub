@@ -10,6 +10,7 @@ from app.core.audit import write_audit_log
 from app.core.context import Ctx, Role, require_role
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_file, recon_template
+from app.engine.email_template import render_email_body, render_email_subject
 from app.engine.mailer import AttachmentSpec, send_smtp_email
 from app.engine.template_export import (
     build_templates_list_docx,
@@ -20,6 +21,7 @@ from app.engine.template_sample import build_template_preview_excel
 from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.template_config import TemplateConfig
 from app.services import service
+from app.services.email_template import get_email_template_internal
 from app.services.perm import requires_menu
 from app.services.smtp_settings import get_smtp_config_internal
 from app.services.template import get_template, list_templates, save_draft_template
@@ -316,48 +318,40 @@ def send_templates_list_email(
             )
         )
 
-    # 5. Dựng email body và subject
-    subject = (
-        custom_subject.strip()
-        if custom_subject and custom_subject.strip()
-        else f"[ReconHub] Danh sách Template đối soát — {now_str}"
-    )
+    # 5. Dựng email body và subject qua template builder (task 97)
+    tmpl_data = get_email_template_internal("TEMPLATE_LIST_EXPORT")
     sender_name = ctx.full_name or ctx.username
 
     notes_html = ""
     if notes and notes.strip():
         safe_notes = notes.strip().replace("\n", "<br>")
         notes_html = f"""
-        <div style="background-color: #f8f9fa; border-left: 4px solid #228be6; padding: 12px; margin: 16px 0; border-radius: 4px;">
-            <strong>Lời nhắn từ người gửi:</strong><br>
-            <p style="margin: 4px 0 0 0; color: #495057;">{safe_notes}</p>
+        <div style="background-color: #f8f9fa; border-left: 4px solid #1971c2; padding: 12px 16px; margin: 16px 0; border-radius: 4px;">
+            <strong style="font-size: 13px;">Lời nhắn từ người gửi:</strong>
+            <p style="margin: 4px 0 0 0; color: #495057; font-size: 13px;">{safe_notes}</p>
         </div>
         """
 
-    filter_html = f"<p style='margin: 4px 0; color: #666;'><strong>{filters_info}</strong></p>" if filters_info else ""
-    files_list_html = "".join([f"<li><code>{att.filename}</code></li>" for att in attachments])
+    filenames = [att.filename for att in attachments]
+    context = {
+        "module_name": "Mẫu đối soát",
+        "user_name": sender_name,
+        "username": ctx.username,
+        "created_at": now_str,
+        "items_count": len(items),
+        "notes": notes_html,
+        "files_list": filenames,
+        "filters_info": filters_info or "",
+    }
 
-    html_body = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #212529; max-width: 650px; line-height: 1.5;">
-        <h2 style="color: #1971c2; margin-top: 0;">Danh sách Template đối soát ReconHub</h2>
-        <p>Xin chào,</p>
-        <p>Người dùng <strong>{sender_name}</strong> ({ctx.username}) đã gửi cho bạn danh sách Template đối soát từ hệ thống <strong>ReconHub</strong>.</p>
-        {notes_html}
-        <div style="margin: 16px 0; padding: 12px; border: 1px solid #e9ecef; border-radius: 6px; background-color: #ffffff;">
-            <p style="margin: 4px 0;"><strong>Thời gian kết xuất:</strong> {now_str}</p>
-            <p style="margin: 4px 0;"><strong>Số lượng template:</strong> {len(items)}</p>
-            {filter_html}
-            <p style="margin: 8px 0 4px 0;"><strong>Tệp đính kèm ({len(attachments)} tệp):</strong></p>
-            <ul style="margin: 4px 0; padding-left: 20px;">
-                {files_list_html}
-            </ul>
-        </div>
-        <hr style="border: none; border-top: 1px solid #dee2e6; margin: 20px 0;">
-        <p style="font-size: 12px; color: #868e96; margin: 0;">
-            Email này được gửi tự động từ hệ thống ReconHub. Vui lòng không trả lời trực tiếp email này.
-        </p>
-    </div>
-    """
+    if custom_subject and custom_subject.strip():
+        subject = custom_subject.strip()
+    else:
+        subject = render_email_subject(tmpl_data.get("subject_pattern") or "", context)
+        if not subject:
+            subject = f"[ReconHub] Danh sách Template đối soát — {now_str}"
+
+    html_body = render_email_body(tmpl_data.get("body_html") or "", context)
 
     # 6. Gửi mail
     from_name = smtp_cfg.get("from_name", "").strip()

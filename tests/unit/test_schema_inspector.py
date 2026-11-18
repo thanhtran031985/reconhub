@@ -23,9 +23,9 @@ def _tables(manifest: dict) -> dict[str, dict]:
 # --- Extraction từ model -------------------------------------------------
 
 
-def test_extract_model_schema_has_45_tables():
+def test_extract_model_schema_has_46_tables():
     tables = si.extract_model_schema()
-    assert len(tables) == 45
+    assert len(tables) == 46
     names = {t["name"] for t in tables}
     assert names == set(metadata.tables.keys())
     assert [t["name"] for t in tables] == sorted(names)
@@ -122,7 +122,7 @@ def test_domain_mapping_counts():
     counts: dict[str, int] = {}
     for t in tables.values():
         counts[t["domain"]] = counts.get(t["domain"], 0) + 1
-    assert counts == {"core": 10, "recon": 21, "report": 11, "admin": 3}
+    assert counts == {"core": 10, "recon": 21, "report": 11, "admin": 4}
     assert "other" not in counts
     assert _manifest()["warnings"] == []
 
@@ -161,7 +161,7 @@ def test_build_manifest_header_and_version():
     assert manifest["generator"] == "schema-introspect"
     assert manifest["database"] == "sqlite"
     assert manifest["schema"] == "main"
-    assert manifest["version"] == "0012_telegram_link"  # task 94
+    assert manifest["version"] == "0014_email_template"  # task 97
     tables = _tables(manifest)
     assert tables["RECON_USER"]["source"] == {"model": "app/db/metadata.py", "migration": "0001_init"}
     assert tables["RECON_LOOKUP_CODE"]["source"]["migration"] == "0002_add_lookup_tables"
@@ -239,11 +239,11 @@ def test_inspect_live_db_matches_model(tmp_path):
 # --- History -------------------------------------------------------------
 
 
-def test_seed_history_has_45_table_created():
+def test_seed_history_has_46_table_created():
     events = si.seed_history_from_migrations()
     created = [e for e in events if e["change_type"] == "TABLE_CREATED"]
-    assert len(created) == 45
-    assert len({e["entity"] for e in created}) == 45
+    assert len(created) == 46
+    assert len({e["entity"] for e in created}) == 46
     assert {e["entity"] for e in created} == set(metadata.tables.keys())
     for e in created:
         assert e["after"] == "TABLE"
@@ -329,9 +329,9 @@ def test_generate_all_writes_and_rerun_no_fake_diff(tmp_path):
     assert manifest_path.exists()
     assert history_path.exists()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert len(manifest["tables"]) == 45
+    assert len(manifest["tables"]) == 46
     history = json.loads(history_path.read_text(encoding="utf-8"))
-    assert len([e for e in history if e["change_type"] == "TABLE_CREATED"]) == 45
+    assert len([e for e in history if e["change_type"] == "TABLE_CREATED"]) == 46
     first_manifest_text = manifest_path.read_text(encoding="utf-8")
     first_history_text = history_path.read_text(encoding="utf-8")
     second = si.generate_all(out_dir)

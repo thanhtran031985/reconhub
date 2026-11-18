@@ -1,7 +1,7 @@
 {
   "database": "sqlite",
   "generated": true,
-  "generated_at": "2026-11-14T10:48:01.534223+00:00",
+  "generated_at": "2026-11-18T03:11:49.865831+00:00",
   "generator": "schema-introspect",
   "schema": "main",
   "tables": [
@@ -1519,6 +1519,131 @@
           "name": "uq_recon_data_source_name_env"
         }
       ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TEMPLATE_CODE",
+          "nullable": false,
+          "primary_key": true,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FUNCTION_CODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SUBJECT_PATTERN",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(500)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "BODY_HTML",
+          "nullable": false,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "AVAILABLE_TOKENS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "IS_DEFAULT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Mẫu email động gửi thông báo và kết xuất dữ liệu",
+      "domain": "admin",
+      "domain_label": "Quản trị",
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "columns": [
+            "FUNCTION_CODE"
+          ],
+          "name": "ix_RECON_EMAIL_TEMPLATE_FUNCTION_CODE",
+          "unique": false
+        }
+      ],
+      "name": "RECON_EMAIL_TEMPLATE",
+      "primary_key": [
+        "TEMPLATE_CODE"
+      ],
+      "source": {
+        "migration": "0014_email_template",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
     },
     {
       "columns": [
@@ -6304,6 +6429,6 @@
       "unique_constraints": []
     }
   ],
-  "version": "0012_telegram_link",
+  "version": "0014_email_template",
   "warnings": []
 }

@@ -610,5 +610,14 @@
     "migration_id": "0012_telegram_link",
     "task_id": null,
     "timestamp": "2026-11-14T10:48:01.567574+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_EMAIL_TEMPLATE",
+    "migration_id": "0014_email_template",
+    "task_id": null,
+    "timestamp": "2026-11-18T03:09:58.825064+00:00"
   }
 ]

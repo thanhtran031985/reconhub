@@ -127,3 +127,46 @@ def test_send_templates_list_email_success(
     audit_kwargs = mock_audit.call_args.kwargs
     assert audit_kwargs["action"] == "SEND_TEMPLATE_EMAIL"
     assert audit_kwargs["entity"] == "TEMPLATE_LIST"
+
+
+@patch("app.services.template_export_import.get_recon_engine")
+@patch("app.services.template_export_import.write_audit_log")
+@patch("app.services.template_export_import.send_smtp_email")
+@patch("app.services.template_export_import.build_templates_list_excel")
+@patch("app.services.template_export_import._get_filtered_templates")
+@patch("app.services.template_export_import.get_smtp_config_internal")
+def test_send_templates_list_email_renders_from_template_builder(
+    mock_get_smtp: MagicMock,
+    mock_get_templates: MagicMock,
+    mock_build_excel: MagicMock,
+    mock_send_smtp: MagicMock,
+    mock_audit: MagicMock,
+    mock_engine: MagicMock,
+    user_ctx: Ctx,
+) -> None:
+    mock_get_smtp.return_value = {
+        "host": "smtp.company.com",
+        "port": 587,
+        "security": "STARTTLS",
+        "username": "mailer@company.com",
+        "password": "secret_password",
+        "from_email": "reconhub@company.com",
+        "from_name": "ReconHub System",
+    }
+    mock_get_templates.return_value = ([{"template_id": "T1", "name": "Template 1"}], "")
+    mock_build_excel.return_value = b"excel_bytes"
+
+    # Gửi không kèm custom_subject -> lấy pattern từ template builder
+    res = send_templates_list_email(
+        ctx=user_ctx,
+        to_emails=["test@example.com"],
+        format_types=["XLSX"],
+        custom_subject=None,
+    )
+    assert res.ok
+    mock_send_smtp.assert_called_once()
+    kwargs = mock_send_smtp.call_args.kwargs
+    assert "ReconHub" in kwargs["subject"]
+    assert "1 template" in kwargs["subject"]
+    assert "Kính gửi anh/chị" in kwargs["body_html"]
+    assert "Admin System" in kwargs["body_html"]

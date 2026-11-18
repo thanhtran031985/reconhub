@@ -13,11 +13,23 @@ from typing import Any
 
 import dash
 import dash_mantine_components as dmc
-from dash import Input, Output, State, callback, dcc, html
+from dash import ALL, Input, Output, State, callback, dcc, html
 from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
+from app.engine.email_template import (
+    SUPPORTED_EMAIL_FUNCTIONS,
+    get_builtin_default_template,
+    get_email_function_meta,
+    render_email_body,
+    render_email_subject,
+)
+from app.services.email_template import (
+    get_email_template_internal,
+    reset_email_template_to_default,
+    save_email_template,
+)
 from app.services.export_retention import (
     get_export_concurrency_settings,
     get_export_retention_settings,
@@ -50,6 +62,82 @@ except Exception:
     pass
 
 MENU_CODE = "system_settings"
+
+
+def render_token_badges(tokens: list[dict[str, Any]]) -> Any:
+    """Hiển thị danh sách thẻ dữ liệu dưới dạng Badges có gợi ý khi hover."""
+    if not tokens:
+        return dmc.Text("Không có thẻ dữ liệu", size="xs", c="dimmed")
+    badges = []
+    for t in tokens:
+        tok_str = t.get("token", "")
+        lbl = t.get("label", "")
+        ex = t.get("example", "")
+        badges.append(
+            dmc.Tooltip(
+                dmc.Badge(
+                    tok_str,
+                    variant="light",
+                    color="blue",
+                    size="sm",
+                    style={"cursor": "pointer", "userSelect": "all"},
+                ),
+                label=f"{lbl} (Ví dụ: {ex})" if ex else lbl,
+                withArrow=True,
+            )
+        )
+    return dmc.Group(badges, gap=6, wrap="wrap")
+
+
+def render_fn_nav_list(active_code: str) -> list[Any]:
+    """Hiển thị danh sách các phân hệ gửi mail dạng NavLink Master-Detail."""
+    links = []
+    for fn in SUPPORTED_EMAIL_FUNCTIONS:
+        code = fn["code"]
+        is_active = (code == active_code)
+        right_badge = None
+        if fn.get("is_fallback"):
+            right_badge = dmc.Badge("Mặc định chung", size="xs", variant="light", color="indigo")
+        links.append(
+            dmc.NavLink(
+                label=fn["label"],
+                description=fn.get("description", ""),
+                leftSection=DashIconify(icon=fn.get("icon", "lucide:file-text"), width=16),
+                active=is_active,
+                variant="subtle",
+                rightSection=right_badge,
+                id={"type": "settings-tmpl-fn-nav", "code": code},
+                styles={
+                    "root": {
+                        "borderRadius": "4px",
+                        "borderLeft": "3px solid var(--primary, #0F6CBD)" if is_active else "3px solid transparent",
+                        "backgroundColor": "var(--primary-soft, #EBF3FC)" if is_active else "transparent",
+                        "marginBottom": "4px",
+                        "padding": "6px 8px",
+                    },
+                },
+            )
+        )
+    return links
+
+
+def render_tmpl_header_info(tmpl: dict[str, Any], fn_meta: dict[str, Any] | None) -> Any:
+    """Hiển thị tên phân hệ đang soạn và badge trạng thái nguồn mẫu."""
+    title = fn_meta.get("label", tmpl.get("function_code", "")) if fn_meta else tmpl.get("name", "")
+    is_fallback = tmpl.get("is_fallback", False)
+    badge_node = (
+        dmc.Badge("Đang dùng mẫu Fallback chung", size="xs", color="orange", variant="light")
+        if is_fallback
+        else dmc.Badge("Mẫu riêng tùy biến", size="xs", color="teal", variant="light")
+    )
+    return dmc.Group(
+        [
+            dmc.Text(title, fw=600, size="sm"),
+            badge_node,
+        ],
+        gap="xs",
+        wrap="wrap",
+    )
 
 
 def layout(**kwargs: Any) -> Any:
@@ -145,6 +233,11 @@ def layout(**kwargs: Any) -> Any:
                                         "Máy chủ Email (SMTP)",
                                         value="smtp",
                                         leftSection=DashIconify(icon="lucide:mail", width=16),
+                                    ),
+                                    dmc.TabsTab(
+                                        "Mẫu Email",
+                                        value="email_template",
+                                        leftSection=DashIconify(icon="lucide:file-code", width=16),
                                     ),
                                 ],
                                 mb="md",
@@ -454,11 +547,222 @@ def layout(**kwargs: Any) -> Any:
                                 ),
                                 value="smtp",
                             ),
+                            dmc.TabsPanel(
+                                dmc.Paper(
+                                    dmc.Stack(
+                                        [
+                                            dcc.Store(id="settings-tmpl-selected-fn", data="GENERAL_EXPORT"),
+                                            dmc.Group(
+                                                [
+                                                    dmc.Stack(
+                                                        [
+                                                            dmc.Title("Quản lý mẫu email nghiệp vụ", order=4, size="sm"),
+                                                            dmc.Text(
+                                                                "Cấu hình Mẫu mặc định dùng chung (Fallback tự động cho mọi tính năng xuất như User, Menu, Template, Data Source...) "
+                                                                "hoặc tùy biến riêng theo từng phân hệ. Xem trước thời gian thực (Live Preview).",
+                                                                size="sm",
+                                                                c="dimmed",
+                                                            ),
+                                                        ],
+                                                        gap=2,
+                                                    ),
+                                                ],
+                                                justify="space-between",
+                                            ),
+                                            html.Div(id="settings-tmpl-alert"),
+                                            dmc.Grid(
+                                                gutter="md",
+                                                children=[
+                                                    # CARD 1: Master List - Chức năng gửi email & Thẻ dữ liệu
+                                                    dmc.GridCol(
+                                                        dmc.Paper(
+                                                            dmc.Stack(
+                                                                [
+                                                                    dmc.Group(
+                                                                        [
+                                                                            DashIconify(icon="lucide:layers", width=18, color="#1971c2"),
+                                                                            dmc.Text("Chức năng gửi email", fw=600, size="sm"),
+                                                                        ],
+                                                                        gap="xs",
+                                                                    ),
+                                                                    dmc.Text(
+                                                                        "Chọn phân hệ để cấu hình mẫu hoặc chỉnh sửa Mẫu mặc định dùng chung:",
+                                                                        size="xs",
+                                                                        c="dimmed",
+                                                                    ),
+                                                                    dmc.Stack(
+                                                                        id="settings-tmpl-fn-list",
+                                                                        children=render_fn_nav_list("GENERAL_EXPORT"),
+                                                                        gap=4,
+                                                                    ),
+                                                                    dmc.Divider(my="xs"),
+                                                                    dmc.Stack(
+                                                                        [
+                                                                            dmc.Group(
+                                                                                [
+                                                                                    DashIconify(icon="lucide:code", width=15, color="#495057"),
+                                                                                    dmc.Text("Thẻ dữ liệu khả dụng:", fw=600, size="xs"),
+                                                                                ],
+                                                                                gap="xs",
+                                                                            ),
+                                                                            dmc.Text("Nhấp thẻ để chép hoặc chèn vào vị trí soạn thảo:", size="xs", c="dimmed"),
+                                                                            html.Div(id="settings-tmpl-tokens-container"),
+                                                                        ],
+                                                                        gap=4,
+                                                                    ),
+                                                                ],
+                                                                gap="xs",
+                                                            ),
+                                                            p="md",
+                                                            withBorder=True,
+                                                            radius="sm",
+                                                            bg="var(--mantine-color-gray-0)",
+                                                            h="100%",
+                                                        ),
+                                                        span={"base": 12, "lg": 3.5},
+                                                    ),
+                                                    # CARD 2: Detail Editor - Soạn thảo tiêu đề & HTML rộng rãi
+                                                    dmc.GridCol(
+                                                        dmc.Paper(
+                                                            dmc.Stack(
+                                                                [
+                                                                    dmc.Group(
+                                                                        [
+                                                                            DashIconify(icon="lucide:file-edit", width=18, color="#1971c2"),
+                                                                            html.Div(id="settings-tmpl-header-info"),
+                                                                        ],
+                                                                        gap="xs",
+                                                                    ),
+                                                                    dmc.TextInput(
+                                                                        id="settings-tmpl-subject-input",
+                                                                        label="Tiêu đề email",
+                                                                        placeholder="Tiêu đề email (hỗ trợ {{token}})...",
+                                                                        w="100%",
+                                                                        size="sm",
+                                                                    ),
+                                                                    dmc.Textarea(
+                                                                        id="settings-tmpl-body-input",
+                                                                        label="Nội dung HTML email",
+                                                                        placeholder="Soạn nội dung mã nguồn HTML...",
+                                                                        minRows=20,
+                                                                        autosize=True,
+                                                                        maxRows=35,
+                                                                        w="100%",
+                                                                        styles={
+                                                                            "input": {
+                                                                                "fontFamily": "Consolas, 'Courier New', monospace",
+                                                                                "fontSize": "13px",
+                                                                                "lineHeight": "1.5",
+                                                                                "padding": "12px",
+                                                                            }
+                                                                        },
+                                                                    ),
+                                                                    dmc.Group(
+                                                                        [
+                                                                            button_primary(
+                                                                                "Lưu mẫu email",
+                                                                                id="settings-tmpl-save-btn",
+                                                                                icon="lucide:save",
+                                                                                size="sm",
+                                                                            ),
+                                                                            dmc.Button(
+                                                                                "Khôi phục mặc định",
+                                                                                id="settings-tmpl-reset-btn",
+                                                                                variant="light",
+                                                                                color="gray",
+                                                                                leftSection=DashIconify(icon="lucide:rotate-ccw", width=14),
+                                                                                size="sm",
+                                                                            ),
+                                                                        ],
+                                                                        gap="sm",
+                                                                    ),
+                                                                ],
+                                                                gap="sm",
+                                                            ),
+                                                            p="md",
+                                                            withBorder=True,
+                                                            radius="sm",
+                                                            bg="#ffffff",
+                                                            h="100%",
+                                                        ),
+                                                        span={"base": 12, "lg": 4.5},
+                                                    ),
+                                                    # CARD 3: Detail Live Preview - Mô phỏng hộp thư người nhận
+                                                    dmc.GridCol(
+                                                        dmc.Paper(
+                                                            dmc.Stack(
+                                                                [
+                                                                    dmc.Group(
+                                                                        [
+                                                                            DashIconify(icon="lucide:eye", width=18, color="#1971c2"),
+                                                                            dmc.Text("Xem trước thời gian thực (Live Preview)", size="sm", fw=600),
+                                                                        ],
+                                                                        gap="xs",
+                                                                    ),
+                                                                    dmc.Text("Mô phỏng chính xác giao diện hộp thư người nhận:", size="xs", c="dimmed"),
+                                                                    dmc.Paper(
+                                                                        [
+                                                                            dmc.Group(
+                                                                                [
+                                                                                    dmc.Text("Từ:", size="xs", c="dimmed", w=50),
+                                                                                    dmc.Text("ReconHub <noreply@reconhub.local>", size="xs", fw=500),
+                                                                                ],
+                                                                                gap="xs",
+                                                                                mb=4,
+                                                                            ),
+                                                                            dmc.Group(
+                                                                                [
+                                                                                    dmc.Text("Tiêu đề:", size="xs", c="dimmed", w=50),
+                                                                                    dmc.Text(id="settings-tmpl-preview-subject", size="xs", fw=600, c="blue.8"),
+                                                                                ],
+                                                                                gap="xs",
+                                                                                mb=4,
+                                                                            ),
+                                                                            dmc.Divider(my="xs"),
+                                                                            html.Iframe(
+                                                                                id="settings-tmpl-preview-frame",
+                                                                                style={
+                                                                                    "width": "100%",
+                                                                                    "height": "480px",
+                                                                                    "border": "none",
+                                                                                    "borderRadius": "4px",
+                                                                                    "backgroundColor": "#ffffff",
+                                                                                },
+                                                                            ),
+                                                                        ],
+                                                                        p="sm",
+                                                                        withBorder=True,
+                                                                        radius="sm",
+                                                                        bg="#ffffff",
+                                                                    ),
+                                                                ],
+                                                                gap="xs",
+                                                            ),
+                                                            p="md",
+                                                            withBorder=True,
+                                                            radius="sm",
+                                                            bg="var(--mantine-color-gray-0)",
+                                                            h="100%",
+                                                        ),
+                                                        span={"base": 12, "lg": 4},
+                                                    ),
+                                                ],
+                                            ),
+                                        ],
+                                        gap="sm",
+                                    ),
+                                    withBorder=True,
+                                    radius="sm",
+                                    p="lg",
+                                    w="100%",
+                                ),
+                                value="email_template",
+                            ),
                         ],
                         id="settings-tabs",
                         value="retention",
                         w="100%",
-                        maw=800,
+                        maw=1440,
                     ),
                 ],
                 style={
@@ -623,3 +927,160 @@ def handle_settings_smtp_test(n_clicks: int | None, test_email: str | None) -> A
     if not res.ok:
         return notify_error(res.message or "Không gửi được email thử nghiệm.")
     return notify_success(res.message or "Đã gửi email thử nghiệm thành công.")
+
+
+@callback(
+    Output("settings-tmpl-selected-fn", "data"),
+    Input({"type": "settings-tmpl-fn-nav", "code": ALL}, "n_clicks"),
+    State("settings-tmpl-selected-fn", "data"),
+    prevent_initial_call=True,
+)
+def handle_template_nav_click(n_clicks_list: list[int | None], current_code: str | None) -> str:
+    """Xử lý chọn phân hệ / chức năng gửi email từ danh sách Card 1."""
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise PreventUpdate
+    triggered_id = ctx.triggered_id
+    if isinstance(triggered_id, dict) and "code" in triggered_id:
+        return str(triggered_id["code"])
+    return current_code or "GENERAL_EXPORT"
+
+
+@callback(
+    Output("settings-tmpl-fn-list", "children"),
+    Output("settings-tmpl-header-info", "children"),
+    Output("settings-tmpl-subject-input", "value"),
+    Output("settings-tmpl-body-input", "value"),
+    Output("settings-tmpl-tokens-container", "children"),
+    Output("settings-tmpl-alert", "children"),
+    Input("settings-tmpl-selected-fn", "data"),
+    Input("settings-tmpl-save-btn", "n_clicks"),
+    Input("settings-tmpl-reset-btn", "n_clicks"),
+    State("settings-tmpl-subject-input", "value"),
+    State("settings-tmpl-body-input", "value"),
+    prevent_initial_call=False,
+)
+def handle_template_editor_events(
+    fn_code: str | None,
+    save_clicks: int | None,
+    reset_clicks: int | None,
+    current_subject: str | None,
+    current_body: str | None,
+) -> tuple[list[Any], Any, str, str, Any, Any]:
+    """Tải template khi đổi chức năng, lưu cấu hình hoặc khôi phục mặc định."""
+    triggered_id = dash.callback_context.triggered_id
+    code = fn_code or "GENERAL_EXPORT"
+    ctx = get_current_ctx()
+    fn_meta = get_email_function_meta(code)
+
+    alert_node = None
+    if triggered_id == "settings-tmpl-save-btn":
+        if ctx is None:
+            tmpl = get_email_template_internal(code)
+            return (
+                render_fn_nav_list(code),
+                render_tmpl_header_info(tmpl, fn_meta),
+                current_subject or "",
+                current_body or "",
+                dash.no_update,
+                notify_error("Chưa đăng nhập."),
+            )
+        res = save_email_template(
+            ctx,
+            {
+                "function_code": code,
+                "name": fn_meta["label"] if fn_meta else f"Mẫu email {code}",
+                "subject_pattern": current_subject or "",
+                "body_html": current_body or "",
+            },
+        )
+        if not res.ok:
+            tmpl = get_email_template_internal(code)
+            return (
+                render_fn_nav_list(code),
+                render_tmpl_header_info(tmpl, fn_meta),
+                current_subject or "",
+                current_body or "",
+                dash.no_update,
+                notify_error(res.message or "Lỗi lưu mẫu."),
+            )
+        tmpl = res.data or {}
+        alert_node = notify_success(f"Đã lưu mẫu email cho chức năng '{fn_meta['label'] if fn_meta else code}' thành công.")
+        tokens_badges = render_token_badges(tmpl.get("available_tokens", []))
+        return (
+            render_fn_nav_list(code),
+            render_tmpl_header_info(tmpl, fn_meta),
+            tmpl.get("subject_pattern") or "",
+            tmpl.get("body_html") or "",
+            tokens_badges,
+            alert_node,
+        )
+
+    if triggered_id == "settings-tmpl-reset-btn":
+        if ctx is None:
+            tmpl = get_email_template_internal(code)
+            return (
+                render_fn_nav_list(code),
+                render_tmpl_header_info(tmpl, fn_meta),
+                current_subject or "",
+                current_body or "",
+                dash.no_update,
+                notify_error("Chưa đăng nhập."),
+            )
+        res = reset_email_template_to_default(ctx, code)
+        if not res.ok:
+            tmpl = get_email_template_internal(code)
+            return (
+                render_fn_nav_list(code),
+                render_tmpl_header_info(tmpl, fn_meta),
+                current_subject or "",
+                current_body or "",
+                dash.no_update,
+                notify_error(res.message or "Lỗi khôi phục mẫu."),
+            )
+        tmpl = res.data or {}
+        alert_node = notify_success(f"Đã khôi phục mẫu mặc định cho chức năng '{fn_meta['label'] if fn_meta else code}'.")
+        tokens_badges = render_token_badges(tmpl.get("available_tokens", []))
+        return (
+            render_fn_nav_list(code),
+            render_tmpl_header_info(tmpl, fn_meta),
+            tmpl.get("subject_pattern") or "",
+            tmpl.get("body_html") or "",
+            tokens_badges,
+            alert_node,
+        )
+
+    # Trigger mặc định hoặc đổi function trong Card 1
+    tmpl = get_email_template_internal(code)
+    tokens_badges = render_token_badges(tmpl.get("available_tokens", []))
+    return (
+        render_fn_nav_list(code),
+        render_tmpl_header_info(tmpl, fn_meta),
+        tmpl.get("subject_pattern") or "",
+        tmpl.get("body_html") or "",
+        tokens_badges,
+        alert_node,
+    )
+
+
+@callback(
+    Output("settings-tmpl-preview-subject", "children"),
+    Output("settings-tmpl-preview-frame", "srcDoc"),
+    Input("settings-tmpl-subject-input", "value"),
+    Input("settings-tmpl-body-input", "value"),
+    Input("settings-tmpl-selected-fn", "data"),
+    prevent_initial_call=False,
+)
+def handle_template_preview(
+    subject_val: str | None,
+    body_val: str | None,
+    fn_code: str | None,
+) -> tuple[str, str]:
+    """Cập nhật Live Preview tức thì khi người dùng gõ phím."""
+    code = fn_code or "GENERAL_EXPORT"
+    builtin = get_builtin_default_template(code)
+    mock_ctx = builtin.get("mock_context", {})
+
+    rendered_subject = render_email_subject(subject_val or "", mock_ctx)
+    rendered_body = render_email_body(body_val or "", mock_ctx)
+    return rendered_subject, rendered_body

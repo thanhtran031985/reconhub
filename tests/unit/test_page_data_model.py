@@ -128,7 +128,7 @@ def test_get_data_model_returns_manifest_and_drift(dm_env):
     assert res.ok, res.message
     assert res.data is not None
     tables = res.data["manifest"]["tables"]
-    assert len(tables) == 45
+    assert len(tables) == 46
     names = {t["name"] for t in tables}
     assert "RECON_RUN" in names
     assert "RECON_RPT_PARAM" in names
@@ -136,8 +136,8 @@ def test_get_data_model_returns_manifest_and_drift(dm_env):
     assert res.data["drift"]["drifts"] == []
     assert isinstance(res.data["history"], list)
     assert (
-        len(res.data["history"]) == 68
-    )  # task 78: +2 TABLE_CREATED (RECON_NOTIFICATION*); task 79: +2 COLUMN_ADDED (RELATED_*); task 94: +3 COLUMN_ADDED (TELEGRAM_*)
+        len(res.data["history"]) == 69
+    )  # task 78: +2 TABLE_CREATED; task 79: +2 COLUMN_ADDED; task 94: +3 COLUMN_ADDED; task 97: +1 TABLE_CREATED
 
 
 def test_get_data_model_forbidden_without_menu(dm_env):
@@ -216,7 +216,7 @@ def dm_manifest():
         "manifest": load_manifest(),
         "history": load_history(),
         "drift": {"status": "SYNCED", "drifts": []},
-        "counts": {"tables": 45, "columns": 530, "relationships": 55},
+        "counts": {"tables": 46, "columns": 546, "relationships": 55},
     }
 
 
@@ -256,7 +256,7 @@ def test_filter_tables_by_domain(dm_manifest):
     assert len(page.filter_tables(tables, "", "report")) == 11
     assert len(page.filter_tables(tables, "", "core")) == 10
     assert len(page.filter_tables(tables, "", "recon")) == 21
-    assert len(page.filter_tables(tables, "", "admin")) == 3
+    assert len(page.filter_tables(tables, "", "admin")) == 4
     assert len(page.filter_tables(tables, "", "other")) == 0
     # Domain + query kết hợp.
     assert [t["name"] for t in page.filter_tables(tables, "GRID_SPAN", "report")] == ["RECON_RPT_PARAM"]
@@ -268,7 +268,7 @@ def test_group_tables_order_and_counts(dm_manifest):
 
     groups = page.group_tables(_manifest_tables(dm_manifest))
     assert [code for code, _label, _t in groups] == ["core", "recon", "report", "admin"]
-    assert [len(t) for _c, _l, t in groups] == [10, 21, 11, 3]
+    assert [len(t) for _c, _l, t in groups] == [10, 21, 11, 4]
     assert groups[0][1] == "Core"
     assert groups[1][1] == "Đối soát"
 
@@ -292,11 +292,11 @@ def test_render_explorer_groups_and_selection(dm_manifest):
     assert "Core (10)" in text
     assert "Đối soát (21)" in text
     assert "Báo cáo (11)" in text
-    assert "Quản trị (3)" in text
+    assert "Quản trị (4)" in text
     assert "RECON_RUN" in text
     nodes = list(_walk(node))
     rows = [n for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-table-item"]
-    assert len(rows) == 45
+    assert len(rows) == 46
     selected = [n for n in rows if n.id.get("table") == "RECON_RUN"]
     assert len(selected) == 1
     assert "active" in (selected[0].className or "")
@@ -500,7 +500,7 @@ def test_update_workspace_filters_and_counts(dm_manifest):
     explorer, _canvas, _detail, count_text, _status, _zoom = page.update_workspace(
         dm_manifest, "", "all", "relations", {"kind": None, "table": None}, {"expanded": {}}, 1.0
     )
-    assert "45 tables" in count_text
+    assert "46 tables" in count_text
     assert "RECON_RUN" in str(explorer)
     # Nhãn zoom theo zoom-store (fit đổi zoom thì nhãn cũng đổi theo).
     assert _zoom == "100%"
@@ -548,7 +548,7 @@ def test_layout_entities_deterministic(dm_manifest):
     first = page.layout_entities(tables, "relations")
     second = page.layout_entities(tables, "relations")
     assert first == second
-    assert len(first) == 45
+    assert len(first) == 46
     # Cột theo domain, thứ tự Core, Đối soát, Báo cáo, Quản trị.
     ew = page.ENTITY_W
     assert first["RECON_USER"]["x"] == 0
@@ -574,7 +574,7 @@ def test_layout_entities_compact_fixed_height(dm_manifest):
 
     layout = page.layout_entities(_manifest_tables(dm_manifest), "compact")
     assert {v["h"] for v in layout.values()} == {40}
-    assert len(layout) == 45
+    assert len(layout) == 46
 
 
 def test_relationship_lines_match_manifest_fk(dm_manifest):
@@ -602,7 +602,7 @@ def test_render_canvas_entities_and_markers(dm_manifest):
     assert "data-model-canvas-inner" in text
     nodes = list(_walk(node))
     entities = [n for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-entity"]
-    assert len(entities) == 45
+    assert len(entities) == 46
     lines = [n for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-rel-line"]
     assert len(lines) == 55
     # Marker PK/FK bằng ký tự, không chỉ bằng màu.
@@ -1365,7 +1365,7 @@ def test_update_workspace_selection_none_shows_empty_detail(dm_manifest):
     )
     assert "Chọn một table hoặc relationship để xem chi tiết." in str(detail)
     assert "RECON_RUN" in str(explorer)
-    assert "45 tables" in count_text
+    assert "46 tables" in count_text
     nodes = list(_walk(canvas))
     entities = {
         n.id["table"]: n for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-entity"

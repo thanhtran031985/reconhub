@@ -1089,3 +1089,19 @@ recon_rpt_lov_cache = Table(
     Column("EXPIRES_AT", DateTime, nullable=False),
     Column("CREATED_AT", DateTime, nullable=False),
 )
+
+recon_email_template = Table(
+    "RECON_EMAIL_TEMPLATE",
+    metadata,
+    Column("TEMPLATE_CODE", String(60), primary_key=True),
+    Column("NAME", String(200), nullable=False),
+    Column("FUNCTION_CODE", String(60), nullable=False, index=True),
+    Column("SUBJECT_PATTERN", String(500), nullable=False),
+    Column("BODY_HTML", Text, nullable=False),
+    Column("AVAILABLE_TOKENS", JsonText, nullable=False),
+    Column("IS_DEFAULT", String(1), nullable=False, default="N"),
+    Column("CREATED_BY", String(60), nullable=False),
+    Column("CREATED_AT", DateTime, nullable=False),
+    Column("UPDATED_BY", String(60), nullable=False),
+    Column("UPDATED_AT", DateTime, nullable=False),
+)
