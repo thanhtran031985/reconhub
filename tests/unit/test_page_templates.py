@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import openpyxl
 import pytest
@@ -200,3 +201,203 @@ def test_render_templates_actions_first_and_headers_centered() -> None:
     assert "Sơ đồ" in first_cell_str
     assert "Tải file mẫu Excel" in first_cell_str
     assert "TMPL_01" in str(first_row.children[1])
+
+
+def test_templates_table_no_horizontal_scroll() -> None:
+    """Kiểm tra bảng template không dùng TableScrollContainer ép minWidth và không cuộn ngang."""
+    content = render_templates_content(
+        items=[
+            {
+                "id": 1,
+                "code": "TMPL_01",
+                "name": "Template 1",
+                "file_pattern": "f.xlsx",
+                "field_count": 3,
+                "profiles": [],
+                "version": 1,
+                "owner": "admin",
+                "status": "ACTIVE",
+                "last_run": None,
+            }
+        ],
+        loading=False,
+        error=None,
+    )
+    # content.children[0] là dmc.Box bọc bảng
+    box_wrapper = content.children[0]
+    assert box_wrapper.style.get("overflowX") == "hidden"
+    assert box_wrapper.style.get("overflowY") == "auto"
+
+    table = box_wrapper.children
+    assert table.style.get("width") == "100%"
+    assert table.style.get("tableLayout") == "fixed"
+
+
+def test_templates_export_menu_in_layout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Kiểm tra menu xuất danh sách (Excel, Word, PDF) xuất hiện trên header trang."""
+    monkeypatch.setattr("app.ui.pages.templates.page_gate", lambda ctx, menu: None)
+    page_layout = layout()
+    layout_str = str(page_layout)
+    assert "tmpl-export-menu-btn" in layout_str
+    assert "Xuất danh sách" in layout_str
+    assert "tmpl-export-excel-btn" in layout_str
+    assert "Xuất Excel (.xlsx)" in layout_str
+    assert "tmpl-export-word-btn" in layout_str
+    assert "Xuất Word (.docx)" in layout_str
+    assert "tmpl-export-pdf-btn" in layout_str
+    assert "Xuất PDF (.pdf)" in layout_str
+    assert "tmpl-list-download" in layout_str
+
+
+def test_build_templates_list_excel() -> None:
+    from app.engine.template_export import build_templates_list_excel
+
+    mock_items = [
+        {
+            "code": "DTP_HOA_DON",
+            "name": "DTP Hóa đơn tác nghiệp",
+            "file_pattern": "dtp_*.xlsx",
+            "sheet": "Sheet1",
+            "field_count": 14,
+            "profiles": [{"name": "Theo số HĐ", "is_default": True}],
+            "current_version": 1,
+            "owner": "admin",
+            "status": "ACTIVE",
+            "last_run": {"id": 12, "status": "DONE", "finished_at": "18/11/2026 08:00"},
+            "created_at": "2026-11-01 10:00:00",
+            "updated_at": "2026-11-02 12:00:00",
+        }
+    ]
+    excel_bytes = build_templates_list_excel(mock_items, exported_by="test_user")
+    assert len(excel_bytes) > 0
+
+    wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), data_only=True)
+    ws = wb.active
+    assert ws is not None
+    assert "DANH SÁCH TEMPLATE" in str(ws.cell(row=1, column=1).value)
+    # Tìm mã template trong bảng
+    found_code = False
+    for r in range(4, 10):
+        if ws.cell(row=r, column=2).value == "DTP_HOA_DON":
+            found_code = True
+            break
+    assert found_code, "Mã template DTP_HOA_DON phải có trong file Excel xuất ra"
+
+
+def test_build_templates_list_docx() -> None:
+    import zipfile
+
+    from app.engine.template_export import build_templates_list_docx
+
+    mock_items = [
+        {
+            "code": "DTP_HOA_DON",
+            "name": "DTP Hóa đơn tác nghiệp",
+            "file_pattern": "dtp_*.xlsx",
+            "field_count": 14,
+            "profiles": [{"name": "Theo số HĐ", "is_default": True}],
+            "current_version": 1,
+            "owner": "admin",
+            "status": "ACTIVE",
+            "last_run": {"id": 12, "status": "DONE", "finished_at": "18/11/2026 08:00"},
+        }
+    ]
+    docx_bytes = build_templates_list_docx(mock_items, exported_by="test_user")
+    assert len(docx_bytes) > 0
+
+    # Kiểm tra là file zip OpenXML hợp lệ
+    with zipfile.ZipFile(io.BytesIO(docx_bytes), "r") as z:
+        assert "word/document.xml" in z.namelist()
+        doc_xml = z.read("word/document.xml").decode("utf-8")
+        assert "DTP_HOA_DON" in doc_xml
+        assert "DANH SÁCH TEMPLATE ĐỐI SOÁT" in doc_xml
+
+
+def test_build_templates_list_pdf() -> None:
+    from app.engine.template_export import build_templates_list_pdf
+
+    mock_items = [
+        {
+            "code": "DTP_HOA_DON",
+            "name": "DTP Hóa đơn tác nghiệp",
+            "file_pattern": "dtp_*.xlsx",
+            "field_count": 14,
+            "profiles": [{"name": "Theo số HĐ", "is_default": True}],
+            "current_version": 1,
+            "owner": "admin",
+            "status": "ACTIVE",
+            "last_run": {"id": 12, "status": "DONE", "finished_at": "18/11/2026 08:00"},
+        }
+    ]
+    pdf_bytes = build_templates_list_pdf(mock_items, exported_by="test_user")
+    assert len(pdf_bytes) > 0
+    assert pdf_bytes.startswith(b"%PDF-"), "File PDF phải bắt đầu bằng header %PDF-"
+
+
+def test_templates_email_elements_in_layout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.ui.pages.templates.page_gate", lambda ctx, menu: None)
+    page_layout = layout()
+    layout_str = str(page_layout)
+    assert "tmpl-export-email-btn" in layout_str
+    assert "tmpl-email-modal" in layout_str
+    assert "tmpl-email-formats" in layout_str
+    assert "tmpl-email-recipients" in layout_str
+    assert "tmpl-email-subject" in layout_str
+    assert "tmpl-email-submit-btn" in layout_str
+
+
+@patch("app.ui.pages.templates.get_current_ctx")
+@patch("app.ui.pages.templates.send_templates_list_email")
+def test_handle_email_modal_actions(
+    mock_send_email: MagicMock,
+    mock_ctx: MagicMock,
+) -> None:
+    from app.core.context import Ctx
+    from app.schemas.errors import ServiceResult
+    from app.ui.pages.templates import handle_email_modal_actions
+
+    admin_ctx = Ctx(user_id=1, username="admin", full_name="Admin", roles=["ADMIN"])
+    mock_ctx.return_value = admin_ctx
+
+    # 1. Open modal
+    with patch("dash.callback_context") as mock_dash_ctx:
+        mock_dash_ctx.triggered = [{"prop_id": "tmpl-export-email-btn.n_clicks"}]
+        opened, subject, recipients, alert, toast, progress_style, disabled = handle_email_modal_actions(
+            1, None, None, False, None, None, None, None, None, None
+        )
+        assert opened is True
+        assert "[ReconHub] Danh sách Template đối soát" in subject
+        assert alert is None
+        assert progress_style == {"display": "none"}
+        assert disabled is False
+
+        # 2. Cancel modal
+        mock_dash_ctx.triggered = [{"prop_id": "tmpl-email-cancel-btn.n_clicks"}]
+        opened_c, _, _, _, _, _, _ = handle_email_modal_actions(
+            None, 1, None, True, None, None, None, None, None, None
+        )
+        assert opened_c is False
+
+        # 3. Submit validation (missing recipients)
+        mock_dash_ctx.triggered = [{"prop_id": "tmpl-email-submit-btn.n_clicks"}]
+        opened_err, _, _, alert_err, _, progress_err, dis_err = handle_email_modal_actions(
+            None, None, 1, True, "", ["XLSX"], "Subject", "", "", ""
+        )
+        assert opened_err is True
+        assert "Vui lòng nhập ít nhất một địa chỉ email" in str(alert_err)
+        assert progress_err == {"display": "none"}
+        assert dis_err is False
+
+        # 4. Submit success
+        mock_send_email.return_value = ServiceResult(
+            ok=True,
+            data={"to_emails": ["test@company.com"], "attachments_count": 1, "subject": "Subject"},
+        )
+        opened_ok, _, _, alert_ok, toast_ok, progress_ok, dis_ok = handle_email_modal_actions(
+            None, None, 1, True, "test@company.com", ["XLSX"], "Subject", "Note", "search", "ACTIVE"
+        )
+        assert opened_ok is False
+        assert alert_ok is None
+        assert progress_ok == {"display": "none"}
+        assert dis_ok is False
+        assert "Đã gửi email danh sách template thành công" in str(toast_ok)

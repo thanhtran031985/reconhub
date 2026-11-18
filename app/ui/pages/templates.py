@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import base64
 import json
+from datetime import datetime
 from typing import Any
 
 import dash
 import dash_mantine_components as dmc
-from dash import ALL, Input, Output, State, callback, dcc, html
+from dash import ALL, Input, Output, State, callback, clientside_callback, dcc, html
+from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
@@ -20,7 +22,11 @@ from app.services.template import (
 from app.services.template_export_import import (
     export_template,
     export_template_sample_excel,
+    export_templates_list_docx,
+    export_templates_list_excel,
+    export_templates_list_pdf,
     import_template,
+    send_templates_list_email,
 )
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
@@ -28,6 +34,7 @@ from app.ui.components.command_bar import command_bar
 from app.ui.components.empty_state import empty_state
 from app.ui.components.file_drop import file_drop
 from app.ui.components.modal_confirm import modal_confirm
+from app.ui.components.notification import notify_success
 from app.ui.components.page_header import page_header
 from app.ui.components.status_chip import status_chip
 
@@ -222,12 +229,12 @@ def render_templates_content(
             dmc.Group(
                 [
                     dmc.Anchor(
-                        button_subtle("Sửa", icon="lucide:edit-3", size="xs"),
+                        button_subtle("Sửa", icon="lucide:edit-3", size="xs", px=6),
                         href=f"/templates/{tid}/edit",
                         underline=False,
                     ),
                     dmc.Anchor(
-                        button_subtle("Sơ đồ", icon="lucide:workflow", size="xs"),
+                        button_subtle("Sơ đồ", icon="lucide:workflow", size="xs", px=6),
                         href=f"/templates/{tid}/diagram",
                         underline=False,
                     ),
@@ -247,24 +254,35 @@ def render_templates_content(
                         withArrow=True,
                     ),
                 ],
-                gap="xs",
+                gap=4,
                 justify="flex-start",
                 style={"flexWrap": "nowrap"},
             ),
-            style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+            style={"whiteSpace": "nowrap", "verticalAlign": "middle", "overflow": "hidden"},
         )
 
         row = dmc.TableTr(
             [
                 actions_td,
                 dmc.TableTd(
-                    dmc.Text(tid, className="rh-code", fw=700, size="sm"),
-                    style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                    dmc.Text(
+                        tid,
+                        className="rh-code",
+                        fw=700,
+                        size="sm",
+                        style={"overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"},
+                    ),
+                    style={"verticalAlign": "middle", "overflow": "hidden"},
                 ),
                 dmc.TableTd(
                     dmc.Stack(
                         [
-                            dmc.Text(tname, fw=600, size="sm"),
+                            dmc.Text(
+                                tname,
+                                fw=600,
+                                size="sm",
+                                style={"overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"},
+                            ),
                             dmc.Group(
                                 [
                                     DashIconify(icon="lucide:file-spreadsheet", width=14, color="gray"),
@@ -274,7 +292,7 @@ def render_templates_content(
                                         c="dimmed",
                                         className="rh-code",
                                         style={
-                                            "maxWidth": "320px",
+                                            "maxWidth": "280px",
                                             "overflow": "hidden",
                                             "textOverflow": "ellipsis",
                                             "whiteSpace": "nowrap",
@@ -282,37 +300,44 @@ def render_templates_content(
                                     ),
                                 ],
                                 gap=4,
+                                style={"flexWrap": "nowrap", "overflow": "hidden"},
                             ),
                         ],
                         gap=2,
+                        style={"overflow": "hidden"},
                     ),
-                    style={"verticalAlign": "middle"},
+                    style={"verticalAlign": "middle", "overflow": "hidden"},
                 ),
                 dmc.TableTd(
                     dmc.Badge(
                         f"{fcount} trường",
                         variant="light",
                         color="blue" if fcount > 0 else "gray",
-                        size="sm",
+                        size="xs",
                     ),
                     style={"textAlign": "center", "whiteSpace": "nowrap", "verticalAlign": "middle"},
                 ),
-                dmc.TableTd(prof_cell, style={"verticalAlign": "middle"}),
+                dmc.TableTd(prof_cell, style={"verticalAlign": "middle", "overflow": "hidden"}),
                 dmc.TableTd(
                     dmc.Badge(f"v{version}", variant="outline", color="gray", size="xs"),
                     style={"textAlign": "center", "whiteSpace": "nowrap", "verticalAlign": "middle"},
                 ),
                 dmc.TableTd(
-                    dmc.Text(f"@{owner}", size="sm", c="dimmed"),
-                    style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                    dmc.Text(
+                        f"@{owner}",
+                        size="sm",
+                        c="dimmed",
+                        style={"overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"},
+                    ),
+                    style={"verticalAlign": "middle", "overflow": "hidden"},
                 ),
                 dmc.TableTd(
                     status_chip(status),
-                    style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                    style={"textAlign": "center", "whiteSpace": "nowrap", "verticalAlign": "middle"},
                 ),
                 dmc.TableTd(
                     lr_cell,
-                    style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
+                    style={"verticalAlign": "middle", "whiteSpace": "nowrap", "overflow": "hidden"},
                 ),
             ]
         )
@@ -332,18 +357,18 @@ def render_templates_content(
     }
 
     headers = [
-        dmc.TableTh("Thao tác", style={**th_base_style, "minWidth": "160px"}),
-        dmc.TableTh("Mã template", style={**th_base_style, "minWidth": "160px"}),
+        dmc.TableTh("Thao tác", style={**th_base_style, "width": "140px"}),
+        dmc.TableTh("Mã template", style={**th_base_style, "width": "145px"}),
         dmc.TableTh(
             "Tên & Nhận diện file",
-            style={**th_base_style, "minWidth": "240px"},
+            style={**th_base_style, "width": "auto"},
         ),
-        dmc.TableTh("Số trường", style={**th_base_style, "minWidth": "100px"}),
-        dmc.TableTh("Profiles", style={**th_base_style, "minWidth": "180px"}),
-        dmc.TableTh("Phiên bản", style={**th_base_style, "minWidth": "85px"}),
-        dmc.TableTh("Chủ sở hữu", style={**th_base_style, "minWidth": "110px"}),
-        dmc.TableTh("Trạng thái", style={**th_base_style, "minWidth": "140px"}),
-        dmc.TableTh("Run gần nhất", style={**th_base_style, "minWidth": "140px"}),
+        dmc.TableTh("Số trường", style={**th_base_style, "width": "85px"}),
+        dmc.TableTh("Profiles", style={**th_base_style, "width": "135px"}),
+        dmc.TableTh("Phiên bản", style={**th_base_style, "width": "75px"}),
+        dmc.TableTh("Chủ sở hữu", style={**th_base_style, "width": "90px"}),
+        dmc.TableTh("Trạng thái", style={**th_base_style, "width": "115px"}),
+        dmc.TableTh("Run gần nhất", style={**th_base_style, "width": "125px"}),
     ]
 
     pagination_bar = dmc.Group(
@@ -351,7 +376,11 @@ def render_templates_content(
         align="center",
         px="sm",
         py=6,
-        style={"borderTop": "1px solid var(--line, #E0E0E0)", "backgroundColor": "var(--surface-2, #FAFAFA)", "flexShrink": 0},
+        style={
+            "borderTop": "1px solid var(--line, #E0E0E0)",
+            "backgroundColor": "var(--surface-2, #FAFAFA)",
+            "flexShrink": 0,
+        },
         children=[
             dmc.Text(
                 f"Hiển thị {start_idx + 1 if total_items > 0 else 0} – {end_idx} trong tổng số {total_items} template",
@@ -370,9 +399,7 @@ def render_templates_content(
 
     return dmc.Paper(
         [
-            dmc.TableScrollContainer(
-                minWidth=1200,
-                style={"flex": 1, "minHeight": 0, "overflow": "auto"},
+            dmc.Box(
                 children=dmc.Table(
                     [
                         dmc.TableThead(dmc.TableTr(headers)),
@@ -383,7 +410,14 @@ def render_templates_content(
                     withTableBorder=False,
                     withColumnBorders=False,
                     verticalSpacing=4,
+                    style={"width": "100%", "tableLayout": "fixed"},
                 ),
+                style={
+                    "flex": 1,
+                    "minHeight": 0,
+                    "overflowY": "auto",
+                    "overflowX": "hidden",
+                },
             ),
             pagination_bar,
         ],
@@ -413,6 +447,47 @@ def layout() -> Any:
             p="md",
         )
 
+    export_menu = dmc.Menu(
+        [
+            dmc.MenuTarget(
+                button_subtle(
+                    "Xuất danh sách",
+                    id="tmpl-export-menu-btn",
+                    icon="lucide:download",
+                    rightSection=DashIconify(icon="lucide:chevron-down", width=12),
+                    size="xs",
+                )
+            ),
+            dmc.MenuDropdown(
+                [
+                    dmc.MenuItem(
+                        "Xuất Excel (.xlsx)",
+                        id="tmpl-export-excel-btn",
+                        leftSection=DashIconify(icon="lucide:file-spreadsheet", width=14, color="#1D6F42"),
+                    ),
+                    dmc.MenuItem(
+                        "Xuất Word (.docx)",
+                        id="tmpl-export-word-btn",
+                        leftSection=DashIconify(icon="lucide:file-text", width=14, color="#185ABD"),
+                    ),
+                    dmc.MenuItem(
+                        "Xuất PDF (.pdf)",
+                        id="tmpl-export-pdf-btn",
+                        leftSection=DashIconify(icon="lucide:file-type-2", width=14, color="#E02424"),
+                    ),
+                    dmc.MenuDivider(),
+                    dmc.MenuItem(
+                        "Gửi qua Email...",
+                        id="tmpl-export-email-btn",
+                        leftSection=DashIconify(icon="lucide:mail", width=14, color="#0C8599"),
+                    ),
+                ]
+            ),
+        ],
+        position="bottom-end",
+        withArrow=True,
+    )
+
     header_actions = [
         dmc.ActionIcon(
             DashIconify(icon="lucide:refresh-cw", width=16),
@@ -421,6 +496,7 @@ def layout() -> Any:
             color="gray",
             size="md",
         ),
+        export_menu,
         button_subtle("Import JSON", id="tmpl-import-btn", icon="lucide:upload", size="xs"),
         dmc.Anchor(
             button_primary("Đăng ký template", icon="lucide:plus", size="xs"),
@@ -464,13 +540,103 @@ def layout() -> Any:
             dcc.Store(id="tmpl-page-store", data=1),
             dcc.Download(id="tmpl-export-download"),
             dcc.Download(id="tmpl-sample-download"),
+            dcc.Download(id="tmpl-list-download"),
             header_node,
             cmd_bar,
             html.Div(
                 id="tmpl-content-container",
                 style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
             ),
+            html.Div(id="tmpl-email-toast"),
             html.Button(id="tmpl-retry-btn", style={"display": "none"}),
+            # Modal Gửi email danh sách template
+            dmc.Modal(
+                id="tmpl-email-modal",
+                title=dmc.Text("Gửi danh sách Template qua Email", fw=700, size="md"),
+                opened=False,
+                size="md",
+                children=dmc.Stack(
+                    [
+                        dmc.Text(
+                            "Chọn định dạng tệp đính kèm và nhập danh sách địa chỉ email nhận thư. "
+                            "Hệ thống sẽ kết xuất theo đúng bộ lọc hiện tại và gửi thư qua máy chủ SMTP đã cấu hình.",
+                            size="sm",
+                            c="dimmed",
+                        ),
+                        dmc.CheckboxGroup(
+                            id="tmpl-email-formats",
+                            label="Định dạng tệp đính kèm",
+                            description="Chọn ít nhất 1 định dạng",
+                            children=dmc.Group(
+                                [
+                                    dmc.Checkbox(label="Excel (.xlsx)", value="XLSX"),
+                                    dmc.Checkbox(label="Word (.docx)", value="DOCX"),
+                                    dmc.Checkbox(label="PDF (.pdf)", value="PDF"),
+                                ],
+                                gap="md",
+                            ),
+                            value=["XLSX"],
+                        ),
+                        dmc.TextInput(
+                            id="tmpl-email-recipients",
+                            label="Người nhận (To)",
+                            placeholder="vd: nguoinhan@company.com, ketoan@company.com",
+                            description="Nhiều email cách nhau bằng dấu phẩy",
+                            required=True,
+                        ),
+                        dmc.TextInput(
+                            id="tmpl-email-subject",
+                            label="Tiêu đề email",
+                            placeholder="vd: [ReconHub] Danh sách Template đối soát",
+                            required=True,
+                        ),
+                        dmc.Textarea(
+                            id="tmpl-email-notes",
+                            label="Lời nhắn kèm theo (tùy chọn)",
+                            placeholder="Nhập nội dung ghi chú cho người nhận...",
+                            minRows=3,
+                        ),
+                        html.Div(
+                            [
+                                dmc.Group(
+                                    [
+                                        DashIconify(icon="lucide:loader-2", width=14, color="#228be6"),
+                                        dmc.Text(
+                                            "Đang kết xuất tệp và gửi email qua SMTP...",
+                                            size="xs",
+                                            c="blue",
+                                            fw=500,
+                                        ),
+                                    ],
+                                    gap=6,
+                                    mb=4,
+                                ),
+                                dmc.Progress(
+                                    value=100,
+                                    animated=True,
+                                    striped=True,
+                                    color="blue",
+                                    size="sm",
+                                    radius="xs",
+                                ),
+                            ],
+                            id="tmpl-email-progress-container",
+                            style={"display": "none"},
+                        ),
+                        html.Div(id="tmpl-email-alert"),
+                        dmc.Group(
+                            [
+                                button_subtle("Hủy", id="tmpl-email-cancel-btn"),
+                                button_primary("Gửi email", id="tmpl-email-submit-btn", icon="lucide:send"),
+                            ],
+                            justify="flex-end",
+                            gap="sm",
+                            mt="sm",
+                        ),
+                    ],
+                    gap="sm",
+                ),
+            ),
             # Modal Import JSON
             dmc.Modal(
                 id="tmpl-import-modal",
@@ -914,3 +1080,195 @@ def handle_sample_excel_template(sample_clicks: list[Any]) -> Any:
     except Exception:
         pass
     return None
+
+
+# Callback xuất danh sách template ra Excel, Word (.docx), hoặc PDF (.pdf)
+@callback(
+    Output("tmpl-list-download", "data"),
+    Input("tmpl-export-excel-btn", "n_clicks"),
+    Input("tmpl-export-word-btn", "n_clicks"),
+    Input("tmpl-export-pdf-btn", "n_clicks"),
+    State("tmpl-filter-search", "value"),
+    State("tmpl-filter-status", "value"),
+    prevent_initial_call=True,
+)
+def handle_export_templates_list(
+    excel_clicks: Any,
+    word_clicks: Any,
+    pdf_clicks: Any,
+    search_val: str | None,
+    status_val: str | None,
+) -> Any:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return None
+
+    trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
+    ctx = get_current_ctx()
+    if ctx is None:
+        return None
+
+    q = search_val or ""
+    st = status_val or ""
+
+    if trigger_id == "tmpl-export-excel-btn":
+        res = export_templates_list_excel(ctx, search_term=q, status_filter=st)
+        if res.ok and res.data:
+            return dcc.send_bytes(  # type: ignore[attr-defined, no-untyped-call]
+                res.data["content"],
+                filename=str(res.data.get("filename") or "danh_sach_template.xlsx"),
+            )
+    elif trigger_id == "tmpl-export-word-btn":
+        res = export_templates_list_docx(ctx, search_term=q, status_filter=st)
+        if res.ok and res.data:
+            return dcc.send_bytes(  # type: ignore[attr-defined, no-untyped-call]
+                res.data["content"],
+                filename=str(res.data.get("filename") or "danh_sach_template.docx"),
+            )
+    elif trigger_id == "tmpl-export-pdf-btn":
+        res = export_templates_list_pdf(ctx, search_term=q, status_filter=st)
+        if res.ok and res.data:
+            return dcc.send_bytes(  # type: ignore[attr-defined, no-untyped-call]
+                res.data["content"],
+                filename=str(res.data.get("filename") or "danh_sach_template.pdf"),
+            )
+
+    return None
+
+
+# Clientside callback kích hoạt thanh Progress bar và vô hiệu hóa nút Gửi ngay khi click
+clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+        return [{"display": "block", "marginTop": "8px", "marginBottom": "8px"}, true];
+    }
+    """,
+    Output("tmpl-email-progress-container", "style", allow_duplicate=True),
+    Output("tmpl-email-submit-btn", "disabled", allow_duplicate=True),
+    Input("tmpl-email-submit-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+
+# Callback hợp nhất điều khiển mở/đóng và gửi email danh sách template
+@callback(
+    Output("tmpl-email-modal", "opened"),
+    Output("tmpl-email-subject", "value"),
+    Output("tmpl-email-recipients", "value"),
+    Output("tmpl-email-alert", "children"),
+    Output("tmpl-email-toast", "children"),
+    Output("tmpl-email-progress-container", "style", allow_duplicate=True),
+    Output("tmpl-email-submit-btn", "disabled", allow_duplicate=True),
+    Input("tmpl-export-email-btn", "n_clicks"),
+    Input("tmpl-email-cancel-btn", "n_clicks"),
+    Input("tmpl-email-submit-btn", "n_clicks"),
+    State("tmpl-email-modal", "opened"),
+    State("tmpl-email-recipients", "value"),
+    State("tmpl-email-formats", "value"),
+    State("tmpl-email-subject", "value"),
+    State("tmpl-email-notes", "value"),
+    State("tmpl-filter-search", "value"),
+    State("tmpl-filter-status", "value"),
+    prevent_initial_call=True,
+)
+def handle_email_modal_actions(
+    export_clicks: Any,
+    cancel_clicks: Any,
+    submit_clicks: Any,
+    is_opened: bool,
+    recipients_val: str | None,
+    formats_val: list[str] | None,
+    subject_val: str | None,
+    notes_val: str | None,
+    search_val: str | None,
+    status_val: str | None,
+) -> tuple[Any, Any, Any, Any, Any, dict[str, str], bool]:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        raise PreventUpdate
+
+    trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
+
+    # 1. Bấm mở Modal từ menu "Gửi qua Email..."
+    if trigger_id == "tmpl-export-email-btn":
+        today_str = datetime.now().strftime("%d/%m/%Y")
+        default_subject = f"[ReconHub] Danh sách Template đối soát — {today_str}"
+        return True, default_subject, "", None, dash.no_update, {"display": "none"}, False
+
+    # 2. Bấm nút Hủy
+    if trigger_id == "tmpl-email-cancel-btn":
+        return False, dash.no_update, dash.no_update, None, dash.no_update, {"display": "none"}, False
+
+    # 3. Bấm nút Gửi email
+    if trigger_id == "tmpl-email-submit-btn":
+        ctx = get_current_ctx()
+        if ctx is None:
+            return (
+                True,
+                dash.no_update,
+                dash.no_update,
+                alert_box("Lỗi xác thực", "Chưa đăng nhập.", tone="crit"),
+                dash.no_update,
+                {"display": "none"},
+                False,
+            )
+
+        recipients_raw = (recipients_val or "").strip()
+        if not recipients_raw:
+            return (
+                True,
+                dash.no_update,
+                dash.no_update,
+                alert_box("Thiếu thông tin", "Vui lòng nhập ít nhất một địa chỉ email người nhận.", tone="crit"),
+                dash.no_update,
+                {"display": "none"},
+                False,
+            )
+
+        recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
+        formats = formats_val or []
+        if not formats:
+            return (
+                True,
+                dash.no_update,
+                dash.no_update,
+                alert_box("Thiếu thông tin", "Vui lòng chọn ít nhất một định dạng tệp đính kèm.", tone="crit"),
+                dash.no_update,
+                {"display": "none"},
+                False,
+            )
+
+        res = send_templates_list_email(
+            ctx=ctx,
+            to_emails=recipients,
+            format_types=formats,
+            search_term=search_val or "",
+            status_filter=status_val or "",
+            custom_subject=(subject_val or "").strip(),
+            notes=(notes_val or "").strip(),
+        )
+
+        if not res.ok:
+            return (
+                True,
+                dash.no_update,
+                dash.no_update,
+                alert_box("Gửi email thất bại", res.message or "Lỗi không xác định khi gửi email.", tone="crit"),
+                dash.no_update,
+                {"display": "none"},
+                False,
+            )
+
+        recipients_str = ", ".join(res.data.get("to_emails", [])) if res.data else recipients_raw
+        return (
+            False,
+            dash.no_update,
+            dash.no_update,
+            None,
+            notify_success(f"Đã gửi email danh sách template thành công tới: {recipients_str}"),
+            {"display": "none"},
+            False,
+        )
+
+    raise PreventUpdate
