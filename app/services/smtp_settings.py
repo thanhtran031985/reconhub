@@ -22,6 +22,8 @@ SMTP_USERNAME_KEY = "SMTP_USERNAME"
 SMTP_PASSWORD_KEY = "SMTP_PASSWORD_ENC"
 SMTP_FROM_EMAIL_KEY = "SMTP_FROM_EMAIL"
 SMTP_FROM_NAME_KEY = "SMTP_FROM_NAME"
+APP_BASE_URL_KEY = "APP_BASE_URL"
+DEFAULT_APP_BASE_URL = "http://127.0.0.1:8050"
 
 
 def _now() -> datetime:
@@ -34,6 +36,31 @@ def _get_setting(engine: Any, key: str) -> str | None:
             select(recon_app_setting.c.VALUE).where(recon_app_setting.c.KEY == key)
         ).scalar_one_or_none()
     return str(value) if value is not None else None
+
+
+def get_app_base_url() -> str:
+    """Lấy địa chỉ URL gốc của hệ thống (Base URL) từ cấu hình, fallback 127.0.0.1:8050."""
+    try:
+        engine = get_recon_engine()
+        raw = _get_setting(engine, APP_BASE_URL_KEY)
+        if raw and raw.strip():
+            url = raw.strip().rstrip("/")
+            if not url.startswith("http://") and not url.startswith("https://"):
+                url = f"http://{url}"
+            return url
+    except Exception:
+        pass
+    return DEFAULT_APP_BASE_URL
+
+
+def build_app_url(path: str = "") -> str:
+    """Sinh URL tuyệt đối hoàn chỉnh có host cho email và liên kết an toàn."""
+    p = (path or "").strip()
+    if p.startswith("http://") or p.startswith("https://"):
+        return p
+    base = get_app_base_url()
+    clean_path = "/" + p.lstrip("/") if p else ""
+    return f"{base}{clean_path}"
 
 
 def _upsert_setting(conn: Any, key: str, value: str, username: str, now: datetime) -> None:
@@ -103,6 +130,7 @@ def get_smtp_settings(ctx: Ctx) -> dict[str, Any]:
         "has_password": bool(cfg["password"]),
         "from_email": cfg["from_email"],
         "from_name": cfg["from_name"],
+        "app_base_url": get_app_base_url(),
     }
 
 
@@ -117,8 +145,9 @@ def set_smtp_settings(
     password: str | None = None,
     from_email: str = "",
     from_name: str = "",
+    app_base_url: str = DEFAULT_APP_BASE_URL,
 ) -> dict[str, Any]:
-    """Lưu cấu hình máy chủ SMTP (chỉ ADMIN). Mật khẩu được mã hóa Fernet."""
+    """Lưu cấu hình máy chủ SMTP và URL hệ thống (chỉ ADMIN). Mật khẩu được mã hóa Fernet."""
     engine = get_recon_engine()
     if not is_admin(ctx, engine):
         raise ServiceError(ErrorCode.FORBIDDEN, "Chỉ ADMIN mới có quyền thay đổi cấu hình SMTP.")
@@ -138,6 +167,12 @@ def set_smtp_settings(
     u = (username or "").strip()
     f_email = (from_email or "").strip()
     f_name = (from_name or "").strip()
+    b_url = (app_base_url or "").strip().rstrip("/")
+    if b_url and not b_url.startswith("http://") and not b_url.startswith("https://"):
+        b_url = f"http://{b_url}"
+    if not b_url:
+        b_url = DEFAULT_APP_BASE_URL
+
     now = _now()
 
     with engine.begin() as conn:
@@ -147,6 +182,7 @@ def set_smtp_settings(
         _upsert_setting(conn, SMTP_USERNAME_KEY, u, ctx.username, now)
         _upsert_setting(conn, SMTP_FROM_EMAIL_KEY, f_email, ctx.username, now)
         _upsert_setting(conn, SMTP_FROM_NAME_KEY, f_name, ctx.username, now)
+        _upsert_setting(conn, APP_BASE_URL_KEY, b_url, ctx.username, now)
 
         # Cập nhật mật khẩu nếu được truyền vào
         if password is not None and str(password).strip():
@@ -169,7 +205,15 @@ def set_smtp_settings(
 
 @service
 @requires_menu("system_settings")
-def test_smtp_connection(ctx: Ctx, to_email: str) -> dict[str, Any]:
+def test_smtp_connection(
+    ctx: Ctx,
+    to_email: str,
+    override_password: str | None = None,
+    override_host: str | None = None,
+    override_port: int | None = None,
+    override_security: str | None = None,
+    override_username: str | None = None,
+) -> dict[str, Any]:
     """Gửi email kiểm tra kết nối SMTP (chỉ ADMIN)."""
     engine = get_recon_engine()
     if not is_admin(ctx, engine):
@@ -180,14 +224,20 @@ def test_smtp_connection(ctx: Ctx, to_email: str) -> dict[str, Any]:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "Địa chỉ email nhận thử nghiệm không hợp lệ.")
 
     cfg = get_smtp_config_internal()
-    if not cfg["host"]:
+    host = (override_host or "").strip() or cfg["host"]
+    if not host:
         raise ServiceError(
             ErrorCode.VALIDATION_ERROR,
             "Chưa cấu hình máy chủ SMTP. Hãy điền Host và Lưu cấu hình trước khi kiểm tra.",
         )
 
+    port = override_port if override_port is not None else cfg["port"]
+    security = override_security or cfg["security"]
+    username = override_username if override_username is not None else cfg["username"]
+    password = override_password if (override_password is not None and str(override_password).strip()) else cfg["password"]
+
     sender_name = cfg["from_name"] or "ReconHub"
-    sender_email = cfg["from_email"] or cfg["username"] or "no-reply@reconhub.local"
+    sender_email = cfg["from_email"] or username or "no-reply@reconhub.local"
     from_full = f"{sender_name} <{sender_email}>"
 
     now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -198,8 +248,8 @@ def test_smtp_connection(ctx: Ctx, to_email: str) -> dict[str, Any]:
     <p>Xin chào <strong>{recipient}</strong>,</p>
     <p>Đây là email thử nghiệm gửi từ hệ thống ReconHub để xác nhận cấu hình máy chủ SMTP hoạt động bình thường.</p>
     <ul>
-        <li><strong>Máy chủ SMTP:</strong> {cfg["host"]}:{cfg["port"]}</li>
-        <li><strong>Giao thức bảo mật:</strong> {cfg["security"]}</li>
+        <li><strong>Máy chủ SMTP:</strong> {host}:{port}</li>
+        <li><strong>Giao thức bảo mật:</strong> {security}</li>
         <li><strong>Thời gian gửi:</strong> {now_str}</li>
         <li><strong>Người gửi thử nghiệm:</strong> @{ctx.username}</li>
     </ul>
@@ -208,11 +258,11 @@ def test_smtp_connection(ctx: Ctx, to_email: str) -> dict[str, Any]:
 </html>"""
 
     res = send_smtp_email(
-        host=cfg["host"],
-        port=cfg["port"],
-        security=cfg["security"],
-        username=cfg["username"],
-        password=cfg["password"],
+        host=host,
+        port=port,
+        security=security,
+        username=username,
+        password=password,
         from_addr=from_full,
         to_addrs=[recipient],
         subject="[ReconHub] Kiểm tra kết nối máy chủ gửi email SMTP",

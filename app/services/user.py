@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -15,6 +16,7 @@ from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.user import UserCreateDTO, UserResponse, UserUpdateDTO
 from app.services import service
 from app.services.perm import require_admin, requires_menu
+from app.services.smtp_settings import build_app_url
 
 
 def _count_active_admins(conn: Connection) -> int:
@@ -137,7 +139,11 @@ def list_users(
 
 @service
 @requires_menu("user")
-def create_user(ctx: Ctx, dto: UserCreateDTO) -> UserResponse:
+def create_user(
+    ctx: Ctx,
+    dto: UserCreateDTO,
+    async_email: bool = True,
+) -> UserResponse:
     """Tạo người dùng mới (chỉ Admin)."""
     engine = get_recon_engine()
     require_admin(ctx, engine)
@@ -197,7 +203,168 @@ def create_user(ctx: Ctx, dto: UserCreateDTO) -> UserResponse:
         )
 
         user_row = conn.execute(select(recon_user).where(recon_user.c.ID == user_id)).mappings().one()
-        return _build_user_response(user_row, assigned_roles)
+        user_res = _build_user_response(user_row, assigned_roles)
+
+    # Sau khi transaction DB đã commit thành công: Gửi email chào mừng tự động qua Mail Template Studio
+    # Chạy ngầm trong luồng nền (async_email=True) để lưu user và đóng modal ngay lập tức
+    if async_email:
+        _send_welcome_user_email_background(ctx, dto, assigned_roles)
+    else:
+        _send_welcome_user_email(ctx, dto, assigned_roles)
+
+    return user_res
+
+
+_last_welcome_email_thread: threading.Thread | None = None
+
+
+def _send_welcome_user_email_background(
+    ctx: Ctx, dto: UserCreateDTO, assigned_roles: list[str]
+) -> threading.Thread:
+    """Tự động gửi email chào mừng người dùng mới trong luồng nền (non-blocking)."""
+    global _last_welcome_email_thread
+    thread = threading.Thread(
+        target=_send_welcome_user_email,
+        args=(ctx, dto, assigned_roles),
+        daemon=True,
+        name=f"welcome-email-{dto.username.strip().lower()}",
+    )
+    thread.start()
+    _last_welcome_email_thread = thread
+    return thread
+
+
+def _send_welcome_user_email(ctx: Ctx, dto: UserCreateDTO, assigned_roles: list[str]) -> bool:
+    """Tự động gửi email chào mừng và bàn giao tài khoản mới qua Mail Template Studio."""
+    if not dto.email or not dto.email.strip() or "@" not in dto.email:
+        return False
+
+    try:
+        from app.engine.mail_renderer import render_html_email, resolve_tokens
+        from app.engine.mailer import send_smtp_email
+        from app.services.mail_template_studio import get_active_template_for_event
+        from app.services.smtp_settings import get_smtp_config_internal
+
+        smtp_cfg = get_smtp_config_internal()
+        if not smtp_cfg.get("host"):
+            return False
+
+        to_email = dto.email.strip()
+        sender_name = ctx.full_name or ctx.username
+        now = datetime.now()
+        now_str = now.strftime("%d/%m/%Y %H:%M")
+
+        context = {
+            # Tiền tố user.*
+            "user.username": dto.username.strip().lower(),
+            "user.full_name": dto.full_name.strip(),
+            "user.email": to_email,
+            "user.roles": ", ".join(assigned_roles),
+            "user.temp_password": dto.password,
+            "user.must_change_pw": "Có" if dto.must_change_pw else "Không",
+            "user.is_active": "Y",
+            "user.created_at": now_str,
+            # Dạng ngắn không tiền tố
+            "username": dto.username.strip().lower(),
+            "full_name": dto.full_name.strip(),
+            "email": to_email,
+            "roles": ", ".join(assigned_roles),
+            "temp_password": dto.password,
+            "must_change_pw": "Có" if dto.must_change_pw else "Không",
+            "is_active": "Y",
+            # System tokens
+            "actor.name": sender_name,
+            "actor.username": ctx.username,
+            "created_at": now_str,
+            "system.app_name": "ReconHub",
+            "links.login": build_app_url("/login"),
+            "links.page": build_app_url("/users"),
+        }
+
+        # Ưu tiên mẫu ACTIVE cho sự kiện USER_CREATED
+        studio_tpl = get_active_template_for_event("USER_CREATED")
+        if studio_tpl and studio_tpl.get("design_json"):
+            subject = resolve_tokens(studio_tpl.get("subject_template", ""), context, escape_html=False)
+            if not subject:
+                subject = f"[ReconHub] Thông tin tài khoản người dùng {dto.username.strip()}"
+
+            html_body = render_html_email(
+                studio_tpl["design_json"],
+                context,
+                preheader=studio_tpl.get("preheader_template", ""),
+            )
+        else:
+            # Fallback HTML cơ bản đẹp mắt
+            subject = f"[ReconHub] Thông tin tài khoản người dùng {dto.username.strip()}"
+            html_body = f"""
+            <div style="font-family: Arial, sans-serif; color: #2D3748; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #E2E8F0; border-radius: 8px;">
+                <h2 style="color: #1A365D; border-bottom: 2px solid #3182CE; padding-bottom: 8px;">ReconHub — Chào mừng người dùng mới</h2>
+                <p>Xin chào <strong>{dto.full_name.strip()}</strong>,</p>
+                <p>Tài khoản người dùng của bạn trên hệ thống ReconHub đã được tạo thành công bởi Quản trị viên <strong>{sender_name}</strong>.</p>
+                <div style="background-color: #F7FAFC; padding: 12px 16px; border-radius: 6px; border-left: 4px solid #3182CE; margin: 16px 0;">
+                    <p style="margin: 4px 0;"><strong>Tên đăng nhập:</strong> <code style="font-family: monospace; font-size: 14px; background: #EDF2F7; padding: 2px 6px; border-radius: 3px;">{dto.username.strip().lower()}</code></p>
+                    <p style="margin: 4px 0;"><strong>Vai trò:</strong> {", ".join(assigned_roles)}</p>
+                    <p style="margin: 4px 0;"><strong>Mật khẩu ban đầu:</strong> <code style="font-family: monospace; font-size: 14px; background: #EDF2F7; padding: 2px 6px; border-radius: 3px;">{dto.password}</code></p>
+                </div>
+                <p>Vui lòng đăng nhập hệ thống và thực hiện đổi mật khẩu ngay trong lần đăng nhập đầu tiên.</p>
+                <p style="font-size: 12px; color: #718096; margin-top: 30px; border-top: 1px solid #E2E8F0; padding-top: 10px;">
+                    Email tự động từ hệ thống ReconHub. Vui lòng không trả lời thư này.
+                </p>
+            </div>
+            """
+
+        from_name = smtp_cfg.get("from_name", "").strip()
+        from_email = smtp_cfg.get("from_email", "").strip() or "reconhub@noreply.com"
+        from_header = f"{from_name} <{from_email}>" if from_name else from_email
+
+        send_res = send_smtp_email(
+            host=smtp_cfg["host"],
+            port=smtp_cfg.get("port", 587),
+            security=smtp_cfg.get("security", "STARTTLS"),
+            username=smtp_cfg.get("username", ""),
+            password=smtp_cfg.get("password", ""),
+            from_addr=from_header,
+            to_addrs=[to_email],
+            subject=subject,
+            body_html=html_body,
+        )
+
+        engine = get_recon_engine()
+        with engine.begin() as audit_conn:
+            write_audit_log(
+                conn=audit_conn,
+                entity="USER",
+                entity_id=0,
+                action="SEND_WELCOME_EMAIL",
+                actor=ctx.username,
+                new_data={
+                    "recipient": to_email,
+                    "username": dto.username,
+                    "success": bool(send_res.get("ok")),
+                    "message": send_res.get("message", "OK"),
+                },
+            )
+        return bool(send_res.get("ok"))
+    except Exception as exc:
+        try:
+            engine = get_recon_engine()
+            with engine.begin() as audit_conn:
+                write_audit_log(
+                    conn=audit_conn,
+                    entity="USER",
+                    entity_id=0,
+                    action="SEND_WELCOME_EMAIL",
+                    actor=ctx.username,
+                    new_data={
+                        "recipient": dto.email,
+                        "username": dto.username,
+                        "success": False,
+                        "error": str(exc),
+                    },
+                )
+        except Exception:
+            pass
+        return False
 
 
 @service

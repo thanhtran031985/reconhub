@@ -600,3 +600,55 @@ main > div > div,
     overflow-y: visible;
   }
 }
+
+/* Mail Template Studio Canvas Markdown formatting */
+.mail-canvas-markdown p {
+  margin: 0 0 6px 0;
+  line-height: inherit;
+  color: inherit;
+  font-size: inherit;
+}
+.mail-canvas-markdown p:last-child {
+  margin-bottom: 0;
+}
+.mail-canvas-markdown strong,
+.mail-canvas-markdown b {
+  font-weight: 700;
+}
+
+/* Mail Template Studio Drag & Drop Styles */
+.mail-drag-handle {
+  cursor: grab;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 3px;
+  transition: background-color 0.15s ease;
+}
+.mail-drag-handle:hover {
+  background-color: #e2e8f0;
+  color: #1e293b;
+}
+.mail-drag-handle:active {
+  cursor: grabbing;
+}
+.mail-drag-item {
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+.mail-item-dragging {
+  opacity: 0.35 !important;
+  outline: 2px dashed #2563eb !important;
+  outline-offset: 2px;
+}
+.mail-item-drag-over-top {
+  border-top: 3px solid #2563eb !important;
+  box-shadow: 0 -4px 6px -1px rgba(37, 99, 235, 0.2);
+}
+.mail-item-drag-over-bottom {
+  border-bottom: 3px solid #2563eb !important;
+  box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+}
+
+

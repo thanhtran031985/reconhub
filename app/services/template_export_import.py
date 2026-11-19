@@ -11,6 +11,7 @@ from app.core.context import Ctx, Role, require_role
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_file, recon_template
 from app.engine.email_template import render_email_body, render_email_subject
+from app.engine.mail_renderer import render_html_email, resolve_tokens
 from app.engine.mailer import AttachmentSpec, send_smtp_email
 from app.engine.template_export import (
     build_templates_list_docx,
@@ -22,8 +23,9 @@ from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.template_config import TemplateConfig
 from app.services import service
 from app.services.email_template import get_email_template_internal
+from app.services.mail_template_studio import get_active_template_for_event
 from app.services.perm import requires_menu
-from app.services.smtp_settings import get_smtp_config_internal
+from app.services.smtp_settings import build_app_url, get_smtp_config_internal
 from app.services.template import get_template, list_templates, save_draft_template
 
 
@@ -318,47 +320,68 @@ def send_templates_list_email(
             )
         )
 
-    # 5. Dựng email body và subject qua template builder (task 97)
-    tmpl_data = get_email_template_internal("TEMPLATE_LIST_EXPORT")
+    # 5. Dựng email body và subject qua Mail Template Studio (Task 98) với fallback tự động
     sender_name = ctx.full_name or ctx.username
-
-    notes_html = ""
-    if notes and notes.strip():
-        safe_notes = notes.strip().replace("\n", "<br>")
-        notes_html = f"""
-        <div style="background-color: #f8f9fa; border-left: 4px solid #1971c2; padding: 12px 16px; margin: 16px 0; border-radius: 4px;">
-            <strong style="font-size: 13px;">Lời nhắn từ người gửi:</strong>
-            <p style="margin: 4px 0 0 0; color: #495057; font-size: 13px;">{safe_notes}</p>
-        </div>
-        """
-
     filenames = [att.filename for att in attachments]
+
+    notes_text = notes.strip() if notes and notes.strip() else ""
+    safe_notes_html = (
+        f"""
+    <div style="background-color: #f8f9fa; border-left: 4px solid #1971c2; padding: 12px 16px; margin: 16px 0; border-radius: 4px;">
+        <strong style="font-size: 13px;">Lời nhắn từ người gửi:</strong>
+        <p style="margin: 4px 0 0 0; color: #495057; font-size: 13px;">{notes_text.replace(chr(10), "<br>")}</p>
+    </div>
+    """
+        if notes_text
+        else ""
+    )
+
     context = {
-        "module_name": "Mẫu đối soát",
+        "actor.name": sender_name,
         "user_name": sender_name,
         "username": ctx.username,
+        "module_name": "Mẫu đối soát",
         "created_at": now_str,
         "items_count": len(items),
-        "notes": notes_html,
+        "notes": safe_notes_html,
         "files_list": filenames,
         "filters_info": filters_info or "",
+        "links.template": build_app_url("/templates"),
+        "links.login": build_app_url("/login"),
     }
 
-    if custom_subject and custom_subject.strip():
-        subject = custom_subject.strip()
-    else:
-        subject = render_email_subject(tmpl_data.get("subject_pattern") or "", context)
-        if not subject:
-            subject = f"[ReconHub] Danh sách Template đối soát — {now_str}"
+    # Ưu tiên mẫu ACTIVE từ Mail Template Studio
+    studio_tpl = get_active_template_for_event("TEMPLATE_LIST_EXPORT")
+    if studio_tpl and studio_tpl.get("design_json"):
+        if custom_subject and custom_subject.strip():
+            subject = custom_subject.strip()
+        else:
+            subject = resolve_tokens(studio_tpl.get("subject_template", ""), context, escape_html=False)
+            if not subject:
+                subject = f"[ReconHub] Danh sách Template đối soát — {now_str}"
 
-    html_body = render_email_body(tmpl_data.get("body_html") or "", context)
+        html_body = render_html_email(
+            studio_tpl["design_json"],
+            context,
+            preheader=studio_tpl.get("preheader_template", ""),
+        )
+    else:
+        # Fallback về Task 97 template
+        tmpl_data = get_email_template_internal("TEMPLATE_LIST_EXPORT")
+        if custom_subject and custom_subject.strip():
+            subject = custom_subject.strip()
+        else:
+            subject = render_email_subject(tmpl_data.get("subject_pattern") or "", context)
+            if not subject:
+                subject = f"[ReconHub] Danh sách Template đối soát — {now_str}"
+        html_body = render_email_body(tmpl_data.get("body_html") or "", context)
 
     # 6. Gửi mail
     from_name = smtp_cfg.get("from_name", "").strip()
     from_email = smtp_cfg.get("from_email", "").strip() or "reconhub@noreply.com"
     from_header = f"{from_name} <{from_email}>" if from_name else from_email
 
-    send_smtp_email(
+    send_res = send_smtp_email(
         host=smtp_cfg["host"],
         port=smtp_cfg.get("port", 587),
         security=smtp_cfg.get("security", "STARTTLS"),
@@ -370,6 +393,11 @@ def send_templates_list_email(
         body_html=html_body,
         attachments=attachments,
     )
+    if not send_res.get("ok"):
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR,
+            f"Không thể gửi email: {send_res.get('message')}",
+        )
 
     # 7. Ghi audit log
     engine = get_recon_engine()

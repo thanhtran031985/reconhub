@@ -63,6 +63,7 @@ def test_handle_settings_save(
         smtp_password="password123",
         smtp_from_email="noreply@company.com",
         smtp_from_name="ReconHub",
+        app_base_url="http://127.0.0.1:8050",
     )
 
     assert res is not None
@@ -76,6 +77,7 @@ def test_handle_settings_save(
         password="password123",
         from_email="noreply@company.com",
         from_name="ReconHub",
+        app_base_url="http://127.0.0.1:8050",
     )
 
 
@@ -96,4 +98,12 @@ def test_handle_settings_smtp_test(
     mock_test_smtp.return_value = ServiceResult(ok=True, message="Đã gửi email thử nghiệm thành công.")
     res = handle_settings_smtp_test(1, "test@company.com")
     assert "Đã gửi email thử nghiệm thành công" in str(res)
-    mock_test_smtp.assert_called_once_with(admin_ctx, "test@company.com")
+    mock_test_smtp.assert_called_once_with(
+        admin_ctx,
+        "test@company.com",
+        override_password=None,
+        override_host=None,
+        override_port=None,
+        override_security=None,
+        override_username=None,
+    )

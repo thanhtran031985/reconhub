@@ -619,5 +619,32 @@
     "migration_id": "0014_email_template",
     "task_id": null,
     "timestamp": "2026-11-18T03:09:58.825064+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_MAIL_RULE_BINDING",
+    "migration_id": "0015_mail_template_studio",
+    "task_id": null,
+    "timestamp": "2026-11-18T05:05:17.158957+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_MAIL_TEMPLATE",
+    "migration_id": "0015_mail_template_studio",
+    "task_id": null,
+    "timestamp": "2026-11-18T05:05:17.158957+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_MAIL_TPL_VERSION",
+    "migration_id": "0015_mail_template_studio",
+    "task_id": null,
+    "timestamp": "2026-11-18T05:05:17.158957+00:00"
   }
 ]

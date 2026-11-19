@@ -1,7 +1,7 @@
 {
   "database": "sqlite",
   "generated": true,
-  "generated_at": "2026-11-18T03:11:49.865831+00:00",
+  "generated_at": "2026-11-18T05:05:17.091245+00:00",
   "generator": "schema-introspect",
   "schema": "main",
   "tables": [
@@ -2549,6 +2549,438 @@
         "model": "app/db/metadata.py"
       },
       "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "RULE_ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "VARCHAR(64)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_MAIL_TEMPLATE.ID",
+          "name": "TEMPLATE_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Liên kết quy tắc thông báo với mẫu email",
+      "domain": "admin",
+      "domain_label": "Quản trị",
+      "foreign_keys": [
+        {
+          "column": "TEMPLATE_ID",
+          "constraint_name": "fk_RECON_MAIL_RULE_BINDING_TEMPLATE_ID_RECON_MAIL_TEMPLATE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_MAIL_TEMPLATE"
+        }
+      ],
+      "indexes": [],
+      "name": "RECON_MAIL_RULE_BINDING",
+      "primary_key": [
+        "RULE_ID"
+      ],
+      "source": {
+        "migration": "0015_mail_template_studio",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(64)",
+          "unique": true
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "NAME",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(255)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DESCRIPTION",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(500)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "MENU_CODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(64)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "EVENT_CODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(64)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_MAIL_TPL_VERSION.ID",
+          "name": "CURRENT_ACTIVE_VERSION_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "Y",
+          "foreign_key": null,
+          "name": "IS_ACTIVE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Mẫu email đa phiên bản Mail Template Studio",
+      "domain": "admin",
+      "domain_label": "Quản trị",
+      "foreign_keys": [
+        {
+          "column": "CURRENT_ACTIVE_VERSION_ID",
+          "constraint_name": "fk_recon_mail_template_active_ver",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_MAIL_TPL_VERSION"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "EVENT_CODE"
+          ],
+          "name": "ix_recon_mail_template_event",
+          "unique": false
+        },
+        {
+          "columns": [
+            "MENU_CODE"
+          ],
+          "name": "ix_recon_mail_template_menu",
+          "unique": false
+        }
+      ],
+      "name": "RECON_MAIL_TEMPLATE",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0015_mail_template_studio",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "CODE"
+          ],
+          "name": "uq_RECON_MAIL_TEMPLATE_CODE"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_MAIL_TEMPLATE.ID",
+          "name": "TEMPLATE_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "VERSION_NO",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "DRAFT",
+          "foreign_key": null,
+          "name": "STATUS",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "EVENT_SCHEMA_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SUBJECT_TEMPLATE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(255)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PREHEADER_TEMPLATE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(150)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DESIGN_JSON",
+          "nullable": false,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "RENDERED_HTML",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "PLAIN_TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DESIGN_HASH",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(64)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "RENDERER_VERSION",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "VALIDATION_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_BY",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ACTIVATED_BY",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ACTIVATED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ARCHIVED_AT",
+          "nullable": true,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        }
+      ],
+      "description": "Phiên bản thiết kế email (Draft/Active/Archived)",
+      "domain": "admin",
+      "domain_label": "Quản trị",
+      "foreign_keys": [
+        {
+          "column": "TEMPLATE_ID",
+          "constraint_name": "fk_RECON_MAIL_TPL_VERSION_TEMPLATE_ID_RECON_MAIL_TEMPLATE",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_MAIL_TEMPLATE"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "TEMPLATE_ID",
+            "STATUS"
+          ],
+          "name": "ix_recon_mail_tpl_ver_tmpl_status",
+          "unique": false
+        }
+      ],
+      "name": "RECON_MAIL_TPL_VERSION",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0015_mail_template_studio",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "TEMPLATE_ID",
+            "VERSION_NO"
+          ],
+          "name": "uq_recon_mail_tpl_version_no"
+        }
+      ]
     },
     {
       "columns": [
@@ -6429,6 +6861,6 @@
       "unique_constraints": []
     }
   ],
-  "version": "0014_email_template",
+  "version": "0015_mail_template_studio",
   "warnings": []
 }

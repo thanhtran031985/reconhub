@@ -22,6 +22,12 @@ from app.services.user import (
     unlock_user,
     update_user,
 )
+from app.services.user_export import (
+    export_users_list_docx,
+    export_users_list_excel,
+    export_users_list_pdf,
+    send_users_list_email,
+)
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.drawer import drawer_right
@@ -286,6 +292,47 @@ def layout() -> Any:
 
     header_title_text = build_header_title(ctx)
 
+    export_menu = dmc.Menu(
+        [
+            dmc.MenuTarget(
+                button_subtle(
+                    "Xuất danh sách",
+                    id="users-export-menu-btn",
+                    icon="lucide:download",
+                    rightSection=DashIconify(icon="lucide:chevron-down", width=12),
+                    size="xs",
+                )
+            ),
+            dmc.MenuDropdown(
+                [
+                    dmc.MenuItem(
+                        "Xuất Excel (.xlsx)",
+                        id="users-export-excel-btn",
+                        leftSection=DashIconify(icon="lucide:file-spreadsheet", width=14, color="#1D6F42"),
+                    ),
+                    dmc.MenuItem(
+                        "Xuất Word (.docx)",
+                        id="users-export-word-btn",
+                        leftSection=DashIconify(icon="lucide:file-text", width=14, color="#185ABD"),
+                    ),
+                    dmc.MenuItem(
+                        "Xuất PDF (.pdf)",
+                        id="users-export-pdf-btn",
+                        leftSection=DashIconify(icon="lucide:file-type-2", width=14, color="#E02424"),
+                    ),
+                    dmc.MenuDivider(),
+                    dmc.MenuItem(
+                        "Gửi qua Email...",
+                        id="users-export-email-btn",
+                        leftSection=DashIconify(icon="lucide:mail", width=14, color="#0C8599"),
+                    ),
+                ]
+            ),
+        ],
+        position="bottom-end",
+        withArrow=True,
+    )
+
     return html.Div(
         id="users-page-root",
         style={
@@ -308,6 +355,7 @@ def layout() -> Any:
                 ),
                 subtitle="Một người có thể có nhiều vai trò. Luôn còn ít nhất một Admin hoạt động.",
                 actions=[
+                    export_menu,
                     button_primary("Thêm người dùng", id="users-add-btn", icon="lucide:plus", size="xs"),
                     button_subtle("", id="users-refresh-btn", icon="lucide:refresh-cw", size="xs"),
                 ],
@@ -564,6 +612,96 @@ def layout() -> Any:
                         ],
                         gap="sm",
                     )
+                ),
+            ),
+            # Download & Email Modal cho Xuất danh sách
+            dcc.Download(id="users-list-download"),
+            html.Div(id="users-email-toast"),
+            dmc.Modal(
+                id="users-email-modal",
+                title=dmc.Text("Gửi danh sách Người dùng qua Email", fw=700, size="md"),
+                opened=False,
+                size="md",
+                children=dmc.Stack(
+                    [
+                        dmc.Text(
+                            "Chọn định dạng tệp đính kèm và nhập danh sách địa chỉ email nhận thư. "
+                            "Hệ thống sẽ kết xuất theo đúng bộ lọc hiện tại và gửi thư qua máy chủ SMTP đã cấu hình.",
+                            size="sm",
+                            c="dimmed",
+                        ),
+                        dmc.CheckboxGroup(
+                            id="users-email-formats",
+                            label="Định dạng tệp đính kèm",
+                            description="Chọn ít nhất 1 định dạng",
+                            children=dmc.Group(
+                                [
+                                    dmc.Checkbox(label="Excel (.xlsx)", value="XLSX"),
+                                    dmc.Checkbox(label="Word (.docx)", value="DOCX"),
+                                    dmc.Checkbox(label="PDF (.pdf)", value="PDF"),
+                                ],
+                                gap="md",
+                            ),
+                            value=["XLSX"],
+                        ),
+                        dmc.TextInput(
+                            id="users-email-recipients",
+                            label="Người nhận (To)",
+                            placeholder="vd: admin@company.com, ketoan@company.com",
+                            description="Nhiều email cách nhau bằng dấu phẩy",
+                            required=True,
+                        ),
+                        dmc.TextInput(
+                            id="users-email-subject",
+                            label="Tiêu đề email",
+                            placeholder="vd: [ReconHub] Danh sách tài khoản người dùng",
+                            required=True,
+                        ),
+                        dmc.Textarea(
+                            id="users-email-notes",
+                            label="Lời nhắn kèm theo (tùy chọn)",
+                            placeholder="Nhập nội dung ghi chú cho người nhận...",
+                            minRows=3,
+                        ),
+                        html.Div(
+                            [
+                                dmc.Group(
+                                    [
+                                        DashIconify(icon="lucide:loader-2", width=14, color="#228be6"),
+                                        dmc.Text(
+                                            "Đang kết xuất tệp và gửi email qua SMTP...",
+                                            size="xs",
+                                            c="blue",
+                                            fw=500,
+                                        ),
+                                    ],
+                                    gap=6,
+                                    mb=4,
+                                ),
+                                dmc.Progress(
+                                    value=100,
+                                    animated=True,
+                                    striped=True,
+                                    color="blue",
+                                    size="sm",
+                                    radius="xs",
+                                ),
+                            ],
+                            id="users-email-progress-container",
+                            style={"display": "none"},
+                        ),
+                        html.Div(id="users-email-alert"),
+                        dmc.Group(
+                            [
+                                button_subtle("Hủy", id="users-email-cancel-btn"),
+                                button_primary("Gửi email", id="users-email-submit-btn", icon="lucide:send"),
+                            ],
+                            justify="flex-end",
+                            gap="sm",
+                            mt="sm",
+                        ),
+                    ],
+                    gap="sm",
                 ),
             ),
             # Notification container
@@ -1080,3 +1218,206 @@ def handle_confirm_reset_password(
     new_table = render_users_table(ctx, q=q, role=role_filter, status_filter=status_filter)
     new_title = build_header_title(ctx)
     return False, None, new_table, new_title
+
+
+# Callback xuất danh sách người dùng ra Excel, Word (.docx), hoặc PDF (.pdf)
+@callback(
+    Output("users-list-download", "data"),
+    Input("users-export-excel-btn", "n_clicks"),
+    Input("users-export-word-btn", "n_clicks"),
+    Input("users-export-pdf-btn", "n_clicks"),
+    State("users-search-input", "value"),
+    State("users-role-filter", "value"),
+    State("users-status-filter", "value"),
+    prevent_initial_call=True,
+)
+def handle_export_users_list(
+    excel_clicks: Any,
+    word_clicks: Any,
+    pdf_clicks: Any,
+    search_val: str | None,
+    role_val: str | None,
+    status_val: str | None,
+) -> Any:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        return None
+
+    trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
+    ctx = get_current_ctx()
+    if ctx is None:
+        return None
+
+    q = search_val or ""
+    role = role_val or ""
+    st = status_val or ""
+
+    if trigger_id == "users-export-excel-btn":
+        res = export_users_list_excel(ctx, q=q, role=role, status=st)
+        if res.ok and res.data:
+            return dcc.send_bytes(  # type: ignore[attr-defined, no-untyped-call]
+                res.data["content"],
+                filename=str(res.data.get("filename") or "danh_sach_nguoi_dung.xlsx"),
+            )
+    elif trigger_id == "users-export-word-btn":
+        res = export_users_list_docx(ctx, q=q, role=role, status=st)
+        if res.ok and res.data:
+            return dcc.send_bytes(  # type: ignore[attr-defined, no-untyped-call]
+                res.data["content"],
+                filename=str(res.data.get("filename") or "danh_sach_nguoi_dung.docx"),
+            )
+    elif trigger_id == "users-export-pdf-btn":
+        res = export_users_list_pdf(ctx, q=q, role=role, status=st)
+        if res.ok and res.data:
+            return dcc.send_bytes(  # type: ignore[attr-defined, no-untyped-call]
+                res.data["content"],
+                filename=str(res.data.get("filename") or "danh_sach_nguoi_dung.pdf"),
+            )
+
+    return None
+
+
+# Clientside callback kích hoạt thanh Progress bar và vô hiệu hóa nút Gửi ngay khi click
+dash.clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+        return [{"display": "block", "marginTop": "8px", "marginBottom": "8px"}, true];
+    }
+    """,
+    Output("users-email-progress-container", "style", allow_duplicate=True),
+    Output("users-email-submit-btn", "disabled", allow_duplicate=True),
+    Input("users-email-submit-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+
+# Callback điều khiển mở/đóng và gửi email danh sách người dùng
+@callback(
+    Output("users-email-modal", "opened"),
+    Output("users-email-subject", "value"),
+    Output("users-email-recipients", "value"),
+    Output("users-email-alert", "children"),
+    Output("users-email-toast", "children"),
+    Output("users-email-progress-container", "style", allow_duplicate=True),
+    Output("users-email-submit-btn", "disabled", allow_duplicate=True),
+    Input("users-export-email-btn", "n_clicks"),
+    Input("users-email-cancel-btn", "n_clicks"),
+    Input("users-email-submit-btn", "n_clicks"),
+    State("users-email-modal", "opened"),
+    State("users-email-recipients", "value"),
+    State("users-email-formats", "value"),
+    State("users-email-subject", "value"),
+    State("users-email-notes", "value"),
+    State("users-search-input", "value"),
+    State("users-role-filter", "value"),
+    State("users-status-filter", "value"),
+    prevent_initial_call=True,
+)
+def handle_users_email_modal_actions(
+    export_clicks: Any,
+    cancel_clicks: Any,
+    submit_clicks: Any,
+    is_opened: bool,
+    recipients_val: str | None,
+    formats_val: list[str] | None,
+    subject_val: str | None,
+    notes_val: str | None,
+    search_val: str | None,
+    role_val: str | None,
+    status_val: str | None,
+) -> tuple[Any, Any, Any, Any, Any, dict[str, str], bool]:
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        raise dash.exceptions.PreventUpdate
+
+    trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
+
+    # 1. Bấm mở Modal từ menu "Gửi qua Email..."
+    if trigger_id == "users-export-email-btn":
+        today_str = datetime.now().strftime("%d/%m/%Y")
+        default_subject = f"[ReconHub] Danh sách tài khoản người dùng — {today_str}"
+        return True, default_subject, "", None, dash.no_update, {"display": "none"}, False
+
+    # 2. Bấm nút Hủy
+    if trigger_id == "users-email-cancel-btn":
+        return False, dash.no_update, dash.no_update, None, dash.no_update, {"display": "none"}, False
+
+    # 3. Bấm nút Gửi email
+    if trigger_id == "users-email-submit-btn":
+        ctx = get_current_ctx()
+        if ctx is None:
+            return (
+                True,
+                dash.no_update,
+                dash.no_update,
+                alert_box("Chưa đăng nhập.", tone="crit"),
+                dash.no_update,
+                {"display": "none"},
+                False,
+            )
+
+        recipients_raw = (recipients_val or "").strip()
+        if not recipients_raw:
+            return (
+                True,
+                dash.no_update,
+                dash.no_update,
+                alert_box("Vui lòng nhập ít nhất một địa chỉ email người nhận.", tone="crit"),
+                dash.no_update,
+                {"display": "none"},
+                False,
+            )
+
+        recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
+        formats = formats_val or []
+        if not formats:
+            return (
+                True,
+                dash.no_update,
+                dash.no_update,
+                alert_box("Vui lòng chọn ít nhất một định dạng tệp đính kèm.", tone="crit"),
+                dash.no_update,
+                {"display": "none"},
+                False,
+            )
+
+        q = search_val or ""
+        role = role_val or ""
+        st = status_val or ""
+        custom_subj = (subject_val or "").strip()
+        custom_notes = (notes_val or "").strip()
+
+        res = send_users_list_email(
+            ctx=ctx,
+            to_emails=recipients,
+            format_types=formats,
+            q=q,
+            role=role,
+            status=st,
+            custom_subject=custom_subj,
+            notes=custom_notes,
+        )
+
+        if not res.ok:
+            return (
+                True,
+                dash.no_update,
+                dash.no_update,
+                alert_box(f"Không thể gửi email: {res.message}", tone="crit"),
+                dash.no_update,
+                {"display": "none"},
+                False,
+            )
+
+        toast = dmc.Notification(
+            title="Gửi email thành công",
+            message=f"Đã gửi danh sách người dùng đến {len(recipients)} người nhận.",
+            color="green",
+            icon=DashIconify(icon="lucide:check", width=18),
+            action="show",
+            autoClose=4000,
+        )
+        return False, dash.no_update, "", None, toast, {"display": "none"}, False
+
+    return False, dash.no_update, dash.no_update, None, dash.no_update, {"display": "none"}, False

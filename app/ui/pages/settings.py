@@ -158,6 +158,7 @@ def layout(**kwargs: Any) -> Any:
     smtp_host, smtp_port, smtp_security = "", 587, "STARTTLS"
     smtp_username, smtp_has_pass = "", False
     smtp_from_email, smtp_from_name = "", "ReconHub"
+    app_base_url = "http://127.0.0.1:8050"
     if ctx is not None:
         res = get_export_retention_settings(ctx)
         if res.ok and isinstance(res.data, dict):
@@ -183,6 +184,7 @@ def layout(**kwargs: Any) -> Any:
             smtp_has_pass = bool(s_res.data.get("has_password"))
             smtp_from_email = str(s_res.data.get("from_email") or "")
             smtp_from_name = str(s_res.data.get("from_name") or "ReconHub")
+            app_base_url = str(s_res.data.get("app_base_url") or "http://127.0.0.1:8050")
 
     return dmc.Box(
         [
@@ -434,6 +436,15 @@ def layout(**kwargs: Any) -> Any:
                                                 size="sm",
                                                 c="dimmed",
                                             ),
+                                            dmc.TextInput(
+                                                id="settings-app-base-url",
+                                                label="Địa chỉ URL hệ thống (Base URL)",
+                                                description="Địa chỉ web của ứng dụng (vd: http://127.0.0.1:8050). Dùng để sinh các liên kết an toàn (links.login, links.page...) khi gửi email.",
+                                                placeholder="vd: http://127.0.0.1:8050",
+                                                value=app_base_url,
+                                                maw=540,
+                                                w="100%",
+                                            ),
                                             dmc.Group(
                                                 [
                                                     dmc.TextInput(
@@ -491,6 +502,12 @@ def layout(**kwargs: Any) -> Any:
                                                 gap="sm",
                                                 maw=540,
                                                 w="100%",
+                                            ),
+                                            dmc.Alert(
+                                                "💡 Với Gmail (smtp.gmail.com): Bật 'Xác minh 2 bước' trong tài khoản Google, tạo 'Mật khẩu ứng dụng' (App Password - 16 ký tự) tại myaccount.google.com/apppasswords và dán vào ô Mật khẩu.",
+                                                color="blue",
+                                                variant="light",
+                                                maw=540,
                                             ),
                                             dmc.Group(
                                                 [
@@ -803,6 +820,7 @@ def layout(**kwargs: Any) -> Any:
     State("settings-smtp-password", "value"),
     State("settings-smtp-from-email", "value"),
     State("settings-smtp-from-name", "value"),
+    State("settings-app-base-url", "value"),
     prevent_initial_call=True,
 )
 def handle_settings_save(
@@ -821,6 +839,7 @@ def handle_settings_save(
     smtp_password: str | None,
     smtp_from_email: str | None,
     smtp_from_name: str | None,
+    app_base_url: str | None = None,
 ) -> Any:
     """Lưu cài đặt dọn file + song song export + timeout báo cáo + Telegram + SMTP (task 52, 57, 71, 94, 96)."""
     if not n_clicks:
@@ -870,6 +889,7 @@ def handle_settings_save(
         password=smtp_password,
         from_email=smtp_from_email or "",
         from_name=smtp_from_name or "",
+        app_base_url=app_base_url or "http://127.0.0.1:8050",
     )
     if not smtp_res.ok:
         return notify_error(smtp_res.message or "Không lưu được cấu hình SMTP.")
@@ -911,10 +931,23 @@ def handle_settings_telegram_test(n_clicks: int | None) -> Any:
     Output("settings-smtp-alert", "children"),
     Input("settings-smtp-test-btn", "n_clicks"),
     State("settings-smtp-test-email", "value"),
+    State("settings-smtp-host", "value"),
+    State("settings-smtp-port", "value"),
+    State("settings-smtp-security", "value"),
+    State("settings-smtp-username", "value"),
+    State("settings-smtp-password", "value"),
     prevent_initial_call=True,
 )
-def handle_settings_smtp_test(n_clicks: int | None, test_email: str | None) -> Any:
-    """Gửi email thử nghiệm từ cài đặt SMTP đã lưu (task 96)."""
+def handle_settings_smtp_test(
+    n_clicks: int | None,
+    test_email: str | None,
+    host: str | None = None,
+    port: int | float | None = None,
+    security: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
+) -> Any:
+    """Gửi email thử nghiệm từ cài đặt SMTP đã lưu hoặc giá trị đang nhập (task 96 & 98)."""
     if not n_clicks:
         raise PreventUpdate
     ctx = get_current_ctx()
@@ -923,7 +956,23 @@ def handle_settings_smtp_test(n_clicks: int | None, test_email: str | None) -> A
     target_email = (test_email or "").strip()
     if not target_email:
         return notify_error("Vui lòng nhập địa chỉ email nhận thư thử nghiệm.")
-    res = test_smtp_connection(ctx, target_email)
+
+    port_int: int | None = None
+    if port is not None:
+        try:
+            port_int = int(port)
+        except ValueError:
+            pass
+
+    res = test_smtp_connection(
+        ctx,
+        target_email,
+        override_password=password,
+        override_host=host,
+        override_port=port_int,
+        override_security=security,
+        override_username=username,
+    )
     if not res.ok:
         return notify_error(res.message or "Không gửi được email thử nghiệm.")
     return notify_success(res.message or "Đã gửi email thử nghiệm thành công.")

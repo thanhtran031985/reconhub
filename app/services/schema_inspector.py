@@ -90,6 +90,9 @@ TABLE_DESCRIPTIONS: dict[str, str] = {
     "RECON_RPT_PRESET": "Preset tham số báo cáo",
     "RECON_RPT_LOV_CACHE": "Cache danh sách giá trị",
     "RECON_EMAIL_TEMPLATE": "Mẫu email động gửi thông báo và kết xuất dữ liệu",
+    "RECON_MAIL_TEMPLATE": "Mẫu email đa phiên bản Mail Template Studio",
+    "RECON_MAIL_TPL_VERSION": "Phiên bản thiết kế email (Draft/Active/Archived)",
+    "RECON_MAIL_RULE_BINDING": "Liên kết quy tắc thông báo với mẫu email",
 }
 
 _SQLITE_DIALECT = sqlite_dialect.dialect()
@@ -101,7 +104,11 @@ def domain_for_table(name: str) -> tuple[str, str]:
         code = "report"
     elif name.startswith("RECON_BATCH_"):
         code = "recon"
-    elif name.startswith("RECON_LOOKUP_") or name in ("RECON_DATA_SOURCE", "RECON_EMAIL_TEMPLATE"):
+    elif (
+        name.startswith("RECON_LOOKUP_")
+        or name.startswith("RECON_MAIL_")
+        or name in ("RECON_DATA_SOURCE", "RECON_EMAIL_TEMPLATE")
+    ):
         code = "admin"
     elif name in _CORE_EXACT or name.startswith(_CORE_PREFIXES):
         code = "core"

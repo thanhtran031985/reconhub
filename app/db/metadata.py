@@ -1105,3 +1105,77 @@ recon_email_template = Table(
     Column("UPDATED_BY", String(60), nullable=False),
     Column("UPDATED_AT", DateTime, nullable=False),
 )
+
+# Task 98: Mail Template Studio (No-Code Email Builder & Multi-Version Engine)
+recon_mail_template = Table(
+    "RECON_MAIL_TEMPLATE",
+    metadata,
+    pk_id_column(),
+    Column("CODE", String(64), nullable=False, unique=True),
+    Column("NAME", String(255), nullable=False),
+    Column("DESCRIPTION", String(500), nullable=True),
+    Column("MENU_CODE", String(64), nullable=False),
+    Column("EVENT_CODE", String(64), nullable=False),
+    Column(
+        "CURRENT_ACTIVE_VERSION_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_MAIL_TPL_VERSION.ID", use_alter=True, name="fk_recon_mail_template_active_ver"),
+        nullable=True,
+    ),
+    Column("IS_ACTIVE", String(1), nullable=False, default="Y"),
+    Column("CREATED_BY", String(60), nullable=False),
+    Column("CREATED_AT", DateTime, nullable=False),
+    Column("UPDATED_BY", String(60), nullable=False),
+    Column("UPDATED_AT", DateTime, nullable=False),
+    Column("ROW_VERSION", Integer, nullable=False, default=1),
+    Index("ix_recon_mail_template_event", "EVENT_CODE"),
+    Index("ix_recon_mail_template_menu", "MENU_CODE"),
+)
+
+recon_mail_tpl_version = Table(
+    "RECON_MAIL_TPL_VERSION",
+    metadata,
+    pk_id_column(),
+    Column(
+        "TEMPLATE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_MAIL_TEMPLATE.ID"),
+        nullable=False,
+    ),
+    Column("VERSION_NO", Integer, nullable=False),
+    Column("STATUS", String(20), nullable=False, default="DRAFT"),
+    Column("EVENT_SCHEMA_VERSION", Integer, nullable=False, default=1),
+    Column("SUBJECT_TEMPLATE", String(255), nullable=False),
+    Column("PREHEADER_TEMPLATE", String(150), nullable=True),
+    Column("DESIGN_JSON", JsonText, nullable=False),
+    Column("RENDERED_HTML", Text, nullable=True),
+    Column("PLAIN_TEXT", Text, nullable=True),
+    Column("DESIGN_HASH", String(64), nullable=True),
+    Column("RENDERER_VERSION", String(20), nullable=True),
+    Column("VALIDATION_JSON", JsonText, nullable=True),
+    Column("CREATED_BY", String(60), nullable=False),
+    Column("CREATED_AT", DateTime, nullable=False),
+    Column("ACTIVATED_BY", String(60), nullable=True),
+    Column("ACTIVATED_AT", DateTime, nullable=True),
+    Column("ARCHIVED_AT", DateTime, nullable=True),
+    UniqueConstraint("TEMPLATE_ID", "VERSION_NO", name="uq_recon_mail_tpl_version_no"),
+    CheckConstraint(
+        "STATUS IN ('DRAFT', 'ACTIVE', 'ARCHIVED', 'INVALID')",
+        name="ck_recon_mail_tpl_version_status",
+    ),
+    Index("ix_recon_mail_tpl_ver_tmpl_status", "TEMPLATE_ID", "STATUS"),
+)
+
+recon_mail_rule_binding = Table(
+    "RECON_MAIL_RULE_BINDING",
+    metadata,
+    Column("RULE_ID", String(64), primary_key=True),
+    Column(
+        "TEMPLATE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_MAIL_TEMPLATE.ID"),
+        nullable=False,
+    ),
+    Column("CREATED_BY", String(60), nullable=False),
+    Column("CREATED_AT", DateTime, nullable=False),
+)

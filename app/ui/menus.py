@@ -49,6 +49,7 @@ MENUS: list[MenuDef] = [
     MenuDef("batch_def", "Bộ đối soát", "CAU_HINH", "/batches", 20, "lucide:layers"),
     MenuDef("data_source", "Data Sources", "CAU_HINH", "/data-sources", 30, "lucide:database"),
     MenuDef("lookup", "Danh mục hệ thống", "CAU_HINH", "/lookups", 40, "lucide:list"),
+    MenuDef("mail_template_studio", "Thiết kế mẫu mail", "CAU_HINH", "/mail-template-studio", 50, "lucide:mail"),
     MenuDef("user", "Người dùng", "QUAN_TRI", "/users", 10, "lucide:users", "N"),
     MenuDef("role", "Vai trò và phân quyền", "QUAN_TRI", "/roles", 20, "lucide:shield", "N"),
     MenuDef("menu_admin", "Danh sách menu", "QUAN_TRI", "/menus", 30, "lucide:list", "N"),
