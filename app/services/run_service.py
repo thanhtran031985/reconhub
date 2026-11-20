@@ -33,7 +33,7 @@ from app.db.metadata import (
 )
 from app.engine.summary import build_columns_metadata
 from app.schemas.errors import ErrorCode, ServiceError
-from app.schemas.run import CreateRunParams, PrecheckParams, RunListFilter, RunRowsFilter
+from app.schemas.run import CreateMultiRunParams, CreateRunParams, PrecheckParams, RunListFilter, RunRowsFilter
 from app.schemas.template_config import TemplateConfig
 from app.services import service
 from app.services.perm import check_owned, owner_filter, requires_menu
@@ -347,6 +347,175 @@ def create_run(
 
 
 @service
+@requires_menu("run")
+def create_multi_run(
+    ctx: Ctx,
+    params: CreateMultiRunParams,
+) -> dict[str, Any]:
+    """Tạo nhiều run đối soát cùng lúc từ danh sách profiles và đẩy vào hàng đợi RECON_RUN_QUEUE."""
+    if not params.profile_codes:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Danh sách profile không được rỗng.")
+
+    # 1. Thực hiện precheck
+    pre_res = precheck(
+        ctx,
+        PrecheckParams(
+            template_id=params.template_id,
+            template_version=params.template_version,
+            data_source_id=params.data_source_id,
+            p_from=params.p_from,
+            p_to=params.p_to,
+            confirm_prod=params.confirm_prod,
+            file_id=params.file_id,
+        ),
+    )
+    if not pre_res.ok:
+        err_msg = pre_res.message or "Lỗi xác thực tham số precheck."
+        raise ServiceError(pre_res.code or ErrorCode.VALIDATION_ERROR, err_msg, pre_res.details)
+
+    engine = get_recon_engine()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Loại bỏ profile trùng lặp trong danh sách đầu vào nhưng giữ nguyên thứ tự
+    unique_profiles: list[str] = []
+    for code in params.profile_codes:
+        c = code.strip()
+        if c and c not in unique_profiles:
+            unique_profiles.append(c)
+
+    if not unique_profiles:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Không có mã profile hợp lệ.")
+
+    created_run_ids: list[int] = []
+
+    with engine.begin() as conn:
+        # 2. Lấy template và template_version
+        tmpl = conn.execute(select(recon_template).where(recon_template.c.ID == params.template_id)).mappings().first()
+        if not tmpl:
+            raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy template với id {params.template_id}.")
+
+        tv_stmt = select(recon_template_version).where(recon_template_version.c.TEMPLATE_ID == params.template_id)
+        if params.template_version is not None:
+            tv_stmt = tv_stmt.where(recon_template_version.c.VERSION == params.template_version)
+        else:
+            tv_stmt = tv_stmt.where(recon_template_version.c.STATUS == "ACTIVE")
+
+        tv = conn.execute(tv_stmt).mappings().first()
+        if not tv:
+            raise ServiceError(ErrorCode.TEMPLATE_NOT_ACTIVE, "Template chưa có phiên bản ACTIVE.")
+
+        version = int(tv["VERSION"])
+        cfg = TemplateConfig.model_validate(tv["CONFIG_JSON"])
+
+        # Kiểm tra toàn bộ profile_codes có tồn tại trong config
+        valid_profiles = [p.code for p in cfg.profiles]
+        for p_code in unique_profiles:
+            if p_code not in valid_profiles:
+                raise ServiceError(
+                    ErrorCode.VALIDATION_ERROR,
+                    f"Mã Profile '{p_code}' không tồn tại trong template. Hợp lệ: {valid_profiles}.",
+                )
+
+        data_source_id = params.data_source_id or tv["DATA_SOURCE_ID"]
+        sheet_name = params.sheet_name or cfg.file.sheet
+
+        # Kiểm tra file_id
+        f_row = conn.execute(select(recon_file).where(recon_file.c.ID == params.file_id)).mappings().first()
+        if not f_row:
+            raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy file với id {params.file_id}.")
+        if f_row["PURGED_AT"] is not None:
+            raise ServiceError(ErrorCode.TEMP_DATA_PURGED, "File Excel đã bị xóa theo yêu cầu.")
+
+        # Lặp tạo run cho từng profile
+        for profile_code in unique_profiles:
+            # Chặn trùng lặp
+            dup = conn.execute(
+                select(recon_run.c.ID)
+                .where(
+                    recon_run.c.TEMPLATE_ID == params.template_id,
+                    recon_run.c.FILE_ID == params.file_id,
+                    recon_run.c.PROFILE_CODE == profile_code,
+                    recon_run.c.P_FROM == params.p_from,
+                    recon_run.c.P_TO == params.p_to,
+                    recon_run.c.CREATED_BY == ctx.username,
+                    recon_run.c.STATUS.in_(["QUEUED", "RUNNING"]),
+                )
+                .limit(1)
+            ).first()
+            if dup:
+                raise ServiceError(
+                    ErrorCode.VALIDATION_ERROR,
+                    f"Đã có run #{dup[0]} đang chờ hoặc đang chạy với profile '{profile_code}', cùng template, file và khoảng thời gian.",
+                    {"existing_run_id": int(dup[0]), "profile_code": profile_code},
+                )
+
+            run_stmt = recon_run.insert().values(
+                TEMPLATE_ID=params.template_id,
+                TEMPLATE_VERSION=version,
+                PROFILE_CODE=profile_code,
+                PROFILE_OVERRIDE=None,
+                FILE_ID=params.file_id,
+                EXCEL_LOAD_ID=None,
+                SHEET_NAME=sheet_name,
+                DATA_SOURCE_ID=data_source_id,
+                P_FROM=params.p_from,
+                P_TO=params.p_to,
+                PARAMS_JSON=params.params,
+                APPLY_RANGE_EXCEL="Y" if params.apply_range_excel else "N",
+                STATUS="QUEUED",
+                PROGRESS_PCT=0,
+                CREATED_BY=ctx.username,
+                CREATED_AT=now,
+            )
+            res = conn.execute(run_stmt)
+            pk = res.inserted_primary_key
+            if not pk:
+                raise ServiceError(
+                    ErrorCode.INTERNAL_ERROR,
+                    f"Không thể tạo bản ghi RECON_RUN cho profile '{profile_code}'.",
+                )
+            run_id = int(pk[0])
+            created_run_ids.append(run_id)
+
+            # Thêm vào RECON_RUN_QUEUE
+            queue_stmt = recon_run_queue.insert().values(
+                RUN_ID=run_id,
+                STATUS="READY",
+                RETRY_COUNT=0,
+                ENQUEUED_AT=now,
+            )
+            conn.execute(queue_stmt)
+
+            # Ghi audit log
+            audit_stmt = recon_audit_log.insert().values(
+                ENTITY="RECON_RUN",
+                ENTITY_ID=str(run_id),
+                ACTION="CREATE_RUN",
+                OLD_JSON=None,
+                NEW_JSON={
+                    "run_id": run_id,
+                    "template_id": params.template_id,
+                    "template_version": version,
+                    "profile_code": profile_code,
+                    "file_id": params.file_id,
+                    "data_source_id": data_source_id,
+                    "p_from": params.p_from.isoformat(),
+                    "p_to": params.p_to.isoformat(),
+                },
+                ACTOR=ctx.username,
+                CREATED_AT=now,
+            )
+            conn.execute(audit_stmt)
+
+    return {
+        "run_ids": created_run_ids,
+        "count": len(created_run_ids),
+        "status": "QUEUED",
+        "created_at": now.isoformat(),
+    }
+
+
+@service
 @requires_menu("result")
 def get_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
     """Lấy thông tin chi tiết của một lần chạy (run) kèm thống kê kết quả."""
@@ -441,6 +610,8 @@ def list_runs(ctx: Ctx, filter: RunListFilter) -> dict[str, Any]:
 
         if filter.template_id:
             base_query = base_query.where(recon_run.c.TEMPLATE_ID == filter.template_id)
+        if filter.profile_code:
+            base_query = base_query.where(recon_run.c.PROFILE_CODE == filter.profile_code)
         if filter.status:
             base_query = base_query.where(recon_run.c.STATUS == filter.status)
         if filter.created_by:

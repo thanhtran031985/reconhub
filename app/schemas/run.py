@@ -44,6 +44,31 @@ class CreateRunParams(BaseModel):
     confirm_prod: bool = False
 
 
+class CreateMultiRunParams(BaseModel):
+    """Tham số tạo nhiều run đối soát cùng lúc từ danh sách profiles."""
+
+    template_id: int
+    template_version: int | None = None
+    profile_codes: list[str] = Field(min_length=1)
+    file_id: int
+    sheet_name: str | None = None
+    data_source_id: int | None = None
+    p_from: datetime
+    p_to: datetime
+    params: dict[str, Any] | None = None
+    apply_range_excel: bool = False
+    confirm_prod: bool = False
+
+
+class MultiRunResponse(BaseModel):
+    """Kết quả trả về khi tạo nhiều run cùng lúc."""
+
+    run_ids: list[int]
+    count: int
+    status: str = "QUEUED"
+    created_at: datetime
+
+
 class RunResponse(BaseModel):
     """Thông tin cơ bản về run đã tạo."""
 
@@ -56,6 +81,7 @@ class RunListFilter(BaseModel):
     """Bộ lọc danh sách run."""
 
     template_id: int | None = None
+    profile_code: str | None = None
     status: str | None = None
     from_date: datetime | None = None
     to_date: datetime | None = None

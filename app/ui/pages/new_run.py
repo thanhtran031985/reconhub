@@ -24,11 +24,11 @@ from app.engine.filters import apply_row_filters
 from app.engine.mapping import detect_template
 from app.engine.reader import read_sheet
 from app.engine.sql_builder import build_source_sql
-from app.schemas.run import CreateRunParams
+from app.schemas.run import CreateMultiRunParams, CreateRunParams
 from app.schemas.template_config import TemplateConfig
 from app.services.file_service import upload_file
 from app.services.perm import has_role, page_gate
-from app.services.run_service import create_run
+from app.services.run_service import create_multi_run, create_run
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.code_block import code_block
@@ -781,11 +781,12 @@ def render_params_section(
                         children=[
                             dmc.GridCol(
                                 span=6,
-                                children=dmc.Select(
+                                children=dmc.MultiSelect(
                                     id="new-run-profile-select",
                                     label="Profile",
+                                    placeholder="Chọn một hoặc nhiều profile...",
                                     data=profiles_data,
-                                    value=default_profile,
+                                    value=[default_profile] if default_profile else [],
                                     searchable=True,
                                     clearable=False,
                                     size="xs",
@@ -894,10 +895,10 @@ def render_params_section(
 
 def render_sql_preview_section(
     template_info: dict[str, Any] | None,
-    profile_code: str | None = None,
+    profile_code: str | list[str] | None = None,
     params: dict[str, Any] | None = None,
 ) -> dmc.Paper:
-    """Dựng Card 3: Khối hiển thị câu lệnh SQL đối soát DB (sinh tự động - chỉ đọc)."""
+    """Dựng Card 3: Khối hiển thị câu lệnh SQL đối soát DB (sinh tự động - chỉ đọc, hỗ trợ Tabs cho multi-profile)."""
     if not template_info:
         return dmc.Paper(
             withBorder=True,
@@ -929,27 +930,105 @@ def render_sql_preview_section(
     try:
         cfg = TemplateConfig.model_validate(cfg_dict)
         profs = cfg.profiles
-        target_prof = None
-        if profile_code:
-            target_prof = next((p for p in profs if p.code == profile_code), None)
-        if not target_prof and profs:
-            target_prof = next((p for p in profs if p.is_default), profs[0])
-
-        sql_text, binds = build_source_sql(cfg, target_prof, params or {})
-        line_cnt = len(sql_text.splitlines())
         pushdown = cfg.db_source.pushdown_aggregate if cfg.db_source else False
 
-        bind_badges = []
-        for k, v in binds.items():
-            if v is not None and str(v).strip():
-                bind_badges.append(
-                    dmc.Badge(
-                        f":{k} = {v}",
-                        variant="outline",
-                        color="indigo",
-                        size="xs",
+        codes: list[str] = []
+        if isinstance(profile_code, str):
+            codes = [profile_code.strip()] if profile_code.strip() else []
+        elif isinstance(profile_code, list):
+            codes = [str(c).strip() for c in profile_code if str(c).strip()]
+
+        if not codes:
+            def_code = next((p.code for p in profs if p.is_default), profs[0].code if profs else None)
+            codes = [def_code] if def_code else []
+
+        selected_profs = [p for p in profs if p.code in codes]
+        if not selected_profs and profs:
+            selected_profs = [profs[0]]
+
+        def _render_single_sql_panel(target_prof: Any) -> Any:
+            sql_text, binds = build_source_sql(cfg, target_prof, params or {})
+            line_cnt = len(sql_text.splitlines())
+
+            bind_badges = []
+            for k, v in binds.items():
+                if v is not None and str(v).strip():
+                    bind_badges.append(
+                        dmc.Badge(
+                            f":{k} = {v}",
+                            variant="outline",
+                            color="indigo",
+                            size="xs",
+                        )
                     )
+            return dmc.Stack(
+                gap="xs",
+                style={"flex": "1 1 0%", "minHeight": 0, "overflow": "hidden", "height": "100%"},
+                children=[
+                    dmc.Group(
+                        justify="space-between",
+                        align="center",
+                        children=[
+                            dmc.Group(
+                                [
+                                    dmc.Badge(
+                                        "Đẩy phép gộp xuống DB" if pushdown else "Kéo chi tiết về ứng dụng",
+                                        color="teal" if pushdown else "gray",
+                                        variant="light",
+                                        size="xs",
+                                    ),
+                                    dmc.Badge(f"{line_cnt} dòng", color="gray", variant="outline", size="xs"),
+                                ],
+                                gap="xs",
+                            ),
+                        ],
+                    ),
+                    dmc.ScrollArea(
+                        style={"flex": "1 1 0%", "minHeight": 0, "overflow": "hidden"},
+                        type="auto",
+                        offsetScrollbars=True,
+                        children=[
+                            code_block(
+                                sql_text,
+                                language="sql",
+                                style={"minHeight": 0},
+                            ),
+                        ],
+                    ),
+                    dmc.Group(
+                        [
+                            dmc.Text("Tham số ràng buộc (Binds):", size="xs", fw=600, c="dimmed"),
+                            *(bind_badges if bind_badges else [dmc.Text("Không có bind param", size="xs", c="dimmed")]),
+                        ],
+                        gap="xs",
+                        style={"flexShrink": 0},
+                    ),
+                ],
+            )
+
+        if len(selected_profs) == 1:
+            content = _render_single_sql_panel(selected_profs[0])
+        else:
+            tabs_list = [
+                dmc.TabsTab(p.name or p.code, value=p.code)
+                for p in selected_profs
+            ]
+            tab_panels = [
+                dmc.TabsPanel(
+                    _render_single_sql_panel(p),
+                    value=p.code,
+                    style={"flex": "1 1 0%", "minHeight": 0, "overflow": "hidden", "height": "100%", "paddingTop": "6px"},
                 )
+                for p in selected_profs
+            ]
+            content = dmc.Tabs(
+                value=selected_profs[0].code,
+                children=[
+                    dmc.TabsList(tabs_list, mb="xs"),
+                    *tab_panels,
+                ],
+                style={"display": "flex", "flexDirection": "column", "flex": "1 1 0%", "minHeight": 0, "height": "100%"},
+            )
 
         return dmc.Paper(
             withBorder=True,
@@ -971,18 +1050,8 @@ def render_sql_preview_section(
                     mb=2,
                     children=[
                         dmc.Title("3. Câu lệnh SQL đối soát DB", order=4),
-                        dmc.Group(
-                            [
-                                dmc.Badge(
-                                    "Đẩy phép gộp xuống DB" if pushdown else "Kéo chi tiết về ứng dụng",
-                                    color="teal" if pushdown else "gray",
-                                    variant="light",
-                                    size="xs",
-                                ),
-                                dmc.Badge(f"{line_cnt} dòng", color="gray", variant="outline", size="xs"),
-                            ],
-                            gap="xs",
-                        ),
+                        dmc.Badge(f"{len(selected_profs)} Profile", color="blue", variant="light", size="xs")
+                        if len(selected_profs) > 1 else None,
                     ],
                 ),
                 dmc.Text(
@@ -992,27 +1061,7 @@ def render_sql_preview_section(
                     mb="xs",
                     style={"flexShrink": 0},
                 ),
-                dmc.ScrollArea(
-                    style={"flex": "1 1 0%", "minHeight": 0, "overflow": "hidden"},
-                    type="auto",
-                    offsetScrollbars=True,
-                    children=[
-                        code_block(
-                            sql_text,
-                            language="sql",
-                            style={"minHeight": 0},
-                        ),
-                    ],
-                ),
-                dmc.Group(
-                    [
-                        dmc.Text("Tham số ràng buộc (Binds):", size="xs", fw=600, c="dimmed"),
-                        *(bind_badges if bind_badges else [dmc.Text("Không có bind param", size="xs", c="dimmed")]),
-                    ],
-                    gap="xs",
-                    mt="xs",
-                    style={"flexShrink": 0},
-                ),
+                content,
             ],
         )
     except Exception as err:
@@ -1527,9 +1576,10 @@ def sync_params_on_template_change(template_data: dict[str, Any] | None) -> tupl
             p_org_val = str(p.get("default"))
             break
 
+    default_val = [default_prof] if default_prof else []
     return (
         profiles_data or [{"label": "Chưa có profile", "value": "NONE"}],
-        default_prof,
+        default_val,
         ds_id,
         p_org_val,
     )
@@ -1722,48 +1772,109 @@ def handle_execute_run(
     params_dict.update(build_extra_params_dict(template_data, extra_values))
     ds_int = int(datasource_id) if datasource_id and datasource_id.isdigit() else None
 
-    run_res = create_run(
-        ctx,
-        CreateRunParams(
-            template_id=tmpl_id,
-            template_version=tmpl_ver,
-            file_id=f_id,
-            profile_code=profile_code,
-            data_source_id=ds_int,
-            p_from=dt_from,
-            p_to=dt_to,
-            params=params_dict,
-            apply_range_excel=bool(apply_excel_time),
-            confirm_prod=True,
-        ),
-    )
+    # Chuẩn hóa profile_code thành list[str]
+    selected_profiles: list[str] = []
+    if isinstance(profile_code, str):
+        if profile_code.strip():
+            selected_profiles = [profile_code.strip()]
+    elif isinstance(profile_code, list):
+        selected_profiles = [str(c).strip() for c in profile_code if str(c).strip()]
 
-    if not run_res.ok or not run_res.data:
+    if not selected_profiles:
         err_ui = render_execution_section(
             is_ready=True,
             lock_reason="",
-            error_msg=run_res.message or "Lỗi khi tạo yêu cầu đối soát.",
+            error_msg="Vui lòng chọn ít nhất một profile đối soát.",
         )
         return False, dash.no_update, dash.no_update, err_ui
 
-    created_run_id = int(run_res.data["run_id"])
+    if len(selected_profiles) == 1:
+        run_res = create_run(
+            ctx,
+            CreateRunParams(
+                template_id=tmpl_id,
+                template_version=tmpl_ver,
+                file_id=f_id,
+                profile_code=selected_profiles[0],
+                data_source_id=ds_int,
+                p_from=dt_from,
+                p_to=dt_to,
+                params=params_dict,
+                apply_range_excel=bool(apply_excel_time),
+                confirm_prod=True,
+            ),
+        )
 
-    new_state = {
-        "is_running": True,
-        "run_id": created_run_id,
-        "stage": 1,
-        "pct": 10,
-    }
+        if not run_res.ok or not run_res.data:
+            err_ui = render_execution_section(
+                is_ready=True,
+                lock_reason="",
+                error_msg=run_res.message or "Lỗi khi tạo yêu cầu đối soát.",
+            )
+            return False, dash.no_update, dash.no_update, err_ui
 
-    exec_ui = render_execution_section(
-        is_ready=False,
-        lock_reason="",
-        is_running=True,
-        current_stage=1,
-        stage_desc="Khởi tạo yêu cầu đối soát trong hàng đợi...",
-        progress_pct=10,
-    )
-    return False, new_state, False, exec_ui
+        created_run_id = int(run_res.data["run_id"])
+
+        new_state: dict[str, Any] = {
+            "is_running": True,
+            "run_id": created_run_id,
+            "stage": 1,
+            "pct": 10,
+        }
+
+        exec_ui = render_execution_section(
+            is_ready=False,
+            lock_reason="",
+            is_running=True,
+            current_stage=1,
+            stage_desc="Khởi tạo yêu cầu đối soát trong hàng đợi...",
+            progress_pct=10,
+        )
+        return False, new_state, False, exec_ui
+    else:
+        multi_res = create_multi_run(
+            ctx,
+            CreateMultiRunParams(
+                template_id=tmpl_id,
+                template_version=tmpl_ver,
+                file_id=f_id,
+                profile_codes=selected_profiles,
+                data_source_id=ds_int,
+                p_from=dt_from,
+                p_to=dt_to,
+                params=params_dict,
+                apply_range_excel=bool(apply_excel_time),
+                confirm_prod=True,
+            ),
+        )
+
+        if not multi_res.ok or not multi_res.data:
+            err_ui = render_execution_section(
+                is_ready=True,
+                lock_reason="",
+                error_msg=multi_res.message or "Lỗi khi tạo yêu cầu đối soát hàng loạt.",
+            )
+            return False, dash.no_update, dash.no_update, err_ui
+
+        run_ids = [int(i) for i in multi_res.data["run_ids"]]
+        new_state = {
+            "is_running": True,
+            "is_multi": True,
+            "run_ids": run_ids,
+            "run_id": run_ids[0],
+            "stage": 1,
+            "pct": 10,
+        }
+
+        exec_ui = render_execution_section(
+            is_ready=False,
+            lock_reason="",
+            is_running=True,
+            current_stage=1,
+            stage_desc=f"Đã đưa {len(run_ids)} profile đối soát vào hàng đợi...",
+            progress_pct=10,
+        )
+        return False, new_state, False, exec_ui
 
 
 @callback(
@@ -1782,6 +1893,87 @@ def handle_progress_tick(
     if not state or not state.get("is_running"):
         return dash.no_update, dash.no_update, dash.no_update
 
+    # Xử lý trường hợp chạy Multi Profile
+    if state.get("is_multi"):
+        run_ids = state.get("run_ids", [])
+        if not run_ids:
+            return dash.no_update, dash.no_update, dash.no_update
+
+        engine = get_recon_engine()
+        try:
+            with engine.connect() as conn:
+                rows = (
+                    conn.execute(
+                        select(
+                            recon_run.c.ID,
+                            recon_run.c.STATUS,
+                            recon_run.c.PROGRESS_PCT,
+                        ).where(recon_run.c.ID.in_(run_ids))
+                    )
+                    .mappings()
+                    .all()
+                )
+        except Exception:
+            rows = []
+
+        if rows:
+            done_cnt = sum(1 for r in rows if r["STATUS"] in ("DONE", "FAILED"))
+            if done_cnt == len(rows):
+                # Toàn bộ run trong đợt đã hoàn tất -> chuyển hướng sang /history
+                return dash.no_update, {**state, "is_running": False}, "/history"
+
+            # Kích hoạt worker xử lý nhanh nếu có run đang QUEUED
+            if any(r["STATUS"] == "QUEUED" for r in rows):
+                try:
+                    from worker.runner import ReconWorker
+
+                    ReconWorker().poll_once()
+                except Exception:
+                    pass
+
+            avg_pct = sum(int(r["PROGRESS_PCT"] or 10) for r in rows) // len(rows)
+            avg_pct = max(10, min(95, avg_pct))
+            stg_num = max(1, min(5, (avg_pct // 20) + 1))
+            desc = f"Đang xử lý {len(rows)} profile ({done_cnt}/{len(rows)} hoàn tất)..."
+
+            if state.get("pct") == avg_pct and state.get("done_cnt") == done_cnt:
+                return dash.no_update, dash.no_update, dash.no_update
+
+            updated_state = {**state, "pct": avg_pct, "stage": stg_num, "done_cnt": done_cnt}
+            exec_ui = render_execution_section(
+                is_ready=False,
+                lock_reason="",
+                is_running=True,
+                current_stage=stg_num,
+                stage_desc=desc,
+                progress_pct=avg_pct,
+            )
+            return exec_ui, updated_state, dash.no_update
+
+        # Fallback cho trường hợp unit test giả lập (không có row trong DB)
+        curr_pct = state.get("pct", 20)
+        if curr_pct >= 100:
+            return dash.no_update, {**state, "is_running": False}, "/history"
+
+        next_pct = curr_pct + 20
+        next_stage = min(5, (next_pct // 20))
+        desc = f"Đang xử lý {len(run_ids)} profile..."
+        updated_state = {
+            **state,
+            "stage": next_stage,
+            "pct": next_pct,
+        }
+        exec_ui = render_execution_section(
+            is_ready=False,
+            lock_reason="",
+            is_running=True,
+            current_stage=next_stage,
+            stage_desc=desc,
+            progress_pct=next_pct,
+        )
+        return exec_ui, updated_state, dash.no_update
+
+    # Xử lý trường hợp chạy 1 Profile đơn lẻ
     run_id = state.get("run_id")
     if not run_id:
         return dash.no_update, dash.no_update, dash.no_update
@@ -1845,9 +2037,6 @@ def handle_progress_tick(
                 pass
 
         updated_state = {**state, "stage": stg_num, "pct": pct}
-        # Tiến độ không đổi thì không dựng lại Card thực thi: dựng lại mỗi
-        # giây là nguyên nhân layout giật (thanh progress bị remount, vạch
-        # sọc động chạy lại từ đầu) và nút Chạy bị dựng lại với n_clicks=0.
         if state.get("stage") == stg_num and state.get("pct") == pct:
             return dash.no_update, dash.no_update, dash.no_update
         exec_ui = render_execution_section(

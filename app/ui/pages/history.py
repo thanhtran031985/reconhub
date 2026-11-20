@@ -81,7 +81,7 @@ def render_filter_bar(
                     value=[first_day, last_day],
                     valueFormat="DD/MM/YYYY",
                     clearable=True,
-                    w=190,
+                    w=175,
                     size="xs",
                     styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
                 ),
@@ -91,7 +91,18 @@ def render_filter_bar(
                     placeholder="Tất cả",
                     data=[{"label": "Tất cả", "value": "ALL"}, *templates_options],
                     value="ALL",
-                    w=160,
+                    w=140,
+                    size="xs",
+                    clearable=False,
+                    styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+                ),
+                dmc.Select(
+                    id="history-filter-profile",
+                    label="Profile",
+                    placeholder="Tất cả",
+                    data=[{"label": "Tất cả", "value": "ALL"}],
+                    value="ALL",
+                    w=110,
                     size="xs",
                     clearable=False,
                     styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
@@ -105,7 +116,7 @@ def render_filter_bar(
                         {"label": "Chỉ run đơn lẻ", "value": "SINGLE"},
                     ],
                     value="ALL",
-                    w=150,
+                    w=120,
                     size="xs",
                     clearable=False,
                     styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
@@ -119,7 +130,7 @@ def render_filter_bar(
                         {"label": "Đã kiểm tra", "value": "CHECKED"},
                     ],
                     value="ALL",
-                    w=140,
+                    w=115,
                     size="xs",
                     clearable=False,
                     styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
@@ -133,7 +144,7 @@ def render_filter_bar(
                         {"label": "Đã xóa", "value": "PURGED"},
                     ],
                     value="ALL",
-                    w=130,
+                    w=105,
                     size="xs",
                     clearable=False,
                     styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
@@ -144,7 +155,7 @@ def render_filter_bar(
                     placeholder="Tất cả",
                     data=[{"label": "Tất cả", "value": "ALL"}, *users_options],
                     value="ALL",
-                    w=140,
+                    w=120,
                     size="xs",
                     clearable=False,
                     styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
@@ -154,7 +165,7 @@ def render_filter_bar(
                     label="Tên file",
                     placeholder="Tìm theo tên file",
                     leftSection=DashIconify(icon="lucide:search", width=14),
-                    w=150,
+                    w=135,
                     size="xs",
                     styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
                 ),
@@ -801,6 +812,38 @@ def layout() -> Any:
 
 
 @callback(
+    Output("history-filter-profile", "data"),
+    Output("history-filter-profile", "value"),
+    Input("history-filter-template", "value"),
+    prevent_initial_call=True,
+)
+def sync_history_profile_options(tpl_val: str | None) -> tuple[list[dict[str, str]], str]:
+    """Cập nhật danh sách profile khi chọn template trên thanh lọc lịch sử."""
+    if not tpl_val or tpl_val == "ALL" or not str(tpl_val).isdigit():
+        return [{"label": "Tất cả", "value": "ALL"}], "ALL"
+    ctx = get_current_ctx()
+    if ctx is None:
+        return [{"label": "Tất cả", "value": "ALL"}], "ALL"
+    try:
+        from app.services.template import get_template
+
+        res = get_template(ctx, int(tpl_val))
+        if res.ok and res.data:
+            cfg = res.data.get("config") or {}
+            profs = cfg.get("profiles") or []
+            options = [{"label": "Tất cả", "value": "ALL"}]
+            for p in profs:
+                code = p.get("code")
+                name = p.get("name") or code
+                if code:
+                    options.append({"label": name, "value": code})
+            return options, "ALL"
+    except Exception:
+        pass
+    return [{"label": "Tất cả", "value": "ALL"}], "ALL"
+
+
+@callback(
     Output("history-page-store", "data"),
     # Task 60: đồng bộ lại giá trị Pagination khi đổi lọc (về trang 1) —
     # cùng pattern Input/Output một prop như handle_runs_refresh (task 55).
@@ -808,6 +851,7 @@ def layout() -> Any:
     Input("history-pagination", "value"),
     Input("history-filter-date-range", "value"),
     Input("history-filter-template", "value"),
+    Input("history-filter-profile", "value"),
     Input("history-filter-checked", "value"),
     Input("history-filter-purged", "value"),
     Input("history-filter-user", "value"),
@@ -818,14 +862,8 @@ def layout() -> Any:
 )
 def handle_history_page(
     page_val: int | None,
-    _dt: Any,
-    _tpl: Any,
-    _chk: Any,
-    _purge: Any,
-    _usr: Any,
-    _fn: Any,
-    _batch: Any,
-    current_page: int,
+    *args: Any,
+    **kwargs: Any,
 ) -> tuple[int, int]:
     """Xử lý chuyển trang hoặc reset về trang 1 khi thay đổi bộ lọc."""
     ctx_dash = dash.callback_context
@@ -854,6 +892,7 @@ def handle_history_page(
     Input("history-page-store", "data"),
     Input("history-refresh-trigger", "data"),
     Input("history-filter-batch", "value"),
+    Input("history-filter-profile", "value"),
     State("history-selected-runs-store", "data"),
 )
 def update_history_table(
@@ -867,6 +906,7 @@ def update_history_table(
     refresh_val: int = 0,
     selected_data: list[int] | None = None,
     batch_val: str | None = "ALL",
+    profile_val: str | None = "ALL",
 ) -> tuple[Any, str, Any, Any]:
     """Cập nhật bảng danh sách run theo các bộ lọc tiêu chí và phân trang."""
     ctx = get_current_ctx()
@@ -897,6 +937,7 @@ def update_history_table(
 
     # Xây dựng filter object
     template_id = int(tpl_val) if tpl_val and tpl_val != "ALL" and str(tpl_val).isdigit() else None
+    profile_code = profile_val if profile_val and profile_val != "ALL" else None
     created_by = usr_val if usr_val and usr_val != "ALL" else None
     filename_search = file_val.strip() if file_val and file_val.strip() else None
 
@@ -947,6 +988,7 @@ def update_history_table(
 
     filter_obj = RunListFilter(
         template_id=template_id,
+        profile_code=profile_code,
         created_by=created_by,
         filename=filename_search,
         is_checked=is_checked,

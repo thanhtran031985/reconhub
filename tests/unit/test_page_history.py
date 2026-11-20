@@ -605,9 +605,9 @@ def test_history_filter_bar_fits_one_line():
     bar = render_filter_bar([], [])
     group = bar.children
     widths = [c.w for c in group.children]
-    assert len(widths) == 7
-    # 7 ô + 6 khoảng gap xs (8px) + padding Paper 2 bên (8px).
-    total = sum(widths) + 6 * 8 + 2 * 8
+    assert len(widths) in (7, 8)
+    # n ô + (n-1) khoảng gap xs (8px) + padding Paper 2 bên (8px).
+    total = sum(widths) + (len(widths) - 1) * 8 + 2 * 8
     assert total <= 1134, f"thanh lọc rộng {total}px, sẽ gãy 2 dòng ở 1366"
 
 
