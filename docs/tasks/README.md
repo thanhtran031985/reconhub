@@ -43,6 +43,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 96 | [96-smtp-email-export](96-smtp-email-export/task.md) — Trang cấu hình máy chủ SMTP và gửi email đính kèm file xuất | ✅ | 01, 08, 19 | feat/96-smtp-email-export |
 | 97 | [97-email-template-builder](97-email-template-builder/task.md) — Hệ thống Mẫu Email động, kéo thả và Live Preview theo chức năng | ✅ | 96 | feat/97-email-template-builder |
 | 98 | [98-mail-template-studio](98-mail-template-studio/task.md) — Phân hệ Mail Template Studio (No-Code Email Builder & Multi-Version Engine) | ✅ | 97 | feat/98-mail-template-studio |
+| 99 | [99-ui-ux-audit-rubric](99-ui-ux-audit-rubric/task.md) — Chuẩn hóa tiêu chí rà soát UI/UX (Astryx Rubric) và tinh chỉnh giao diện Mail Template Studio | ✅ | 98 | feat/99-ui-ux-audit-rubric |
 
 Thiết kế: 11 màn (designs/components/Screen01–Screen11), 13 thành phần, Gallery. Giao diện dựng bằng Dash Mantine Components.
 

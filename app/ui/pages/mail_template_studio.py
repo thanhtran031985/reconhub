@@ -1322,8 +1322,9 @@ def layout(**kwargs: Any) -> Any:
                                                     "maxWidth": "600px",
                                                     "margin": "0 auto",
                                                     "backgroundColor": "#ffffff",
-                                                    "boxShadow": "0 2px 8px rgba(0,0,0,0.06)",
+                                                    "boxShadow": "0 4px 16px rgba(22, 44, 70, 0.08)",
                                                     "borderRadius": "6px",
+                                                    "border": "1px solid #dce3ed",
                                                     "overflow": "hidden",
                                                     "transition": "max-width 0.2s ease-in-out",
                                                 },
@@ -1386,7 +1387,7 @@ def layout(**kwargs: Any) -> Any:
                                         html.Div(
                                             empty_state(
                                                 title="Chưa chọn khối",
-                                                description="Bấm vào một khối trên Canvas để tùy biến.",
+                                                description="Bấm vào một khối component trên Canvas ở giữa để tùy chỉnh thuộc tính.",
                                             ),
                                             id="mail-studio-prop-empty-alert",
                                             style={"display": "none"},
@@ -1403,6 +1404,7 @@ def layout(**kwargs: Any) -> Any:
                                                         value="",
                                                         autosize=True,
                                                         minRows=3,
+                                                        size="xs",
                                                     ),
                                                     id="mail-studio-prop-text-wrap",
                                                 ),
@@ -1521,6 +1523,7 @@ def layout(**kwargs: Any) -> Any:
                                                             },
                                                         ],
                                                         value="links.result",
+                                                        size="xs",
                                                     ),
                                                     id="mail-studio-prop-url-wrap",
                                                     style={"display": "none"},
@@ -1587,6 +1590,7 @@ def layout(**kwargs: Any) -> Any:
                                                                 min=1,
                                                                 max=20,
                                                                 value=5,
+                                                            size="xs",
                                                             ),
                                                             dmc.Text(
                                                                 "Cột hiển thị:",
@@ -1635,6 +1639,7 @@ def layout(**kwargs: Any) -> Any:
                                                     min=10,
                                                     max=36,
                                                     value=14,
+                                                size="xs",
                                                 ),
                                                 # Khoảng cách đệm (Padding - px: Trên, Dưới, Trái, Phải)
                                                 dmc.Box(
@@ -1740,6 +1745,7 @@ def layout(**kwargs: Any) -> Any:
                                                         {"value": "right", "label": "Căn phải"},
                                                     ],
                                                     value="left",
+                                                size="xs",
                                                 ),
                                                 # Điều kiện hiển thị
                                                 dmc.Select(
@@ -1769,6 +1775,7 @@ def layout(**kwargs: Any) -> Any:
                                                         },
                                                     ],
                                                     value="always",
+                                                size="xs",
                                                 ),
                                             ],
                                             id="mail-studio-prop-form",
@@ -1784,6 +1791,7 @@ def layout(**kwargs: Any) -> Any:
                                     "height": "calc(100vh - 160px)",
                                     "minHeight": "680px",
                                     "overflowY": "auto",
+                                    "scrollbarWidth": "thin",
                                 },
                             )
                         ],
