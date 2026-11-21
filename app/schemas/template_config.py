@@ -125,6 +125,7 @@ class DbSourceSpec(BaseModel):
     sql: str | None = None
     params: list[ParamSpec] = Field(default_factory=list)
     pushdown_aggregate: bool = True
+    columns: list[list[str]] | list[tuple[str, str]] | None = Field(default=None)
 
 
 class TimeFilterSpec(BaseModel):
@@ -311,7 +312,14 @@ class TemplateConfig(BaseModel):
                                 g_col,
                             )
                         )
-                    if target_name not in db_fields:
+                    has_sql_col = False
+                    if self.db_source.kind == "sql" and self.db_source.sql:
+                        from_m = re.search(r"\bFROM\b", self.db_source.sql, re.IGNORECASE)
+                        sel_p = self.db_source.sql[: from_m.start()] if from_m else self.db_source.sql
+                        if re.search(rf"\b{re.escape(g_col)}\b", sel_p, re.IGNORECASE):
+                            has_sql_col = True
+
+                    if target_name not in db_fields and not has_sql_col:
                         errors.append(
                             _make_error(
                                 ("profiles", p_idx, "group_by", g_idx),

@@ -158,9 +158,8 @@ def test_render_step_3_db_source(wizard_env, monkeypatch) -> None:
     assert "Nguồn dữ liệu DB" in s3
     assert "Bảng/View nguồn" in s3
     assert "Điều kiện lọc theo tham số" in s3
-    assert "Câu SELECT sinh ra" in s3
+    assert "Mapping DB — Trường logic" in s3
     assert "Cột DB → Trường logic" in s3
-    assert "Lọc dữ liệu Excel theo cùng khoảng" in s3
 
 
 def test_render_step_4_profiles_and_measures(wizard_env, monkeypatch) -> None:
@@ -547,7 +546,8 @@ def test_step3_sql_input_change() -> None:
     from app.ui.pages.template_wizard import handle_sql_input_change
 
     cfg = {"db_source": {"kind": "sql", "sql": "SELECT 1"}}
-    updated = handle_sql_input_change("SELECT 2 FROM DUAL", cfg)
+    res = handle_sql_input_change("SELECT 2 FROM DUAL", cfg)
+    updated = res[0] if isinstance(res, tuple) else res
     assert updated["db_source"]["sql"] == "SELECT 2 FROM DUAL"
 
 

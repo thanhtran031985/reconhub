@@ -125,7 +125,38 @@ def run_pipeline(
             )
 
         # 5. Mapping cột
-        mapped_df, _ = resolve_columns(filtered_raw, config.fields)
+        try:
+            mapped_df, _ = resolve_columns(filtered_raw, config.fields)
+        except ServiceError as exc:
+            if exc.code == ErrorCode.EXCEL_COLUMN_MISSING and excel_path:
+                from app.engine.inspect import detect_header_row
+                p = Path(excel_path)
+                if p.suffix.lower() == ".csv":
+                    from app.engine.reader import _detect_csv_delimiter
+                    delim = _detect_csv_delimiter(p)
+                    raw_full = pl.read_csv(p, has_header=False, separator=delim, infer_schema_length=0, truncate_ragged_lines=True)
+                else:
+                    raw_full = pl.read_excel(source=p, sheet_name=config.file.sheet or None, engine="calamine", has_header=False, infer_schema_length=0)
+                h_detected, d_detected = detect_header_row(raw_full)
+                if h_detected != config.file.header_row:
+                    new_file_spec = config.file.model_copy(update={"header_row": h_detected, "data_start_row": d_detected})
+                    raw_df, _ = read_sheet(excel_path, new_file_spec)
+                    excel_rows_read = len(raw_df)
+                    filtered_raw = apply_row_filters(raw_df, new_file_spec.row_filters)
+                    if config.control_total:
+                        ct_res = check_control_total(
+                            raw_df,
+                            filtered_raw,
+                            config.control_total,
+                            config.fields,
+                            thousand_sep=config.file.thousand_sep or ",",
+                            decimal_sep=config.file.decimal_sep or ".",
+                        )
+                    mapped_df, _ = resolve_columns(filtered_raw, config.fields)
+                else:
+                    raise
+            else:
+                raise
 
         # 6. Chuẩn hóa & Dẫn xuất (Excel)
         norm_excel, invalid_df = normalize(mapped_df, config.fields, side="excel")

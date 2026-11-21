@@ -200,7 +200,30 @@ def load_excel_to_temp(
     # 3. Thực thi Pipeline đọc và chuẩn hóa dữ liệu
     raw_df, _ = read_sheet(storage_path, config.file)
     filtered_df = apply_row_filters(raw_df, config.file.row_filters)
-    mapped_df, _ = resolve_columns(filtered_df, config.fields)
+    try:
+        mapped_df, _ = resolve_columns(filtered_df, config.fields)
+    except ServiceError as exc:
+        if exc.code == ErrorCode.EXCEL_COLUMN_MISSING and storage_path:
+            import polars as pl
+
+            from app.engine.inspect import detect_header_row
+            p = Path(storage_path)
+            if p.suffix.lower() == ".csv":
+                from app.engine.reader import _detect_csv_delimiter
+                delim = _detect_csv_delimiter(p)
+                raw_full = pl.read_csv(p, has_header=False, separator=delim, infer_schema_length=0, truncate_ragged_lines=True)
+            else:
+                raw_full = pl.read_excel(source=p, sheet_name=config.file.sheet or None, engine="calamine", has_header=False, infer_schema_length=0)
+            h_detected, d_detected = detect_header_row(raw_full)
+            if h_detected != config.file.header_row:
+                new_file_spec = config.file.model_copy(update={"header_row": h_detected, "data_start_row": d_detected})
+                raw_df, _ = read_sheet(storage_path, new_file_spec)
+                filtered_df = apply_row_filters(raw_df, new_file_spec.row_filters)
+                mapped_df, _ = resolve_columns(filtered_df, config.fields)
+            else:
+                raise
+        else:
+            raise
     valid_df, invalid_df = normalize(
         mapped_df,
         config.fields,

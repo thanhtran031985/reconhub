@@ -10,6 +10,7 @@ from typing import Any
 import dash
 import dash_mantine_components as dmc
 from dash import Input, Output, State, callback, dcc, html
+from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 from pydantic import ValidationError
 
@@ -30,6 +31,11 @@ from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.code_block import code_block
 from app.ui.components.file_drop import file_drop
 from app.ui.components.kpi_card import kpi_card
+from app.ui.components.notification import (
+    notify_error,
+    notify_success,
+    notify_warning,
+)
 
 
 def render_step_1(
@@ -262,7 +268,10 @@ def render_step_1(
                                         ),
                                         dmc.Text("Header bắt buộc để nhận diện file", size="xs", fw=600, mt="xs", mb=4),
                                         dmc.Group(
-                                            [dmc.Badge(h, variant="light", color="gray", radius="sm", size="xs") for h in detect_headers]
+                                            [
+                                                dmc.Badge(h, variant="light", color="gray", radius="sm", size="xs")
+                                                for h in detect_headers
+                                            ]
                                             if detect_headers
                                             else [
                                                 dmc.Badge(
@@ -333,7 +342,8 @@ def render_step_2(
     errors: dict[str, str] | None = None,
 ) -> Any:
     """Dựng giao diện Bước 2: Định nghĩa & Ánh xạ trường."""
-    fields_list = config.get("fields", [])
+    fields_list = _cleanup_phantom_db_fields(config.get("fields", []))
+    config["fields"] = fields_list
     derived_list = config.get("derived", [])
 
     rows: list[Any] = []
@@ -362,9 +372,9 @@ def render_step_2(
                         checked=is_used,
                         size="xs",
                     ),
-                    style={"padding": "8px 10px"},
+                    style={"padding": "4px 6px"},
                 ),
-                html.Td(html.B(f_excel or f_name), style={"padding": "8px 10px"}),
+                html.Td(html.B(f_excel or f_name), style={"padding": "4px 6px"}),
                 html.Td(
                     dmc.TextInput(
                         id={"type": "wizard-field-name", "index": idx},
@@ -374,7 +384,7 @@ def render_step_2(
                         style={"width": 150},
                         error=errors[err_key] if has_err and errors else None,
                     ),
-                    style={"padding": "8px 10px"},
+                    style={"padding": "4px 6px"},
                 ),
                 html.Td(
                     dmc.TextInput(
@@ -383,7 +393,7 @@ def render_step_2(
                         size="xs",
                         style={"width": 150},
                     ),
-                    style={"padding": "8px 10px"},
+                    style={"padding": "4px 6px"},
                 ),
                 html.Td(
                     dmc.Select(
@@ -398,16 +408,16 @@ def render_step_2(
                         ],
                         style={"width": 110},
                     ),
-                    style={"padding": "8px 10px"},
+                    style={"padding": "4px 6px"},
                 ),
-                html.Td(dmc.Group(norm_badges, gap=4), style={"padding": "8px 10px"}),
+                html.Td(dmc.Group(norm_badges, gap=4), style={"padding": "4px 6px"}),
                 html.Td(
                     html.Span(
                         str(sample_v),
                         className="mono",
                         style={"color": "var(--ink-soft, #94a3b8)"} if sample_v == "—" else {},
                     ),
-                    style={"padding": "8px 10px"},
+                    style={"padding": "4px 6px"},
                 ),
             ],
             style={"opacity": 1.0 if is_used else 0.5, "borderBottom": "1px solid var(--line, #e2e8f0)"},
@@ -422,8 +432,8 @@ def render_step_2(
         expr_str = f"derived: {d.get('expr', {}).get('fn', '')}"
         tr = html.Tr(
             [
-                html.Td(dmc.Checkbox(checked=True, size="xs"), style={"padding": "8px 10px"}),
-                html.Td(html.B(expr_str), style={"padding": "8px 10px"}),
+                html.Td(dmc.Checkbox(checked=True, size="xs"), style={"padding": "4px 6px"}),
+                html.Td(html.B(expr_str), style={"padding": "4px 6px"}),
                 html.Td(
                     dmc.TextInput(
                         id={"type": "wizard-derived-name", "index": d_idx},
@@ -432,7 +442,7 @@ def render_step_2(
                         className="mono",
                         style={"width": 150},
                     ),
-                    style={"padding": "8px 10px"},
+                    style={"padding": "4px 6px"},
                 ),
                 html.Td(
                     dmc.TextInput(
@@ -441,7 +451,7 @@ def render_step_2(
                         size="xs",
                         style={"width": 150},
                     ),
-                    style={"padding": "8px 10px"},
+                    style={"padding": "4px 6px"},
                 ),
                 html.Td(
                     dmc.Select(
@@ -456,12 +466,12 @@ def render_step_2(
                         ],
                         style={"width": 110},
                     ),
-                    style={"padding": "8px 10px"},
+                    style={"padding": "4px 6px"},
                 ),
                 html.Td(
-                    dmc.Badge("derived", size="xs", variant="light", color="purple"), style={"padding": "8px 10px"}
+                    dmc.Badge("derived", size="xs", variant="light", color="purple"), style={"padding": "4px 6px"}
                 ),
-                html.Td(html.Span("2026-02-01", className="mono"), style={"padding": "8px 10px"}),
+                html.Td(html.Span("2026-02-01", className="mono"), style={"padding": "4px 6px"}),
             ],
             style={"borderBottom": "1px solid var(--line, #e2e8f0)"},
         )
@@ -495,13 +505,13 @@ def render_step_2(
                         html.Thead(
                             html.Tr(
                                 [
-                                    html.Th("Dùng", style={"padding": "8px 10px"}),
-                                    html.Th("Cột Excel", style={"padding": "8px 10px"}),
-                                    html.Th("Trường logic", style={"padding": "8px 10px"}),
-                                    html.Th("Nhãn", style={"padding": "8px 10px"}),
-                                    html.Th("Kiểu", style={"padding": "8px 10px"}),
-                                    html.Th("Chuẩn hóa", style={"padding": "8px 10px"}),
-                                    html.Th("Giá trị mẫu", style={"padding": "8px 10px"}),
+                                    html.Th("Dùng", style={"padding": "6px 6px"}),
+                                    html.Th("Cột Excel", style={"padding": "6px 6px"}),
+                                    html.Th("Trường logic", style={"padding": "6px 6px"}),
+                                    html.Th("Nhãn", style={"padding": "6px 6px"}),
+                                    html.Th("Kiểu", style={"padding": "6px 6px"}),
+                                    html.Th("Chuẩn hóa", style={"padding": "6px 6px"}),
+                                    html.Th("Giá trị mẫu", style={"padding": "6px 6px"}),
                                 ],
                                 style={"background": "var(--surface-2, #f8fafc)"},
                             )
@@ -600,64 +610,226 @@ def _auto_match_db_columns(
     return updated_fields
 
 
-def _render_columns_chips(db_cols_chips: list[tuple[str, str]]) -> Any:
-    """Hiển thị nhóm chip các cột bảng nguồn."""
+def _cleanup_phantom_db_fields(fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Loại bỏ các trường logic ma bị sinh nhầm từ cột DB.
+
+    Trường logic chuẩn luôn xuất phát từ cột Excel (Bước 2).
+    Một trường bị xem là trường ma nếu:
+    1. f['excel'] is None và name == db (do thao tác nhấp đúp chip DB cũ chèn vào), HOẶC
+    2. f['name'] == f['db'] == f['excel'] và đã có trường logic khác từ Excel thực sự ánh xạ sang cùng cột DB này.
+    """
+    clean_fields: list[dict[str, Any]] = []
+    mapped_db_cols_with_real_excel: set[str] = set()
+    for f in fields:
+        excel_name = f.get("excel")
+        f_db = f.get("db")
+        if excel_name and f_db and (excel_name != f_db or f.get("label") != f_db):
+            mapped_db_cols_with_real_excel.add(str(f_db).upper())
+
+    for f in fields:
+        f_name = f.get("name", "")
+        f_db = f.get("db")
+        f_excel = f.get("excel")
+        # 1. Trường ma không có cột Excel
+        if f_excel is None and f_db and f_name == f_db:
+            continue
+        # 2. Trường ma có excel == db == name nhưng đã có trường thực từ Excel ánh xạ sang cột DB này
+        if f_db and str(f_db).upper() in mapped_db_cols_with_real_excel and f_name == f_db and f_excel == f_db:
+            continue
+        clean_fields.append(f)
+    return clean_fields
+
+
+def _extract_selected_columns(sql_text: str | None, fields: list[dict[str, Any]] | None = None) -> set[str]:
+    """Trích xuất danh sách cột đã được chọn trong câu lệnh SELECT hoặc đã được map sang trường logic."""
+    selected: set[str] = set()
+    if sql_text:
+        import re
+
+        from_match = re.search(r"\bFROM\b", sql_text, re.IGNORECASE)
+        select_part = sql_text[: from_match.start()] if from_match else sql_text
+        keywords_ignore = {
+            "SELECT",
+            "DISTINCT",
+            "AS",
+            "CASE",
+            "WHEN",
+            "THEN",
+            "ELSE",
+            "END",
+            "NVL",
+            "COALESCE",
+            "TO_CHAR",
+            "TO_DATE",
+            "SUBSTR",
+            "TRIM",
+            "SUM",
+            "COUNT",
+            "AVG",
+            "MIN",
+            "MAX",
+        }
+        for token in re.findall(r'\"?([a-zA-Z0-9_#$]+)\"?', select_part):
+            t_u = token.upper()
+            if t_u not in keywords_ignore:
+                selected.add(t_u)
+    if fields:
+        for f in fields:
+            db_col = f.get("db")
+            if db_col and db_col != "— Không có —":
+                selected.add(str(db_col).upper())
+    return selected
+
+
+def _extract_sql_select_columns_list(sql_text: str | None) -> list[str]:
+    """Trích xuất danh sách các cột/alias trong mệnh đề SELECT theo thứ tự xuất hiện."""
+    if not sql_text or not sql_text.strip():
+        return []
+    import re
+
+    from_match = re.search(r"\bFROM\b", sql_text, re.IGNORECASE)
+    select_part = sql_text[: from_match.start()] if from_match else sql_text
+    # Bỏ SELECT và DISTINCT ở đầu
+    select_part = re.sub(r"^\s*SELECT\s+(DISTINCT\s+)?", "", select_part, flags=re.IGNORECASE).strip()
+
+    # Tách theo dấu phẩy ngoài cặp ngoặc đơn ()
+    items: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for char in select_part:
+        if char == "(":
+            depth += 1
+            current.append(char)
+        elif char == ")":
+            depth = max(0, depth - 1)
+            current.append(char)
+        elif char == "," and depth == 0:
+            items.append("".join(current).strip())
+            current = []
+        else:
+            current.append(char)
+    if current:
+        items.append("".join(current).strip())
+
+    cols: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if not item:
+            continue
+        # Kiểm tra alias AS <tên>
+        m_as = re.search(r"\bAS\s+([\"\w$#]+)$", item, re.IGNORECASE)
+        if m_as:
+            raw = m_as.group(1).strip("\"'")
+        else:
+            parts = item.split()
+            raw = parts[-1].strip("\"'") if parts else ""
+        if "." in raw:
+            raw = raw.split(".")[-1].strip("\"'")
+        raw = re.sub(r"[^\w$#]", "", raw)
+        if raw and raw.upper() not in {"SELECT", "FROM", "DISTINCT", "ALL"}:
+            if raw.upper() not in seen:
+                seen.add(raw.upper())
+                cols.append(raw)
+    return cols
+
+
+def _render_columns_chips(
+    db_cols_chips: list[tuple[str, str]],
+    selected_cols: set[str] | None = None,
+) -> Any:
+    """Hiển thị nhóm chip các cột bảng nguồn: chia mỗi dòng 2 chip, bỏ datatype, đổi màu chip đã chọn (hỗ trợ double-click)."""
     if not db_cols_chips:
-        return html.Div(alert_box("Chưa có thông tin cột nguồn. Hãy chọn bảng hoặc kiểm tra SQL.", tone="info"))
+        return html.Div(
+            dmc.Text("Chưa có thông tin cột nguồn. Hãy chọn bảng hoặc kiểm tra SQL.", size="sm", c="dimmed"),
+            style={"padding": "8px 0"},
+        )
+    sel = selected_cols or set()
     return html.Div(
-        [
-            dmc.Group(
-                [
-                    dmc.Text("Cột bảng nguồn", size="xs", fw=600),
-                    dmc.Badge(f"{len(db_cols_chips)} cột", size="xs", variant="light", color="primary"),
-                ],
-                justify="space-between",
-                mb=6,
-            ),
-            html.Div(
-                dmc.Group(
-                    [
-                        dmc.Badge(
-                            f"{col} ({t})",
-                            size="xs",
-                            variant="light",
-                            color="gray",
-                            radius="sm",
-                            className="mono",
-                        )
-                        for col, t in db_cols_chips
-                    ],
-                    gap=4,
-                ),
-                style={"maxHeight": "170px", "overflowY": "auto", "padding": "4px"},
-            ),
-        ]
+        dmc.SimpleGrid(
+            cols=2,
+            spacing=6,
+            children=[
+                html.Span(
+                    dmc.Badge(
+                        col,
+                        size="sm",
+                        variant="filled" if col.upper() in sel else "light",
+                        color="blue" if col.upper() in sel else "gray",
+                        radius="sm",
+                        className="mono",
+                        fullWidth=True,
+                        style={
+                            "cursor": "pointer",
+                            "userSelect": "none",
+                            "textTransform": "none",
+                            "fontSize": "11px",
+                            "overflow": "hidden",
+                            "textOverflow": "ellipsis",
+                            "whiteSpace": "nowrap",
+                            "textAlign": "center",
+                        },
+                    ),
+                    id={"type": "wizard-db-col-chip", "col": col},
+                    n_clicks=0,
+                    title=f"{col} ({t}) — {'Đã có trong câu SELECT' if col.upper() in sel else 'Nhấp đúp để chèn vào câu lệnh SELECT'}",
+                    style={"cursor": "pointer", "display": "block", "width": "100%"},
+                )
+                for col, t in db_cols_chips
+            ],
+        ),
+        style={"padding": "4px 0"},
     )
 
 
 def _render_db_mapping_table(
     fields: list[dict[str, Any]],
     db_cols_chips: list[tuple[str, str]],
+    sql_text: str | None = None,
 ) -> Any:
-    """Hiển thị bảng ánh xạ Cột DB -> Trường logic."""
-    col_names = [c[0] for c in db_cols_chips]
+    """Hiển thị bảng ánh xạ Cột DB -> Trường logic.
+    Chỉ hiển thị các cột xuất hiện trong câu lệnh SELECT (nếu có sql_text),
+    hoặc tất cả các cột nếu chưa có SQL.
+    """
     type_lookup = {c[0]: c[1] for c in db_cols_chips}
+    type_lookup_upper = {c[0].upper(): (c[0], c[1]) for c in db_cols_chips}
 
-    mapping_options = [{"label": c, "value": c} for c in col_names] + [
-        {"label": "— Không có —", "value": "— Không có —"}
-    ]
+    # Trích xuất danh sách cột từ câu lệnh SQL
+    sql_cols = _extract_sql_select_columns_list(sql_text) if sql_text else []
+    if sql_cols:
+        target_cols: list[str] = []
+        for c in sql_cols:
+            c_u = c.upper()
+            if c_u in type_lookup_upper:
+                target_cols.append(type_lookup_upper[c_u][0])
+            else:
+                target_cols.append(c)
+    else:
+        target_cols = [c[0] for c in db_cols_chips]
+
+    # Đảm bảo các giá trị đã map hiện tại không bị mất khỏi options của Select và không bị trùng lặp
+    seen_options: set[str] = set()
+    mapping_options = []
+    for c in target_cols:
+        if c not in seen_options:
+            seen_options.add(c)
+            mapping_options.append({"label": c, "value": c})
+
+    for f in fields:
+        f_db = f.get("db")
+        if f_db and f_db != "— Không có —" and f_db not in seen_options:
+            seen_options.add(f_db)
+            mapping_options.append({"label": f_db, "value": f_db})
+
+    mapping_options.append({"label": "— Không có —", "value": "— Không có —"})
 
     rows = []
     for f in fields:
         f_name = f.get("name", "")
         f_label = f.get("label", f_name)
         db_col = f.get("db")
-        if db_col and db_col in type_lookup:
+        if db_col and db_col != "— Không có —":
             status_badge = dmc.Badge("Đã map", size="xs", variant="light", color="green")
-            col_type = type_lookup.get(db_col, "VARCHAR2")
-        elif db_col:
-            status_badge = dmc.Badge("Đã map", size="xs", variant="light", color="green")
-            col_type = type_lookup.get(db_col, "VARCHAR2")
+            col_type = type_lookup.get(db_col) or (type_lookup_upper.get(db_col.upper(), (None, "VARCHAR2"))[1])
         else:
             status_badge = dmc.Badge("Chỉ có ở Excel", size="xs", variant="light", color="yellow")
             col_type = "—"
@@ -675,7 +847,7 @@ def _render_db_mapping_table(
                             if f_label and f_label != f_name
                             else None,
                         ],
-                        style={"padding": "8px 10px"},
+                        style={"padding": "4px 6px"},
                     ),
                     html.Td(
                         dmc.Select(
@@ -686,12 +858,12 @@ def _render_db_mapping_table(
                             data=mapping_options,
                             searchable=True,
                             clearable=False,
-                            style={"width": 190},
+                            style={"width": 180},
                         ),
-                        style={"padding": "8px 10px"},
+                        style={"padding": "4px 6px"},
                     ),
-                    html.Td(html.Span(col_type, className="mono"), style={"padding": "8px 10px"}),
-                    html.Td(status_badge, style={"padding": "8px 10px"}),
+                    html.Td(html.Span(col_type, className="mono"), style={"padding": "4px 6px"}),
+                    html.Td(status_badge, style={"padding": "4px 6px"}),
                 ],
                 style={"borderBottom": "1px solid var(--line, #e2e8f0)"},
             )
@@ -703,16 +875,91 @@ def _render_db_mapping_table(
             html.Thead(
                 html.Tr(
                     [
-                        html.Th("Trường logic"),
-                        html.Th("Cột DB"),
-                        html.Th("Kiểu DB"),
-                        html.Th("Trạng thái"),
+                        html.Th("Trường logic", style={"padding": "6px 6px"}),
+                        html.Th("Cột DB", style={"padding": "6px 6px"}),
+                        html.Th("Kiểu DB", style={"padding": "6px 6px"}),
+                        html.Th("Trạng thái", style={"padding": "6px 6px"}),
                     ],
                     style={"background": "var(--surface-2, #f8fafc)"},
                 )
             ),
             html.Tbody(rows),
         ],
+    )
+
+
+def _render_split_db_mapping_cards(
+    fields: list[dict[str, Any]],
+    db_cols_chips: list[tuple[str, str]],
+    sql_text: str | None = None,
+) -> Any:
+    """Hiển thị bảng ánh xạ Cột DB -> Trường logic chia thành 2 card đều nhau, mỗi card có số cột bằng nhau."""
+    if not fields:
+        return alert_box("Chưa có trường logic nào được định nghĩa ở Bước 2.", tone="info")
+
+    n = len(fields)
+    mid = (n + 1) // 2
+    fields_left = fields[:mid]
+    fields_right = fields[mid:]
+
+    card_left = dmc.GridCol(
+        span={"base": 12, "lg": 6},
+        children=dmc.Paper(
+            withBorder=True,
+            p="sm",
+            radius="sm",
+            style={"minHeight": "460px", "height": "100%", "display": "flex", "flexDirection": "column"},
+            children=[
+                dmc.Group(
+                    [
+                        dmc.Title("Cột DB → Trường logic (1)", order=4),
+                        dmc.Badge(f"{len(fields_left)} trường", size="xs", variant="light", color="primary"),
+                    ],
+                    justify="space-between",
+                    mb="xs",
+                ),
+                html.Div(
+                    _render_db_mapping_table(fields_left, db_cols_chips, sql_text=sql_text),
+                    style={"flex": 1, "overflowY": "auto"},
+                ),
+            ],
+        ),
+    )
+
+    card_right = dmc.GridCol(
+        span={"base": 12, "lg": 6},
+        children=dmc.Paper(
+            withBorder=True,
+            p="sm",
+            radius="sm",
+            style={"minHeight": "460px", "height": "100%", "display": "flex", "flexDirection": "column"},
+            children=[
+                dmc.Group(
+                    [
+                        dmc.Title("Cột DB → Trường logic (2)", order=4),
+                        dmc.Badge(f"{len(fields_right)} trường", size="xs", variant="light", color="primary"),
+                    ],
+                    justify="space-between",
+                    mb="xs",
+                ),
+                html.Div(
+                    _render_db_mapping_table(fields_right, db_cols_chips, sql_text=sql_text)
+                    if fields_right
+                    else dmc.Text("Không còn trường nào khác.", size="sm", c="dimmed", p="md"),
+                    style={"flex": 1, "overflowY": "auto"},
+                ),
+            ],
+        ),
+    )
+
+    return dmc.Grid(
+        gutter="md",
+        align="stretch",
+        style={
+            "minHeight": "460px",
+            "flex": 1,
+        },
+        children=[card_left, card_right],
     )
 
 
@@ -990,9 +1237,14 @@ def render_step_3(
     if table_name and not any(t["value"] == table_name for t in table_options):
         table_options.insert(0, {"label": f"{table_name} (Hiện tại)", "value": table_name})
 
-    # Cột bảng nguồn: lấy từ cache _columns nếu có, hoặc fetch trực tiếp
-    db_cols_chips = db_spec.get("_columns")
-    fields = config.get("fields", [])
+    # Cột bảng nguồn: lấy từ cache columns / _columns đã lưu, hoặc fetch trực tiếp
+    db_cols_raw = db_spec.get("columns") or db_spec.get("_columns")
+    db_cols_chips: list[tuple[str, str]] = []
+    if db_cols_raw:
+        db_cols_chips = [(str(c[0]), str(c[1])) for c in db_cols_raw]
+
+    fields = _cleanup_phantom_db_fields(config.get("fields", []))
+    config["fields"] = fields
     if not db_cols_chips and ctx is not None and ds_id is not None:
         try:
             if mode_val == "sql" and sql_val:
@@ -1013,6 +1265,7 @@ def render_step_3(
             if desc_res.ok and desc_res.data:
                 db_cols_chips = [(str(c["name"]), str(c.get("data_type", "VARCHAR2"))) for c in desc_res.data]
                 db_spec["_columns"] = db_cols_chips
+                db_spec["columns"] = db_cols_chips
         except Exception:
             pass
 
@@ -1020,7 +1273,7 @@ def render_step_3(
         db_cols_chips = []
 
     # Tự động match các trường nếu chưa map
-    if fields and not any(f.get("db") for f in fields):
+    if fields:
         fields = _auto_match_db_columns(fields, db_cols_chips)
         config["fields"] = fields
 
@@ -1044,17 +1297,18 @@ def render_step_3(
             p_org_default = str(p.get("default"))
 
     generated_sql = _render_generated_sql(table_name, fields, p_from_col, p_to_col, p_org_col, extra_filters)
+    preview_sql = sql_val.strip() if (mode_val == "sql" and sql_val and sql_val.strip()) else generated_sql
+    selected_cols = _extract_selected_columns(sql_val if mode_val == "sql" else generated_sql, fields)
 
     table_box_style = {"display": "block"} if mode_val == "table" else {"display": "none"}
-    sql_box_style = {"display": "block"} if mode_val == "sql" else {"display": "none"}
-    gen_sql_card_style = {"display": "block"} if mode_val == "table" else {"display": "none"}
+    sql_box_style = {"display": "flex", "flexDirection": "column", "flex": 1, "height": "100%", "overflow": "hidden"} if mode_val == "sql" else {"display": "none"}
 
     return html.Div(
         [
             dmc.Tabs(
                 id="wizard-step3-subtabs",
                 value="db_source",
-                mb="md",
+                mb="xs",
                 children=[
                     dmc.TabsList(
                         [
@@ -1064,72 +1318,50 @@ def render_step_3(
                                 leftSection=DashIconify(icon="lucide:database", width=14),
                             ),
                             dmc.TabsTab(
-                                "Câu SELECT sinh ra (chỉ đọc)",
+                                "Mapping DB — Trường logic",
                                 value="generated_sql",
-                                leftSection=DashIconify(icon="lucide:code-2", width=14),
+                                leftSection=DashIconify(icon="lucide:arrow-right-left", width=14),
                             ),
                         ],
-                        mb="md",
+                        mb="xs",
                     ),
-                    # Tab con 1: Nguồn dữ liệu DB (3 card)
+                    # Tab con 1: Nguồn dữ liệu DB (3 card đều nhau, tự co giãn và cuộn mượt mà trên màn hình nhỏ)
                     dmc.TabsPanel(
                         value="db_source",
                         children=[
-                            # Card 1: Data Source & Chế độ khai báo
-                            dmc.Paper(
-                                withBorder=True,
-                                p="md",
-                                radius="sm",
-                                mb="md",
-                                children=[
-                                    dmc.Title("Nguồn dữ liệu DB", order=4, mb="sm"),
-                                    dmc.Group(
-                                        align="flex-end",
-                                        gap="lg",
-                                        children=[
-                                            dmc.Select(
-                                                id="wizard-input-ds",
-                                                label="Data Source (nguồn đối soát)",
-                                                data=ds_options,
-                                                value=selected_ds,
-                                                style={"width": 280},
-                                            ),
-                                            html.Div(
-                                                [
-                                                    dmc.Text("Cách khai báo", size="sm", fw=500, mb=4),
-                                                    dmc.SegmentedControl(
-                                                        id="wizard-db-mode",
-                                                        value=mode_val,
-                                                        data=[
-                                                            {"label": "Bảng/View", "value": "table"},
-                                                            {"label": "SQL tự viết", "value": "sql"},
-                                                        ],
-                                                        radius="sm",
-                                                    ),
-                                                ]
-                                            ),
-                                            dmc.Checkbox(
-                                                id="wizard-input-pushdown",
-                                                label="Đẩy phép gộp (SUM, COUNT) xuống DB",
-                                                checked=pushdown,
-                                                mb=6,
-                                            ),
-                                        ],
-                                    ),
-                                ],
-                            ),
-                            # Grid 2 card còn lại: Bảng/View nguồn (Card 2) vs Điều kiện lọc theo tham số (Card 3)
                             dmc.Grid(
                                 gutter="md",
+                                align="stretch",
+                                style={
+                                    "minHeight": "460px",
+                                    "flex": 1,
+                                },
                                 children=[
-                                    # Card 2: Bảng/View nguồn HOẶC SQL tự viết
+                                    # Card 1: Câu lệnh SQL (chiếm 4/12, Textarea lấp đầy thân card)
                                     dmc.GridCol(
-                                        span=5,
+                                        span={"base": 12, "lg": 4},
                                         children=dmc.Paper(
                                             withBorder=True,
-                                            p="md",
+                                            p="sm",
                                             radius="sm",
+                                            style={"minHeight": "460px", "height": "100%", "display": "flex", "flexDirection": "column"},
                                             children=[
+                                                # Các control ẩn để callbacks vẫn hoạt động ổn định
+                                                dmc.Select(
+                                                    id="wizard-input-ds",
+                                                    data=ds_options,
+                                                    value=selected_ds,
+                                                    style={"display": "none"},
+                                                ),
+                                                dmc.SegmentedControl(
+                                                    id="wizard-db-mode",
+                                                    value=mode_val,
+                                                    data=[
+                                                        {"label": "Bảng/View", "value": "table"},
+                                                        {"label": "SQL tự viết", "value": "sql"},
+                                                    ],
+                                                    style={"display": "none"},
+                                                ),
                                                 # Khối chế độ Bảng/View
                                                 html.Div(
                                                     id="wizard-table-mode-box",
@@ -1137,7 +1369,7 @@ def render_step_3(
                                                     children=[
                                                         dmc.Group(
                                                             [
-                                                                dmc.Title("Bảng/View nguồn", order=4),
+                                                                dmc.Text("Bảng/View nguồn *", size="sm", fw=500),
                                                                 button_subtle(
                                                                     "Tải lại cột",
                                                                     id="wizard-fetch-table-cols-btn",
@@ -1147,11 +1379,10 @@ def render_step_3(
                                                             ],
                                                             justify="space-between",
                                                             align="center",
-                                                            mb="xs",
+                                                            mb=4,
                                                         ),
                                                         dmc.Select(
                                                             id="wizard-input-table",
-                                                            label="Bảng/View *",
                                                             value=table_name,
                                                             data=table_options,
                                                             searchable=True,
@@ -1164,24 +1395,14 @@ def render_step_3(
                                                         html.Div(id="wizard-table-alert"),
                                                     ],
                                                 ),
-                                                # Khối chế độ SQL tự viết
+                                                # Khối chế độ SQL tự viết (Textarea chiếm gần hết card)
                                                 html.Div(
                                                     id="wizard-sql-mode-box",
                                                     style=sql_box_style,
                                                     children=[
-                                                        dmc.Title("Câu lệnh SQL nguồn", order=4, mb="xs"),
-                                                        dmc.Textarea(
-                                                            id="wizard-sql-input",
-                                                            label="Câu lệnh SQL nguồn chi tiết *",
-                                                            value=sql_val,
-                                                            minRows=7,
-                                                            autosize=True,
-                                                            className="mono",
-                                                            description="Hỗ trợ các tham số ràng buộc :p_from, :p_to, :p_org.",
-                                                            mb="sm",
-                                                        ),
                                                         dmc.Group(
                                                             [
+                                                                dmc.Text("Câu lệnh SQL chi tiết *", size="sm", fw=500),
                                                                 button_primary(
                                                                     "Kiểm tra & lấy cột",
                                                                     id="wizard-check-sql-btn",
@@ -1189,42 +1410,121 @@ def render_step_3(
                                                                     size="xs",
                                                                 ),
                                                             ],
-                                                            justify="flex-end",
-                                                            mb="xs",
+                                                            justify="space-between",
+                                                            align="center",
+                                                            mb=4,
+                                                        ),
+                                                        dmc.Text(
+                                                            "Hỗ trợ các tham số ràng buộc :p_from, :p_to, :p_org.",
+                                                            size="xs",
+                                                            c="dimmed",
+                                                            mb=4,
+                                                        ),
+                                                        html.Div(
+                                                            dmc.Textarea(
+                                                                id="wizard-sql-input",
+                                                                value=sql_val,
+                                                                minRows=14,
+                                                                autosize=False,
+                                                                className="mono",
+                                                                style={"width": "100%", "height": "100%", "flex": 1},
+                                                                styles={
+                                                                    "wrapper": {"height": "100%", "flex": 1, "display": "flex", "flexDirection": "column"},
+                                                                    "input": {
+                                                                        "height": "100%",
+                                                                        "minHeight": "220px",
+                                                                        "flex": 1,
+                                                                        "resize": "none",
+                                                                        "fontFamily": "monospace",
+                                                                        "fontSize": "12px",
+                                                                    },
+                                                                },
+                                                            ),
+                                                            style={"flex": 1, "display": "flex", "flexDirection": "column", "minHeight": "220px", "marginBottom": "4px"},
                                                         ),
                                                         html.Div(id="wizard-sql-validate-alert"),
                                                     ],
                                                 ),
-                                                # Nhóm chip hiển thị cột chung
-                                                html.Div(
-                                                    id="wizard-db-columns-container",
-                                                    children=_render_columns_chips(db_cols_chips),
-                                                    style={"marginTop": 12},
+                                                # Checkbox đẩy phép gộp: ẩn khỏi giao diện hiển thị
+                                                dmc.Checkbox(
+                                                    id="wizard-input-pushdown",
+                                                    label="Đẩy phép gộp (SUM, COUNT) xuống DB",
+                                                    checked=pushdown,
+                                                    style={"display": "none"},
                                                 ),
                                             ],
                                         ),
                                     ),
-                                    # Card 3: Điều kiện lọc theo tham số & cố định
+                                    # Card 2: Cột bảng nguồn (giảm còn 3/12, có thanh cuộn)
                                     dmc.GridCol(
-                                        span=7,
+                                        span={"base": 12, "lg": 3},
                                         children=dmc.Paper(
                                             withBorder=True,
-                                            p="md",
+                                            p="sm",
                                             radius="sm",
+                                            style={"minHeight": "460px", "height": "100%", "display": "flex", "flexDirection": "column"},
                                             children=[
-                                                dmc.Title("Điều kiện lọc theo tham số", order=4, mb="sm"),
+                                                dmc.Group(
+                                                    [
+                                                        dmc.Title("Cột bảng nguồn", order=4),
+                                                        dmc.Badge(
+                                                            f"{len(db_cols_chips)} cột",
+                                                            id="wizard-db-cols-count-badge",
+                                                            size="xs",
+                                                            variant="light",
+                                                            color="primary",
+                                                        ),
+                                                    ],
+                                                    justify="space-between",
+                                                    mb=4,
+                                                ),
+                                                dmc.Text(
+                                                    "Nhấp đúp vào chip cột để chèn vào câu lệnh SELECT",
+                                                    size="xs",
+                                                    c="dimmed",
+                                                    mb="xs",
+                                                ),
+                                                html.Div(
+                                                    id="wizard-db-columns-container",
+                                                    children=_render_columns_chips(db_cols_chips, selected_cols=selected_cols),
+                                                    style={"flex": 1, "overflowY": "auto", "paddingRight": "4px", "maxHeight": "380px"},
+                                                ),
+                                            ],
+                                        ),
+                                    ),
+                                    # Card 3: Điều kiện lọc theo tham số (tăng lên 5/12)
+                                    dmc.GridCol(
+                                        span={"base": 12, "lg": 5},
+                                        children=dmc.Paper(
+                                            withBorder=True,
+                                            p="sm",
+                                            radius="sm",
+                                            style={"minHeight": "460px", "height": "100%", "display": "flex", "flexDirection": "column"},
+                                            children=[
+                                                dmc.Group(
+                                                    [
+                                                        dmc.Title("Điều kiện lọc theo tham số", order=4),
+                                                        button_subtle(
+                                                            "Thêm tham số",
+                                                            id="wizard-add-param-btn",
+                                                            icon="lucide:plus",
+                                                            size="xs",
+                                                        ),
+                                                    ],
+                                                    justify="space-between",
+                                                    mb="xs",
+                                                ),
                                                 html.Div(
                                                     id="wizard-db-filters-container",
                                                     children=_render_filter_params_table(
-                                                        db_cols_chips, p_from_col, p_to_col, p_org_col, p_org_default, extra_filters
+                                                        db_cols_chips,
+                                                        p_from_col,
+                                                        p_to_col,
+                                                        p_org_col,
+                                                        p_org_default,
+                                                        extra_filters,
                                                     ),
-                                                ),
-                                                button_subtle(
-                                                    "Thêm tham số lọc",
-                                                    id="wizard-add-param-btn",
-                                                    icon="lucide:plus",
-                                                    size="xs",
-                                                    mt="xs",
+                                                    style={"flex": 1, "overflowY": "auto"},
                                                 ),
                                             ],
                                         ),
@@ -1233,100 +1533,58 @@ def render_step_3(
                             ),
                         ],
                     ),
-                    # Tab con 2: Câu SELECT sinh ra (chỉ đọc) (3 card)
+                    # Tab con 2: Mapping DB — Trường logic (chia 2 card bằng nhau, bỏ card lọc Excel)
                     dmc.TabsPanel(
                         value="generated_sql",
                         children=[
-                            # Card 1: Câu SELECT sinh ra (chỉ đọc)
+                            # Control ẩn để callbacks không lỗi
                             html.Div(
                                 id="wizard-card-generated-sql",
-                                style=gen_sql_card_style,
-                                children=dmc.Paper(
-                                    withBorder=True,
-                                    p="md",
-                                    radius="sm",
-                                    mb="md",
-                                    children=[
-                                        dmc.Title("Câu SELECT sinh ra (chỉ đọc)", order=4, mb="xs"),
-                                        html.Div(
-                                            id="wizard-generated-sql-container",
-                                            children=code_block(generated_sql, language="sql"),
-                                        ),
-                                    ],
+                                style={"display": "none"},
+                                children=html.Div(
+                                    id="wizard-generated-sql-container",
+                                    children=code_block(preview_sql, language="sql"),
                                 ),
                             ),
-                            # Grid Card 2 & Card 3
-                            dmc.Grid(
-                                gutter="md",
+                            html.Div(
+                                style={"display": "none"},
                                 children=[
-                                    # Card 2: Cột DB -> Trường logic
-                                    dmc.GridCol(
-                                        span=7,
-                                        children=dmc.Paper(
-                                            withBorder=True,
-                                            p="md",
-                                            radius="sm",
-                                            children=[
-                                                dmc.Title("Cột DB → Trường logic", order=4, mb="sm"),
-                                                html.Div(
-                                                    id="wizard-db-mapping-container",
-                                                    children=_render_db_mapping_table(fields, db_cols_chips),
-                                                ),
-                                            ],
+                                    dmc.Select(
+                                        id="wizard-excel-time-field",
+                                        data=[
+                                            {"label": f.get("name", ""), "value": f.get("name", "")}
+                                            for f in fields
+                                            if f.get("type") in ("date", "datetime")
+                                        ]
+                                        + [{"label": "Không lọc Excel", "value": "NONE"}],
+                                        value=(
+                                            (config.get("time_filter") or {}).get("excel_field")
+                                            if config.get("time_filter")
+                                            else "NONE"
                                         ),
                                     ),
-                                    # Card 3: Lọc dữ liệu Excel theo cùng khoảng
-                                    dmc.GridCol(
-                                        span=5,
-                                        children=dmc.Paper(
-                                            withBorder=True,
-                                            p="md",
-                                            radius="sm",
-                                            children=[
-                                                dmc.Title("Lọc dữ liệu Excel theo cùng khoảng", order=4, mb="sm"),
-                                                alert_box(
-                                                    "Từ/Đến ngày giờ do người dùng nhập khi chạy, không lấy từ file. "
-                                                    "Cùng khoảng áp cho DB (cột lọc Từ/Đến) và Excel.",
-                                                    tone="info",
-                                                ),
-                                                html.Div(style={"height": 12}),
-                                                dmc.Select(
-                                                    id="wizard-excel-time-field",
-                                                    label="Trường thời gian lọc Excel",
-                                                    data=[
-                                                        {"label": f.get("name", ""), "value": f.get("name", "")}
-                                                        for f in fields
-                                                        if f.get("type") in ("date", "datetime")
-                                                    ]
-                                                    + [{"label": "Không lọc Excel", "value": "NONE"}],
-                                                    value=(
-                                                        (config.get("time_filter") or {}).get("excel_field")
-                                                        if config.get("time_filter")
-                                                        else "NONE"
-                                                    ),
-                                                    mb="sm",
-                                                ),
-                                                dmc.Select(
-                                                    id="wizard-excel-suggest-range",
-                                                    label="Gợi ý khi chạy",
-                                                    data=[
-                                                        {"label": "Hôm qua", "value": "yesterday"},
-                                                        {"label": "Tháng trước", "value": "last_month"},
-                                                        {"label": "Để trống", "value": "none"},
-                                                    ],
-                                                    value=next(
-                                                        (
-                                                            p.get("suggest", "yesterday")
-                                                            for p in db_spec.get("params", [])
-                                                            if p.get("name") == "p_from" and p.get("suggest")
-                                                        ),
-                                                        "yesterday",
-                                                    ),
-                                                ),
-                                            ],
+                                    dmc.Select(
+                                        id="wizard-excel-suggest-range",
+                                        data=[
+                                            {"label": "Hôm qua", "value": "yesterday"},
+                                            {"label": "Tháng trước", "value": "last_month"},
+                                            {"label": "Để trống", "value": "none"},
+                                        ],
+                                        value=next(
+                                            (
+                                                p.get("suggest", "yesterday")
+                                                for p in db_spec.get("params", [])
+                                                if p.get("name") == "p_from" and p.get("suggest")
+                                            ),
+                                            "yesterday",
                                         ),
                                     ),
                                 ],
+                            ),
+                            # 2 Card Cột DB → Trường logic chia đều số column
+                            html.Div(
+                                id="wizard-db-mapping-container",
+                                children=_render_split_db_mapping_cards(fields, db_cols_chips, sql_text=preview_sql),
                             ),
                         ],
                     ),
@@ -1629,7 +1887,18 @@ def _render_measures_table(
         {"label": "first_distinct (Thuộc tính duy nhất)", "value": "first_distinct"},
     ]
 
-    field_options = [{"label": "* (Tất cả dòng)", "value": "*"}] + [{"label": f, "value": f} for f in avail_field_names]
+    seen_fields = {"*"}
+    field_options = [{"label": "* (Tất cả dòng)", "value": "*"}]
+    for f in avail_field_names:
+        if f not in seen_fields:
+            seen_fields.add(f)
+            field_options.append({"label": f, "value": f})
+    for m in measures:
+        if isinstance(m, dict):
+            mf = m.get("field")
+            if mf and mf not in seen_fields:
+                seen_fields.add(mf)
+                field_options.append({"label": mf, "value": mf})
 
     compare_options = [
         {"label": "exact (Bằng tuyệt đối)", "value": "exact"},
@@ -1689,18 +1958,18 @@ def _render_measures_table(
                             value=m_name,
                             size="xs",
                             className="mono",
-                            style={"width": 130},
+                            style={"width": 120},
                         ),
-                        style={"padding": "6px 8px"},
+                        style={"padding": "3px 4px"},
                     ),
                     html.Td(
                         dmc.TextInput(
                             id={"type": "wizard-m-label", "index": i},
                             value=m_label,
                             size="xs",
-                            style={"width": 120},
+                            style={"width": 110},
                         ),
-                        style={"padding": "6px 8px"},
+                        style={"padding": "3px 4px"},
                     ),
                     html.Td(
                         dmc.Select(
@@ -1708,9 +1977,9 @@ def _render_measures_table(
                             value=m_agg,
                             data=agg_options,
                             size="xs",
-                            style={"width": 140},
+                            style={"width": 130},
                         ),
-                        style={"padding": "6px 8px"},
+                        style={"padding": "3px 4px"},
                     ),
                     html.Td(
                         dmc.Select(
@@ -1720,9 +1989,9 @@ def _render_measures_table(
                             searchable=True,
                             size="xs",
                             className="mono",
-                            style={"width": 125},
+                            style={"width": 115},
                         ),
-                        style={"padding": "6px 8px"},
+                        style={"padding": "3px 4px"},
                     ),
                     html.Td(
                         dmc.Select(
@@ -1730,9 +1999,9 @@ def _render_measures_table(
                             value=m_cmp,
                             data=compare_options,
                             size="xs",
-                            style={"width": 145},
+                            style={"width": 135},
                         ),
-                        style={"padding": "6px 8px"},
+                        style={"padding": "3px 4px"},
                     ),
                     html.Td(
                         dmc.NumberInput(
@@ -1742,9 +2011,9 @@ def _render_measures_table(
                             min=0,
                             step=0.1,
                             size="xs",
-                            style={"width": 85},
+                            style={"width": 75},
                         ),
-                        style={"padding": "6px 8px"},
+                        style={"padding": "3px 4px"},
                     ),
                     html.Td(
                         dmc.NumberInput(
@@ -1753,12 +2022,12 @@ def _render_measures_table(
                             min=0,
                             max=6,
                             size="xs",
-                            style={"width": 70},
+                            style={"width": 65},
                         ),
-                        style={"padding": "6px 8px"},
+                        style={"padding": "3px 4px"},
                     ),
-                    html.Td(main_badge_or_btn, style={"padding": "6px 8px", "textAlign": "center"}),
-                    html.Td(del_btn, style={"padding": "6px 8px", "textAlign": "center"}),
+                    html.Td(main_badge_or_btn, style={"padding": "3px 4px", "textAlign": "center"}),
+                    html.Td(del_btn, style={"padding": "3px 4px", "textAlign": "center"}),
                 ],
                 style={"borderBottom": "1px solid var(--line, #e2e8f0)"},
             )
@@ -1771,15 +2040,15 @@ def _render_measures_table(
                 html.Thead(
                     html.Tr(
                         [
-                            html.Th("Tên"),
-                            html.Th("Nhãn"),
-                            html.Th("Hàm"),
-                            html.Th("Trường"),
-                            html.Th("So sánh"),
-                            html.Th("Sai số"),
-                            html.Th("Làm tròn"),
-                            html.Th("Chính", style={"textAlign": "center"}),
-                            html.Th("", style={"textAlign": "center"}),
+                            html.Th("Tên", style={"padding": "4px 4px"}),
+                            html.Th("Nhãn", style={"padding": "4px 4px"}),
+                            html.Th("Hàm", style={"padding": "4px 4px"}),
+                            html.Th("Trường", style={"padding": "4px 4px"}),
+                            html.Th("So sánh", style={"padding": "4px 4px"}),
+                            html.Th("Sai số", style={"padding": "4px 4px"}),
+                            html.Th("Làm tròn", style={"padding": "4px 4px"}),
+                            html.Th("Chính", style={"padding": "4px 4px", "textAlign": "center"}),
+                            html.Th("", style={"padding": "4px 4px", "textAlign": "center"}),
                         ],
                         style={"background": "var(--surface-2, #f8fafc)"},
                     )
@@ -1918,6 +2187,7 @@ def _render_step_4_right_panel(
     active_prof["group_by"] = group_by
 
     groupby_options = []
+    seen_groupby_vals: set[str] = set()
     for f in avail_fields_info:
         db_col = f.get("db")
         f_name = f.get("name", "")
@@ -1930,11 +2200,13 @@ def _render_step_4_right_panel(
         else:
             label = f"{f_name} (Dẫn xuất)"
             val = f_name
-        groupby_options.append({"label": label, "value": val})
+        if val not in seen_groupby_vals:
+            seen_groupby_vals.add(val)
+            groupby_options.append({"label": label, "value": val})
 
-    existing_vals = {opt["value"] for opt in groupby_options}
     for g in group_by:
-        if g not in existing_vals:
+        if g not in seen_groupby_vals:
+            seen_groupby_vals.add(g)
             groupby_options.append({"label": g, "value": g})
 
     measures = active_prof.get("measures", [])
@@ -1959,204 +2231,180 @@ def _render_step_4_right_panel(
         for g in group_by
     ]
 
-    # Grain info
-    tot_rows, groups_cnt, grain_desc = _calculate_grain_info(group_by, sample_data, config=config)
-    grain_desc_str = f"({', '.join(group_by)})" if group_by else "(chưa chọn khóa)"
-    grain_alert = alert_box(
-        f"{grain_desc}"
-        if groups_cnt == 0
-        else f"{tot_rows:,} dòng Excel → {groups_cnt:,} nhóm theo {grain_desc_str}. {grain_desc}",
-        tone="info",
-    )
-
     # Generated Grouped SQL
     grouped_sql = _render_profile_grouped_sql(config, group_by, measures)
 
-    drilldown_opts = [
-        {"label": p.get("name") or p.get("code", ""), "value": p.get("code", "")}
-        for p in all_profiles
-        if p.get("code") != prof_code and p.get("code")
-    ] + [
-        {"label": "Không phân rã", "value": "NONE"},
-    ]
+    seen_dd: set[str] = set()
+    drilldown_opts = []
+    for p in all_profiles:
+        p_code = p.get("code", "")
+        if p_code and p_code != prof_code and p_code not in seen_dd:
+            seen_dd.add(p_code)
+            drilldown_opts.append({"label": p.get("name") or p_code, "value": p_code})
+    drilldown_opts.append({"label": "Không phân rã", "value": "NONE"})
 
-    return html.Div(
-        [
-            # Card 0: Thông tin Profile (Tên, Mã code, Xóa)
-            dmc.Paper(
-                withBorder=True,
-                p="md",
-                radius="sm",
-                mb="md",
-                children=[
-                    dmc.Group(
-                        justify="space-between",
-                        align="center",
-                        mb="xs",
-                        children=[
-                            dmc.Group(
-                                [
-                                    dmc.Title("Thông tin Profile", order=4),
-                                    dmc.Badge("Mặc định", color="blue", variant="light", size="sm")
-                                    if is_default
-                                    else None,
-                                ],
-                                gap="xs",
-                            ),
-                            button_subtle(
-                                "Xóa profile",
-                                id="wizard-delete-profile-btn",
-                                icon="lucide:trash-2",
-                                color="red",
-                                size="xs",
-                                disabled=not can_delete,
-                            ),
-                        ],
-                    ),
-                    dmc.Grid(
-                        gutter="sm",
-                        children=[
-                            dmc.GridCol(
-                                span=6,
-                                children=dmc.TextInput(
-                                    id="wizard-profile-name-input",
-                                    label="Tên Profile *",
-                                    value=prof_name,
-                                    placeholder="VD: Theo số hóa đơn",
-                                    debounce=500,
-                                    required=True,
+    return dmc.Grid(
+        gutter="md",
+        align="stretch",
+        style={"minHeight": "520px", "height": "100%"},
+        children=[
+            # Card 2: Thông tin Profile (chiếm 6/12 của 8 = 4/12 tổng thể)
+            dmc.GridCol(
+                span={"base": 12, "lg": 6},
+                style={"minHeight": "520px", "height": "100%"},
+                children=dmc.Paper(
+                    withBorder=True,
+                    p="sm",
+                    radius="sm",
+                    style={"minHeight": "520px", "height": "100%", "display": "flex", "flexDirection": "column"},
+                    children=[
+                        dmc.Group(
+                            justify="space-between",
+                            align="center",
+                            mb="xs",
+                            children=[
+                                dmc.Group(
+                                    [
+                                        dmc.Title("Thông tin Profile", order=4),
+                                        dmc.Badge("Mặc định", color="blue", variant="light", size="sm")
+                                        if is_default
+                                        else None,
+                                    ],
+                                    gap="xs",
                                 ),
-                            ),
-                            dmc.GridCol(
-                                span=6,
-                                children=dmc.TextInput(
-                                    id="wizard-profile-code-input",
-                                    label="Mã Profile (code) *",
-                                    value=prof_code,
-                                    placeholder="VD: BY_INVOICE",
-                                    className="mono",
-                                    debounce=500,
-                                    required=True,
+                                button_subtle(
+                                    "Xóa profile",
+                                    id="wizard-delete-profile-btn",
+                                    icon="lucide:trash-2",
+                                    color="red",
+                                    size="xs",
+                                    disabled=not can_delete,
                                 ),
-                            ),
-                        ],
-                    ),
-                ],
-            ),
-            # Card 1: Group by
-            dmc.Paper(
-                withBorder=True,
-                p="md",
-                radius="sm",
-                mb="md",
-                children=[
-                    dmc.Title("Group by (khóa so sánh)", order=4, mb="xs"),
-                    dmc.Text(
-                        "Cả hai phía được gộp theo các trường này, và các trường này cũng là khóa để ghép (join) Excel với DB.",
-                        size="xs",
-                        c="dimmed",
-                        mb="sm",
-                    ),
-                    dmc.MultiSelect(
-                        id="wizard-groupby-select",
-                        label="Chọn các trường gộp",
-                        data=groupby_options,
-                        value=group_by,
-                        searchable=True,
-                        clearable=False,
-                        mb="xs",
-                    ),
-                    html.Div(
-                        id="wizard-groupby-chips-container",
-                        children=dmc.Group(group_by_chips, gap="xs", mb="xs"),
-                    ),
-                    html.Div(id="wizard-grain-alert-container", children=grain_alert),
-                ],
-            ),
-            # Card 2: Measures và quy tắc so sánh
-            dmc.Paper(
-                withBorder=True,
-                p="md",
-                radius="sm",
-                mb="md",
-                children=[
-                    dmc.Group(
-                        [
-                            html.Div(
-                                [
-                                    dmc.Title("Measures và quy tắc so sánh", order=4),
-                                    dmc.Text(
-                                        "Mỗi measure gồm một hàm gộp và một trường. Quy tắc so sánh riêng cho từng measure.",
-                                        size="xs",
-                                        c="dimmed",
-                                    ),
-                                ]
-                            ),
-                            button_primary(
-                                "Thêm measure",
-                                id="wizard-add-measure-btn",
-                                icon="lucide:plus",
-                                size="xs",
-                            ),
-                        ],
-                        justify="space-between",
-                        align="flex-start",
-                        mb="sm",
-                    ),
-                    html.Div(
-                        id="wizard-measures-container",
-                        children=_render_measures_table(measures, avail_field_names, main_m),
-                        # Bảng measures rộng; cột phải thu từ 9 xuống 8
-                        # nên cho cuộn ngang trong card thay vì tràn ra.
-                        style={"overflowX": "auto"},
-                    ),
-                    dmc.Grid(
-                        gutter="md",
-                        mt="md",
-                        children=[
-                            dmc.GridCol(
-                                span=6,
-                                children=dmc.TextInput(
-                                    id="wizard-profile-filter",
-                                    label="Bộ lọc profile (áp cả hai phía)",
-                                    placeholder="Ví dụ STATUS = 'ORIGINAL'",
-                                    value=active_prof.get("filters_expr", ""),
-                                    className="mono",
+                            ],
+                        ),
+                        html.Div(
+                            style={"flex": 1, "overflowY": "auto", "paddingRight": "4px"},
+                            children=[
+                                dmc.Grid(
+                                    gutter="sm",
+                                    mb="sm",
+                                    children=[
+                                        dmc.GridCol(
+                                            span=6,
+                                            children=dmc.TextInput(
+                                                id="wizard-profile-name-input",
+                                                label="Tên Profile *",
+                                                value=prof_name,
+                                                placeholder="VD: Theo số hóa đơn",
+                                                debounce=500,
+                                                required=True,
+                                            ),
+                                        ),
+                                        dmc.GridCol(
+                                            span=6,
+                                            children=dmc.TextInput(
+                                                id="wizard-profile-code-input",
+                                                label="Mã Profile (code) *",
+                                                value=prof_code,
+                                                placeholder="VD: BY_INVOICE",
+                                                className="mono",
+                                                debounce=500,
+                                                required=True,
+                                            ),
+                                        ),
+                                    ],
                                 ),
-                            ),
-                            dmc.GridCol(
-                                span=6,
-                                children=dmc.Select(
-                                    id="wizard-drilldown-select",
-                                    label="Drill-down tới",
-                                    data=drilldown_opts,
-                                    value=active_prof.get("drilldown_to") or "NONE",
+                                dmc.Divider(my="sm", label="Group by (khóa so sánh)", labelPosition="left"),
+                                dmc.MultiSelect(
+                                    id="wizard-groupby-select",
+                                    label="Chọn các trường gộp",
+                                    data=groupby_options,
+                                    value=group_by,
+                                    searchable=True,
+                                    clearable=False,
+                                    mb="xs",
                                 ),
-                            ),
-                        ],
-                    ),
-                ],
+                                html.Div(
+                                    id="wizard-groupby-chips-container",
+                                    children=dmc.Group(group_by_chips, gap="xs", mb="xs"),
+                                ),
+                                # Đã bỏ alert tính số nhóm theo yêu cầu người dùng
+                                html.Div(
+                                    id="wizard-grain-alert-container",
+                                    children=None,
+                                    style={"display": "none"},
+                                ),
+                                dmc.Divider(my="sm", label="Measures và quy tắc so sánh", labelPosition="left"),
+                                dmc.Group(
+                                    [
+                                        dmc.Text("Quy tắc so sánh riêng cho từng measure", size="xs", c="dimmed"),
+                                        button_primary(
+                                            "Thêm measure", id="wizard-add-measure-btn", icon="lucide:plus", size="xs"
+                                        ),
+                                    ],
+                                    justify="space-between",
+                                    mb="xs",
+                                ),
+                                html.Div(
+                                    id="wizard-measures-container",
+                                    children=_render_measures_table(measures, avail_field_names, main_m),
+                                    style={"overflowX": "auto", "marginBottom": "12px"},
+                                ),
+                                dmc.Grid(
+                                    gutter="sm",
+                                    children=[
+                                        dmc.GridCol(
+                                            span=6,
+                                            children=dmc.TextInput(
+                                                id="wizard-profile-filter",
+                                                label="Bộ lọc profile (áp cả hai phía)",
+                                                placeholder="Ví dụ STATUS = 'ORIGINAL'",
+                                                value=active_prof.get("filters_expr", ""),
+                                                className="mono",
+                                            ),
+                                        ),
+                                        dmc.GridCol(
+                                            span=6,
+                                            children=dmc.Select(
+                                                id="wizard-drilldown-select",
+                                                label="Drill-down tới",
+                                                data=drilldown_opts,
+                                                value=active_prof.get("drilldown_to") or "NONE",
+                                            ),
+                                        ),
+                                    ],
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
             ),
-            # Card 3: SQL gộp sinh tự động
-            dmc.Paper(
-                withBorder=True,
-                p="md",
-                radius="sm",
-                children=[
-                    dmc.Title("SQL gộp sinh tự động (chỉ đọc)", order=4, mb="xs"),
-                    dmc.Text(
-                        "Cho thấy ứng dụng sẽ bọc câu SQL ở Bước 3 thành truy vấn gộp như thế nào. Cập nhật ngay khi thay đổi Group by và Measures.",
-                        size="xs",
-                        c="dimmed",
-                        mb="xs",
-                    ),
-                    html.Div(
-                        id="wizard-grouped-sql-container",
-                        children=code_block(grouped_sql, language="sql"),
-                    ),
-                ],
+            # Card 3: SQL gộp sinh tự động (chiếm 6/12 của 9)
+            dmc.GridCol(
+                span={"base": 12, "lg": 6},
+                style={"minHeight": "620px", "height": "100%"},
+                children=dmc.Paper(
+                    withBorder=True,
+                    p="sm",
+                    radius="sm",
+                    style={"minHeight": "620px", "height": "100%", "display": "flex", "flexDirection": "column"},
+                    children=[
+                        dmc.Title("SQL gộp sinh tự động (chỉ đọc)", order=4, mb="xs"),
+                        dmc.Text(
+                            "Cho thấy ứng dụng sẽ bọc câu SQL ở Bước 3 thành truy vấn gộp như thế nào. Cập nhật ngay khi thay đổi Group by và Measures.",
+                            size="xs",
+                            c="dimmed",
+                            mb="xs",
+                        ),
+                        html.Div(
+                            id="wizard-grouped-sql-container",
+                            children=code_block(grouped_sql, language="sql", style={"minHeight": "500px", "height": "100%"}),
+                            style={"flex": 1, "minHeight": "520px", "overflowY": "auto"},
+                        ),
+                    ],
+                ),
             ),
-        ]
+        ],
     )
 
 
@@ -2166,6 +2414,7 @@ def render_step_4(
     active_profile_code: str | None = None,
 ) -> Any:
     """Dựng giao diện Bước 4: Hồ sơ đối soát (Profile so sánh) & Measures."""
+    config["fields"] = _cleanup_phantom_db_fields(config.get("fields", []))
     profiles = config.get("profiles", [])
     if not profiles or (len(profiles) == 1 and profiles[0].get("code") == "BY_DEFAULT"):
         profiles = _build_default_profiles_from_fields(config.get("fields", []), config.get("derived", []))
@@ -2185,10 +2434,14 @@ def render_step_4(
 
     avail_field_names = [f["name"] for f in avail_fields_info]
 
-    # Tab items cho profile
-    tab_list = [
-        dmc.TabsTab(p.get("name", p.get("code", "Profile")), value=p.get("code", "BY_INVOICE")) for p in profiles
-    ]
+    # Tab items cho profile (đảm bảo không trùng value trong DMC Tabs)
+    seen_tab_codes: set[str] = set()
+    tab_list = []
+    for p in profiles:
+        p_code = p.get("code") or "BY_INVOICE"
+        if p_code not in seen_tab_codes:
+            seen_tab_codes.add(p_code)
+            tab_list.append(dmc.TabsTab(p.get("name", p_code), value=p_code))
 
     return html.Div(
         [
@@ -2207,24 +2460,27 @@ def render_step_4(
                     )
                 ],
             ),
-            # Layout 2 cột: Cột trái Trường có sẵn vs Cột phải Cấu hình profile
+            # Layout 3 Card bằng nhau, tự co giãn và cuộn mượt mà trên màn hình nhỏ
             dmc.Grid(
                 gutter="md",
+                align="stretch",
+                style={
+                    "minHeight": "620px",
+                    "flex": 1,
+                },
                 children=[
-                    # Cột trái: Trường có sẵn, dính ở đầu trang và cuộn
-                    # riêng để vẫn nhìn thấy khi cuộn cột phải xuống SQL.
+                    # Card 1: Trường có sẵn (giảm còn 3/12 thay vì 4/12, tức 2/3 so với trước, có scroll khi nhiều field)
                     dmc.GridCol(
-                        span=4,
-                        style={"position": "sticky", "top": 16, "alignSelf": "flex-start"},
+                        span={"base": 12, "lg": 3},
                         children=dmc.Paper(
                             withBorder=True,
-                            p="md",
+                            p="sm",
                             radius="sm",
-                            style={"maxHeight": "calc(100vh - 32px)", "overflowY": "auto"},
+                            style={"minHeight": "620px", "height": "100%", "display": "flex", "flexDirection": "column"},
                             children=[
                                 dmc.Title("Trường có sẵn", order=4, mb="xs"),
                                 dmc.Text(
-                                    "Chỉ các trường đã map cột DB ở Bước 3 (trường dẫn xuất tính từ trường đã map cũng được tính). Dòng dưới mỗi trường là mapping Excel → DB. Chìa khóa / sigma tô đậm khi trường đang dùng ở profile đang xem.",
+                                    "Chỉ các trường đã map cột DB ở Bước 3. Khóa / sigma tô đậm khi trường đang dùng ở profile đang xem.",
                                     size="xs",
                                     c="dimmed",
                                     mb="sm",
@@ -2240,15 +2496,18 @@ def render_step_4(
                                             if isinstance(m, dict) and m.get("field")
                                         ],
                                     ),
+                                    style={"flex": 1, "maxHeight": "540px", "overflowY": "auto", "paddingRight": "4px"},
                                 ),
                             ],
                         ),
                     ),
-                    # Cột phải: Group by, Measures & SQL gộp
+                    # Col chứa Card 2 (Thông tin Profile) và Card 3 (SQL gộp sinh tự động) (span 9/12, bên trong chia 6-6)
                     dmc.GridCol(
-                        span=8,
+                        span={"base": 12, "lg": 9},
+                        style={"minHeight": "620px", "height": "100%"},
                         children=html.Div(
                             id="wizard-step4-right-content",
+                            style={"minHeight": "620px", "height": "100%"},
                             children=_render_step_4_right_panel(active_prof, avail_field_names, config, sample_data),
                         ),
                     ),
@@ -2756,8 +3015,41 @@ def config_to_form_state(cfg: TemplateConfig) -> dict[str, Any]:
 
 def form_state_to_config(form_data: dict[str, Any]) -> tuple[TemplateConfig | None, dict[str, str]]:
     """Chuyển đổi dictionary state thành TemplateConfig Pydantic model có kiểm tra validation."""
+    data = dict(form_data)
+    fields = _cleanup_phantom_db_fields([dict(f) for f in data.get("fields", [])])
+    db_spec = data.get("db_source", {})
+    mode_val = db_spec.get("kind", "table")
+    sql_val = db_spec.get("sql", "")
+
+    # Tự động đồng bộ các cột từ câu lệnh SQL vào f["db"] cho các trường logic đã có
+    selected_cols = _extract_selected_columns(sql_val if mode_val == "sql" else None, fields)
+    for f in fields:
+        f_name_u = (f.get("name") or "").upper()
+        f_excel_u = (f.get("excel") or "").upper()
+        if not f.get("db"):
+            if f_name_u in selected_cols:
+                f["db"] = f.get("name")
+            elif f_excel_u in selected_cols:
+                f["db"] = f_excel_u
+
+    # Đảm bảo trường trong group_by được gán db nếu có trong SQL (nhưng KHÔNG tự ý append field mới)
+    existing_fields_by_name = {f.get("name"): f for f in fields}
+    existing_fields_by_db = {str(f.get("db")).upper(): f for f in fields if f.get("db")}
+    for prof in data.get("profiles", []):
+        for g_col in prof.get("group_by", []):
+            g_col_u = str(g_col).upper()
+            if g_col in existing_fields_by_name:
+                f_target = existing_fields_by_name[g_col]
+                if not f_target.get("db") and (g_col_u in selected_cols or mode_val == "sql"):
+                    f_target["db"] = g_col
+            elif g_col_u in existing_fields_by_db:
+                # g_col là tên cột DB, đã có trường logic map sang cột này
+                pass
+
+    data["fields"] = fields
+
     try:
-        cfg = TemplateConfig.model_validate(form_data)
+        cfg = TemplateConfig.model_validate(data)
         return cfg, {}
     except ValidationError as exc:
         return None, map_validation_errors(exc)
@@ -3092,8 +3384,74 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
             dcc.Store(id="wizard-dry-run-store", data=None),
             dcc.Store(id="wizard-sample-file-store", data=initial_sample_data),
             dcc.Store(id="wizard-active-profile-store", data=initial_active_prof_code),
+            dcc.Store(id="wizard-chip-click-store", data={}),
             dcc.Location(id="wizard-redirect-location", refresh=True),
             dcc.Interval(id="wizard-autosave-interval", interval=15000, n_intervals=0, disabled=True),
+            # Modal thêm trường dẫn xuất (Bước 2)
+            dmc.Modal(
+                id="wizard-add-derived-modal",
+                title=dmc.Text("Thêm trường dẫn xuất", fw=600),
+                opened=False,
+                children=[
+                    dmc.Stack(
+                        [
+                            dmc.TextInput(
+                                id="wizard-derived-modal-name",
+                                label="Tên trường logic",
+                                placeholder="VD: NAM_THANG",
+                                className="mono",
+                                required=True,
+                            ),
+                            dmc.TextInput(
+                                id="wizard-derived-modal-label",
+                                label="Nhãn hiển thị",
+                                placeholder="VD: Năm tháng",
+                            ),
+                            dmc.Select(
+                                id="wizard-derived-modal-type",
+                                label="Kiểu dữ liệu",
+                                value="text",
+                                data=[
+                                    {"label": "text", "value": "text"},
+                                    {"label": "number", "value": "number"},
+                                    {"label": "date", "value": "date"},
+                                    {"label": "datetime", "value": "datetime"},
+                                ],
+                                required=True,
+                            ),
+                            dmc.Select(
+                                id="wizard-derived-modal-fn",
+                                label="Hàm dẫn xuất",
+                                value="CONCAT",
+                                data=[
+                                    {"label": "CONCAT (Ghép chuỗi)", "value": "CONCAT"},
+                                    {"label": "COALESCE (Lấy giá trị đầu tiên khác rỗng)", "value": "COALESCE"},
+                                    {"label": "FORMAT_DATE (Định dạng ngày)", "value": "FORMAT_DATE"},
+                                    {"label": "EXPR (Biểu thức số học)", "value": "EXPR"},
+                                ],
+                                required=True,
+                            ),
+                            dmc.TextInput(
+                                id="wizard-derived-modal-args",
+                                label="Cột / Biểu thức tham số",
+                                placeholder="VD: INV_DATE, YYYY-MM hoặc FIELD1, FIELD2",
+                                className="mono",
+                                description="Các trường hoặc tham số cách nhau bởi dấu phẩy.",
+                                required=True,
+                            ),
+                            dmc.Group(
+                                [
+                                    button_subtle("Hủy", id="wizard-derived-modal-cancel-btn", size="xs"),
+                                    button_primary("Thêm trường", id="wizard-derived-modal-submit-btn", size="xs"),
+                                ],
+                                justify="flex-end",
+                                mt="md",
+                            ),
+                        ],
+                        gap="sm",
+                    )
+                ],
+            ),
             # Header + Stepper fixed top
             dmc.Box(
                 [
@@ -3151,18 +3509,18 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
                             active=0,
                             size="xs",
                             children=[
-                                dmc.StepperStep(label="File mẫu", description="Upload & cấu trúc"),
-                                dmc.StepperStep(label="Định nghĩa trường", description="Chuẩn hóa & ánh xạ"),
-                                dmc.StepperStep(label="Nguồn DB", description="Oracle & điều kiện lọc"),
-                                dmc.StepperStep(label="Profile so sánh", description="Group by & measures"),
-                                dmc.StepperStep(label="Dry-run", description="Chạy thử & kích hoạt"),
+                                dmc.StepperStep(label="File mẫu"),
+                                dmc.StepperStep(label="Định nghĩa trường"),
+                                dmc.StepperStep(label="Nguồn DB"),
+                                dmc.StepperStep(label="Profile so sánh"),
+                                dmc.StepperStep(label="Dry-run"),
                             ],
                         ),
                     ),
                 ],
                 style={
                     "flexShrink": 0,
-                    "padding": "12px 20px 8px 20px",
+                    "padding": "8px 16px 6px 16px",
                     "borderBottom": "1px solid var(--mantine-color-default-border)",
                     "backgroundColor": "var(--mantine-color-body)",
                 },
@@ -3170,7 +3528,7 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
             # Content container: Step content hoặc Diagram content
             html.Div(
                 children=[
-                    html.Div(id="wizard-notification-container", style={"marginBottom": "8px"}),
+                    html.Div(id="wizard-notification-container"),
                     html.Div(id="wizard-step-content", children=html.Div("Đang tải dữ liệu...")),
                     html.Div(id="wizard-diagram-content", style={"display": "none"}),
                     dmc.Box(id="wizard-error-alert-container", mt="md"),
@@ -3179,7 +3537,7 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
                     "flex": "1 1 0%",
                     "minHeight": 0,
                     "overflowY": "auto",
-                    "padding": "16px 20px",
+                    "padding": "10px 16px",
                 },
             ),
             # Fixed Footer Nav: White background capsule buttons (Fluent Compact)
@@ -3190,7 +3548,10 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
                 children=[
                     dmc.Group(
                         [
-                            html.Span(id="wizard-footer-status", style={"fontSize": "11px", "color": "var(--ink-soft, #616161)"}),
+                            html.Span(
+                                id="wizard-footer-status",
+                                style={"fontSize": "11px", "color": "var(--ink-soft, #616161)"},
+                            ),
                         ],
                         gap="md",
                         align="center",
@@ -3246,18 +3607,23 @@ def layout(template_id: str | int | None = None, **kwargs: Any) -> Any:
                 ],
                 style={
                     "flexShrink": 0,
-                    "height": "36px",
-                    "padding": "0 12px",
+                    "height": "38px",
+                    "padding": "0 16px",
                     "borderTop": "1px solid var(--line, #E0E0E0)",
                     "backgroundColor": "var(--surface, #FAFAFA)",
                     "display": "flex",
+                    "alignItems": "center",
+                    "zIndex": 10,
                 },
             ),
         ],
         style={
-            "height": "calc(100vh - 48px)",
+            "height": "100%",
+            "maxHeight": "100%",
+            "minHeight": 0,
             "display": "flex",
             "flexDirection": "column",
+            "flex": "1 1 0%",
             "overflow": "hidden",
             "backgroundColor": "var(--mantine-color-body)",
         },
@@ -3316,7 +3682,7 @@ def handle_wizard_file_upload(
 
     ctx = get_current_ctx()
     if ctx is None:
-        err = alert_box("Phiên làm việc đã hết hạn hoặc bạn chưa đăng nhập.", tone="crit")
+        err = notify_error("Phiên làm việc đã hết hạn hoặc bạn chưa đăng nhập.")
         return dash.no_update, dash.no_update, err, dash.no_update
 
     # 1. Tách chuỗi base64 và giải mã
@@ -3327,13 +3693,13 @@ def handle_wizard_file_upload(
     try:
         content_bytes = base64.b64decode(content_str)
     except Exception as exc:
-        err = alert_box(f"Không thể giải mã dữ liệu file: {exc}", tone="crit")
+        err = notify_error(f"Không thể giải mã dữ liệu file: {exc}")
         return dash.no_update, dash.no_update, err, dash.no_update
 
     # 2. Upload và lưu vào RECON_STORAGE
     upload_res = upload_file(ctx, filename=filename, content=content_bytes)
     if not upload_res.ok or not upload_res.data:
-        err = alert_box(upload_res.message or "Lỗi khi lưu trữ file tải lên.", tone="crit")
+        err = notify_error(upload_res.message or "Lỗi khi lưu trữ file tải lên.")
         return dash.no_update, dash.no_update, err, dash.no_update
 
     storage_path = Path(upload_res.data["storage_path"])
@@ -3342,7 +3708,7 @@ def handle_wizard_file_upload(
     try:
         inspect_res = inspect_sample(storage_path)
     except Exception as exc:
-        err = alert_box(f"Lỗi khi đọc và phân tích cấu trúc file: {exc}", tone="crit")
+        err = notify_error(f"Lỗi khi đọc và phân tích cấu trúc file: {exc}")
         return dash.no_update, dash.no_update, err, dash.no_update
 
     # 4. Đọc 5 dòng xem trước
@@ -3442,9 +3808,8 @@ def handle_wizard_file_upload(
         "preview_rows": preview_rows,
     }
 
-    success_notif = alert_box(
-        f"Đã nạp file '{filename}' thành công: {inspect_res.total_cols} cột, {inspect_res.total_rows} dòng.",
-        tone="ok",
+    success_notif = notify_success(
+        f"Đã nạp file '{filename}' thành công ({inspect_res.total_cols} cột, {inspect_res.total_rows} dòng)."
     )
     return sample_file_data, cfg, None, success_notif
 
@@ -3523,10 +3888,7 @@ def handle_step1_file_params_change(
     if new_sheet == old_sheet and new_header == old_header and new_data == old_data and new_apply == old_apply:
         return dash.no_update, dash.no_update, dash.no_update
     if new_header < 1 or new_data <= new_header:
-        err = alert_box(
-            "Dữ liệu từ dòng phải lớn hơn Dòng header và cả hai phải >= 1.",
-            tone="crit",
-        )
+        err = notify_error("Dữ liệu từ dòng phải lớn hơn Dòng header và cả hai phải >= 1.")
         return dash.no_update, dash.no_update, err
     file_spec["sheet"] = new_sheet
     file_spec["header_row"] = new_header
@@ -3557,7 +3919,7 @@ def handle_step1_file_params_change(
         new_sample["preview_rows"] = raw_df.head(5).select(cols).to_dicts()
         return cfg, new_sample, dash.no_update
     except Exception as exc:
-        err = alert_box(f"Không đọc được sheet/dòng đã chọn: {exc}", tone="crit")
+        err = notify_error(f"Không đọc được sheet/dòng đã chọn: {exc}")
         return dash.no_update, dash.no_update, err
 
 
@@ -3793,20 +4155,23 @@ def handle_select_or_fetch_table(
     res = describe_source(ctx, data_source_id=ds_id, table_name=table_val, schema=schema)
     if not res.ok or not res.data:
         err_msg = res.message or f"Không thể lấy danh sách cột của bảng '{table_val}'."
-        err = alert_box(err_msg, tone="crit")
+        err = notify_error(err_msg)
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, err, cfg
 
     raw_cols = res.data
     db_cols_chips = [(str(c["name"]), str(c.get("data_type", "VARCHAR2"))) for c in raw_cols]
 
     cfg["db_source"]["_columns"] = db_cols_chips
+    cfg["db_source"]["columns"] = db_cols_chips
 
     fields = cfg.get("fields", [])
     updated_fields = _auto_match_db_columns(fields, db_cols_chips)
     cfg["fields"] = updated_fields
 
-    chips_ui = _render_columns_chips(db_cols_chips)
-    mapping_ui = _render_db_mapping_table(updated_fields, db_cols_chips)
+    cur_sql = cfg.get("db_source", {}).get("sql") or ""
+    selected_cols = _extract_selected_columns(cur_sql, updated_fields)
+    chips_ui = _render_columns_chips(db_cols_chips, selected_cols=selected_cols)
+    mapping_ui = _render_split_db_mapping_cards(updated_fields, db_cols_chips, sql_text=cur_sql)
 
     p_from_col = ""
     p_to_col = ""
@@ -3829,7 +4194,20 @@ def handle_select_or_fetch_table(
     )
     gen_sql_str = _render_generated_sql(table_val, updated_fields, p_from_col, p_to_col, p_org_col, extra_filters)
     gen_sql_ui = code_block(gen_sql_str, language="sql")
-    succ_alert = alert_box(f"Đã tải thành công {len(db_cols_chips)} cột từ bảng '{table_val}'.", tone="ok")
+
+    # Chỉ thông báo khi người dùng thực sự nhấn nút Tải lại cột (_fetch_clicks > 0)
+    ctx_dash = dash.callback_context
+    is_manual_fetch = False
+    if _fetch_clicks and _fetch_clicks > 0 and ctx_dash.triggered:
+        for tr in ctx_dash.triggered:
+            if tr.get("prop_id") == "wizard-fetch-table-cols-btn.n_clicks":
+                is_manual_fetch = True
+                break
+    succ_alert = (
+        notify_success(f"Đã tải thành công {len(db_cols_chips)} cột từ bảng '{table_val}'.")
+        if is_manual_fetch
+        else None
+    )
 
     return chips_ui, mapping_ui, filters_ui, gen_sql_ui, succ_alert, cfg
 
@@ -3852,12 +4230,12 @@ def handle_check_custom_sql(
     ds_name: str | None,
     current_config: dict[str, Any] | None,
 ) -> tuple[Any, Any, Any, Any, Any]:
-    """Kiểm tra độ an toàn và trích xuất cột từ câu lệnh SQL tự viết."""
+    """Kiểm tra độ an toàn trên Oracle và lấy toàn bộ cột của bảng nguồn từ database Oracle."""
     if not n_clicks:
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     if not sql_val or not sql_val.strip():
-        err = alert_box("Vui lòng nhập câu lệnh SQL cần kiểm tra.", tone="crit")
+        err = notify_error("Vui lòng nhập câu lệnh SQL cần kiểm tra.")
         return err, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     # Thu thập danh sách các biến bind được phép từ toàn bộ các tham số lọc đã đăng ký
@@ -3877,10 +4255,10 @@ def handle_check_custom_sql(
         if p_name and p_name not in registered_params:
             registered_params.append(p_name)
 
-    # SQL Guard check
+    # 1. SQL Guard check
     is_safe, err_msg = check_sql(sql_val, allowed_params=registered_params)
     if not is_safe:
-        err = alert_box(f"Câu lệnh SQL không hợp lệ: {err_msg}", tone="crit")
+        err = notify_error(f"Câu lệnh SQL không hợp lệ: {err_msg}")
         return err, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     ctx = get_current_ctx()
@@ -3893,26 +4271,66 @@ def handle_check_custom_sql(
         err = alert_box("Không tìm thấy kết nối Data Source phù hợp.", tone="crit")
         return err, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
-    res = describe_source(ctx, data_source_id=ds_id, sql=sql_val, schema=schema, allowed_params=registered_params)
-    if not res.ok or not res.data:
-        err_msg = res.message or "Lỗi khi phân tích cấu trúc cột từ câu lệnh SQL."
-        err = alert_box(err_msg, tone="crit")
+    # 2. Kiểm tra câu lệnh SQL trực tiếp trên database Oracle
+    try:
+        res = describe_source(ctx, data_source_id=ds_id, sql=sql_val, schema=schema, allowed_params=registered_params)
+        raw_cols_data: list[Any] = list(res.data) if hasattr(res, "data") and res.data else (list(res) if isinstance(res, list) else [])
+    except Exception as exc:
+        err = notify_error(f"Lỗi khi phân tích câu lệnh SQL trên Oracle: {exc}")
         return err, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
-    raw_cols = res.data
-    db_cols_chips = [(str(c["name"]), str(c.get("data_type", "VARCHAR2"))) for c in raw_cols]
+    if not raw_cols_data:
+        err = notify_error("Câu lệnh SQL không trả về cột nào.")
+        return err, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
-    cfg = dict(current_config or {})
-    cfg.setdefault("db_source", {})
-    cfg["db_source"]["sql"] = sql_val
-    cfg["db_source"]["_columns"] = db_cols_chips
+    sql_select_cols = [str(c["name"]) for c in raw_cols_data if isinstance(c, dict)]
 
-    fields = cfg.get("fields", [])
+    # 3. Lấy TOÀN BỘ CỘT CỦA BẢNG NGUỒN từ Database Oracle (không chỉ các cột của SELECT)
+    table_name = db_spec.get("table")
+    if not table_name and sql_val:
+        import re
+
+        from_m = re.search(r"\bFROM\s+([a-zA-Z0-9_\.\"]+)", sql_val, re.IGNORECASE)
+        if from_m:
+            table_name = from_m.group(1).replace('"', "").strip()
+            db_spec["table"] = table_name
+
+    db_cols_chips: list[tuple[str, str]] = []
+    if table_name:
+        try:
+            table_desc = describe_source(ctx, data_source_id=ds_id, table_name=table_name, schema=schema)
+            table_cols_data: list[Any] = list(table_desc.data) if hasattr(table_desc, "data") and table_desc.data else (list(table_desc) if isinstance(table_desc, list) else [])
+            if table_cols_data:
+                db_cols_chips = [(str(c["name"]), str(c.get("data_type", "VARCHAR2"))) for c in table_cols_data if isinstance(c, dict)]
+        except Exception:
+            pass
+
+    if not db_cols_chips:
+        # Fallback về các cột của câu SELECT nếu không lấy được từ bảng
+        db_cols_chips = [(str(c["name"]), str(c.get("data_type", "VARCHAR2"))) for c in raw_cols_data if isinstance(c, dict)]
+
+    db_spec["sql"] = sql_val
+    db_spec["_columns"] = db_cols_chips
+    db_spec["columns"] = db_cols_chips
+
+    # 4. Tự động ánh xạ f["db"] cho các trường tương ứng với cột trong câu lệnh SELECT
+    fields = _cleanup_phantom_db_fields(list(cfg.get("fields", [])))
+    sql_cols_upper = {c.upper(): c for c in sql_select_cols}
+    for f in fields:
+        f_name_u = (f.get("name") or "").upper()
+        f_excel_u = (f.get("excel") or "").upper()
+        if f_name_u in sql_cols_upper and not f.get("db"):
+            f["db"] = sql_cols_upper[f_name_u]
+        elif f_excel_u in sql_cols_upper and not f.get("db"):
+            f["db"] = sql_cols_upper[f_excel_u]
+
+    # Auto match các trường còn lại
     updated_fields = _auto_match_db_columns(fields, db_cols_chips)
     cfg["fields"] = updated_fields
 
-    chips_ui = _render_columns_chips(db_cols_chips)
-    mapping_ui = _render_db_mapping_table(updated_fields, db_cols_chips)
+    selected_cols = _extract_selected_columns(sql_val, updated_fields)
+    chips_ui = _render_columns_chips(db_cols_chips, selected_cols=selected_cols)
+    mapping_ui = _render_split_db_mapping_cards(updated_fields, db_cols_chips, sql_text=sql_val)
 
     p_from_col = ""
     p_to_col = ""
@@ -3933,25 +4351,43 @@ def handle_check_custom_sql(
     filters_ui = _render_filter_params_table(
         db_cols_chips, p_from_col, p_to_col, p_org_col, p_org_default, extra_filters
     )
-    succ_alert = alert_box(f"Câu lệnh SQL hợp lệ. Đã phát hiện {len(db_cols_chips)} cột kết quả.", tone="ok")
+    succ_alert = notify_success(
+        f"Câu lệnh SQL hợp lệ ({len(sql_select_cols)} cột kết quả). Đã tải {len(db_cols_chips)} cột từ bảng '{table_name or 'nguồn'}' trên Oracle."
+    )
 
     return succ_alert, chips_ui, mapping_ui, filters_ui, cfg
 
 
 @callback(
     Output("wizard-config-store", "data", allow_duplicate=True),
+    Output("wizard-db-columns-container", "children", allow_duplicate=True),
     Input("wizard-sql-input", "value"),
     State("wizard-config-store", "data"),
     prevent_initial_call=True,
 )
 def handle_sql_input_change(sql_val: str | None, current_config: dict[str, Any] | None) -> Any:
-    """Đồng bộ câu lệnh SQL tự viết vào wizard-config-store khi người dùng chỉnh sửa."""
+    """Đồng bộ câu lệnh SQL tự viết vào wizard-config-store, tự động map f['db'] và cập nhật màu chip cột đã chọn."""
     if sql_val is None or not current_config:
-        return dash.no_update
+        return dash.no_update, dash.no_update
     cfg = dict(current_config)
     cfg.setdefault("db_source", {})
     cfg["db_source"]["sql"] = sql_val
-    return cfg
+    fields = list(cfg.get("fields", []))
+    selected_cols = _extract_selected_columns(sql_val, fields)
+
+    # Tự động gán f["db"] cho các trường tương ứng với cột trong câu SELECT
+    for f in fields:
+        f_name_u = (f.get("name") or "").upper()
+        f_excel_u = (f.get("excel") or "").upper()
+        if f_name_u in selected_cols:
+            f["db"] = f.get("name")
+        elif f_excel_u in selected_cols:
+            f["db"] = f_excel_u
+
+    cfg["fields"] = fields
+    db_cols = cfg.get("db_source", {}).get("columns") or cfg.get("db_source", {}).get("_columns") or []
+    chips_ui = _render_columns_chips(db_cols, selected_cols=selected_cols)
+    return cfg, chips_ui
 
 
 @callback(
@@ -4174,7 +4610,7 @@ def handle_step_navigation(
                 "Bước 5: cấu hình đã thay đổi sau lần Dry-run gần nhất, cần bấm 'Chạy thử' lại trước khi kích hoạt."
             )
         if step_errors:
-            err_box = alert_box(" · ".join(step_errors), tone="crit")
+            err_box = notify_error(" · ".join(step_errors), title="Không thể kích hoạt")
             next_text = "Lưu & kích hoạt" if current_active == 4 else "Tiếp tục"
             return current_active, current_active == 0, next_text, meta or {}, dash.no_update, err_box
         if current_active == 4:
@@ -4211,7 +4647,9 @@ def handle_step_navigation(
 
             template_cfg, errors = form_state_to_config(cfg_dict)
             if template_cfg is None:
-                err_box = alert_box(f"Không thể kích hoạt vì cấu hình chưa hợp lệ: {errors}", tone="crit")
+                err_box = notify_error(
+                    f"Không thể kích hoạt vì cấu hình chưa hợp lệ: {errors}", title="Cấu hình chưa hợp lệ"
+                )
                 return 4, False, "Lưu & kích hoạt", meta or {}, dash.no_update, err_box
 
             # Không lưu nháp lại ở đây: save_draft_template luôn reset DRY_RUN_OK
@@ -4222,15 +4660,15 @@ def handle_step_navigation(
             t_id = (meta or {}).get("template_id")
             ver = (meta or {}).get("version", 1)
             if not t_id:
-                err_box = alert_box(
+                err_box = notify_error(
                     "Chưa có bản nháp đã lưu từ lần Dry-run gần nhất, bấm 'Chạy thử' lại trước khi kích hoạt.",
-                    tone="crit",
+                    title="Chưa chạy Dry-run",
                 )
                 return 4, False, "Lưu & kích hoạt", meta or {}, dash.no_update, err_box
 
             act_res = activate_version(ctx, template_id=t_id, version=ver, dry_run_override=False)
             if not act_res.ok:
-                err_box = alert_box(f"Lỗi khi kích hoạt template: {act_res.message}", tone="crit")
+                err_box = notify_error(f"Lỗi khi kích hoạt template: {act_res.message}", title="Lỗi kích hoạt")
                 return 4, False, "Lưu & kích hoạt", meta or {}, dash.no_update, err_box
             return 4, False, "Lưu & kích hoạt", meta or {}, "/templates", None
 
@@ -4524,7 +4962,7 @@ def handle_save_or_autosave_draft(
     template_cfg, errors = form_state_to_config(config_data)
     if template_cfg is None:
         if is_manual:
-            err_box = alert_box(f"Cấu hình chưa hợp lệ để lưu nháp: {errors}", tone="crit")
+            err_box = notify_error(f"Cấu hình chưa hợp lệ để lưu nháp: {errors}", title="Chưa thể lưu nháp")
             return dash.no_update, dash.no_update, err_box
         return dash.no_update, dash.no_update, dash.no_update
 
@@ -4558,7 +4996,11 @@ def handle_save_or_autosave_draft(
     )
     if not res.ok:
         if is_manual:
-            return dash.no_update, dash.no_update, alert_box(res.message, tone="crit")
+            return (
+                dash.no_update,
+                dash.no_update,
+                notify_error(res.message or "Lỗi khi lưu bản nháp.", title="Lỗi lưu nháp"),
+            )
         return dash.no_update, dash.no_update, dash.no_update
 
     now_str = datetime.now(timezone.utc).strftime("%H:%M:%S")
@@ -4582,7 +5024,7 @@ def handle_save_or_autosave_draft(
 
     notif = None
     if is_manual:
-        notif = alert_box(f"Đã lưu bản nháp v{saved_meta['version']} thành công lúc {now_str}.", tone="ok")
+        notif = notify_success(f"Đã lưu bản nháp v{saved_meta['version']} thành công lúc {now_str}.")
 
     return sub_title, saved_meta, notif
 
@@ -5312,3 +5754,317 @@ def handle_change_extra_filter_values(
 
     gen_sql = _render_generated_sql(table_name, fields, p_from_col, p_to_col, p_org_col, extra_filters)
     return cfg, code_block(gen_sql, language="sql")
+
+
+# --- Callbacks: Double click chip Cột bảng nguồn chèn vào SELECT ---
+@callback(
+    Output("wizard-sql-input", "value", allow_duplicate=True),
+    Output("wizard-config-store", "data", allow_duplicate=True),
+    Output("wizard-chip-click-store", "data"),
+    Output("wizard-notification-container", "children", allow_duplicate=True),
+    Output("wizard-generated-sql-container", "children", allow_duplicate=True),
+    Output("wizard-db-columns-container", "children", allow_duplicate=True),
+    Output("wizard-db-mapping-container", "children", allow_duplicate=True),
+    Input({"type": "wizard-db-col-chip", "col": dash.ALL}, "n_clicks"),
+    State("wizard-sql-input", "value"),
+    State("wizard-config-store", "data"),
+    State("wizard-chip-click-store", "data"),
+    State("wizard-db-mode", "value"),
+    prevent_initial_call=True,
+)
+def handle_double_click_db_column(
+    n_clicks_list: list[int | None],
+    current_sql: str | None,
+    current_config: dict[str, Any] | None,
+    click_store: dict[str, Any] | None,
+    db_mode: str | None,
+) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
+    """Nhấp đúp vào chip cột DB để chèn vào câu lệnh SELECT và đổi màu chip."""
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        raise PreventUpdate
+
+    triggered_prop = ctx_dash.triggered[0]["prop_id"]
+    import json
+
+    try:
+        prop_json_str = triggered_prop.split(".n_clicks")[0]
+        prop_data = json.loads(prop_json_str)
+        col_name = prop_data.get("col")
+    except Exception:
+        raise PreventUpdate from None
+
+    if not col_name:
+        raise PreventUpdate
+
+    import time
+
+    now = time.time()
+    store = dict(click_store or {})
+    last_time = store.get(col_name, 0)
+    store[col_name] = now
+
+    # Double click: khoảng cách 2 lần click <= 0.4s
+    if now - last_time > 0.4:
+        return dash.no_update, dash.no_update, store, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    cfg = dict(current_config or {})
+    cfg.setdefault("db_source", {})
+    table_name = cfg.get("db_source", {}).get("table", "TABLE_NAME")
+    db_cols_chips = cfg.get("db_source", {}).get("columns") or cfg.get("db_source", {}).get("_columns") or []
+
+    # 1. Chèn cột vào SELECT text của wizard-sql-input
+    sql_text = current_sql or cfg.get("db_source", {}).get("sql") or ""
+    if not sql_text.strip():
+        new_sql = f"SELECT\n    {col_name}\nFROM {table_name}\nWHERE 1=1"
+    else:
+        import re
+
+        from_match = re.search(r"\bFROM\b", sql_text, re.IGNORECASE)
+        if from_match:
+            select_part = sql_text[: from_match.start()]
+            if re.search(rf"\b{re.escape(col_name)}\b", select_part, re.IGNORECASE):
+                # Đã có cột trong SELECT, không bắn thông báo, giữ nguyên
+                return dash.no_update, dash.no_update, store, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            before_from = select_part.rstrip()
+            after_from = sql_text[from_match.start() :]
+            new_sql = f"{before_from},\n    {col_name}\n{after_from}"
+        else:
+            if re.search(rf"\b{re.escape(col_name)}\b", sql_text, re.IGNORECASE):
+                return dash.no_update, dash.no_update, store, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            new_sql = f"{sql_text.rstrip()},\n    {col_name}"
+
+    cfg["db_source"]["sql"] = new_sql
+
+    # 2. Cập nhật mapping trường logic nếu có trường nào chưa map khớp tên/nhãn
+    fields = _cleanup_phantom_db_fields(list(cfg.get("fields", [])))
+    col_u = col_name.upper()
+    for f in fields:
+        if not f.get("db"):
+            if (f.get("name") or "").upper() == col_u or (f.get("excel") or "").upper() == col_u:
+                f["db"] = col_name
+                break
+    cfg["fields"] = fields
+
+    p_from_col, p_to_col, p_org_col = "", "", ""
+    for flt in cfg.get("db_source", {}).get("filters", []):
+        if flt.get("param") == "p_from":
+            p_from_col = flt.get("column", p_from_col)
+        elif flt.get("param") == "p_to":
+            p_to_col = flt.get("column", p_to_col)
+        elif flt.get("param") == "p_org":
+            p_org_col = flt.get("column", p_org_col)
+    extra_filters = _extra_filters_from_db_spec(cfg.get("db_source", {}))
+    gen_sql_str = _render_generated_sql(table_name, fields, p_from_col, p_to_col, p_org_col, extra_filters)
+    gen_sql_ui = code_block(gen_sql_str, language="sql")
+
+    # Render lại các chip cột với màu mới: cột đã chèn sẽ đổi sang màu xanh
+    selected_cols = _extract_selected_columns(new_sql, fields)
+    chips_ui = _render_columns_chips(db_cols_chips, selected_cols=selected_cols)
+    mapping_ui = _render_split_db_mapping_cards(fields, db_cols_chips, sql_text=new_sql)
+
+    # Bỏ thông báo toast khi double-click
+    return new_sql, cfg, store, dash.no_update, gen_sql_ui, chips_ui, mapping_ui
+
+
+@callback(
+    Output("wizard-generated-sql-container", "children", allow_duplicate=True),
+    Output("wizard-db-mapping-container", "children", allow_duplicate=True),
+    Input("wizard-step3-subtabs", "value"),
+    State("wizard-sql-input", "value"),
+    State("wizard-config-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_step3_subtab_change(tab_val: str, sql_val: str | None, current_config: dict[str, Any] | None) -> tuple[Any, Any]:
+    """Cập nhật câu lệnh SQL và bảng Mapping DB — Trường logic khi bấm chuyển sub-tab."""
+    if tab_val != "generated_sql" or not current_config:
+        return dash.no_update, dash.no_update
+    cfg = current_config
+    mode_val = cfg.get("db_source", {}).get("kind", "table")
+    cur_sql = sql_val or cfg.get("db_source", {}).get("sql") or ""
+    table_name = cfg.get("db_source", {}).get("table", "")
+    fields = cfg.get("fields", [])
+    p_from_col, p_to_col, p_org_col = "", "", ""
+    for flt in cfg.get("db_source", {}).get("filters", []):
+        if flt.get("param") == "p_from":
+            p_from_col = flt.get("column", p_from_col)
+        elif flt.get("param") == "p_to":
+            p_to_col = flt.get("column", p_to_col)
+        elif flt.get("param") == "p_org":
+            p_org_col = flt.get("column", p_org_col)
+    extra_filters = _extra_filters_from_db_spec(cfg.get("db_source", {}))
+    gen_sql = _render_generated_sql(table_name, fields, p_from_col, p_to_col, p_org_col, extra_filters)
+    active_sql = cur_sql.strip() if (mode_val == "sql" and cur_sql.strip()) else gen_sql
+
+    db_cols_chips = cfg.get("db_source", {}).get("columns") or cfg.get("db_source", {}).get("_columns") or []
+    mapping_ui = _render_split_db_mapping_cards(fields, db_cols_chips, sql_text=active_sql)
+    sql_ui = code_block(active_sql, language="sql")
+    return sql_ui, mapping_ui
+
+
+# --- Callbacks: Thêm trường dẫn xuất (Bước 2) ---
+@callback(
+    Output("wizard-add-derived-modal", "opened"),
+    Output("wizard-derived-modal-name", "value"),
+    Output("wizard-derived-modal-label", "value"),
+    Output("wizard-derived-modal-args", "value"),
+    Input("wizard-add-derived-btn", "n_clicks"),
+    Input("wizard-derived-modal-cancel-btn", "n_clicks"),
+    State("wizard-add-derived-modal", "opened"),
+    prevent_initial_call=True,
+)
+def handle_toggle_derived_modal(open_clicks: Any, cancel_clicks: Any, is_opened: bool) -> tuple[bool, str, str, str]:
+    """Mở / đóng modal thêm trường dẫn xuất."""
+    ctx_dash = dash.callback_context
+    if not ctx_dash.triggered:
+        raise PreventUpdate
+    trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
+    if trigger_id == "wizard-add-derived-btn" and open_clicks:
+        return True, "", "", ""
+    if trigger_id == "wizard-derived-modal-cancel-btn" and cancel_clicks:
+        return False, "", "", ""
+    raise PreventUpdate
+
+
+@callback(
+    Output("wizard-config-store", "data", allow_duplicate=True),
+    Output("wizard-add-derived-modal", "opened", allow_duplicate=True),
+    Output("wizard-step-content", "children", allow_duplicate=True),
+    Output("wizard-notification-container", "children", allow_duplicate=True),
+    Input("wizard-derived-modal-submit-btn", "n_clicks"),
+    State("wizard-derived-modal-name", "value"),
+    State("wizard-derived-modal-label", "value"),
+    State("wizard-derived-modal-type", "value"),
+    State("wizard-derived-modal-fn", "value"),
+    State("wizard-derived-modal-args", "value"),
+    State("wizard-config-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_submit_derived_field(
+    n_clicks: int | None,
+    name_val: str | None,
+    label_val: str | None,
+    type_val: str | None,
+    fn_val: str | None,
+    args_val: str | None,
+    current_config: dict[str, Any] | None,
+) -> tuple[Any, Any, Any, Any]:
+    """Thêm trường dẫn xuất mới vào cấu hình template."""
+    if not n_clicks:
+        raise PreventUpdate
+    d_name = (name_val or "").strip().upper()
+    if not d_name:
+        return dash.no_update, dash.no_update, dash.no_update, notify_error("Vui lòng nhập tên trường logic dẫn xuất.")
+
+    cfg = dict(current_config or {})
+    derived_list = list(cfg.get("derived", []))
+    if any(d.get("name") == d_name for d in derived_list):
+        return dash.no_update, dash.no_update, dash.no_update, notify_error(f"Trường dẫn xuất '{d_name}' đã tồn tại.")
+
+    args_list = [a.strip() for a in (args_val or "").split(",") if a.strip()]
+    new_derived = {
+        "name": d_name,
+        "label": (label_val or d_name).strip(),
+        "type": type_val or "text",
+        "expr": {
+            "fn": fn_val or "CONCAT",
+            "args": args_list,
+        },
+    }
+    derived_list.append(new_derived)
+    cfg["derived"] = derived_list
+
+    step2_ui = render_step_2(cfg)
+    notif = notify_success(f"Đã thêm trường dẫn xuất '{d_name}'.")
+    return cfg, False, step2_ui, notif
+
+
+# --- Callbacks: Gợi ý lại cấu trúc cột từ file mẫu (Bước 2) ---
+@callback(
+    Output("wizard-config-store", "data", allow_duplicate=True),
+    Output("wizard-step-content", "children", allow_duplicate=True),
+    Output("wizard-notification-container", "children", allow_duplicate=True),
+    Input("wizard-re-suggest-btn", "n_clicks"),
+    State("wizard-config-store", "data"),
+    State("wizard-sample-file-store", "data"),
+    State("wizard-meta-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_re_suggest_fields(
+    n_clicks: int | None,
+    current_config: dict[str, Any] | None,
+    sample_data: dict[str, Any] | None,
+    meta_data: dict[str, Any] | None,
+) -> tuple[Any, Any, Any]:
+    """Nạp lại toàn bộ gợi ý cột từ file mẫu cho Bước 2."""
+    if not n_clicks:
+        raise PreventUpdate
+
+    sample = sample_data
+    if not sample and meta_data and meta_data.get("sample_file_id"):
+        sample = _load_sample_file_data(meta_data.get("sample_file_id"))
+
+    if not sample or not sample.get("columns"):
+        return (
+            dash.no_update,
+            dash.no_update,
+            notify_warning("Chưa có thông tin file mẫu. Vui lòng tải file mẫu ở Bước 1."),
+        )
+
+    cfg = dict(current_config or {})
+    existing_fields = list(cfg.get("fields", []))
+    existing_by_excel = {f.get("excel"): f for f in existing_fields if isinstance(f, dict) and f.get("excel")}
+    existing_names = {f.get("name") for f in existing_fields if isinstance(f, dict) and f.get("name")}
+
+    new_fields = []
+    added_count = 0
+    # Giữ lại các trường hiện tại
+    for f in existing_fields:
+        new_fields.append(dict(f))
+
+    # Bổ sung các cột trong file mẫu chưa có trong danh sách
+    for col in sample.get("columns", []):
+        col_name = col.get("name")
+        if not col_name or col_name in existing_by_excel:
+            continue
+        suggested_name = col.get("suggested_field_name") or col_name
+        base_name = suggested_name
+        counter = 1
+        while suggested_name in existing_names:
+            suggested_name = f"{base_name}_{counter}"
+            counter += 1
+        existing_names.add(suggested_name)
+
+        col_type = col.get("suggested_type", "text")
+        norm_rules: list[str] = []
+        if col_type == "text":
+            norm_rules.append("strip")
+        elif col_type == "number":
+            norm_rules.append("round_2")
+
+        sample_vals = col.get("sample_values", [])
+        sample_v = sample_vals[0] if sample_vals else "—"
+
+        new_fields.append(
+            {
+                "name": suggested_name,
+                "label": col_name,
+                "excel": col_name,
+                "excel_aliases": [],
+                "db": suggested_name,
+                "type": col_type,
+                "format": None,
+                "norm": norm_rules,
+                "required": False,
+                "sample_value": sample_v,
+            }
+        )
+        added_count += 1
+
+    cfg["fields"] = new_fields
+    step2_ui = render_step_2(cfg)
+    if added_count > 0:
+        msg = f"Đã nạp lại {len(new_fields)} cột từ file mẫu (bổ sung {added_count} cột mới)."
+    else:
+        msg = f"Đã đồng bộ {len(new_fields)} cột từ file mẫu."
+    return cfg, step2_ui, notify_success(msg)
