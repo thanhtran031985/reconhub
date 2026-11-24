@@ -22,6 +22,10 @@ dependencies = [
     "cryptography>=44.0.0",
     "argon2-cffi>=23.1.0",
     "structlog>=25.1.0",
+    "fastapi>=0.165.0",
+    "uvicorn>=0.54.0",
+    "pyjwt>=2.15.1",
+    "python-multipart>=0.0.34",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +42,7 @@ dev = [
     "ruff>=0.9.0",
     "mypy>=1.14.0",
     "poethepoet>=0.32.0",
+    "httpx>=0.28.1",
 ]
 
 [tool.uv]
@@ -53,13 +58,14 @@ packages = ["app", "worker"]
 [tool.poe.tasks]
 install = "uv sync"
 dev = "python scripts/dev_server.py"
+sso = "uvicorn sso_server.main:app --port 9000 --reload"
 worker = "python -m worker"
 test = "pytest -v"
 test-engine = "pytest tests/ -m \"not oracle\" -v"
 test-oracle = "pytest tests/integration/test_oracle_smoke.py -m oracle -v"
-typecheck = "mypy app worker"
-lint = "ruff check app worker scripts tests"
-format = "ruff format app worker scripts tests"
+typecheck = "mypy app worker sso_server"
+lint = "ruff check app worker scripts tests sso_server"
+format = "ruff format app worker scripts tests sso_server"
 db-migrate = "alembic upgrade head"
 db-seed = "python -m app.cli seed"
 theme = "python scripts/gen_dmc_theme.py"

@@ -88,8 +88,9 @@ def create_app() -> Dash:
             "/_dash-layout",
             "/_dash-dependencies",
             "/favicon.ico",
+            "/auth/sso",
         )
-        if path in ("/login", "/logout") or path.startswith(public_prefixes):
+        if path in ("/login", "/logout", "/sso-flow") or path.startswith(public_prefixes):
             return None
 
         # 3. Với Dash component update khi chưa đăng nhập

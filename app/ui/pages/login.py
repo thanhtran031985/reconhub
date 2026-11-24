@@ -9,6 +9,7 @@ from dash_iconify import DashIconify
 from sqlalchemy import update
 
 from app.core.auth import authenticate_user, hash_password
+from app.core.config import get_settings
 from app.core.session import get_current_ctx, login_session
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_user
@@ -20,9 +21,10 @@ dash.register_page(  # type: ignore[no-untyped-call]
 )
 
 
-def layout(step: str | None = None, **kwargs: Any) -> Any:
+def layout(step: str | None = None, error: str | None = None, **kwargs: Any) -> Any:
     """Giao diện đăng nhập hoặc đổi mật khẩu bắt buộc theo Screen10."""
     ctx = get_current_ctx()
+    settings = get_settings()
 
     if step == "change":
         user_name = ctx.full_name if ctx else "người dùng"
@@ -78,6 +80,33 @@ def layout(step: str | None = None, **kwargs: Any) -> Any:
             ),
         ]
     else:
+        error_alert = None
+        if error:
+            error_alert = dmc.Alert(
+                f"Đăng nhập SSO không thành công: {error}",
+                color="red",
+                icon=DashIconify(icon="lucide:alert-triangle"),
+                mb="md",
+            )
+
+        sso_bottom_section: list[Any] = []
+        if settings.SSO_ENABLED:
+            sso_bottom_section = [
+                dmc.Divider(label="hoặc", labelPosition="center", my="xs"),
+                html.A(
+                    dmc.Button(
+                        "Đăng nhập qua SSO Doanh nghiệp",
+                        fullWidth=True,
+                        color="primary",
+                        variant="light",
+                        size="sm",
+                        leftSection=DashIconify(icon="lucide:shield-check", width=18),
+                    ),
+                    href="/auth/sso/login",
+                    style={"textDecoration": "none", "display": "block"},
+                ),
+            ]
+
         card_content = [
             dmc.Stack(
                 [
@@ -98,6 +127,7 @@ def layout(step: str | None = None, **kwargs: Any) -> Any:
                 ],
                 gap=4,
             ),
+            error_alert if error_alert else html.Div(),
             html.Div(id="login-alert-container"),
             dmc.Stack(
                 [
@@ -132,6 +162,7 @@ def layout(step: str | None = None, **kwargs: Any) -> Any:
                         ta="center",
                         mt="xs",
                     ),
+                    *sso_bottom_section,
                 ],
                 gap="md",
             ),

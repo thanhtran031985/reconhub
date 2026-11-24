@@ -46,6 +46,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 99 | [99-ui-ux-audit-rubric](99-ui-ux-audit-rubric/task.md) — Chuẩn hóa tiêu chí rà soát UI/UX (Astryx Rubric) và tinh chỉnh giao diện Mail Template Studio | ✅ | 98 | feat/99-ui-ux-audit-rubric |
 | 100 | [100-multi-profile-run](100-multi-profile-run/task.md) — Chọn nhiều profile khi chạy đối soát và hỗ trợ hiển thị lịch sử | ✅ | 10, 12 | feat/100-multi-profile-run |
 | 101 | [101-interactive-grid](101-interactive-grid/task.md) — Chuyển grid danh sách sang Interactive Grid (Tabulator) phong cách Oracle APEX | ✅ | 18 | feat/101-interactive-grid |
+| 102 | [102-fastapi-sso](102-fastapi-sso/task.md) — Hệ thống SSO nội bộ độc lập bằng FastAPI, tích hợp Dual-Mode và màn hình Flow SSO | ✅ | 01 | feat/102-fastapi-sso |
 
 Thiết kế: 11 màn (designs/components/Screen01–Screen11), 13 thành phần, Gallery. Giao diện dựng bằng Dash Mantine Components.
 
