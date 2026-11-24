@@ -24,12 +24,10 @@ from app.services.batch_def import (
 from app.services.perm import page_gate
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary
-from app.ui.components.command_bar import command_bar
 from app.ui.components.empty_state import empty_state
 from app.ui.components.modal_confirm import modal_confirm
 from app.ui.components.notification import notify_error, notify_success
 from app.ui.components.page_header import page_header
-from app.ui.components.status_chip import status_chip
 
 try:
     dash.register_page(  # type: ignore[no-untyped-call]
@@ -55,6 +53,87 @@ def _can_write(ctx: Any) -> bool:
     return Role.ADMIN in ctx.roles or Role.TEMPLATE_OWNER in ctx.roles
 
 
+def render_tabulator_toolbar() -> Any:
+    """Thanh công cụ phong cách Oracle APEX Interactive Grid: Quản lý Template/Saved Views."""
+    return dmc.Paper(
+        dmc.Group(
+            [
+                dmc.Group(
+                    [
+                        DashIconify(icon="lucide:layout-grid", width=16, color="var(--ink-soft)"),
+                        dmc.Text("Template/View:", size="xs", fw=600),
+                        dmc.Select(
+                            id="batches-view-select",
+                            data=[{"label": "Mặc định hệ thống", "value": "default"}],
+                            value="default",
+                            size="xs",
+                            w=190,
+                            styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
+                        ),
+                        dmc.Button(
+                            "Lưu vị trí cột",
+                            id="btn-save-view",
+                            size="xs",
+                            color="blue",
+                            style={"height": "28px", "fontSize": "12px"},
+                        ),
+                        dmc.Button(
+                            "Lưu thành View mới...",
+                            id="btn-save-as-view",
+                            size="xs",
+                            variant="default",
+                            style={"height": "28px", "fontSize": "12px"},
+                        ),
+                        dmc.Button(
+                            "Đặt mặc định",
+                            id="btn-set-default",
+                            size="xs",
+                            variant="subtle",
+                            color="gray",
+                            style={"height": "28px", "fontSize": "12px"},
+                        ),
+                        dmc.Button(
+                            "Khôi phục gốc",
+                            id="btn-reset-default",
+                            size="xs",
+                            variant="subtle",
+                            color="gray",
+                            style={"height": "28px", "fontSize": "12px"},
+                        ),
+                        dmc.Button(
+                            "Xóa View",
+                            id="btn-delete-view",
+                            size="xs",
+                            variant="subtle",
+                            color="red",
+                            style={"height": "28px", "fontSize": "12px"},
+                        ),
+                    ],
+                    gap="xs",
+                    align="center",
+                ),
+                html.Span(
+                    id="batches-grid-notification",
+                    style={
+                        "fontSize": "11px",
+                        "color": "#2B8A3E",
+                        "fontWeight": "600",
+                        "transition": "opacity 0.3s ease",
+                        "opacity": "0",
+                    },
+                ),
+            ],
+            justify="space-between",
+            align="center",
+            p="xs",
+        ),
+        withBorder=True,
+        radius="sm",
+        mb="xs",
+        style={"backgroundColor": "var(--surface-2, #FAFAFA)"},
+    )
+
+
 def render_batch_defs_content(
     items: list[dict[str, Any]] | None,
     loading: bool = False,
@@ -63,7 +142,7 @@ def render_batch_defs_content(
     status_filter: str = "",
     can_write: bool = False,
 ) -> Any:
-    """Hàm thuần dựng nội dung danh sách bộ đối soát."""
+    """Hàm thuần dựng nội dung danh sách bộ đối soát dạng Tabulator Interactive Grid."""
     if loading:
         return dmc.Stack(
             [dmc.Skeleton(height=40, radius="sm") for _ in range(5)],
@@ -91,187 +170,32 @@ def render_batch_defs_content(
             ),
         )
 
-    filtered = items
-    if search_term:
-        term = search_term.strip().lower()
-        filtered = [
-            it for it in filtered if term in str(it.get("code", "")).lower() or term in str(it.get("name", "")).lower()
-        ]
-    if status_filter:
-        filtered = [it for it in filtered if it.get("status") == status_filter]
-    if len(filtered) == 0:
-        return empty_state(
-            title="Không có bộ đối soát khớp bộ lọc",
-            description="Hãy thử thay đổi từ khóa tìm kiếm hoặc bỏ bộ lọc trạng thái.",
-        )
+    enriched_items = []
+    for it in (items or []):
+        d = dict(it)
+        d["detail_url"] = f"/batches/{it.get('id')}"
+        enriched_items.append(d)
 
-    rows = []
-    for it in filtered:
-        def_id = int(it.get("id") or 0)
-        status = str(it.get("status", "DRAFT"))
-        menu_items: list[Any] = [
-            dmc.MenuItem(
-                "Mở chi tiết",
-                id={"type": "bdef-action-open", "index": def_id},
-                href=f"/batches/{def_id}",
-                leftSection=DashIconify(icon="lucide:external-link", width=14),
+    return dmc.Box(
+        [
+            render_tabulator_toolbar(),
+            html.Div(
+                id="bdef-tabulator-table",
+                style={
+                    "flex": 1,
+                    "minHeight": "480px",
+                    "width": "100%",
+                },
             ),
-        ]
-        if can_write and status == "DRAFT":
-            menu_items.append(
-                dmc.MenuItem(
-                    "Kích hoạt",
-                    id={"type": "bdef-action-activate", "index": def_id},
-                    leftSection=DashIconify(icon="lucide:play", width=14),
-                )
-            )
-        if can_write and status != "ARCHIVED":
-            menu_items.append(
-                dmc.MenuItem(
-                    "Lưu trữ",
-                    id={"type": "bdef-action-archive", "index": def_id},
-                    color="orange",
-                    leftSection=DashIconify(icon="lucide:archive", width=14),
-                )
-            )
-        if can_write:
-            menu_items.append(
-                dmc.MenuItem(
-                    "Xóa",
-                    id={"type": "bdef-action-delete", "index": def_id},
-                    color="red",
-                    leftSection=DashIconify(icon="lucide:trash-2", width=14),
-                )
-            )
-        rows.append(
-            dmc.TableTr(
-                [
-                    dmc.TableTd(
-                        dmc.Anchor(
-                            dmc.Text(str(it.get("code", "")), className="rh-code", fw=700, size="sm"),
-                            href=f"/batches/{def_id}",
-                            underline=False,
-                        ),
-                        style={"whiteSpace": "nowrap", "verticalAlign": "middle"},
-                    ),
-                    dmc.TableTd(
-                        dmc.Stack(
-                            [
-                                dmc.Text(str(it.get("name", "")), fw=600, size="sm"),
-                                dmc.Text(
-                                    str(it.get("description") or ""),
-                                    size="xs",
-                                    c="dimmed",
-                                )
-                                if it.get("description")
-                                else dmc.Text("", size="xs"),
-                            ],
-                            gap=2,
-                        ),
-                        style={"verticalAlign": "middle"},
-                    ),
-                    dmc.TableTd(
-                        dmc.Group([status_chip(status)], justify="center"),
-                        style={"verticalAlign": "middle", "textAlign": "center"},
-                    ),
-                    dmc.TableTd(
-                        dmc.Text(str(it.get("cnt_items", 0)), size="sm", ta="center"),
-                        style={"verticalAlign": "middle", "textAlign": "center"},
-                    ),
-                    dmc.TableTd(
-                        dmc.Text(str(it.get("max_parallel_per_ds", 2)), size="sm", ta="center"),
-                        style={"verticalAlign": "middle", "textAlign": "center"},
-                    ),
-                    dmc.TableTd(
-                        dmc.Group(
-                            [
-                                dmc.Anchor(
-                                    dmc.ActionIcon(
-                                        DashIconify(icon="lucide:edit-3", width=14),
-                                        variant="subtle",
-                                        color="gray",
-                                        size="sm",
-                                        **{"aria-label": f"Mở {it.get('code')}"},
-                                    ),
-                                    href=f"/batches/{def_id}",
-                                    underline=False,
-                                ),
-                                dmc.Menu(
-                                    [
-                                        dmc.MenuTarget(
-                                            dmc.ActionIcon(
-                                                DashIconify(icon="lucide:more-vertical", width=14),
-                                                variant="subtle",
-                                                color="gray",
-                                                size="sm",
-                                                **{"aria-label": "Thao tác khác"},
-                                            )
-                                        ),
-                                        dmc.MenuDropdown(menu_items),
-                                    ],
-                                    position="bottom-end",
-                                    withArrow=True,
-                                ),
-                            ],
-                            gap="xs",
-                            justify="center",
-                            style={"flexWrap": "nowrap"},
-                        ),
-                        style={"whiteSpace": "nowrap", "verticalAlign": "middle", "textAlign": "center"},
-                    ),
-                ]
-            )
-        )
-
-    th_base: dict[str, Any] = {
-        "position": "sticky",
-        "top": 0,
-        "backgroundColor": "var(--surface-2, #FAFAFA)",
-        "zIndex": 1,
-        "height": "34px",
-        "fontSize": "11px",
-        "fontWeight": 600,
-        "borderBottom": "1px solid var(--line, #E0E0E0)",
-        "whiteSpace": "nowrap",
-        "textAlign": "center",
-    }
-
-    return dmc.Paper(
-        dmc.TableScrollContainer(
-            minWidth=820,
-            style={"flex": 1, "minHeight": 0, "overflow": "auto"},
-            children=dmc.Table(
-                [
-                    dmc.TableThead(
-                        dmc.TableTr(
-                            [
-                                dmc.TableTh("Mã", style={**th_base, "minWidth": "160px"}),
-                                dmc.TableTh("Tên", style={**th_base, "minWidth": "220px", "textAlign": "left"}),
-                                dmc.TableTh("Trạng thái", style={**th_base, "minWidth": "120px"}),
-                                dmc.TableTh("Số mục", style={**th_base, "minWidth": "80px"}),
-                                dmc.TableTh("Song song/DS", style={**th_base, "minWidth": "100px"}),
-                                dmc.TableTh("Thao tác", style={**th_base, "minWidth": "120px"}),
-                            ]
-                        )
-                    ),
-                    dmc.TableTbody(rows),
-                ],
-                striped=False,
-                highlightOnHover=True,
-                verticalSpacing=4,
-                style={"fontSize": "12px"},
-            ),
-        ),
-        withBorder=True,
-        radius="sm",
+            dcc.Store(id="bdef-tabulator-ready-data", data=enriched_items),
+            html.Div(id="bdef-tabulator-dummy-output", style={"display": "none"}),
+        ],
         style={
             "flex": 1,
             "minHeight": 0,
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
-            "backgroundColor": "var(--surface, #FFFFFF)",
-            "border": "1px solid var(--line, #E0E0E0)",
         },
     )
 
@@ -314,34 +238,109 @@ def layout() -> Any:
         actions=header_actions,
     )
 
-    filters = [
-        dmc.Select(
-            id="bdef-filter-status",
-            data=STATUS_OPTIONS,
-            value="",
-            w=180,
-            size="xs",
-            styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
-        ),
-        html.Span(id="bdef-count-text", style={"fontSize": "11px", "color": "var(--ink-soft, #616161)", "marginLeft": "auto"}),
-    ]
-    cmd_bar = command_bar(
-        search_id="bdef-filter-search",
-        search_placeholder="Tìm theo mã hoặc tên bộ...",
-        filters=filters,
-    )
-
     return dmc.Box(
         [
             dcc.Store(id="bdef-store-list"),
             dcc.Store(id="bdef-action-target"),
             dcc.Location(id="bdef-redirect", refresh=True),
             header_node,
-            cmd_bar,
             html.Div(id="bdef-notifications"),
             html.Div(
                 id="bdef-content",
                 style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
+            ),
+            dmc.Modal(
+                id="bdef-save-view-modal",
+                title=dmc.Group(
+                    [
+                        DashIconify(icon="lucide:layout-grid", width=18, color="var(--primary, #2563EB)"),
+                        dmc.Text("Lưu Template / View mới", fw=600, size="sm"),
+                    ],
+                    gap="xs",
+                ),
+                children=dmc.Stack(
+                    [
+                        dmc.TextInput(
+                            id="bdef-new-view-name",
+                            label="Tên Template / View",
+                            placeholder="Nhập tên template (vd: Xem nhanh, Báo cáo cá nhân...)",
+                            withAsterisk=True,
+                            size="sm",
+                        ),
+                        dmc.Checkbox(
+                            id="bdef-new-view-default",
+                            label="Đặt làm giao diện mặc định khi mở trang",
+                            size="sm",
+                        ),
+                        dmc.Group(
+                            [
+                                dmc.Button(
+                                    "Hủy",
+                                    id="bdef-cancel-save-view-btn",
+                                    variant="subtle",
+                                    color="gray",
+                                    size="xs",
+                                ),
+                                dmc.Button(
+                                    "Lưu Template",
+                                    id="bdef-confirm-save-view-btn",
+                                    color="primary",
+                                    size="xs",
+                                ),
+                            ],
+                            justify="flex-end",
+                            gap="xs",
+                            mt="sm",
+                        ),
+                    ],
+                    gap="md",
+                ),
+                opened=False,
+                size="sm",
+                centered=True,
+            ),
+            dmc.Modal(
+                id="bdef-delete-view-modal",
+                title=dmc.Group(
+                    [
+                        DashIconify(icon="lucide:trash-2", width=18, color="#DC2626"),
+                        dmc.Text("Xóa Template / View", fw=600, size="sm", c="#DC2626"),
+                    ],
+                    gap="xs",
+                ),
+                children=dmc.Stack(
+                    [
+                        dmc.Text(
+                            "Bạn có chắc chắn muốn xóa Template / View này? Thao tác này không thể hoàn tác.",
+                            size="sm",
+                            c="dimmed",
+                        ),
+                        dmc.Group(
+                            [
+                                dmc.Button(
+                                    "Hủy",
+                                    id="bdef-cancel-delete-view-btn",
+                                    variant="subtle",
+                                    color="gray",
+                                    size="xs",
+                                ),
+                                dmc.Button(
+                                    "Xóa Template",
+                                    id="bdef-confirm-delete-view-btn",
+                                    color="red",
+                                    size="xs",
+                                ),
+                            ],
+                            justify="flex-end",
+                            gap="xs",
+                            mt="sm",
+                        ),
+                    ],
+                    gap="md",
+                ),
+                opened=False,
+                size="sm",
+                centered=True,
             ),
             modal_confirm(
                 id="bdef-archive-modal",
@@ -372,33 +371,194 @@ def layout() -> Any:
 
 @callback(
     Output("bdef-content", "children"),
-    Output("bdef-count-text", "children"),
     Input("bdef-store-list", "data"),
-    Input("bdef-filter-search", "value"),
-    Input("bdef-filter-status", "value"),
 )
-def _render_list(store_data: Any, search: str | None, status: str | None) -> tuple[Any, str]:
+def _render_list(store_data: Any) -> Any:
     ctx = get_current_ctx()
     if store_data is None:
-        return render_batch_defs_content(None, loading=True), ""
+        return render_batch_defs_content(None, loading=True)
     if isinstance(store_data, dict) and store_data.get("error"):
-        return render_batch_defs_content(None, error=str(store_data["error"])), ""
+        return render_batch_defs_content(None, error=str(store_data["error"]))
     items = store_data if isinstance(store_data, list) else []
-    filtered = items
-    if search:
-        term = search.strip().lower()
-        filtered = [
-            it for it in filtered if term in str(it.get("code", "")).lower() or term in str(it.get("name", "")).lower()
-        ]
-    if status:
-        filtered = [it for it in filtered if it.get("status") == status]
-    content = render_batch_defs_content(
-        store_data,
-        search_term=search or "",
-        status_filter=status or "",
+    return render_batch_defs_content(
+        items,
         can_write=_can_write(ctx),
     )
-    return content, f"{len(filtered)} bộ"
+
+
+dash.clientside_callback(
+    """
+    function(data) {
+        if (!data || !Array.isArray(data)) return "";
+        function mountTabulator() {
+            var container = document.getElementById("bdef-tabulator-table");
+            if (container && window.batchesTabulator && window.batchesTabulator.init) {
+                window.batchesTabulator.init("bdef-tabulator-table", data, true);
+            } else {
+                setTimeout(mountTabulator, 100);
+            }
+        }
+        setTimeout(mountTabulator, 50);
+        return "";
+    }
+    """,
+    Output("bdef-tabulator-dummy-output", "children"),
+    Input("bdef-tabulator-ready-data", "data"),
+)
+
+dash.clientside_callback(
+    """
+    function(n_clicks) {
+        if (n_clicks && window.batchesTabulator) {
+            window.batchesTabulator.saveCurrentView();
+        }
+        return "";
+    }
+    """,
+    Output("batches-grid-notification", "children", allow_duplicate=True),
+    Input("btn-save-view", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+dash.clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return [window.dash_clientside.no_update, window.dash_clientside.no_update, window.dash_clientside.no_update];
+        return [true, "", false];
+    }
+    """,
+    Output("bdef-save-view-modal", "opened"),
+    Output("bdef-new-view-name", "value"),
+    Output("bdef-new-view-default", "checked"),
+    Input("btn-save-as-view", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+dash.clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        return false;
+    }
+    """,
+    Output("bdef-save-view-modal", "opened", allow_duplicate=True),
+    Input("bdef-cancel-save-view-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+dash.clientside_callback(
+    """
+    function(n_clicks, name, isDefault) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        var vName = (name || "").trim();
+        if (!vName) {
+            alert("Vui lòng nhập tên cho Template / View.");
+            return true;
+        }
+        if (window.batchesTabulator && window.batchesTabulator.saveNewView) {
+            window.batchesTabulator.saveNewView(vName, !!isDefault);
+        }
+        return false;
+    }
+    """,
+    Output("bdef-save-view-modal", "opened", allow_duplicate=True),
+    Input("bdef-confirm-save-view-btn", "n_clicks"),
+    State("bdef-new-view-name", "value"),
+    State("bdef-new-view-default", "checked"),
+    prevent_initial_call=True,
+)
+
+dash.clientside_callback(
+    """
+    function(n_clicks, viewId) {
+        if (n_clicks && window.batchesTabulator) {
+            window.batchesTabulator.setDefaultView(viewId || "default");
+        }
+        return "";
+    }
+    """,
+    Output("batches-grid-notification", "children", allow_duplicate=True),
+    Input("btn-set-default", "n_clicks"),
+    State("batches-view-select", "value"),
+    prevent_initial_call=True,
+)
+
+dash.clientside_callback(
+    """
+    function(n_clicks) {
+        if (n_clicks && window.batchesTabulator) {
+            window.batchesTabulator.resetToDefault();
+        }
+        return "";
+    }
+    """,
+    Output("batches-grid-notification", "children", allow_duplicate=True),
+    Input("btn-reset-default", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+dash.clientside_callback(
+    """
+    function(n_clicks, viewId) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        var activeId = (window.batchesTabulator && window.batchesTabulator.activeViewId) ? window.batchesTabulator.activeViewId : viewId;
+        if (!activeId || activeId === "default") {
+            if (window.batchesTabulator && window.batchesTabulator.showStatusNotification) {
+                window.batchesTabulator.showStatusNotification("Không thể xóa View mặc định hệ thống.");
+            }
+            return false;
+        }
+        return true;
+    }
+    """,
+    Output("bdef-delete-view-modal", "opened"),
+    Input("btn-delete-view", "n_clicks"),
+    State("batches-view-select", "value"),
+    prevent_initial_call=True,
+)
+
+dash.clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        return false;
+    }
+    """,
+    Output("bdef-delete-view-modal", "opened", allow_duplicate=True),
+    Input("bdef-cancel-delete-view-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+dash.clientside_callback(
+    """
+    function(n_clicks, viewId) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        var activeId = (window.batchesTabulator && window.batchesTabulator.activeViewId) ? window.batchesTabulator.activeViewId : viewId;
+        if (window.batchesTabulator && window.batchesTabulator.deleteView) {
+            window.batchesTabulator.deleteView(activeId);
+        }
+        return false;
+    }
+    """,
+    Output("bdef-delete-view-modal", "opened", allow_duplicate=True),
+    Input("bdef-confirm-delete-view-btn", "n_clicks"),
+    State("batches-view-select", "value"),
+    prevent_initial_call=True,
+)
+
+dash.clientside_callback(
+    """
+    function(viewId) {
+        if (viewId && window.batchesTabulator) {
+            window.batchesTabulator.applyView(viewId);
+        }
+        return "";
+    }
+    """,
+    Output("batches-grid-notification", "children", allow_duplicate=True),
+    Input("batches-view-select", "value"),
+    prevent_initial_call=True,
+)
 
 
 @callback(

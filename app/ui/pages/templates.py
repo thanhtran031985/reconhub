@@ -218,42 +218,70 @@ def render_templates_content(
                     dmc.MenuDivider(),
                     dmc.MenuItem(
                         "Xóa template",
-                        id={"type": "tmpl-action-delete", "index": action_index},
+                        id={"type": "tmpl-action-delete-menu", "index": action_index},
                         color="red",
                         leftSection=DashIconify(icon="lucide:trash-2", width=14),
                     ),
                 ]
             )
 
+        row_actions: list[Any] = [
+            dmc.Tooltip(
+                label="Sửa",
+                withArrow=True,
+                children=dmc.Anchor(
+                    dmc.ActionIcon(
+                        DashIconify(icon="lucide:edit-3", width=16),
+                        variant="subtle",
+                        color="gray",
+                        size="sm",
+                        **{"aria-label": "Sửa template"},
+                    ),
+                    href=f"/templates/{tid}/edit",
+                    underline=False,
+                ),
+            ),
+        ]
+
+        # Bổ sung nút xóa template, chỉ admin mới thấy
+        if is_admin:
+            row_actions.append(
+                dmc.Tooltip(
+                    label="Xóa template",
+                    withArrow=True,
+                    children=dmc.ActionIcon(
+                        DashIconify(icon="lucide:trash-2", width=16),
+                        id={"type": "tmpl-action-delete", "index": action_index},
+                        variant="subtle",
+                        color="red",
+                        size="sm",
+                        **{"aria-label": "Xóa template"},
+                    ),
+                )
+            )
+
+        row_actions.append(
+            dmc.Menu(
+                [
+                    dmc.MenuTarget(
+                        dmc.ActionIcon(
+                            DashIconify(icon="lucide:more-vertical", width=16),
+                            variant="subtle",
+                            color="gray",
+                            size="sm",
+                            **{"aria-label": "Thao tác khác"},
+                        )
+                    ),
+                    dmc.MenuDropdown(menu_items),
+                ],
+                position="bottom-start",
+                withArrow=True,
+            )
+        )
+
         actions_td = dmc.TableTd(
             dmc.Group(
-                [
-                    dmc.Anchor(
-                        button_subtle("Sửa", icon="lucide:edit-3", size="xs", px=6),
-                        href=f"/templates/{tid}/edit",
-                        underline=False,
-                    ),
-                    dmc.Anchor(
-                        button_subtle("Sơ đồ", icon="lucide:workflow", size="xs", px=6),
-                        href=f"/templates/{tid}/diagram",
-                        underline=False,
-                    ),
-                    dmc.Menu(
-                        [
-                            dmc.MenuTarget(
-                                dmc.ActionIcon(
-                                    DashIconify(icon="lucide:more-vertical", width=16),
-                                    variant="subtle",
-                                    color="gray",
-                                    size="sm",
-                                )
-                            ),
-                            dmc.MenuDropdown(menu_items),
-                        ],
-                        position="bottom-start",
-                        withArrow=True,
-                    ),
-                ],
+                row_actions,
                 gap=4,
                 justify="flex-start",
                 style={"flexWrap": "nowrap"},
@@ -357,7 +385,7 @@ def render_templates_content(
     }
 
     headers = [
-        dmc.TableTh("Thao tác", style={**th_base_style, "width": "140px"}),
+        dmc.TableTh("Thao tác", style={**th_base_style, "width": "110px"}),
         dmc.TableTh("Mã template", style={**th_base_style, "width": "145px"}),
         dmc.TableTh(
             "Tên & Nhận diện file",
@@ -975,17 +1003,25 @@ def handle_archive_template(n_clicks: Any, target_id: Any) -> tuple[bool, Any]:
     Output("tmpl-delete-modal", "opened"),
     Output("tmpl-delete-target-id", "data"),
     Input({"type": "tmpl-action-delete", "index": ALL}, "n_clicks"),
+    Input({"type": "tmpl-action-delete-menu", "index": ALL}, "n_clicks"),
     Input("tmpl-delete-modal-cancel", "n_clicks"),
     State("tmpl-delete-modal", "opened"),
     prevent_initial_call=True,
 )
-def toggle_delete_modal(delete_clicks: list[Any], cancel_clicks: Any, is_opened: bool) -> tuple[bool, Any]:
+def toggle_delete_modal(
+    delete_clicks: list[Any],
+    delete_menu_clicks: list[Any],
+    cancel_clicks: Any,
+    is_opened: bool,
+) -> tuple[bool, Any]:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
         return False, None
 
     trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
-    if "tmpl-delete-modal-cancel" in trigger_id or not any(delete_clicks):
+    has_btn_click = any(bool(c) for c in delete_clicks)
+    has_menu_click = any(bool(c) for c in delete_menu_clicks)
+    if "tmpl-delete-modal-cancel" in trigger_id or not (has_btn_click or has_menu_click):
         return False, None
 
     try:

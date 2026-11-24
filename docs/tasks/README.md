@@ -45,6 +45,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 98 | [98-mail-template-studio](98-mail-template-studio/task.md) — Phân hệ Mail Template Studio (No-Code Email Builder & Multi-Version Engine) | ✅ | 97 | feat/98-mail-template-studio |
 | 99 | [99-ui-ux-audit-rubric](99-ui-ux-audit-rubric/task.md) — Chuẩn hóa tiêu chí rà soát UI/UX (Astryx Rubric) và tinh chỉnh giao diện Mail Template Studio | ✅ | 98 | feat/99-ui-ux-audit-rubric |
 | 100 | [100-multi-profile-run](100-multi-profile-run/task.md) — Chọn nhiều profile khi chạy đối soát và hỗ trợ hiển thị lịch sử | ✅ | 10, 12 | feat/100-multi-profile-run |
+| 101 | [101-interactive-grid](101-interactive-grid/task.md) — Chuyển grid danh sách sang Interactive Grid (Tabulator) phong cách Oracle APEX | ✅ | 18 | feat/101-interactive-grid |
 
 Thiết kế: 11 màn (designs/components/Screen01–Screen11), 13 thành phần, Gallery. Giao diện dựng bằng Dash Mantine Components.
 

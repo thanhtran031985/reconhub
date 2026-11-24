@@ -651,4 +651,46 @@ main > div > div,
   box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
 }
 
+/* Bước 4 Template Wizard: 3 card bằng nhau không scroll trong, vùng SQL không cuộn ngang và mở rộng trọn chiều cao */
+#wizard-step4-right-content,
+#wizard-step4-right-content > .mantine-Grid-root,
+#wizard-step4-right-content > .mantine-Grid-root > .mantine-Grid-col {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+}
+
+#wizard-grouped-sql-container {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+#wizard-grouped-sql-container .mantine-CodeHighlight-root {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  background-color: var(--code-bg, #0F1B33) !important;
+  overflow: hidden !important;
+}
+
+#wizard-grouped-sql-container .mantine-CodeHighlight-code,
+#wizard-grouped-sql-container .mantine-CodeHighlight-code pre,
+#wizard-grouped-sql-container pre,
+#wizard-grouped-sql-container code {
+  flex: 1 !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  margin: 0 !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+  overflow-x: hidden !important;
+  overflow-y: hidden !important;
+}
+
+
 

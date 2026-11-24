@@ -135,7 +135,8 @@ def test_render_step_1_and_step_2(wizard_env, monkeypatch) -> None:
     s1 = str(step1_ui)
     assert "File mẫu" in s1
     assert "Hệ thống phát hiện" in s1
-    assert "Xem trước 5 dòng" in s1
+    assert "Cấu hình file" in s1
+    assert "Dữ liệu mẫu" in s1
 
     # Step 2 render
     step2_ui = render_step_2(form_state)
@@ -176,6 +177,7 @@ def test_render_step_4_profiles_and_measures(wizard_env, monkeypatch) -> None:
     assert "Measures và quy tắc so sánh" in s4
     assert "TOTAL_AMOUNT" in s4
     assert "SQL gộp sinh tự động" in s4
+    assert "SQL gộp sinh tự động (chỉ đọc)" not in s4
 
 
 def test_render_step_5_dry_run_and_activate(wizard_env, monkeypatch) -> None:
@@ -268,7 +270,7 @@ def test_handle_wizard_file_upload(wizard_env, monkeypatch) -> None:
     s1 = str(step1_ui)
     assert "dtp_sample_200.xlsx" in s1
     assert "BÁO CÁO DTP" in s1
-    assert "Xem trước 5 dòng" in s1
+    assert "Dữ liệu mẫu" in s1
 
     # Render Step 2 with populated fields
     step2_ui = render_step_2(cfg)
@@ -509,7 +511,7 @@ def test_step_1_clean_state_when_no_sample_file() -> None:
     assert step1_ui is not None
     s1 = str(step1_ui)
     assert "Kéo thả file Excel hoặc CSV vào đây" in s1
-    assert "Chưa có dữ liệu xem trước" in s1
+    assert "Chưa có dữ liệu mẫu" in s1
     assert "dtp_sample_200.xlsx" not in s1
 
 

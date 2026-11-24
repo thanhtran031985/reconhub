@@ -198,7 +198,7 @@ def test_render_templates_actions_first_and_headers_centered() -> None:
     first_row = table.children[1].children[0]
     first_cell_str = str(first_row.children[0])
     assert "Sửa" in first_cell_str
-    assert "Sơ đồ" in first_cell_str
+    assert "Sơ đồ" not in first_cell_str  # Đã bỏ nút sơ đồ
     assert "Tải file mẫu Excel" in first_cell_str
     assert "TMPL_01" in str(first_row.children[1])
 
@@ -373,9 +373,7 @@ def test_handle_email_modal_actions(
 
         # 2. Cancel modal
         mock_dash_ctx.triggered = [{"prop_id": "tmpl-email-cancel-btn.n_clicks"}]
-        opened_c, _, _, _, _, _, _ = handle_email_modal_actions(
-            None, 1, None, True, None, None, None, None, None, None
-        )
+        opened_c, _, _, _, _, _, _ = handle_email_modal_actions(None, 1, None, True, None, None, None, None, None, None)
         assert opened_c is False
 
         # 3. Submit validation (missing recipients)
@@ -401,3 +399,66 @@ def test_handle_email_modal_actions(
         assert progress_ok == {"display": "none"}
         assert dis_ok is False
         assert "Đã gửi email danh sách template thành công" in str(toast_ok)
+
+
+def test_templates_actions_buttons_edit_diagram_delete() -> None:
+    """Kiểm tra:
+    1. Bỏ nút sơ đồ.
+    2. Nút sửa chỉ để icon và hover hiện title (Tooltip + title).
+    3. Bổ sung nút xóa template trực tiếp, chỉ Admin mới thấy.
+    """
+    mock_items = [
+        {
+            "id": 10,
+            "code": "TMPL_TEST",
+            "name": "Template Test",
+            "file_pattern": "test_*.xlsx",
+            "field_count": 5,
+            "profiles": [],
+            "version": 1,
+            "owner": "admin",
+            "status": "ACTIVE",
+            "last_run": None,
+        }
+    ]
+
+    # 1. Non-admin: chỉ có nút Sửa (icon), không có nút Sơ đồ, không có nút Xóa
+    content_user = render_templates_content(items=mock_items, is_admin=False)
+    user_str = str(content_user)
+    assert "Sơ đồ" not in user_str
+    assert "lucide:edit-3" in user_str
+    assert "Xóa template" not in user_str
+
+    # 2. Admin: có nút Sửa (icon), không có nút Sơ đồ, CÓ nút Xóa template (icon trash-2)
+    content_admin = render_templates_content(items=mock_items, is_admin=True)
+    admin_str = str(content_admin)
+    assert "Sơ đồ" not in admin_str
+    assert "lucide:edit-3" in admin_str
+    assert "lucide:trash-2" in admin_str
+    assert "tmpl-action-delete" in admin_str
+    assert "Xóa template" in admin_str
+
+
+def test_toggle_delete_modal_triggers() -> None:
+    from app.ui.pages.templates import toggle_delete_modal
+
+    # Trigger từ nút xóa trực tiếp trên hàng (tmpl-action-delete)
+    with patch("dash.callback_context") as mock_ctx:
+        mock_ctx.triggered = [{"prop_id": '{"index": 10, "type": "tmpl-action-delete"}.n_clicks'}]
+        opened, target_id = toggle_delete_modal([1], [0], None, False)
+        assert opened is True
+        assert target_id == 10
+
+    # Trigger từ menu dropdown (tmpl-action-delete-menu)
+    with patch("dash.callback_context") as mock_ctx:
+        mock_ctx.triggered = [{"prop_id": '{"index": 10, "type": "tmpl-action-delete-menu"}.n_clicks'}]
+        opened, target_id = toggle_delete_modal([0], [1], None, False)
+        assert opened is True
+        assert target_id == 10
+
+    # Cancel modal
+    with patch("dash.callback_context") as mock_ctx:
+        mock_ctx.triggered = [{"prop_id": "tmpl-delete-modal-cancel.n_clicks"}]
+        opened, target_id = toggle_delete_modal([0], [0], 1, True)
+        assert opened is False
+        assert target_id is None

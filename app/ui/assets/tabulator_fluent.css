@@ -1,0 +1,327 @@
+/* ==========================================================================
+   Tabulator Fluent Compact Theme for ReconHub
+   Chuẩn thiết kế: Fluent Compact (Header 34px, Row 32px, Font Segoe UI)
+   ========================================================================== */
+
+.tabulator {
+    background-color: var(--surface, #FFFFFF);
+    border: 1px solid var(--line, #E2E8F0);
+    border-radius: 6px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 12px;
+    text-align: left;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    width: 100% !important;
+    min-width: 100% !important;
+}
+
+/* Đảm bảo toàn bộ bảng và header luôn tràn đều 100% chiều rộng */
+.tabulator .tabulator-header,
+.tabulator .tabulator-header .tabulator-header-contents,
+.tabulator .tabulator-tableholder,
+.tabulator .tabulator-tableholder .tabulator-table {
+    width: 100% !important;
+    min-width: 100% !important;
+}
+
+/* Header tổng */
+.tabulator .tabulator-header {
+    background-color: var(--surface-2, #F8FAFC);
+    border-bottom: 1px solid var(--line, #E2E8F0);
+    color: var(--ink, #1E293B);
+    font-weight: 600;
+    font-size: 11px;
+    user-select: none;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+}
+
+/* Header từng cột */
+.tabulator .tabulator-header .tabulator-col {
+    background-color: var(--surface-2, #F8FAFC);
+    border-right: 1px solid var(--line, #E2E8F0);
+    padding: 6px 8px 6px 8px;
+    box-sizing: border-box;
+    vertical-align: top;
+    text-align: center !important;
+}
+
+.tabulator .tabulator-header .tabulator-col:hover {
+    background-color: #F1F5F9;
+}
+
+/* 🟢 Tiêu đề cột (Title Header) luôn CANH GIỮA 100% */
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content {
+    text-align: center !important;
+    padding: 0 !important;
+}
+
+.tabulator .tabulator-header .tabulator-col .tabulator-col-title-holder {
+    text-align: center !important;
+    width: 100% !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+}
+
+.tabulator .tabulator-header .tabulator-col .tabulator-col-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: #334155;
+    line-height: 1.2;
+    text-align: center !important;
+    display: block !important;
+    width: 100% !important;
+    margin: 0 auto !important;
+}
+
+.tabulator .tabulator-header .tabulator-col.tabulator-sortable .tabulator-col-title {
+    padding-right: 0px !important;
+}
+
+/* Ô input / select tìm kiếm trên Header (Fluent Compact) */
+.tabulator .tabulator-header .tabulator-col .tabulator-header-filter {
+    margin-top: 5px;
+    width: 100%;
+}
+
+.tab-fluent-filter-input,
+.tab-fluent-filter-select {
+    width: 100%;
+    height: 24px;
+    box-sizing: border-box;
+    padding: 2px 6px;
+    border: 1px solid #CBD5E1;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: inherit;
+    background-color: #FFFFFF;
+    color: #1E293B;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.tabulator .tabulator-header .tabulator-col .tab-fluent-filter-input,
+.tabulator .tabulator-header .tabulator-col .tab-fluent-filter-select {
+    text-align: center;
+    text-align-last: center;
+}
+
+.tab-fluent-filter-input:focus,
+.tab-fluent-filter-select:focus {
+    border-color: #2563EB;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.tab-fluent-filter-input::placeholder {
+    color: #94A3B8;
+}
+
+/* Dòng (Row) styling chuẩn Fluent Compact: 32px min-height */
+.tabulator .tabulator-row {
+    background-color: #FFFFFF;
+    border-bottom: 1px solid #F1F5F9;
+    min-height: 32px;
+}
+
+.tabulator .tabulator-row:hover {
+    background-color: #F8FAFC !important;
+}
+
+.tabulator .tabulator-row.tabulator-row-even {
+    background-color: #FFFFFF;
+}
+
+.tabulator .tabulator-row .tabulator-cell {
+    padding: 6px 8px;
+    border-right: 1px solid #F8FAFC;
+    vertical-align: middle;
+    display: inline-flex;
+    align-items: center;
+    font-size: 12px;
+    color: #1E293B;
+    box-sizing: border-box;
+}
+
+/* 🟢 CANH GIỮA dữ liệu cho các ô được đánh dấu center (Trạng thái, Số mục, Song song/DS, Thao tác) */
+.tabulator .tabulator-row .tabulator-cell[tabulator-field="status"],
+.tabulator .tabulator-row .tabulator-cell[tabulator-field="cnt_items"],
+.tabulator .tabulator-row .tabulator-cell[tabulator-field="max_parallel_per_ds"],
+.tabulator .tabulator-row .tabulator-cell[tabulator-field="actions"],
+.tabulator .tabulator-row .tabulator-cell[tabulator-align="center"],
+.tabulator .tabulator-row .tabulator-cell[style*="text-align: center"],
+.tabulator .tabulator-row .tabulator-cell[style*="text-align:center"] {
+    display: inline-flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    text-align: center !important;
+}
+
+/* Cell typography */
+.tab-cell-code {
+    font-family: Consolas, monospace;
+    font-weight: 700;
+    font-size: 12px;
+    color: #2563EB !important;
+    text-decoration: none;
+}
+.tab-cell-code:hover {
+    text-decoration: underline;
+}
+
+.tab-cell-name-box {
+    line-height: 1.3;
+}
+.tab-cell-name {
+    font-weight: 600;
+    color: #0F172A;
+}
+.tab-cell-desc {
+    font-size: 11px;
+    color: #64748B;
+    margin-top: 1px;
+}
+
+/* Kéo thả cột (Moving Column) highlight */
+.tabulator .tabulator-col.tabulator-moving {
+    background: #EFF6FF !important;
+    border: 1px dashed #2563EB !important;
+    opacity: 0.85;
+}
+
+.tabulator .tabulator-col-placeholder {
+    background: #DBEAFE !important;
+    border: 1px dashed #3B82F6 !important;
+}
+
+/* Status Chips chuẩn Fluent Compact */
+.tab-status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+.tab-status-active {
+    background-color: #DCFCE7;
+    color: #166534;
+    border: 1px solid #BBF7D0;
+}
+.tab-status-draft {
+    background-color: #F1F5F9;
+    color: #475569;
+    border: 1px solid #E2E8F0;
+}
+.tab-status-archived {
+    background-color: #FFEDD5;
+    color: #9A3412;
+    border: 1px solid #FED7AA;
+}
+
+/* Nút icon thao tác */
+.tab-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 4px;
+    background-color: transparent;
+    color: #475569;
+    border: 1px solid transparent;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.tab-icon-btn:hover {
+    background-color: #EFF6FF;
+    color: #2563EB;
+    border-color: #BFDBFE;
+}
+
+/* Nút thao tác text trong cell */
+.tab-btn-detail {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    background-color: #F8FAFC;
+    color: #2563EB;
+    border: 1px solid #CBD5E1;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.tab-btn-detail:hover {
+    background-color: #2563EB;
+    color: #FFFFFF;
+    border-color: #2563EB;
+}
+
+/* Thanh phân trang Footer (Fluent Compact) */
+.tabulator .tabulator-footer {
+    background-color: var(--surface-2, #F8FAFC);
+    border-top: 1px solid var(--line, #E2E8F0);
+    color: #475569;
+    padding: 6px 12px;
+    font-size: 11px;
+    border-bottom-left-radius: 5px;
+    border-bottom-right-radius: 5px;
+}
+
+.tabulator .tabulator-footer .tabulator-paginator {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.tabulator .tabulator-footer .tabulator-paginator button {
+    border: 1px solid #CBD5E1;
+    background: #FFFFFF;
+    color: #334155;
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    font-size: 11px;
+    height: 24px;
+    min-width: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s ease;
+}
+
+.tabulator .tabulator-footer .tabulator-paginator button:hover:not(:disabled) {
+    background-color: #F1F5F9;
+    border-color: #94A3B8;
+}
+
+.tabulator .tabulator-footer .tabulator-paginator button.active {
+    background-color: #2563EB;
+    color: #FFFFFF;
+    border-color: #2563EB;
+    font-weight: 600;
+}
+
+.tabulator .tabulator-footer .tabulator-paginator button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.tabulator .tabulator-footer .tabulator-page-size {
+    border: 1px solid #CBD5E1;
+    background: #FFFFFF;
+    color: #334155;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    height: 24px;
+    outline: none;
+}
