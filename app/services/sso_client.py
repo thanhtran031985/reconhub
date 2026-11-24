@@ -9,9 +9,12 @@ from typing import Any
 
 from sqlalchemy import Engine, select, update
 
+from app.core.audit import write_audit_log
 from app.core.auth import LoginData
 from app.db.metadata import recon_role, recon_user, recon_user_role
 from app.schemas.errors import ErrorCode, ServiceResult
+
+ALLOWED_JIT_ROLES = {"VIEWER", "OPERATOR", "TEMPLATE_OWNER"}
 
 
 def verify_sso_code(
@@ -94,15 +97,35 @@ def sync_sso_user(engine: Engine, sso_profile: dict[str, Any]) -> ServiceResult[
             assigned_roles: list[str] = []
             for r_code in raw_roles:
                 code_upper = str(r_code).strip().upper()
+                # Chỉ chấp nhận role nằm trong ALLOWED_JIT_ROLES (tuyệt đối không cho phép tự cấp ADMIN qua JIT)
+                if code_upper not in ALLOWED_JIT_ROLES:
+                    continue
                 role_id = conn.execute(
                     select(recon_role.c.ID).where(recon_role.c.CODE == code_upper)
                 ).scalar_one_or_none()
 
-                if role_id is None:
-                    ins_role = conn.execute(
+                if role_id is not None:
+                    conn.execute(
+                        recon_user_role.insert().values(
+                            USER_ID=user_id,
+                            ROLE_ID=role_id,
+                            ASSIGNED_BY="SSO",
+                            ASSIGNED_AT=now,
+                            CREATED_AT=now,
+                        )
+                    )
+                    assigned_roles.append(code_upper)
+
+            # Nếu không có role hợp lệ nào, gán role mặc định an toàn VIEWER
+            if not assigned_roles:
+                viewer_role_id = conn.execute(
+                    select(recon_role.c.ID).where(recon_role.c.CODE == "VIEWER")
+                ).scalar_one_or_none()
+                if viewer_role_id is None:
+                    ins_viewer = conn.execute(
                         recon_role.insert().values(
-                            CODE=code_upper,
-                            NAME=str(r_code).strip(),
+                            CODE="VIEWER",
+                            NAME="Chỉ xem",
                             IS_SYSTEM="Y",
                             IS_ACTIVE="Y",
                             CREATED_BY="SSO",
@@ -111,21 +134,37 @@ def sync_sso_user(engine: Engine, sso_profile: dict[str, Any]) -> ServiceResult[
                             UPDATED_AT=now,
                         )
                     )
-                    role_id = ins_role.inserted_primary_key[0]  # type: ignore[index]
+                    viewer_role_id = ins_viewer.inserted_primary_key[0]  # type: ignore[index]
 
                 conn.execute(
                     recon_user_role.insert().values(
                         USER_ID=user_id,
-                        ROLE_ID=role_id,
+                        ROLE_ID=viewer_role_id,
                         ASSIGNED_BY="SSO",
                         ASSIGNED_AT=now,
                         CREATED_AT=now,
                     )
                 )
-                assigned_roles.append(code_upper)
+                assigned_roles = ["VIEWER"]
 
-            roles = assigned_roles or ["VIEWER"]
+            roles = assigned_roles
             session_ver = 1
+
+            # Ghi nhật ký kiểm toán RECON_AUDIT_LOG cho hành động JIT cấp tài khoản
+            write_audit_log(
+                conn=conn,
+                entity="USER",
+                entity_id=user_id,
+                action="USER_JIT_PROVISION",
+                actor="SSO",
+                new_data={
+                    "username": raw_username,
+                    "full_name": full_name,
+                    "email": email,
+                    "roles": roles,
+                },
+                now=now,
+            )
         else:
             user_id = int(user["ID"])
             if user["IS_ACTIVE"] != "Y":

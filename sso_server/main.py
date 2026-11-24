@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import hmac
 import secrets
 import time
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import jwt
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -12,6 +13,7 @@ from pydantic import BaseModel
 
 from sso_server.config import (
     ALLOWED_REDIRECT_HOSTS,
+    SSO_CLIENT_SECRET,
     SSO_CODE_TTL_SECONDS,
     SSO_COOKIE_NAME,
     SSO_JWT_SECRET,
@@ -53,7 +55,9 @@ def get_current_sso_user(request: Request) -> str | None:
     return None
 
 
-def issue_code_and_redirect(username: str, redirect_uri: str) -> RedirectResponse:
+def issue_code_and_redirect(
+    username: str, redirect_uri: str, state: str | None = None
+) -> RedirectResponse:
     """Sinh mã code dùng 1 lần và chuyển hướng về ứng dụng gọi."""
     code = secrets.token_urlsafe(32)
     _AUTH_CODES[code] = {
@@ -63,10 +67,14 @@ def issue_code_and_redirect(username: str, redirect_uri: str) -> RedirectRespons
     }
     delimiter = "&" if "?" in redirect_uri else "?"
     target_url = f"{redirect_uri}{delimiter}code={code}"
+    if state:
+        target_url += f"&state={quote(state)}"
     return RedirectResponse(url=target_url, status_code=302)
 
 
-def render_login_html(redirect_uri: str, error_msg: str | None = None) -> str:
+def render_login_html(
+    redirect_uri: str, error_msg: str | None = None, state: str | None = None
+) -> str:
     """Render giao diện HTML đăng nhập SSO."""
     error_html = ""
     if error_msg:
@@ -192,6 +200,7 @@ def render_login_html(redirect_uri: str, error_msg: str | None = None) -> str:
 
         <form method="POST" action="/login">
             <input type="hidden" name="redirect_uri" value="{redirect_uri}">
+            <input type="hidden" name="state" value="{state or ''}">
             <div class="form-group">
                 <label for="username">Tên đăng nhập</label>
                 <input type="text" id="username" name="username" placeholder="ví dụ: admin, thanh.tran" required autofocus autocomplete="username">
@@ -220,7 +229,7 @@ def health_check() -> dict[str, str]:
 
 
 @app.get("/login", response_class=HTMLResponse)
-def get_login_page(request: Request, redirect_uri: str) -> Any:
+def get_login_page(request: Request, redirect_uri: str, state: str | None = None) -> Any:
     """Trang đăng nhập SSO."""
     if not is_allowed_redirect(redirect_uri):
         raise HTTPException(
@@ -231,9 +240,9 @@ def get_login_page(request: Request, redirect_uri: str) -> Any:
     # Nếu đã có SSO Session Cookie -> tự động cấp code và redirect ngay (Single Sign-On!)
     existing_user = get_current_sso_user(request)
     if existing_user:
-        return issue_code_and_redirect(existing_user, redirect_uri)
+        return issue_code_and_redirect(existing_user, redirect_uri, state=state)
 
-    return HTMLResponse(content=render_login_html(redirect_uri))
+    return HTMLResponse(content=render_login_html(redirect_uri, state=state))
 
 
 @app.post("/login")
@@ -241,6 +250,7 @@ def submit_login(
     redirect_uri: str = Form(...),
     username: str = Form(...),
     password: str = Form(...),
+    state: str | None = Form(None),
 ) -> Any:
     """Xử lý gửi form đăng nhập."""
     if not is_allowed_redirect(redirect_uri):
@@ -250,7 +260,11 @@ def submit_login(
     user = verify_sso_user(norm_user, password)
     if not user:
         return HTMLResponse(
-            content=render_login_html(redirect_uri, error_msg="Tên đăng nhập hoặc mật khẩu không chính xác."),
+            content=render_login_html(
+                redirect_uri,
+                error_msg="Tên đăng nhập hoặc mật khẩu không chính xác.",
+                state=state,
+            ),
             status_code=400,
         )
 
@@ -262,7 +276,7 @@ def submit_login(
     )
 
     # 2. Sinh mã code và redirect
-    response = issue_code_and_redirect(norm_user, redirect_uri)
+    response = issue_code_and_redirect(norm_user, redirect_uri, state=state)
     response.set_cookie(
         key=SSO_COOKIE_NAME,
         value=sso_token,
@@ -281,6 +295,13 @@ class VerifyCodeRequest(BaseModel):
 @app.post("/api/verify-code")
 def verify_code(req: VerifyCodeRequest) -> JSONResponse:
     """Endpoint để ứng dụng client (ReconHub) gọi ngầm đổi mã code lấy profile."""
+    # Kiểm tra tính hợp lệ của client_secret qua hmac để phòng chống Timing Attack
+    if not req.client_secret or not hmac.compare_digest(req.client_secret, SSO_CLIENT_SECRET):
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "message": "Client secret không hợp lệ hoặc bị thiếu"},
+        )
+
     # Lấy và xóa ngay khỏi RAM (chỉ dùng đúng 1 lần)
     record = _AUTH_CODES.pop(req.code, None)
     if not record:

@@ -31,26 +31,30 @@ def test_sso_login_whitelist_check() -> None:
 
 def test_sso_login_flow_and_verify() -> None:
     redirect_uri = "http://localhost:8050/auth/sso/callback"
+    test_state = "test_csrf_token_abc123"
 
-    # 1. Đăng nhập sai pass -> 400
+    # 1. Đăng nhập sai pass -> 400 và giữ nguyên state
     res_wrong = client.post(
         "/login",
         data={
             "username": "admin",
             "password": "wrongpassword",
             "redirect_uri": redirect_uri,
+            "state": test_state,
         },
     )
     assert res_wrong.status_code == 400
     assert "không chính xác" in res_wrong.text
+    assert f'value="{test_state}"' in res_wrong.text
 
-    # 2. Đăng nhập đúng pass -> 302 redirect kèm cookie và code
+    # 2. Đăng nhập đúng pass -> 302 redirect kèm cookie, code và state
     res_correct = client.post(
         "/login",
         data={
             "username": "admin",
             "password": "admin123",
             "redirect_uri": redirect_uri,
+            "state": test_state,
         },
         follow_redirects=False,
     )
@@ -59,16 +63,33 @@ def test_sso_login_flow_and_verify() -> None:
 
     location = res_correct.headers["location"]
     assert "code=" in location
+    assert f"state={test_state}" in location
 
     parsed = urlparse(location)
     query_params = parse_qs(parsed.query)
     auth_code = query_params["code"][0]
     assert auth_code is not None
+    assert query_params["state"][0] == test_state
 
-    # 3. Gọi verify-code qua API
-    verify_res = client.post(
+    # 3. Gọi verify-code thiếu hoặc sai client_secret -> 401
+    verify_no_secret = client.post(
         "/api/verify-code",
         json={"code": auth_code},
+    )
+    assert verify_no_secret.status_code == 401
+    assert "Client secret không hợp lệ" in verify_no_secret.json()["message"]
+
+    verify_wrong_secret = client.post(
+        "/api/verify-code",
+        json={"code": auth_code, "client_secret": "wrong_secret_123"},
+    )
+    assert verify_wrong_secret.status_code == 401
+    assert "Client secret không hợp lệ" in verify_wrong_secret.json()["message"]
+
+    # 4. Gọi verify-code đúng client_secret -> 200
+    verify_res = client.post(
+        "/api/verify-code",
+        json={"code": auth_code, "client_secret": "internal_sso_secret"},
     )
     assert verify_res.status_code == 200
     data = verify_res.json()
@@ -77,10 +98,10 @@ def test_sso_login_flow_and_verify() -> None:
     assert data["full_name"] == "Quản trị viên Hệ thống"
     assert "Admin" in data["roles"]
 
-    # 4. Kiểm tra mã dùng 1 lần (gọi lại cùng code -> 400)
+    # 5. Kiểm tra mã dùng 1 lần (gọi lại cùng code -> 400)
     verify_again = client.post(
         "/api/verify-code",
-        json={"code": auth_code},
+        json={"code": auth_code, "client_secret": "internal_sso_secret"},
     )
     assert verify_again.status_code == 400
     assert "đã được sử dụng" in verify_again.json()["message"]
@@ -122,7 +143,7 @@ def test_sso_expired_code() -> None:
 
     res = client.post(
         "/api/verify-code",
-        json={"code": fake_code},
+        json={"code": fake_code, "client_secret": "internal_sso_secret"},
     )
     assert res.status_code == 400
     assert "đã hết hạn" in res.json()["message"]

@@ -108,24 +108,19 @@ def layout(step: str | None = None, error: str | None = None, **kwargs: Any) -> 
             ]
 
         card_content = [
-            dmc.Stack(
+            dmc.Group(
                 [
-                    dmc.Group(
-                        [
-                            dmc.ThemeIcon(
-                                DashIconify(icon="lucide:layers", width=24),
-                                size="xl",
-                                radius="md",
-                                color="primary",
-                                variant="filled",
-                            ),
-                            dmc.Title("ReconHub", order=2),
-                        ],
-                        gap="sm",
+                    dmc.ThemeIcon(
+                        DashIconify(icon="lucide:layers", width=24),
+                        size="xl",
+                        radius="md",
+                        color="primary",
+                        variant="filled",
                     ),
-                    dmc.Text("Đối soát dữ liệu Excel và Oracle", c="dimmed", size="sm", mb="md"),
+                    dmc.Title("ReconHub", order=2),
                 ],
-                gap=4,
+                gap="sm",
+                mb="md",
             ),
             error_alert if error_alert else html.Div(),
             html.Div(id="login-alert-container"),
