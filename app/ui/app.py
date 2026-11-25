@@ -90,7 +90,7 @@ def create_app() -> Dash:
             "/favicon.ico",
             "/auth/sso",
         )
-        if path in ("/login", "/logout", "/sso-flow") or path.startswith(public_prefixes):
+        if path in ("/login", "/logout", "/sso-flow", "/forgot-password", "/reset-password") or path.startswith(public_prefixes):
             return None
 
         # 3. Với Dash component update khi chưa đăng nhập
@@ -98,7 +98,7 @@ def create_app() -> Dash:
             if path == "/_dash-update-component":
                 # Cho phép callback trang login và layout gốc khi chưa đăng nhập
                 referer = request.headers.get("Referer", "")
-                if not referer or "/login" in referer:
+                if not referer or "/login" in referer or "/forgot-password" in referer or "/reset-password" in referer:
                     return None
                 try:
                     payload = request.get_json(silent=True) or {}
@@ -108,6 +108,8 @@ def create_app() -> Dash:
                         or "login-" in output
                         or "change-" in output
                         or "app-location" in output
+                        or "forgot-" in output
+                        or "reset-" in output
                     ):
                         return None
                 except Exception:

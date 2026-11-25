@@ -21,7 +21,7 @@ dash.register_page(  # type: ignore[no-untyped-call]
 )
 
 
-def layout(step: str | None = None, error: str | None = None, **kwargs: Any) -> Any:
+def layout(step: str | None = None, error: str | None = None, msg: str | None = None, **kwargs: Any) -> Any:
     """Giao diện đăng nhập hoặc đổi mật khẩu bắt buộc theo Screen10."""
     ctx = get_current_ctx()
     settings = get_settings()
@@ -80,12 +80,19 @@ def layout(step: str | None = None, error: str | None = None, **kwargs: Any) -> 
             ),
         ]
     else:
-        error_alert = None
+        status_alert = None
         if error:
-            error_alert = dmc.Alert(
+            status_alert = dmc.Alert(
                 f"Đăng nhập SSO không thành công: {error}",
                 color="red",
                 icon=DashIconify(icon="lucide:alert-triangle"),
+                mb="md",
+            )
+        elif msg == "reset_success":
+            status_alert = dmc.Alert(
+                "Đặt lại mật khẩu thành công. Vui lòng đăng nhập bằng mật khẩu mới của bạn.",
+                color="green",
+                icon=DashIconify(icon="lucide:check-circle"),
                 mb="md",
             )
 
@@ -122,7 +129,7 @@ def layout(step: str | None = None, error: str | None = None, **kwargs: Any) -> 
                 gap="sm",
                 mb="md",
             ),
-            error_alert if error_alert else html.Div(),
+            status_alert if status_alert else html.Div(),
             html.Div(id="login-alert-container"),
             dmc.Stack(
                 [
@@ -150,12 +157,13 @@ def layout(step: str | None = None, error: str | None = None, **kwargs: Any) -> 
                         size="sm",
                         mt="sm",
                     ),
-                    dmc.Text(
-                        "Quên mật khẩu: liên hệ Admin để được đặt lại.",
-                        c="dimmed",
+                    dmc.Anchor(
+                        "Quên mật khẩu?",
+                        href="/forgot-password",
                         size="xs",
                         ta="center",
                         mt="xs",
+                        style={"display": "block", "textAlign": "center"},
                     ),
                     *sso_bottom_section,
                 ],

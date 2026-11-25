@@ -1,7 +1,7 @@
 {
   "database": "sqlite",
   "generated": true,
-  "generated_at": "2026-11-18T05:05:17.091245+00:00",
+  "generated_at": "2026-11-25T07:59:50.417630+00:00",
   "generator": "schema-introspect",
   "schema": "main",
   "tables": [
@@ -3658,6 +3658,111 @@
         },
         {
           "default": null,
+          "foreign_key": "RECON_USER.ID",
+          "name": "USER_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TOKEN_HASH",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(64)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "EXPIRES_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "N",
+          "foreign_key": null,
+          "name": "IS_USED",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(1)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_IP",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        }
+      ],
+      "description": "Token đặt lại mật khẩu qua email",
+      "domain": "core",
+      "domain_label": "Core",
+      "foreign_keys": [
+        {
+          "column": "USER_ID",
+          "constraint_name": "fk_RECON_PASSWORD_RESET_TOKEN_USER_ID_RECON_USER",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_USER"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "TOKEN_HASH"
+          ],
+          "name": "ix_recon_pwd_reset_token_hash",
+          "unique": false
+        },
+        {
+          "columns": [
+            "USER_ID",
+            "EXPIRES_AT"
+          ],
+          "name": "ix_recon_pwd_reset_user_expires",
+          "unique": false
+        }
+      ],
+      "name": "RECON_PASSWORD_RESET_TOKEN",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0016_password_reset_token",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
           "foreign_key": null,
           "name": "SCOPE",
           "nullable": false,
@@ -6861,6 +6966,6 @@
       "unique_constraints": []
     }
   ],
-  "version": "0015_mail_template_studio",
+  "version": "0016_password_reset_token",
   "warnings": []
 }

@@ -39,6 +39,7 @@ DOMAIN_LABELS: dict[str, str] = {
 # Quy tắc "lai" đã chốt (task.md mục Domain Mapping): tiền tố + ngoại lệ.
 _CORE_EXACT = {
     "RECON_LOGIN_LOG",
+    "RECON_PASSWORD_RESET_TOKEN",
     "RECON_AUDIT_LOG",
     "RECON_APP_SETTING",
     "RECON_METADATA_MIGRATION",
@@ -53,6 +54,7 @@ TABLE_DESCRIPTIONS: dict[str, str] = {
     "RECON_ROLE": "Vai trò",
     "RECON_ROLE_MENU": "Quyền menu của vai trò",
     "RECON_LOGIN_LOG": "Lịch sử đăng nhập",
+    "RECON_PASSWORD_RESET_TOKEN": "Token đặt lại mật khẩu qua email",
     "RECON_AUDIT_LOG": "Nhật ký kiểm tra (audit)",
     "RECON_APP_SETTING": "Cài đặt ứng dụng",
     "RECON_DATA_SOURCE": "Nguồn dữ liệu (Data Source)",

@@ -881,6 +881,9 @@ def create_shell_layout() -> Any:
     )
 
 
+_SHELLLESS_PATHS = frozenset({"/login", "/forgot-password", "/reset-password"})
+
+
 @callback(
     Output("app-shell-container", "children"),
     Input("app-location", "pathname"),
@@ -889,7 +892,7 @@ def create_shell_layout() -> Any:
 def render_app_shell(pathname: str | None, is_collapsed_data: Any) -> Any:
     ctx = get_current_ctx()
 
-    if pathname == "/login":
+    if pathname in _SHELLLESS_PATHS:
         return html.Div(
             [
                 dash.page_container,
@@ -1000,7 +1003,7 @@ def handle_perm_revision_check(
     _n_intervals: int, last_revision: Any, is_collapsed_data: Any, pathname: str | None
 ) -> tuple[Any, Any]:
     """Dựng lại thanh bên khi PERM_REVISION đổi (quyền vừa bị thu/hồi)."""
-    if pathname == "/login":
+    if pathname in _SHELLLESS_PATHS:
         raise dash.exceptions.PreventUpdate
     try:
         revision = get_perm_revision()
@@ -1037,7 +1040,7 @@ def handle_sidebar_toggle(n_clicks: Any, current: Any) -> bool:
 )
 def sync_sidebar_ui(is_collapsed: Any, pathname: str | None) -> tuple[Any, ...]:
     """Cập nhật giao diện navbar (width, icons, tooltips) theo trạng thái collapsed."""
-    if pathname == "/login":
+    if pathname in _SHELLLESS_PATHS:
         raise dash.exceptions.PreventUpdate
 
     is_mini = bool(is_collapsed)
@@ -1175,7 +1178,7 @@ def handle_notif_poll(_n_intervals: int, pathname: str | None) -> tuple[str, boo
     (D8) — đổi trang chỉ đếm badge.
     """
     ctx = get_current_ctx()
-    if ctx is None or pathname == "/login":
+    if ctx is None or pathname in _SHELLLESS_PATHS:
         raise dash.exceptions.PreventUpdate
     try:
         triggered = dash.callback_context.triggered_id

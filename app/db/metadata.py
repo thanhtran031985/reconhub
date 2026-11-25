@@ -214,6 +214,20 @@ recon_login_log = Table(
     Index("ix_recon_login_log_username_created_at", "USERNAME", "CREATED_AT"),
 )
 
+recon_password_reset_token = Table(
+    "RECON_PASSWORD_RESET_TOKEN",
+    metadata,
+    pk_id_column(),
+    Column("USER_ID", BigInteger().with_variant(Integer, "sqlite"), ForeignKey("RECON_USER.ID"), nullable=False),
+    Column("TOKEN_HASH", String(64), nullable=False),
+    Column("EXPIRES_AT", DateTime, nullable=False),
+    Column("IS_USED", String(1), nullable=False, default="N"),
+    Column("CREATED_AT", DateTime, nullable=False),
+    Column("CREATED_IP", String(60), nullable=True),
+    Index("ix_recon_pwd_reset_token_hash", "TOKEN_HASH"),
+    Index("ix_recon_pwd_reset_user_expires", "USER_ID", "EXPIRES_AT"),
+)
+
 recon_audit_log = Table(
     "RECON_AUDIT_LOG",
     metadata,
