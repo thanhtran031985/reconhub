@@ -107,6 +107,7 @@ class TestEffectiveMenus:
             "batch_def",
             "report_center",
             "report_history",
+            "report_model",
             "queue_health",
             "notifications",
         }
