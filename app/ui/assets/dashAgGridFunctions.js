@@ -163,3 +163,66 @@ dagcomp.reconRunsActionsCell = function (props) {
     buttons
   );
 };
+
+/* Task 107 Bước 1: Model Center (/report-models) status & actions renderers. */
+dagcomp.rmModelStatusCell = function (props) {
+  var colors = {
+    ACTIVE: 'var(--ok)',
+    VALIDATED: 'var(--info)',
+    DRAFT: 'var(--warn)',
+    ARCHIVED: 'var(--ink-soft)',
+  };
+  var code = (props.data && props.data.status) || 'DRAFT';
+  var color = colors[code] || 'var(--ink-soft)';
+  return React.createElement(
+    'span',
+    { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', color: color, fontWeight: 600 } },
+    React.createElement('span', {
+      style: {
+        width: '7px',
+        height: '7px',
+        borderRadius: '50%',
+        backgroundColor: color,
+        display: 'inline-block',
+        flexShrink: 0,
+      },
+    }),
+    props.value || code
+  );
+};
+
+dagcomp.rmModelActionsCell = function (props) {
+  var Button = window.dash_mantine_components.Button;
+  var Icon = window.dash_iconify.DashIconify;
+  var row = props.data || {};
+  var modelId = row.id;
+  var isArchived = !!row.is_archived;
+
+  function mk(action, label, icon, color, disabled) {
+    return React.createElement(
+      Button,
+      {
+        key: action,
+        size: 'xs',
+        variant: 'subtle',
+        color: color || undefined,
+        disabled: !!disabled,
+        'aria-label': label + ' ' + (row.code || ''),
+        leftSection: React.createElement(Icon, { icon: icon, width: 14 }),
+        onClick: function () {
+          props.setData({ action: action, id: modelId, ts: Date.now() });
+        },
+      },
+      label
+    );
+  }
+
+  return React.createElement(
+    'div',
+    { style: { display: 'flex', gap: '2px', alignItems: 'center' } },
+    mk('open', 'Mở Studio', 'lucide:boxes', undefined, false),
+    mk('clone', 'Clone', 'lucide:copy', undefined, false),
+    mk('impact', 'Ảnh hưởng', 'lucide:git-branch', undefined, false),
+    mk('archive', 'Lưu trữ', 'lucide:archive', 'red', isArchived)
+  );
+};
