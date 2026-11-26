@@ -25,7 +25,7 @@ def _tables(manifest: dict) -> dict[str, dict]:
 
 def test_extract_model_schema_has_46_tables():
     tables = si.extract_model_schema()
-    assert len(tables) == 50
+    assert len(tables) == 52
     names = {t["name"] for t in tables}
     assert names == set(metadata.tables.keys())
     assert [t["name"] for t in tables] == sorted(names)
@@ -122,7 +122,7 @@ def test_domain_mapping_counts():
     counts: dict[str, int] = {}
     for t in tables.values():
         counts[t["domain"]] = counts.get(t["domain"], 0) + 1
-    assert counts == {"core": 11, "recon": 21, "report": 11, "admin": 7}
+    assert counts == {"core": 13, "recon": 21, "report": 11, "admin": 7}
     assert "other" not in counts
     assert _manifest()["warnings"] == []
 
@@ -161,7 +161,7 @@ def test_build_manifest_header_and_version():
     assert manifest["generator"] == "schema-introspect"
     assert manifest["database"] == "sqlite"
     assert manifest["schema"] == "main"
-    assert manifest["version"] == "0016_password_reset_token"  # task 103
+    assert manifest["version"] == "0017_multi_sso_oidc"  # task 105
     tables = _tables(manifest)
     assert tables["RECON_USER"]["source"] == {"model": "app/db/metadata.py", "migration": "0001_init"}
     assert tables["RECON_LOOKUP_CODE"]["source"]["migration"] == "0002_add_lookup_tables"

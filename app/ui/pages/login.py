@@ -13,12 +13,16 @@ from app.core.config import get_settings
 from app.core.session import get_current_ctx, login_session
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_user
+from app.services.sso_provider import list_active_login_providers
 
-dash.register_page(  # type: ignore[no-untyped-call]
-    __name__,
-    path="/login",
-    title="Đăng nhập – ReconHub",
-)
+try:
+    dash.register_page(  # type: ignore[no-untyped-call]
+        __name__,
+        path="/login",
+        title="Đăng nhập – ReconHub",
+    )
+except Exception:
+    pass
 
 
 def layout(step: str | None = None, error: str | None = None, msg: str | None = None, **kwargs: Any) -> Any:
@@ -98,21 +102,28 @@ def layout(step: str | None = None, error: str | None = None, msg: str | None = 
 
         sso_bottom_section: list[Any] = []
         if settings.SSO_ENABLED:
-            sso_bottom_section = [
-                dmc.Divider(label="hoặc", labelPosition="center", my="xs"),
-                html.A(
-                    dmc.Button(
-                        "Đăng nhập qua SSO Doanh nghiệp",
-                        fullWidth=True,
-                        color="primary",
-                        variant="light",
-                        size="sm",
-                        leftSection=DashIconify(icon="lucide:shield-check", width=18),
-                    ),
-                    href="/auth/sso/login",
-                    style={"textDecoration": "none", "display": "block"},
-                ),
-            ]
+            engine = get_recon_engine()
+            providers = list_active_login_providers(engine)
+            if providers:
+                sso_buttons = [
+                    html.A(
+                        dmc.Button(
+                            p.name,
+                            fullWidth=True,
+                            color="primary",
+                            variant="light",
+                            size="sm",
+                            leftSection=DashIconify(icon=p.icon or "lucide:shield-check", width=18),
+                        ),
+                        href=f"/auth/sso/{p.code}/login",
+                        style={"textDecoration": "none", "display": "block"},
+                    )
+                    for p in providers
+                ]
+                sso_bottom_section = [
+                    dmc.Divider(label="hoặc", labelPosition="center", my="xs"),
+                    dmc.Stack(sso_buttons, gap="xs"),
+                ]
 
         card_content = [
             dmc.Group(
@@ -184,10 +195,11 @@ def layout(step: str | None = None, error: str | None = None, msg: str | None = 
                     w=380,
                     style={"maxWidth": "95vw"},
                 ),
-                style={"height": "100vh", "backgroundColor": "var(--bg, #F5F5F5)", "overflow": "hidden"},
+                py="md",
+                style={"minHeight": "100vh", "backgroundColor": "var(--bg)", "overflowY": "auto"},
             ),
         ],
-        style={"height": "100vh", "overflow": "hidden"},
+        style={"minHeight": "100vh"},
     )
 
 

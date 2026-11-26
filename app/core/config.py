@@ -33,11 +33,12 @@ class Settings(BaseSettings):
     LOGIN_MAX_FAILS: int = 5
     LOGIN_LOCK_MINUTES: int = 15
 
-    # SSO nội bộ (FastAPI)
+    # SSO nội bộ & Multi-SSO (OIDC)
     SSO_ENABLED: bool = False
     SSO_SERVER_URL: str = "http://localhost:9000"
     SSO_CLIENT_SECRET: str = "internal_sso_secret"
     SSO_CALLBACK_PATH: str = "/auth/sso/callback"
+    PUBLIC_BASE_URL: str = ""
 
     # Thư mục lưu trữ
     RECON_STORAGE_DIR: str = "./storage"
