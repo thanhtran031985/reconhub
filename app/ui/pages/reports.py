@@ -13,7 +13,6 @@ from dash_iconify import DashIconify
 from app.core.session import get_current_ctx
 from app.services.perm import effective_menus, page_gate
 from app.services.report import create_report, list_reports, set_report_favorite
-from app.services.report_template import list_templates
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.command_bar import command_bar
@@ -299,15 +298,10 @@ def layout() -> Any:
         try:
             res = list_reports(ctx)
             if res.ok and isinstance(res.data, list):
-                for r in res.data:
-                    count = 0
-                    try:
-                        t_res = list_templates(ctx, int(r["id"]))
-                        if t_res.ok and isinstance(t_res.data, list):
-                            count = len(t_res.data)
-                    except Exception:
-                        count = 0
-                    reports.append({**r, "template_count": count})
+                reports = [
+                    {**r, "template_count": int(r.get("template_count") or 0)}
+                    for r in res.data
+                ]
             else:
                 load_error = res.message if res else "Không tải được danh sách báo cáo."
         except Exception as exc:

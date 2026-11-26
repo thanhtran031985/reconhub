@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from weakref import WeakKeyDictionary
 
 import oracledb
 from sqlalchemy import Engine, create_engine, func, select, text, update
@@ -200,6 +201,7 @@ def create_data_source(ctx: Ctx, dto: DataSourceCreateDTO) -> DataSourceResponse
         )
 
         row = conn.execute(select(recon_data_source).where(recon_data_source.c.ID == ds_id)).mappings().one()
+        invalidate_active_environment_cache()
         return _build_ds_response(row)
 
 
@@ -265,6 +267,7 @@ def update_data_source(
         )
 
         updated_row = conn.execute(select(recon_data_source).where(recon_data_source.c.ID == ds_id)).mappings().one()
+        invalidate_active_environment_cache()
         return _build_ds_response(updated_row)
 
 
@@ -309,13 +312,29 @@ def activate_data_source(
         )
 
         updated_row = conn.execute(select(recon_data_source).where(recon_data_source.c.ID == ds_id)).mappings().one()
+        invalidate_active_environment_cache()
         return _build_ds_response(updated_row)
 
 
+_ACTIVE_ENV_CACHE: WeakKeyDictionary[Engine, tuple[str, float]] = WeakKeyDictionary()
+_ACTIVE_ENV_TTL_S = 30.0
+
+
+def invalidate_active_environment_cache() -> None:
+    """Xóa cache môi trường nguồn đang active."""
+    _ACTIVE_ENV_CACHE.clear()
+
+
 def get_active_environment() -> str:
-    """Lấy môi trường nguồn đang active (ví dụ DEV, TEST, UAT, PROD)."""
+    """Lấy môi trường nguồn đang active (ví dụ DEV, TEST, UAT, PROD) kèm cache 30s."""
     try:
         engine = get_recon_engine()
+        now = time.monotonic()
+        cached = _ACTIVE_ENV_CACHE.get(engine)
+        if cached is not None and (now - cached[1]) < _ACTIVE_ENV_TTL_S:
+            return cached[0]
+
+        env_val: str | None = None
         with engine.connect() as conn:
             row = conn.execute(
                 select(recon_data_source.c.ENV)
@@ -324,7 +343,11 @@ def get_active_environment() -> str:
                 .order_by(recon_data_source.c.UPDATED_AT.desc())
             ).fetchone()
             if row and row[0]:
-                return str(row[0])
+                env_val = str(row[0])
+        if env_val is None:
+            env_val = get_settings().APP_ENV
+        _ACTIVE_ENV_CACHE[engine] = (env_val, now)
+        return env_val
     except Exception:
         pass
     return get_settings().APP_ENV
@@ -373,6 +396,7 @@ def deactivate_data_source(
         )
 
         updated_row = conn.execute(select(recon_data_source).where(recon_data_source.c.ID == ds_id)).mappings().one()
+        invalidate_active_environment_cache()
         return _build_ds_response(updated_row)
 
 

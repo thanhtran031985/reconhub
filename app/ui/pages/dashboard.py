@@ -9,6 +9,7 @@ from dash import Input, Output, State, callback, dcc, html
 
 from app.core.context import Ctx
 from app.core.session import get_current_ctx
+from app.db.engine import get_recon_engine
 from app.services.dashboard import get_dashboard_summary
 from app.services.perm import page_gate
 from app.ui.components.alert_box import alert_box
@@ -19,6 +20,7 @@ from app.ui.components.page_header import page_header
 from app.ui.components.status_chip import status_chip
 from app.ui.formatters import format_bytes
 from app.ui.layout.shell import first_nav_href
+from app.ui.layout_cache import cached_layout
 
 try:
     dash.register_page(__name__, path="/", title="Dashboard – ReconHub")  # type: ignore[no-untyped-call]
@@ -490,28 +492,7 @@ def render_recent_runs_card(recent_items: list[dict[str, Any]], page: int = 1, p
     )
 
 
-def layout() -> Any:
-    """Giao diện chính màn hình Dashboard."""
-    ctx = get_current_ctx()
-    gate = page_gate(ctx, MENU_CODE)
-    if gate:
-        if gate == "/suspended":
-            # Q2 (task 20): trang chủ bị ẩn thì về menu đầu tiên người
-            # dùng có, thay vì trang "Chức năng tạm ngưng".
-            first = first_nav_href(ctx)
-            if first:
-                return html.Div(
-                    [
-                        dcc.Location(id="dashboard-forbidden-redirect", href=first),
-                        alert_box("Dashboard đang tạm ẩn, bạn được chuyển tới mục đầu tiên.", tone="warn"),
-                    ]
-                )
-        return html.Div(
-            [
-                dcc.Location(id="dashboard-forbidden-redirect", href=gate),
-                alert_box("Bạn không có quyền truy cập Dashboard.", tone="crit"),
-            ]
-        )
+def _build_dashboard_layout() -> Any:
     return dmc.Box(
         [
             dcc.Store(id="dashboard-refresh-trigger", data=0),
@@ -535,6 +516,35 @@ def layout() -> Any:
             ),
         ],
         style={"height": "100%", "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
+    )
+
+
+def layout() -> Any:
+    """Giao diện chính màn hình Dashboard."""
+    ctx = get_current_ctx()
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
+        if gate == "/suspended":
+            # Q2 (task 20): trang chủ bị ẩn thì về menu đầu tiên người
+            # dùng có, thay vì trang "Chức năng tạm ngưng".
+            first = first_nav_href(ctx)
+            if first:
+                return html.Div(
+                    [
+                        dcc.Location(id="dashboard-forbidden-redirect", href=first),
+                        alert_box("Dashboard đang tạm ẩn, bạn được chuyển tới mục đầu tiên.", tone="warn"),
+                    ]
+                )
+        return html.Div(
+            [
+                dcc.Location(id="dashboard-forbidden-redirect", href=gate),
+                alert_box("Bạn không có quyền truy cập Dashboard.", tone="crit"),
+            ]
+        )
+    return cached_layout(
+        get_recon_engine(),
+        ("dashboard",),
+        _build_dashboard_layout,
     )
 
 

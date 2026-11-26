@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import time
 import unicodedata
 from typing import Any
+from weakref import WeakKeyDictionary
 
 import dash
 import dash_mantine_components as dmc
 from dash import ALL, Input, Output, State, callback, dcc, html
 from dash_iconify import DashIconify
-from sqlalchemy import inspect, select
+from sqlalchemy import Engine, inspect, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.context import Ctx, Role
@@ -22,7 +24,13 @@ from app.services.notification import (
     mark_read,
     maybe_notify_worker_health,
 )
-from app.services.perm import effective_menus, get_perm_revision, is_admin, user_role_codes
+from app.services.perm import (
+    effective_menus,
+    get_perm_revision,
+    is_admin,
+    register_cache_clear_hook,
+    user_role_codes,
+)
 from app.services.temp_data import usage
 from app.ui.components.alert_box import alert_box
 from app.ui.formatters import format_bytes
@@ -270,18 +278,106 @@ def get_nav_items_for_menus(menus: set[str], engine: Any = None, is_admin: bool 
     return groups
 
 
+_SIDEBAR_TABLES_READY: WeakKeyDictionary[Engine, bool] = WeakKeyDictionary()
+_SIDEBAR_TREE_CACHE: WeakKeyDictionary[Engine, tuple[int, float, dict[str, Any] | None]] = WeakKeyDictionary()
+_SIDEBAR_TREE_TTL_S = 10.0
+
+_MAINT_CACHE: WeakKeyDictionary[Engine, tuple[bool, float]] = WeakKeyDictionary()
+_MAINT_TTL_S = 30.0
+_STORAGE_USAGE_CACHE: WeakKeyDictionary[Engine, dict[int, tuple[tuple[int, float, bool], float]]] = WeakKeyDictionary()
+_STORAGE_USAGE_TTL_S = 300.0
+
+
+def invalidate_sidebar_tree_cache() -> None:
+    """Xóa cache cây menu thanh bên."""
+    _SIDEBAR_TABLES_READY.clear()
+    _SIDEBAR_TREE_CACHE.clear()
+
+
+def invalidate_shell_meta_cache() -> None:
+    """Xóa cache thông tin bảo trì và dung lượng tạm của shell."""
+    _MAINT_CACHE.clear()
+    _STORAGE_USAGE_CACHE.clear()
+
+
+register_cache_clear_hook(invalidate_sidebar_tree_cache)
+register_cache_clear_hook(invalidate_shell_meta_cache)
+
+
 def _sidebar_tree(engine: Any) -> dict[str, Any] | None:
-    """Cây nhóm + menu hiển thị từ DB; None khi chưa có bảng menu (pre-migration)."""
-    try:
-        names = inspect(engine).get_table_names()
-    except SQLAlchemyError:
-        return None
-    if "RECON_MENU" not in names or "RECON_MENU_GROUP" not in names:
-        return None
+    """Cây nhóm + menu hiển thị từ DB (cache theo PERM_REVISION + TTL 10s)."""
+    rev = get_perm_revision(engine)
+    now = time.monotonic()
+    cached = _SIDEBAR_TREE_CACHE.get(engine)
+    if cached is not None and cached[0] == rev and (now - cached[1]) < _SIDEBAR_TREE_TTL_S:
+        return cached[2]
+
+    if not _SIDEBAR_TABLES_READY.get(engine):
+        try:
+            names = inspect(engine).get_table_names()
+        except SQLAlchemyError:
+            return None
+        if "RECON_MENU" not in names or "RECON_MENU_GROUP" not in names:
+            return None
+        _SIDEBAR_TABLES_READY[engine] = True
+
     from app.services.menu_sync import read_display_tree
 
     with engine.connect() as conn:
-        return read_display_tree(conn)
+        tree = read_display_tree(conn)
+    _SIDEBAR_TREE_CACHE[engine] = (rev, now, tree)
+    return tree
+
+
+def _get_cached_maintenance_mode(engine: Engine) -> bool:
+    """Kiểm tra chế độ bảo trì từ RECON_APP_SETTING (cache TTL 30s)."""
+    now = time.monotonic()
+    cached = _MAINT_CACHE.get(engine)
+    if cached is not None and (now - cached[1]) < _MAINT_TTL_S:
+        return cached[0]
+
+    is_maint = False
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                select(recon_app_setting.c.VALUE).where(
+                    recon_app_setting.c.KEY.in_(["MAINTENANCE", "MAINTENANCE_MODE"])
+                )
+            ).fetchall()
+            is_maint = any(str(r[0]) == "Y" for r in rows if r and r[0] is not None)
+    except Exception:
+        is_maint = False
+    _MAINT_CACHE[engine] = (is_maint, now)
+    return is_maint
+
+
+def _get_cached_storage_usage(ctx: Ctx, engine: Engine) -> tuple[int, float, bool]:
+    """Đọc dung lượng dữ liệu tạm cho Admin (cache TTL 300s để tránh os.walk lặp)."""
+    now = time.monotonic()
+    by_user = _STORAGE_USAGE_CACHE.setdefault(engine, {})
+    uid = int(ctx.user_id)
+    cached = by_user.get(uid)
+    if cached is not None and (now - cached[1]) < _STORAGE_USAGE_TTL_S:
+        return cached[0]
+
+    result = (0, 2.0, False)
+    try:
+        res_usage = usage(ctx)
+        if res_usage.ok and res_usage.data:
+            data = res_usage.data
+            if isinstance(data, dict):
+                t_bytes = int(data.get("total_bytes") or data.get("temp_bytes") or 0)
+                w_gb = float(data.get("warn_gb") or data.get("warning_gb") or 2.0)
+                is_warn = bool(data.get("is_warning", False))
+            else:
+                t_bytes = int(getattr(data, "total_bytes", getattr(data, "temp_bytes", 0)) or 0)
+                w_gb = float(getattr(data, "warn_gb", getattr(data, "warning_gb", 2.0)) or 2.0)
+                is_warn = bool(getattr(data, "is_warning", False))
+            result = (t_bytes, w_gb, is_warn)
+    except Exception:
+        pass
+    by_user[uid] = (result, now)
+    return result
 
 
 def first_nav_href(ctx: Ctx | None, engine: Any = None) -> str | None:
@@ -377,7 +473,25 @@ def filter_menu_items(items: list[dict[str, Any]] | None, query: str) -> list[di
     return [item for item in items or [] if q in _strip_accents(item["label"])]
 
 
-def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool = False) -> Any:
+def build_breadcrumb_nodes(pathname: str | None) -> list[Any]:
+    """Dựng danh sách component cho dmc.Breadcrumbs từ pathname."""
+    breadcrumbs_data = build_breadcrumbs(pathname)
+    bc_elements: list[Any] = []
+    for i, b in enumerate(breadcrumbs_data):
+        if "href" in b and i < len(breadcrumbs_data) - 1:
+            bc_elements.append(dmc.Anchor(b["label"], href=b["href"], size="sm", c="dimmed", underline=False))
+        else:
+            bc_elements.append(dmc.Text(b["label"], size="sm", fw=600, c="var(--ink)"))
+    return bc_elements
+
+
+def create_header(
+    ctx: Ctx | None,
+    env: str,
+    pathname: str | None,
+    is_mini: bool = False,
+    nav_groups: list[dict[str, Any]] | None = None,
+) -> Any:
     """Tạo thanh header 44px chuẩn Fluent Compact với nút toggle sidebar, breadcrumb, nhãn ENV và User Menu."""
     env_badge_color = {
         "dev": "blue",
@@ -433,13 +547,7 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool
             withArrow=True,
         )
 
-    breadcrumbs_data = build_breadcrumbs(pathname)
-    bc_elements: list[Any] = []
-    for i, b in enumerate(breadcrumbs_data):
-        if "href" in b and i < len(breadcrumbs_data) - 1:
-            bc_elements.append(dmc.Anchor(b["label"], href=b["href"], size="sm", c="dimmed", underline=False))
-        else:
-            bc_elements.append(dmc.Text(b["label"], size="sm", fw=600, c="var(--ink)"))
+    bc_elements = build_breadcrumb_nodes(pathname)
 
     toggle_button = dmc.Tooltip(
         dmc.ActionIcon(
@@ -462,7 +570,12 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool
     # Danh sách lấy từ cùng nguồn với thanh bên nên chỉ hiện menu tài khoản được thấy.
     search_items: list[dict[str, Any]] = []
     if ctx is not None:
-        search_items = _flatten_nav_items(get_nav_items_for_menus(effective_menus(ctx), is_admin=is_admin(ctx)))
+        resolved_groups = (
+            nav_groups
+            if nav_groups is not None
+            else get_nav_items_for_menus(effective_menus(ctx), is_admin=is_admin(ctx))
+        )
+        search_items = _flatten_nav_items(resolved_groups)
     menu_search = dmc.Box(
         [
             dcc.Store(id="app-menu-search-store", data=search_items),
@@ -567,7 +680,7 @@ def create_header(ctx: Ctx | None, env: str, pathname: str | None, is_mini: bool
             dmc.Group(
                 [
                     toggle_button,
-                    dmc.Breadcrumbs(children=bc_elements, separator="/"),
+                    dmc.Breadcrumbs(id="app-header-breadcrumbs", children=bc_elements, separator="/"),
                 ],
                 gap="md",
                 align="center",
@@ -627,12 +740,18 @@ def get_active_nav_href(nav_groups: list[dict[str, Any]], pathname: str | None) 
     return matched_href
 
 
-def create_navbar(ctx: Ctx | None, pathname: str | None, is_mini: bool = False) -> Any:
+def create_navbar(
+    ctx: Ctx | None,
+    pathname: str | None,
+    is_mini: bool = False,
+    nav_groups: list[dict[str, Any]] | None = None,
+) -> Any:
     """Tạo thanh navbar 200px (hoặc 48px rail mini) với các nhóm menu phân quyền và vạch active 3px."""
-    if ctx is None:
-        nav_groups = get_nav_items_for_roles(set())
-    else:
-        nav_groups = get_nav_items_for_menus(effective_menus(ctx), is_admin=is_admin(ctx))
+    if nav_groups is None:
+        if ctx is None:
+            nav_groups = get_nav_items_for_roles(set())
+        else:
+            nav_groups = get_nav_items_for_menus(effective_menus(ctx), is_admin=is_admin(ctx))
     active_href = get_active_nav_href(nav_groups, pathname)
 
     content_children: list[Any] = []
@@ -868,6 +987,7 @@ def create_shell_layout() -> Any:
         [
             dcc.Location(id="app-location", refresh=False),
             dcc.Store(id="app-sidebar-collapsed", storage_type="local", data=False),
+            dcc.Store(id="app-shell-mode", data=None),
             # Kiểm tra PERM_REVISION mỗi 5 giây: đổi quyền thì dựng lại
             # thanh bên trong tối đa 5 giây (spec 11 mục 6).
             dcc.Store(id="app-perm-revision", data=None),
@@ -884,12 +1004,8 @@ def create_shell_layout() -> Any:
 _SHELLLESS_PATHS = frozenset({"/login", "/forgot-password", "/reset-password"})
 
 
-@callback(
-    Output("app-shell-container", "children"),
-    Input("app-location", "pathname"),
-    State("app-sidebar-collapsed", "data"),
-)
 def render_app_shell(pathname: str | None, is_collapsed_data: Any) -> Any:
+    """Hàm thuần dựng khung AppShell hoàn chỉnh (dùng khi khởi tạo, đổi mode hoặc đổi user)."""
     ctx = get_current_ctx()
 
     if pathname in _SHELLLESS_PATHS:
@@ -910,7 +1026,7 @@ def render_app_shell(pathname: str | None, is_collapsed_data: Any) -> Any:
 
     is_mini = bool(is_collapsed_data)
 
-    # Lấy thông tin bảo trì và dung lượng tạm
+    # Lấy thông tin bảo trì và dung lượng tạm (đã cache để không chặn request)
     is_maintenance = False
     temp_bytes = 0
     warning_gb = 2.0
@@ -918,26 +1034,21 @@ def render_app_shell(pathname: str | None, is_collapsed_data: Any) -> Any:
 
     try:
         engine = get_recon_engine()
-        with engine.connect() as conn:
-            stmt = select(recon_app_setting.c.SETTING_VALUE).where(
-                recon_app_setting.c.SETTING_KEY == "MAINTENANCE_MODE"
-            )
-            row = conn.execute(stmt).fetchone()
-            if row and row[0] == "Y":
-                is_maintenance = True
+        is_maintenance = _get_cached_maintenance_mode(engine)
 
         if ctx and is_admin(ctx):
-            res_usage = usage(ctx)
-            if res_usage.ok and res_usage.data:
-                temp_bytes = res_usage.data.temp_bytes
-                warning_gb = res_usage.data.warning_gb
-                storage_warn = res_usage.data.is_warning
+            temp_bytes, warning_gb, storage_warn = _get_cached_storage_usage(ctx, engine)
     except Exception:
         pass
 
+    nav_groups = (
+        get_nav_items_for_menus(effective_menus(ctx), is_admin=is_admin(ctx))
+        if ctx is not None
+        else None
+    )
     active_env = get_active_environment()
-    header_content = create_header(ctx, active_env, pathname, is_mini=is_mini)
-    navbar_content = create_navbar(ctx, pathname, is_mini=is_mini)
+    header_content = create_header(ctx, active_env, pathname, is_mini=is_mini, nav_groups=nav_groups)
+    navbar_content = create_navbar(ctx, pathname, is_mini=is_mini, nav_groups=nav_groups)
     user_roles = user_role_codes(ctx) if ctx else set()
     banners = render_banners(is_maintenance, storage_warn, user_roles, temp_bytes, warning_gb)
 
@@ -988,6 +1099,64 @@ def render_app_shell(pathname: str | None, is_collapsed_data: Any) -> Any:
             ),
         ],
     )
+
+
+@callback(
+    Output("app-shell-container", "children"),
+    Output("app-shell-mode", "data"),
+    Input("app-location", "pathname"),
+    State("app-sidebar-collapsed", "data"),
+    State("app-shell-mode", "data"),
+)
+def update_app_shell_container(
+    pathname: str | None,
+    is_collapsed_data: Any,
+    shell_state: Any = None,
+) -> tuple[Any, dict[str, Any]]:
+    """Persistent AppShell: chỉ dựng lại toàn bộ shell khi đổi mode hoặc đổi user."""
+    ctx = get_current_ctx()
+    uid = ctx.user_id if ctx else None
+    target_mode = "shellless" if pathname in _SHELLLESS_PATHS else "shell"
+
+    if isinstance(shell_state, dict):
+        cur_mode = shell_state.get("mode")
+        if target_mode == "shellless" and cur_mode == "shellless":
+            raise dash.exceptions.PreventUpdate
+        if target_mode == "shell" and cur_mode == "shell" and shell_state.get("user_id") == uid:
+            raise dash.exceptions.PreventUpdate
+
+    return render_app_shell(pathname, is_collapsed_data), {"mode": target_mode, "user_id": uid}
+
+
+@callback(
+    Output("app-header-breadcrumbs", "children"),
+    Output("app-shell-navbar", "children", allow_duplicate=True),
+    Output("app-menu-search-input", "value", allow_duplicate=True),
+    Output("app-menu-search-results", "children", allow_duplicate=True),
+    Output("app-menu-search-results-paper", "style", allow_duplicate=True),
+    Input("app-location", "pathname"),
+    State("app-sidebar-collapsed", "data"),
+    State("app-shell-mode", "data"),
+    prevent_initial_call=True,
+)
+def sync_shell_on_navigate(
+    pathname: str | None,
+    is_collapsed_data: Any,
+    shell_state: Any = None,
+) -> tuple[Any, Any, str, list[Any], dict[str, Any]]:
+    """Cập nhật nhẹ Breadcrumbs, Navbar active và reset tìm kiếm menu khi đổi trang trong Persistent Shell."""
+    if pathname in _SHELLLESS_PATHS:
+        raise dash.exceptions.PreventUpdate
+    if not isinstance(shell_state, dict) or shell_state.get("mode") != "shell":
+        raise dash.exceptions.PreventUpdate
+    ctx = get_current_ctx()
+    uid = ctx.user_id if ctx else None
+    if shell_state.get("user_id") != uid:
+        raise dash.exceptions.PreventUpdate
+
+    bc_elements = build_breadcrumb_nodes(pathname)
+    navbar_children = create_navbar(ctx, pathname, is_mini=bool(is_collapsed_data))
+    return bc_elements, navbar_children, "", [], dict(_MENU_SEARCH_RESULTS_STYLE)
 
 
 @callback(

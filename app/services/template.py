@@ -55,19 +55,85 @@ def list_templates(
             term = q.strip().upper()
             rows = [r for r in rows if term in str(r["CODE"]).upper() or term in str(r["NAME"]).upper()]
 
+        if not rows:
+            return []
+
+        t_ids = [int(r["ID"]) for r in rows]
+        ver_by_key: dict[tuple[int, int], Any] = {}
+        latest_ver_by_tmpl: dict[int, Any] = {}
+        last_run_by_tmpl: dict[int, Any] = {}
+        file_names_by_id: dict[int, str] = {}
+
+        for i in range(0, len(t_ids), 500):
+            chunk = t_ids[i : i + 500]
+            ver_rows = (
+                conn.execute(
+                    select(recon_template_version)
+                    .where(recon_template_version.c.TEMPLATE_ID.in_(chunk))
+                    .order_by(
+                        recon_template_version.c.TEMPLATE_ID,
+                        recon_template_version.c.VERSION.desc(),
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            for vr in ver_rows:
+                tid_key = int(vr["TEMPLATE_ID"])
+                ver_num = int(vr["VERSION"])
+                ver_by_key[(tid_key, ver_num)] = vr
+                latest_ver_by_tmpl.setdefault(tid_key, vr)
+
+            max_run_sub = (
+                select(func.max(recon_run.c.ID))
+                .where(recon_run.c.TEMPLATE_ID.in_(chunk))
+                .group_by(recon_run.c.TEMPLATE_ID)
+            )
+            lr_rows = (
+                conn.execute(
+                    select(
+                        recon_run.c.TEMPLATE_ID,
+                        recon_run.c.ID,
+                        recon_run.c.STATUS,
+                        recon_run.c.FINISHED_AT,
+                        recon_run.c.CREATED_AT,
+                    ).where(recon_run.c.ID.in_(max_run_sub))
+                )
+                .mappings()
+                .all()
+            )
+            for lr in lr_rows:
+                last_run_by_tmpl[int(lr["TEMPLATE_ID"])] = lr
+
+        selected_versions: dict[int, Any] = {}
+        sample_file_ids: list[int] = []
+        for r in rows:
+            t_id = int(r["ID"])
+            c_ver = r["CURRENT_VERSION"]
+            picked_vr: Any = (
+                ver_by_key.get((t_id, int(c_ver))) if c_ver is not None else latest_ver_by_tmpl.get(t_id)
+            )
+            if picked_vr is None:
+                picked_vr = latest_ver_by_tmpl.get(t_id)
+            selected_versions[t_id] = picked_vr
+            if picked_vr and picked_vr["SAMPLE_FILE_ID"]:
+                sample_file_ids.append(int(picked_vr["SAMPLE_FILE_ID"]))
+
+        unique_file_ids = sorted(set(sample_file_ids))
+        for i in range(0, len(unique_file_ids), 500):
+            f_chunk = unique_file_ids[i : i + 500]
+            f_rows = conn.execute(
+                select(recon_file.c.ID, recon_file.c.ORIGINAL_NAME).where(recon_file.c.ID.in_(f_chunk))
+            ).all()
+            for fid, fname in f_rows:
+                if fname is not None:
+                    file_names_by_id[int(fid)] = str(fname)
+
         result: list[dict[str, Any]] = []
         for r in rows:
             t_id = int(r["ID"])
             c_ver = r["CURRENT_VERSION"]
-
-            # Lấy phiên bản hiện hành (hoặc phiên bản mới nhất nếu current_version chưa set)
-            ver_stmt = select(recon_template_version).where(recon_template_version.c.TEMPLATE_ID == t_id)
-            if c_ver is not None:
-                ver_stmt = ver_stmt.where(recon_template_version.c.VERSION == c_ver)
-            else:
-                ver_stmt = ver_stmt.order_by(recon_template_version.c.VERSION.desc())
-
-            ver_row = conn.execute(ver_stmt.limit(1)).mappings().first()
+            ver_row = selected_versions.get(t_id)
 
             field_count = 0
             profiles_list: list[dict[str, Any]] = []
@@ -100,12 +166,7 @@ def list_templates(
                     sheet_pattern = file_spec.get("sheet_pattern")
                     detect_headers = file_spec.get("detect_by_headers", [])
 
-            # Lấy tên file mẫu upload nếu có
-            sample_file_name: str | None = None
-            if sample_file_id:
-                sample_file_name = conn.execute(
-                    select(recon_file.c.ORIGINAL_NAME).where(recon_file.c.ID == sample_file_id)
-                ).scalar()
+            sample_file_name = file_names_by_id.get(int(sample_file_id)) if sample_file_id else None
 
             # Nhận diện file: Ưu tiên tên file mẫu, hoặc sheet_pattern, hoặc f"Sheet: {sheet}"
             if sample_file_name:
@@ -117,22 +178,7 @@ def list_templates(
             else:
                 file_pattern_val = "—"
 
-            # Lấy run gần nhất
-            last_run = (
-                conn.execute(
-                    select(
-                        recon_run.c.ID,
-                        recon_run.c.STATUS,
-                        recon_run.c.FINISHED_AT,
-                        recon_run.c.CREATED_AT,
-                    )
-                    .where(recon_run.c.TEMPLATE_ID == t_id)
-                    .order_by(recon_run.c.ID.desc())
-                    .limit(1)
-                )
-                .mappings()
-                .first()
-            )
+            last_run = last_run_by_tmpl.get(t_id)
 
             last_run_dict: dict[str, Any] | None = None
             if last_run:

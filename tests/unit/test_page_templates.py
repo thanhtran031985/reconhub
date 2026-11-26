@@ -80,33 +80,25 @@ def test_render_templates_pagination_and_admin_delete() -> None:
         for i in range(1, 26)
     ]
 
-    # Render cho Admin ở trang 1
+    # Render cho Admin: Tabulator nhận đủ 25 items + is_admin=True + toolbar Saved Views
     content_admin = render_templates_content(
-        items=mock_items, loading=False, error=None, page=1, page_size=10, is_admin=True
+        items=mock_items, loading=False, error=None, is_admin=True
     )
     content_str_admin = str(content_admin)
+    assert "tmpl-tabulator-table" in content_str_admin
+    assert "tmpl-view-select" in content_str_admin
+    assert "tmpl-btn-save-view" in content_str_admin
     assert "TMPL_01" in content_str_admin
-    assert "TMPL_10" in content_str_admin
-    assert "TMPL_11" not in content_str_admin  # Trang 1 chỉ có 10 items
-    assert "Xóa template" in content_str_admin  # Admin thấy nút xóa
-    assert "Hiển thị 1 – 10 trong tổng số 25" in content_str_admin
+    assert "TMPL_25" in content_str_admin
+    assert "'is_admin': True" in content_str_admin
 
-    # Render cho User thường (không phải admin)
+    # Render cho User thường (không phải admin): is_admin=False
     content_user = render_templates_content(
-        items=mock_items, loading=False, error=None, page=1, page_size=10, is_admin=False
+        items=mock_items, loading=False, error=None, is_admin=False
     )
     content_str_user = str(content_user)
     assert "TMPL_01" in content_str_user
-    assert "Xóa template" not in content_str_user  # User không thấy nút xóa
-
-    # Render trang 2
-    content_p2 = render_templates_content(
-        items=mock_items, loading=False, error=None, page=2, page_size=10, is_admin=False
-    )
-    content_str_p2 = str(content_p2)
-    assert "TMPL_11" in content_str_p2
-    assert "TMPL_01" not in content_str_p2
-    assert "Hiển thị 11 – 20 trong tổng số 25" in content_str_p2
+    assert "'is_admin': False" in content_str_user
 
 
 def _write_uploaded_sample_file(path: Path) -> Path:
@@ -160,7 +152,40 @@ def test_template_preview_excel_missing_sheet_raises(tmp_path: Path) -> None:
         build_template_preview_excel(source, FileSpec(sheet="Không có", header_row=1, data_start_row=2))
 
 
-def test_render_templates_actions_first_and_headers_centered() -> None:
+def test_render_templates_tabulator_toolbar_and_payload() -> None:
+    content = render_templates_content(
+        items=[
+            {
+                "id": 1,
+                "code": "TMPL_01",
+                "name": "Template 1",
+                "file_pattern": "f.xlsx",
+                "field_count": 3,
+                "profiles": [{"code": "P1", "name": "Profile 1", "is_default": True}],
+                "version": 1,
+                "owner": "admin",
+                "status": "ACTIVE",
+                "last_run": {"id": 9, "status": "DONE", "finished_at": "2026-11-02 12:00"},
+            }
+        ],
+        loading=False,
+        error=None,
+    )
+    content_str = str(content)
+    assert "Template/View:" in content_str
+    assert "Lưu vị trí cột" in content_str
+    assert "Lưu thành View mới..." in content_str
+    assert "Đặt mặc định" in content_str
+    assert "Khôi phục gốc" in content_str
+    assert "Xóa View" in content_str
+    assert "tmpl-tabulator-table" in content_str
+    assert "tmpl-tabulator-ready-data" in content_str
+    assert "Profile 1" in content_str
+    assert "#9 DONE 2026-11-02 12:00" in content_str
+
+
+def test_templates_tabulator_container_no_page_overflow() -> None:
+    """Kiểm tra container Tabulator flex co dãn gọn, không gây tràn trang."""
     content = render_templates_content(
         items=[
             {
@@ -179,58 +204,12 @@ def test_render_templates_actions_first_and_headers_centered() -> None:
         loading=False,
         error=None,
     )
-    table = content.children[0].children
-    thead_tr = table.children[0].children
-    headers = thead_tr.children
-    assert [h.children for h in headers] == [
-        "Thao tác",
-        "Mã template",
-        "Tên & Nhận diện file",
-        "Số trường",
-        "Profiles",
-        "Phiên bản",
-        "Chủ sở hữu",
-        "Trạng thái",
-        "Run gần nhất",
-    ]
-    assert all(h.style.get("textAlign") == "center" for h in headers)
-
-    first_row = table.children[1].children[0]
-    first_cell_str = str(first_row.children[0])
-    assert "Sửa" in first_cell_str
-    assert "Sơ đồ" not in first_cell_str  # Đã bỏ nút sơ đồ
-    assert "Tải file mẫu Excel" in first_cell_str
-    assert "TMPL_01" in str(first_row.children[1])
-
-
-def test_templates_table_no_horizontal_scroll() -> None:
-    """Kiểm tra bảng template không dùng TableScrollContainer ép minWidth và không cuộn ngang."""
-    content = render_templates_content(
-        items=[
-            {
-                "id": 1,
-                "code": "TMPL_01",
-                "name": "Template 1",
-                "file_pattern": "f.xlsx",
-                "field_count": 3,
-                "profiles": [],
-                "version": 1,
-                "owner": "admin",
-                "status": "ACTIVE",
-                "last_run": None,
-            }
-        ],
-        loading=False,
-        error=None,
-    )
-    # content.children[0] là dmc.Box bọc bảng
-    box_wrapper = content.children[0]
-    assert box_wrapper.style.get("overflowX") == "hidden"
-    assert box_wrapper.style.get("overflowY") == "auto"
-
-    table = box_wrapper.children
-    assert table.style.get("width") == "100%"
-    assert table.style.get("tableLayout") == "fixed"
+    assert content.style.get("overflow") == "hidden"
+    assert content.style.get("flex") == 1
+    assert content.style.get("minHeight") == 0
+    table_div = content.children[1]
+    assert table_div.id == "tmpl-tabulator-table"
+    assert table_div.style.get("width") == "100%"
 
 
 def test_templates_export_menu_in_layout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -401,64 +380,50 @@ def test_handle_email_modal_actions(
         assert "Đã gửi email danh sách template thành công" in str(toast_ok)
 
 
-def test_templates_actions_buttons_edit_diagram_delete() -> None:
-    """Kiểm tra:
-    1. Bỏ nút sơ đồ.
-    2. Nút sửa chỉ để icon và hover hiện title (Tooltip + title).
-    3. Bổ sung nút xóa template trực tiếp, chỉ Admin mới thấy.
-    """
-    mock_items = [
-        {
-            "id": 10,
-            "code": "TMPL_TEST",
-            "name": "Template Test",
-            "file_pattern": "test_*.xlsx",
-            "field_count": 5,
-            "profiles": [],
-            "version": 1,
-            "owner": "admin",
-            "status": "ACTIVE",
-            "last_run": None,
-        }
-    ]
-
-    # 1. Non-admin: chỉ có nút Sửa (icon), không có nút Sơ đồ, không có nút Xóa
-    content_user = render_templates_content(items=mock_items, is_admin=False)
-    user_str = str(content_user)
-    assert "Sơ đồ" not in user_str
-    assert "lucide:edit-3" in user_str
-    assert "Xóa template" not in user_str
-
-    # 2. Admin: có nút Sửa (icon), không có nút Sơ đồ, CÓ nút Xóa template (icon trash-2)
-    content_admin = render_templates_content(items=mock_items, is_admin=True)
-    admin_str = str(content_admin)
-    assert "Sơ đồ" not in admin_str
-    assert "lucide:edit-3" in admin_str
-    assert "lucide:trash-2" in admin_str
-    assert "tmpl-action-delete" in admin_str
-    assert "Xóa template" in admin_str
+def test_templates_saved_views_modals_in_layout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Kiểm tra layout /templates có đầy đủ modal Lưu/Xóa View giống /batches và trigger thao tác dòng."""
+    monkeypatch.setattr("app.ui.pages.templates.page_gate", lambda ctx, menu: None)
+    page_layout = layout()
+    layout_str = str(page_layout)
+    assert "tmpl-save-view-modal" in layout_str
+    assert "tmpl-new-view-name" in layout_str
+    assert "tmpl-new-view-default" in layout_str
+    assert "tmpl-delete-view-modal" in layout_str
+    assert "tmpl-row-action-trigger" in layout_str
 
 
 def test_toggle_delete_modal_triggers() -> None:
-    from app.ui.pages.templates import toggle_delete_modal
+    from app.core.context import Ctx
+    from app.ui.pages.templates import toggle_archive_modal, toggle_clone_modal, toggle_delete_modal
 
-    # Trigger từ nút xóa trực tiếp trên hàng (tmpl-action-delete)
-    with patch("dash.callback_context") as mock_ctx:
-        mock_ctx.triggered = [{"prop_id": '{"index": 10, "type": "tmpl-action-delete"}.n_clicks'}]
-        opened, target_id = toggle_delete_modal([1], [0], None, False)
-        assert opened is True
-        assert target_id == 10
+    admin_ctx = Ctx(user_id=1, username="admin", full_name="Admin", roles=["ADMIN"])
+    user_ctx = Ctx(user_id=2, username="user", full_name="User", roles=["OPERATOR"])
 
-    # Trigger từ menu dropdown (tmpl-action-delete-menu)
-    with patch("dash.callback_context") as mock_ctx:
-        mock_ctx.triggered = [{"prop_id": '{"index": 10, "type": "tmpl-action-delete-menu"}.n_clicks'}]
-        opened, target_id = toggle_delete_modal([0], [1], None, False)
-        assert opened is True
-        assert target_id == 10
+    with patch("app.ui.pages.templates.get_current_ctx", return_value=admin_ctx):
+        with patch("dash.callback_context") as mock_ctx:
+            mock_ctx.triggered = [{"prop_id": "tmpl-row-action-trigger.data"}]
+            opened, target_id = toggle_delete_modal({"action": "delete", "id": 10}, None, False)
+            assert opened is True
+            assert target_id == 10
 
-    # Cancel modal
+    with patch("app.ui.pages.templates.get_current_ctx", return_value=user_ctx):
+        with patch("dash.callback_context") as mock_ctx:
+            mock_ctx.triggered = [{"prop_id": "tmpl-row-action-trigger.data"}]
+            opened, target_id = toggle_delete_modal({"action": "delete", "id": 10}, None, False)
+            assert opened is False
+            assert target_id is None
+
     with patch("dash.callback_context") as mock_ctx:
         mock_ctx.triggered = [{"prop_id": "tmpl-delete-modal-cancel.n_clicks"}]
-        opened, target_id = toggle_delete_modal([0], [0], 1, True)
+        opened, target_id = toggle_delete_modal(None, 1, True)
         assert opened is False
         assert target_id is None
+
+        mock_ctx.triggered = [{"prop_id": "tmpl-row-action-trigger.data"}]
+        opened_c, src_id = toggle_clone_modal({"action": "clone", "id": 15}, None, False)
+        assert opened_c is True
+        assert src_id == 15
+
+        opened_a, arch_id = toggle_archive_modal({"action": "archive", "id": 18}, None, False)
+        assert opened_a is True
+        assert arch_id == 18

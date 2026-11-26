@@ -269,3 +269,41 @@ class TestRendererAction:
         rows = self._rows(19, {"id": 7, "status": "QUEUED", "progress_pct": 0})
         with pytest.raises(PreventUpdate):
             page.handle_renderer_action(self._payload("cancel", 999), rows, 0)
+
+
+class TestSavedViewsToolbar:
+    """Thanh Template/View cho AG Grid /report-runs (giữ nguyên AG Grid & command_bar)."""
+
+    def test_layout_has_view_toolbar_modals_and_keeps_aggrid_and_command_bar(
+        self, export_env, operator_ctx, monkeypatch
+    ):
+        import app.ui.pages.report_runs as page
+        from tests.unit.test_report_viewer_fixes40 import _find_by_id
+
+        monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        tree = page.layout()
+        assert _find_by_id(tree, "report-runs-grid") is not None
+        assert _find_by_id(tree, "report-runs-filter-name") is not None
+        for cid in (
+            "rruns-view-select",
+            "rruns-btn-save-view",
+            "rruns-btn-save-as-view",
+            "rruns-btn-set-default",
+            "rruns-btn-reset-default",
+            "rruns-btn-delete-view",
+            "rruns-grid-notification",
+            "rruns-save-view-modal",
+            "rruns-new-view-name",
+            "rruns-new-view-default",
+            "rruns-delete-view-modal",
+            "rruns-view-init-trigger",
+        ):
+            assert _find_by_id(tree, cid) is not None, cid
+
+    def test_js_controller_uses_aggrid_column_state_api(self):
+        js = Path("app/ui/assets/report_runs_views.js").read_text(encoding="utf-8")
+        assert "getApiAsync" in js
+        assert "getColumnState" in js
+        assert "applyColumnState" in js
+        assert "resetColumnState" in js
+        assert "reconhub_report_runs_views" in js

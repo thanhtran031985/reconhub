@@ -12,6 +12,7 @@ from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
+from app.db.engine import get_recon_engine
 from app.services.perm import is_admin, page_gate
 from app.services.template import (
     archive_template,
@@ -30,13 +31,14 @@ from app.services.template_export_import import (
 )
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_danger, button_primary, button_subtle
-from app.ui.components.command_bar import command_bar
 from app.ui.components.empty_state import empty_state
 from app.ui.components.file_drop import file_drop
 from app.ui.components.modal_confirm import modal_confirm
 from app.ui.components.notification import notify_success
 from app.ui.components.page_header import page_header
-from app.ui.components.status_chip import status_chip
+from app.ui.components.saved_view_toolbar import saved_view_toolbar
+from app.ui.layout_cache import cached_layout
+from app.ui.swr import compute_fingerprint, is_stale_user_store, should_skip_swr_update
 
 try:
     dash.register_page(  # type: ignore[no-untyped-call]
@@ -50,6 +52,11 @@ except Exception:
 MENU_CODE = "template"
 
 
+def render_tabulator_toolbar() -> Any:
+    """Thanh công cụ phong cách Oracle APEX Interactive Grid: Quản lý Template/Saved Views."""
+    return saved_view_toolbar("tmpl", mb="xs")
+
+
 def render_templates_content(
     items: list[dict[str, Any]] | None,
     loading: bool = False,
@@ -60,12 +67,12 @@ def render_templates_content(
     page_size: int = 10,
     is_admin: bool = False,
 ) -> Any:
-    """Hàm thuần dựng nội dung danh sách template kèm phân trang và kiểm tra quyền Admin."""
+    """Hàm thuần dựng nội dung danh sách template dạng Tabulator Interactive Grid."""
     # 1. Trạng thái Loading
     if loading:
         return dmc.Stack(
-            [dmc.Skeleton(height=48, radius="md") for _ in range(5)],
-            gap="sm",
+            [dmc.Skeleton(height=40, radius="sm") for _ in range(5)],
+            gap="xs",
         )
 
     # 2. Trạng thái Lỗi
@@ -74,7 +81,7 @@ def render_templates_content(
             title="Không thể tải danh sách template",
             message=error,
             tone="crit",
-            action=button_danger("Thử lại", id="tmpl-retry-btn", size="xs"),
+            action=button_danger("Thử lại", id={"type": "tmpl-retry-btn", "index": 0}, size="xs"),
         )
 
     # 3. Trạng thái không có dữ liệu
@@ -83,398 +90,83 @@ def render_templates_content(
             title="Chưa có template nào",
             description="Bắt đầu bằng cách đăng ký template mới hoặc import từ file JSON có sẵn.",
             action=dmc.Anchor(
-                button_primary("Đăng ký template", icon="lucide:plus"), href="/templates/new", underline=False
+                button_primary("Đăng ký template", icon="lucide:plus", size="xs"),
+                href="/templates/new",
+                underline=False,
             ),
         )
 
-    # Lọc theo tìm kiếm và trạng thái
-    filtered = items
-    if search_term:
-        term = search_term.strip().lower()
-        filtered = [
-            it
-            for it in filtered
-            if term in str(it.get("code") or it.get("template_id", "")).lower()
-            or term in str(it.get("name", "")).lower()
-            or term in str(it.get("file_pattern", "")).lower()
-            or term in str(it.get("sheet", "")).lower()
-        ]
-
-    if status_filter:
-        filtered = [it for it in filtered if it.get("status") == status_filter]
-
-    if len(filtered) == 0:
-        return empty_state(
-            title="Không có template khớp bộ lọc",
-            description="Hãy thử thay đổi từ khóa tìm kiếm hoặc bỏ bộ lọc trạng thái.",
-        )
-
-    # 4. Tính toán phân trang
-    total_items = len(filtered)
-    total_pages = max(1, (total_items + page_size - 1) // page_size)
-    current_page = min(max(1, page), total_pages)
-    start_idx = (current_page - 1) * page_size
-    end_idx = min(start_idx + page_size, total_items)
-    page_items = filtered[start_idx:end_idx]
-
-    # 5. Dựng danh sách hàng
-    rows = []
-    for it in page_items:
+    # Chuẩn hóa dữ liệu truyền xuống Tabulator
+    enriched_items: list[dict[str, Any]] = []
+    for it in items:
         try:
             id_val = int(it.get("id") or 0)
         except Exception:
             id_val = 0
-        tid = it.get("code") or it.get("template_id") or str(id_val)
-        action_index = id_val if id_val > 0 else tid
-        tname = it.get("name", "")
-        fpattern = it.get("file_pattern") or "—"
-        fcount = it.get("field_count", 0)
-        profiles = it.get("profiles", [])
-        version = it.get("current_version") or it.get("version", 1)
-        owner = it.get("owner") or it.get("created_by") or "—"
-        status = it.get("status", "ACTIVE")
-        last_run = it.get("last_run")
-
-        # Profiles badges
-        profile_badges = []
-        for p in profiles:
-            p_name = p.get("name") or p.get("profile_id") or p.get("code", "")
-            is_def = bool(p.get("is_default", False))
-            if is_def:
-                profile_badges.append(
-                    dmc.Badge(
-                        p_name,
-                        color="primary",
-                        variant="filled",
-                        size="xs",
-                        leftSection=DashIconify(icon="lucide:key", width=12),
-                    )
-                )
-            else:
-                profile_badges.append(
-                    dmc.Badge(
-                        p_name,
-                        color="gray",
-                        variant="light",
-                        size="xs",
-                    )
-                )
-
-        prof_cell = (
-            dmc.Group(profile_badges, gap=4, style={"flexWrap": "wrap", "maxWidth": "240px"})
-            if profile_badges
-            else dmc.Text("—", size="xs", c="dimmed")
+        code_val = str(it.get("code") or it.get("template_id") or (id_val if id_val > 0 else ""))
+        action_index: int | str = id_val if id_val > 0 else code_val
+        profiles = it.get("profiles") or []
+        profiles_text = ", ".join(
+            str(p.get("name") or p.get("profile_id") or p.get("code") or "") for p in profiles if isinstance(p, dict)
         )
-
-        # Last run cell
-        if last_run:
+        last_run = it.get("last_run")
+        if isinstance(last_run, dict):
             lr_id = last_run.get("id", 0)
             lr_st = last_run.get("status", "")
-            lr_tone = "teal" if lr_st == "DONE" else "red" if lr_st == "FAILED" else "blue"
-            lr_cell = dmc.Stack(
-                [
-                    dcc.Link(
-                        dmc.Badge(f"#{lr_id} · {lr_st}", color=lr_tone, size="xs", variant="light"),
-                        href=f"/runs/{lr_id}",
-                        style={"textDecoration": "none"},
-                    ),
-                    dmc.Text(last_run.get("finished_at", ""), size="xs", c="dimmed"),
-                ],
-                gap=2,
-            )
+            lr_fin = last_run.get("finished_at", "")
+            last_run_text = f"#{lr_id} {lr_st} {lr_fin}".strip()
         else:
-            lr_cell = dmc.Text("Chưa chạy", size="xs", c="dimmed")
+            last_run = None
+            last_run_text = "Chưa chạy"
 
-        # Action menu items
-        menu_items = [
-            dmc.MenuItem(
-                "Nhân bản",
-                id={"type": "tmpl-action-clone", "index": action_index},
-                leftSection=DashIconify(icon="lucide:copy", width=14),
-            ),
-            dmc.MenuItem(
-                "Export JSON",
-                id={"type": "tmpl-action-export", "index": action_index},
-                leftSection=DashIconify(icon="lucide:download", width=14),
-            ),
-            dmc.MenuItem(
-                "Tải file mẫu Excel",
-                id={"type": "tmpl-action-sample", "index": action_index},
-                leftSection=DashIconify(icon="lucide:file-spreadsheet", width=14),
-            ),
-            dmc.MenuDivider(),
-            dmc.MenuItem(
-                "Lưu trữ",
-                id={"type": "tmpl-action-archive", "index": action_index},
-                color="orange",
-                leftSection=DashIconify(icon="lucide:archive", width=14),
-            ),
-        ]
-
-        # Quyền Admin: Bổ sung hành động Xóa template
-        if is_admin:
-            menu_items.extend(
-                [
-                    dmc.MenuDivider(),
-                    dmc.MenuItem(
-                        "Xóa template",
-                        id={"type": "tmpl-action-delete-menu", "index": action_index},
-                        color="red",
-                        leftSection=DashIconify(icon="lucide:trash-2", width=14),
-                    ),
-                ]
-            )
-
-        row_actions: list[Any] = [
-            dmc.Tooltip(
-                label="Sửa",
-                withArrow=True,
-                children=dmc.Anchor(
-                    dmc.ActionIcon(
-                        DashIconify(icon="lucide:edit-3", width=16),
-                        variant="subtle",
-                        color="gray",
-                        size="sm",
-                        **{"aria-label": "Sửa template"},
-                    ),
-                    href=f"/templates/{tid}/edit",
-                    underline=False,
-                ),
-            ),
-        ]
-
-        # Bổ sung nút xóa template, chỉ admin mới thấy
-        if is_admin:
-            row_actions.append(
-                dmc.Tooltip(
-                    label="Xóa template",
-                    withArrow=True,
-                    children=dmc.ActionIcon(
-                        DashIconify(icon="lucide:trash-2", width=16),
-                        id={"type": "tmpl-action-delete", "index": action_index},
-                        variant="subtle",
-                        color="red",
-                        size="sm",
-                        **{"aria-label": "Xóa template"},
-                    ),
-                )
-            )
-
-        row_actions.append(
-            dmc.Menu(
-                [
-                    dmc.MenuTarget(
-                        dmc.ActionIcon(
-                            DashIconify(icon="lucide:more-vertical", width=16),
-                            variant="subtle",
-                            color="gray",
-                            size="sm",
-                            **{"aria-label": "Thao tác khác"},
-                        )
-                    ),
-                    dmc.MenuDropdown(menu_items),
-                ],
-                position="bottom-start",
-                withArrow=True,
-            )
+        enriched_items.append(
+            {
+                "id": id_val,
+                "action_index": action_index,
+                "code": code_val,
+                "template_id": str(it.get("template_id") or code_val),
+                "name": str(it.get("name") or ""),
+                "file_pattern": str(it.get("file_pattern") or "—"),
+                "sheet": str(it.get("sheet") or ""),
+                "field_count": int(it.get("field_count") or 0),
+                "profiles": profiles,
+                "profiles_text": profiles_text or "—",
+                "current_version": int(it.get("current_version") or it.get("version") or 1),
+                "owner": str(it.get("owner") or it.get("created_by") or "—"),
+                "status": str(it.get("status") or "ACTIVE"),
+                "last_run": last_run,
+                "last_run_text": last_run_text,
+            }
         )
 
-        actions_td = dmc.TableTd(
-            dmc.Group(
-                row_actions,
-                gap=4,
-                justify="flex-start",
-                style={"flexWrap": "nowrap"},
-            ),
-            style={"whiteSpace": "nowrap", "verticalAlign": "middle", "overflow": "hidden"},
-        )
-
-        row = dmc.TableTr(
-            [
-                actions_td,
-                dmc.TableTd(
-                    dmc.Text(
-                        tid,
-                        className="rh-code",
-                        fw=700,
-                        size="sm",
-                        style={"overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"},
-                    ),
-                    style={"verticalAlign": "middle", "overflow": "hidden"},
-                ),
-                dmc.TableTd(
-                    dmc.Stack(
-                        [
-                            dmc.Text(
-                                tname,
-                                fw=600,
-                                size="sm",
-                                style={"overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"},
-                            ),
-                            dmc.Group(
-                                [
-                                    DashIconify(icon="lucide:file-spreadsheet", width=14, color="gray"),
-                                    dmc.Text(
-                                        fpattern,
-                                        size="xs",
-                                        c="dimmed",
-                                        className="rh-code",
-                                        style={
-                                            "maxWidth": "280px",
-                                            "overflow": "hidden",
-                                            "textOverflow": "ellipsis",
-                                            "whiteSpace": "nowrap",
-                                        },
-                                    ),
-                                ],
-                                gap=4,
-                                style={"flexWrap": "nowrap", "overflow": "hidden"},
-                            ),
-                        ],
-                        gap=2,
-                        style={"overflow": "hidden"},
-                    ),
-                    style={"verticalAlign": "middle", "overflow": "hidden"},
-                ),
-                dmc.TableTd(
-                    dmc.Badge(
-                        f"{fcount} trường",
-                        variant="light",
-                        color="blue" if fcount > 0 else "gray",
-                        size="xs",
-                    ),
-                    style={"textAlign": "center", "whiteSpace": "nowrap", "verticalAlign": "middle"},
-                ),
-                dmc.TableTd(prof_cell, style={"verticalAlign": "middle", "overflow": "hidden"}),
-                dmc.TableTd(
-                    dmc.Badge(f"v{version}", variant="outline", color="gray", size="xs"),
-                    style={"textAlign": "center", "whiteSpace": "nowrap", "verticalAlign": "middle"},
-                ),
-                dmc.TableTd(
-                    dmc.Text(
-                        f"@{owner}",
-                        size="sm",
-                        c="dimmed",
-                        style={"overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"},
-                    ),
-                    style={"verticalAlign": "middle", "overflow": "hidden"},
-                ),
-                dmc.TableTd(
-                    status_chip(status),
-                    style={"textAlign": "center", "whiteSpace": "nowrap", "verticalAlign": "middle"},
-                ),
-                dmc.TableTd(
-                    lr_cell,
-                    style={"verticalAlign": "middle", "whiteSpace": "nowrap", "overflow": "hidden"},
-                ),
-            ]
-        )
-        rows.append(row)
-
-    th_base_style: dict[str, Any] = {
-        "textAlign": "center",
-        "whiteSpace": "nowrap",
-        "position": "sticky",
-        "top": 0,
-        "backgroundColor": "var(--surface-2, #FAFAFA)",
-        "zIndex": 1,
-        "fontSize": "12px",
-        "fontWeight": 600,
-        "height": "34px",
-        "borderBottom": "1px solid var(--line, #E0E0E0)",
-    }
-
-    headers = [
-        dmc.TableTh("Thao tác", style={**th_base_style, "width": "110px"}),
-        dmc.TableTh("Mã template", style={**th_base_style, "width": "145px"}),
-        dmc.TableTh(
-            "Tên & Nhận diện file",
-            style={**th_base_style, "width": "auto"},
-        ),
-        dmc.TableTh("Số trường", style={**th_base_style, "width": "85px"}),
-        dmc.TableTh("Profiles", style={**th_base_style, "width": "135px"}),
-        dmc.TableTh("Phiên bản", style={**th_base_style, "width": "75px"}),
-        dmc.TableTh("Chủ sở hữu", style={**th_base_style, "width": "90px"}),
-        dmc.TableTh("Trạng thái", style={**th_base_style, "width": "115px"}),
-        dmc.TableTh("Run gần nhất", style={**th_base_style, "width": "125px"}),
-    ]
-
-    pagination_bar = dmc.Group(
-        justify="space-between",
-        align="center",
-        px="sm",
-        py=6,
-        style={
-            "borderTop": "1px solid var(--line, #E0E0E0)",
-            "backgroundColor": "var(--surface-2, #FAFAFA)",
-            "flexShrink": 0,
-        },
-        children=[
-            dmc.Text(
-                f"Hiển thị {start_idx + 1 if total_items > 0 else 0} – {end_idx} trong tổng số {total_items} template",
-                size="xs",
-                c="dimmed",
-                fw=500,
-            ),
-            dmc.Pagination(
-                id="tmpl-pagination",
-                total=max(total_pages, 1),
-                value=current_page,
-                size="xs",
-            ),
-        ],
-    )
-
-    return dmc.Paper(
+    return dmc.Box(
         [
-            dmc.Box(
-                children=dmc.Table(
-                    [
-                        dmc.TableThead(dmc.TableTr(headers)),
-                        dmc.TableTbody(rows),
-                    ],
-                    striped=False,
-                    highlightOnHover=True,
-                    withTableBorder=False,
-                    withColumnBorders=False,
-                    verticalSpacing=4,
-                    style={"width": "100%", "tableLayout": "fixed"},
-                ),
+            render_tabulator_toolbar(),
+            html.Div(
+                id="tmpl-tabulator-table",
                 style={
                     "flex": 1,
-                    "minHeight": 0,
-                    "overflowY": "auto",
-                    "overflowX": "hidden",
+                    "minHeight": "360px",
+                    "width": "100%",
                 },
             ),
-            pagination_bar,
+            dcc.Store(
+                id="tmpl-tabulator-ready-data",
+                data={"items": enriched_items, "is_admin": bool(is_admin)},
+            ),
+            html.Div(id="tmpl-tabulator-dummy-output", style={"display": "none"}),
         ],
-        withBorder=True,
-        radius="sm",
         style={
             "flex": 1,
             "minHeight": 0,
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
-            "border": "1px solid var(--line, #E0E0E0)",
-            "backgroundColor": "var(--surface, #FFFFFF)",
         },
     )
 
 
-def layout() -> Any:
-    ctx = get_current_ctx()
-    gate = page_gate(ctx, MENU_CODE)
-    if gate:
-        return dmc.Box(
-            [
-                dcc.Location(id="templates-forbidden-redirect", href=gate),
-                alert_box("Bạn không có quyền truy cập trang Templates.", tone="crit"),
-            ],
-            p="md",
-        )
-
+def _build_templates_layout() -> Any:
     export_menu = dmc.Menu(
         [
             dmc.MenuTarget(
@@ -518,11 +210,12 @@ def layout() -> Any:
 
     header_actions = [
         dmc.ActionIcon(
-            DashIconify(icon="lucide:refresh-cw", width=16),
+            DashIconify(icon="lucide:refresh-cw", width=14),
             id="tmpl-refresh-btn",
             variant="subtle",
             color="gray",
-            size="md",
+            size="sm",
+            **{"aria-label": "Làm mới danh sách"},
         ),
         export_menu,
         button_subtle("Import JSON", id="tmpl-import-btn", icon="lucide:upload", size="xs"),
@@ -539,44 +232,122 @@ def layout() -> Any:
         actions=header_actions,
     )
 
-    filters = [
-        dmc.Select(
-            id="tmpl-filter-status",
-            placeholder="Tất cả trạng thái",
-            data=[
-                {"value": "", "label": "Tất cả trạng thái"},
-                {"value": "ACTIVE", "label": "Đang dùng (ACTIVE)"},
-                {"value": "DRAFT", "label": "Bản nháp (DRAFT)"},
-                {"value": "ARCHIVED", "label": "Đã lưu trữ (ARCHIVED)"},
-            ],
-            value="",
-            w=200,
-            size="xs",
-            styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "13px"}},
-        )
-    ]
-
-    cmd_bar = command_bar(
-        search_id="tmpl-filter-search",
-        search_placeholder="Tìm kiếm theo mã, tên hoặc mẫu file...",
-        filters=filters,
-    )
-
     return dmc.Box(
         [
-            dcc.Store(id="tmpl-store-list"),
-            dcc.Store(id="tmpl-page-store", data=1),
+            dcc.Store(id="tmpl-store-list", storage_type="session"),
+            dcc.Store(id="tmpl-row-action-trigger"),
             dcc.Download(id="tmpl-export-download"),
             dcc.Download(id="tmpl-sample-download"),
             dcc.Download(id="tmpl-list-download"),
+            # Input ẩn giữ bộ lọc hiện tại từ header filter Tabulator để phục vụ Export / Gửi Email
+            html.Div(
+                [
+                    dcc.Input(id="tmpl-filter-search", value="", type="hidden"),
+                    dcc.Input(id="tmpl-filter-status", value="", type="hidden"),
+                ],
+                style={"display": "none"},
+            ),
             header_node,
-            cmd_bar,
             html.Div(
                 id="tmpl-content-container",
                 style={"flex": 1, "minHeight": 0, "display": "flex", "flexDirection": "column", "overflow": "hidden"},
             ),
             html.Div(id="tmpl-email-toast"),
-            html.Button(id="tmpl-retry-btn", style={"display": "none"}),
+            # Modal Lưu Template / View mới cho Tabulator
+            dmc.Modal(
+                id="tmpl-save-view-modal",
+                title=dmc.Group(
+                    [
+                        DashIconify(icon="lucide:layout-grid", width=18, color="var(--primary, #2563EB)"),
+                        dmc.Text("Lưu Template / View mới", fw=600, size="sm"),
+                    ],
+                    gap="xs",
+                ),
+                children=dmc.Stack(
+                    [
+                        dmc.TextInput(
+                            id="tmpl-new-view-name",
+                            label="Tên Template / View",
+                            placeholder="Nhập tên template (vd: Xem nhanh, Báo cáo cá nhân...)",
+                            withAsterisk=True,
+                            size="sm",
+                        ),
+                        dmc.Checkbox(
+                            id="tmpl-new-view-default",
+                            label="Đặt làm giao diện mặc định khi mở trang",
+                            size="sm",
+                        ),
+                        dmc.Group(
+                            [
+                                dmc.Button(
+                                    "Hủy",
+                                    id="tmpl-cancel-save-view-btn",
+                                    variant="subtle",
+                                    color="gray",
+                                    size="xs",
+                                ),
+                                dmc.Button(
+                                    "Lưu Template",
+                                    id="tmpl-confirm-save-view-btn",
+                                    color="primary",
+                                    size="xs",
+                                ),
+                            ],
+                            justify="flex-end",
+                            gap="xs",
+                            mt="sm",
+                        ),
+                    ],
+                    gap="md",
+                ),
+                opened=False,
+                size="sm",
+                centered=True,
+            ),
+            # Modal Xóa Template / View của Tabulator
+            dmc.Modal(
+                id="tmpl-delete-view-modal",
+                title=dmc.Group(
+                    [
+                        DashIconify(icon="lucide:trash-2", width=18, color="#DC2626"),
+                        dmc.Text("Xóa Template / View", fw=600, size="sm", c="#DC2626"),
+                    ],
+                    gap="xs",
+                ),
+                children=dmc.Stack(
+                    [
+                        dmc.Text(
+                            "Bạn có chắc chắn muốn xóa Template / View này? Thao tác này không thể hoàn tác.",
+                            size="sm",
+                            c="dimmed",
+                        ),
+                        dmc.Group(
+                            [
+                                dmc.Button(
+                                    "Hủy",
+                                    id="tmpl-cancel-delete-view-btn",
+                                    variant="subtle",
+                                    color="gray",
+                                    size="xs",
+                                ),
+                                dmc.Button(
+                                    "Xóa Template",
+                                    id="tmpl-confirm-delete-view-btn",
+                                    color="red",
+                                    size="xs",
+                                ),
+                            ],
+                            justify="flex-end",
+                            gap="xs",
+                            mt="sm",
+                        ),
+                    ],
+                    gap="md",
+                ),
+                opened=False,
+                size="sm",
+                centered=True,
+            ),
             # Modal Gửi email danh sách template
             dmc.Modal(
                 id="tmpl-email-modal",
@@ -753,87 +524,299 @@ def layout() -> Any:
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
-            "padding": "12px 16px",
+            "padding": "8px 12px",
+            "gap": "6px",
         },
     )
+
+
+def layout() -> Any:
+    ctx = get_current_ctx()
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
+        return dmc.Box(
+            [
+                dcc.Location(id="templates-forbidden-redirect", href=gate),
+                alert_box("Bạn không có quyền truy cập trang Templates.", tone="crit"),
+            ],
+            p="md",
+        )
+    return cached_layout(
+        get_recon_engine(),
+        ("templates",),
+        _build_templates_layout,
+    )
+
+
+def _templates_store_payload(ctx: Any, items: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """Đóng gói dữ liệu /templates kèm user_id và vân tay phục vụ SWR."""
+    safe_items = items if isinstance(items, list) else []
+    is_adm = is_admin(ctx) if ctx else False
+    uid = getattr(ctx, "user_id", None) if ctx else None
+    fp = compute_fingerprint({"is_admin": is_adm, "items": safe_items})
+    return {
+        "items": safe_items,
+        "error": None,
+        "is_admin": is_adm,
+        "user_id": uid,
+        "fingerprint": fp,
+    }
 
 
 # Callbacks xử lý danh sách template
 @callback(
     Output("tmpl-store-list", "data"),
     Input("tmpl-refresh-btn", "n_clicks"),
-    Input("tmpl-retry-btn", "n_clicks"),
-    Input("tmpl-import-submit", "n_clicks"),
-    Input("tmpl-clone-submit", "n_clicks"),
-    Input("tmpl-archive-modal-confirm", "n_clicks"),
-    Input("tmpl-delete-modal-confirm", "n_clicks"),
+    Input({"type": "tmpl-retry-btn", "index": ALL}, "n_clicks"),
+    State("tmpl-store-list", "data"),
 )
-def load_templates_data(*args: Any) -> Any:
+def load_templates_data(
+    refresh_clicks: Any = None,
+    retry_clicks: Any = None,
+    cached_data: Any = None,
+) -> Any:
     ctx = get_current_ctx()
     if ctx is None:
         return {"items": [], "error": "Chưa đăng nhập", "is_admin": False}
 
     res = list_templates(ctx)
     if not res.ok:
-        return {"items": [], "error": res.message, "is_admin": is_admin(ctx)}
+        return {
+            "items": [],
+            "error": res.message,
+            "is_admin": is_admin(ctx),
+            "user_id": getattr(ctx, "user_id", None),
+        }
 
     items = res.data or []
-    return {"items": items, "error": None, "is_admin": is_admin(ctx)}
-
-
-@callback(
-    Output("tmpl-page-store", "data"),
-    Input("tmpl-pagination", "value"),
-    Input("tmpl-filter-search", "value"),
-    Input("tmpl-filter-status", "value"),
-    State("tmpl-page-store", "data"),
-    prevent_initial_call=True,
-)
-def handle_pagination_or_filter(
-    page_val: int | None,
-    search_val: str | None,
-    status_val: str | None,
-    current_page: int,
-) -> int:
-    ctx_dash = dash.callback_context
-    if not ctx_dash.triggered:
-        return 1
-    trigger_prop = ctx_dash.triggered[0]["prop_id"]
-    if "tmpl-pagination" in trigger_prop and page_val:
-        return int(page_val)
-    return 1
+    payload = _templates_store_payload(ctx, items)
+    if should_skip_swr_update(cached_data, payload.get("user_id"), payload["fingerprint"]):
+        return dash.no_update
+    return payload
 
 
 @callback(
     Output("tmpl-content-container", "children"),
     Input("tmpl-store-list", "data"),
-    Input("tmpl-filter-search", "value"),
-    Input("tmpl-filter-status", "value"),
-    Input("tmpl-page-store", "data"),
 )
-def update_templates_table(
-    store_data: Any,
-    search_val: str | None,
-    status_val: str | None,
-    page_val: int | None,
-) -> Any:
+def update_templates_table(store_data: Any) -> Any:
     if not store_data:
+        return render_templates_content(items=None, loading=True)
+
+    ctx = get_current_ctx()
+    uid = getattr(ctx, "user_id", None) if ctx else None
+    if is_stale_user_store(store_data, uid):
         return render_templates_content(items=None, loading=True)
 
     items = store_data.get("items")
     error = store_data.get("error")
-    is_admin = bool(store_data.get("is_admin", False))
+    is_adm = bool(store_data.get("is_admin", False))
 
     return render_templates_content(
         items=items,
         loading=False,
         error=error,
-        search_term=search_val or "",
-        status_filter=status_val or "",
-        page=int(page_val or 1),
-        page_size=10,
-        is_admin=is_admin,
+        is_admin=is_adm,
     )
+
+
+# Clientside callbacks cho Tabulator Interactive Grid & Saved Views
+clientside_callback(
+    """
+    function(data) {
+        if (!data || !Array.isArray(data.items)) return "";
+        function mountTabulator() {
+            var container = document.getElementById("tmpl-tabulator-table");
+            if (container && window.templatesTabulator && window.templatesTabulator.init) {
+                var initFn = function() {
+                    window.templatesTabulator.init("tmpl-tabulator-table", data.items, !!data.is_admin);
+                };
+                if (window.reconLazy && typeof window.reconLazy.ensureTabulator === "function") {
+                    window.reconLazy.ensureTabulator().then(initFn).catch(function(err) {
+                        console.error("[templates] Không tải được Tabulator:", err);
+                    });
+                } else {
+                    initFn();
+                }
+            } else {
+                setTimeout(mountTabulator, 100);
+            }
+        }
+        setTimeout(mountTabulator, 50);
+        return "";
+    }
+    """,
+    Output("tmpl-tabulator-dummy-output", "children"),
+    Input("tmpl-tabulator-ready-data", "data"),
+)
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        if (n_clicks && window.templatesTabulator) {
+            window.templatesTabulator.saveCurrentView();
+        }
+        return "";
+    }
+    """,
+    Output("tmpl-grid-notification", "children", allow_duplicate=True),
+    Input("tmpl-btn-save-view", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) {
+            return [
+                window.dash_clientside.no_update,
+                window.dash_clientside.no_update,
+                window.dash_clientside.no_update,
+                window.dash_clientside.no_update
+            ];
+        }
+        return [true, "", null, false];
+    }
+    """,
+    Output("tmpl-save-view-modal", "opened"),
+    Output("tmpl-new-view-name", "value"),
+    Output("tmpl-new-view-name", "error"),
+    Output("tmpl-new-view-default", "checked"),
+    Input("tmpl-btn-save-as-view", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        return false;
+    }
+    """,
+    Output("tmpl-save-view-modal", "opened", allow_duplicate=True),
+    Input("tmpl-cancel-save-view-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks, name, isDefault) {
+        if (!n_clicks) {
+            return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+        }
+        var vName = (name || "").trim();
+        if (!vName) {
+            return [true, "Vui lòng nhập tên cho Template / View."];
+        }
+        if (window.templatesTabulator && window.templatesTabulator.saveNewView) {
+            window.templatesTabulator.saveNewView(vName, !!isDefault);
+        }
+        return [false, null];
+    }
+    """,
+    Output("tmpl-save-view-modal", "opened", allow_duplicate=True),
+    Output("tmpl-new-view-name", "error", allow_duplicate=True),
+    Input("tmpl-confirm-save-view-btn", "n_clicks"),
+    State("tmpl-new-view-name", "value"),
+    State("tmpl-new-view-default", "checked"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks, viewId) {
+        if (n_clicks && window.templatesTabulator) {
+            window.templatesTabulator.setDefaultView(viewId || "default");
+        }
+        return "";
+    }
+    """,
+    Output("tmpl-grid-notification", "children", allow_duplicate=True),
+    Input("tmpl-btn-set-default", "n_clicks"),
+    State("tmpl-view-select", "value"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        if (n_clicks && window.templatesTabulator) {
+            window.templatesTabulator.resetToDefault();
+        }
+        return "";
+    }
+    """,
+    Output("tmpl-grid-notification", "children", allow_duplicate=True),
+    Input("tmpl-btn-reset-default", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks, viewId) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        var activeId = (window.templatesTabulator && window.templatesTabulator.activeViewId)
+            ? window.templatesTabulator.activeViewId
+            : viewId;
+        if (!activeId || activeId === "default") {
+            if (window.templatesTabulator && window.templatesTabulator.showStatusNotification) {
+                window.templatesTabulator.showStatusNotification("Không thể xóa View mặc định hệ thống.");
+            }
+            return false;
+        }
+        return true;
+    }
+    """,
+    Output("tmpl-delete-view-modal", "opened"),
+    Input("tmpl-btn-delete-view", "n_clicks"),
+    State("tmpl-view-select", "value"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        return false;
+    }
+    """,
+    Output("tmpl-delete-view-modal", "opened", allow_duplicate=True),
+    Input("tmpl-cancel-delete-view-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks, viewId) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        var activeId = (window.templatesTabulator && window.templatesTabulator.activeViewId)
+            ? window.templatesTabulator.activeViewId
+            : viewId;
+        if (window.templatesTabulator && window.templatesTabulator.deleteView) {
+            window.templatesTabulator.deleteView(activeId);
+        }
+        return false;
+    }
+    """,
+    Output("tmpl-delete-view-modal", "opened", allow_duplicate=True),
+    Input("tmpl-confirm-delete-view-btn", "n_clicks"),
+    State("tmpl-view-select", "value"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(viewId) {
+        if (viewId && window.templatesTabulator) {
+            window.templatesTabulator.applyView(viewId);
+        }
+        return "";
+    }
+    """,
+    Output("tmpl-grid-notification", "children", allow_duplicate=True),
+    Input("tmpl-view-select", "value"),
+    prevent_initial_call=True,
+)
 
 
 # Callback mở/đóng modal Import
@@ -857,120 +840,126 @@ def toggle_import_modal(open_clicks: Any, close_clicks: Any, is_opened: bool) ->
 # Callback thực hiện Import JSON
 @callback(
     Output("tmpl-import-alert", "children"),
+    Output("tmpl-store-list", "data", allow_duplicate=True),
     Input("tmpl-import-submit", "n_clicks"),
     State("tmpl-import-upload", "contents"),
     State("tmpl-import-overwrite", "checked"),
     prevent_initial_call=True,
 )
-def handle_import_template(n_clicks: Any, contents: str | None, overwrite: bool) -> Any:
+def handle_import_template(n_clicks: Any, contents: str | None, overwrite: bool) -> tuple[Any, Any]:
     if not contents:
-        return alert_box("Lỗi", "Vui lòng chọn hoặc kéo thả file JSON cần import", tone="crit")
+        return alert_box("Lỗi", "Vui lòng chọn hoặc kéo thả file JSON cần import", tone="crit"), dash.no_update
 
     try:
         content_type, content_string = contents.split(",")
         decoded = base64.b64decode(content_string).decode("utf-8")
         parsed_data = json.loads(decoded)
         if not isinstance(parsed_data, dict):
-            return alert_box("Lỗi", "Dữ liệu JSON phải là đối tượng cấu hình", tone="crit")
+            return alert_box("Lỗi", "Dữ liệu JSON phải là đối tượng cấu hình", tone="crit"), dash.no_update
 
         ctx = get_current_ctx()
         if ctx is None:
-            return alert_box("Lỗi", "Chưa đăng nhập", tone="crit")
+            return alert_box("Lỗi", "Chưa đăng nhập", tone="crit"), dash.no_update
 
         res = import_template(ctx, parsed_data, overwrite=overwrite)
         if not res.ok:
-            return alert_box("Không thể import", res.message, tone="crit")
+            return alert_box("Không thể import", res.message, tone="crit"), dash.no_update
 
-        return alert_box(
-            "Thành công",
-            f"Đã nạp thành công template {res.data.get('code') if isinstance(res.data, dict) else ''}",
-            tone="ok",
+        list_res = list_templates(ctx)
+        items = list_res.data if list_res.ok and list_res.data else []
+        return (
+            alert_box(
+                "Thành công",
+                f"Đã nạp thành công template {res.data.get('code') if isinstance(res.data, dict) else ''}",
+                tone="ok",
+            ),
+            _templates_store_payload(ctx, items),
         )
     except Exception as e:
-        return alert_box("Lỗi định dạng", f"File không đúng định dạng JSON: {e}", tone="crit")
+        return alert_box("Lỗi định dạng", f"File không đúng định dạng JSON: {e}", tone="crit"), dash.no_update
 
 
 # Callback mở modal Clone
 @callback(
     Output("tmpl-clone-modal", "opened"),
     Output("tmpl-clone-source-id", "data"),
-    Input({"type": "tmpl-action-clone", "index": ALL}, "n_clicks"),
+    Input("tmpl-row-action-trigger", "data"),
     Input("tmpl-clone-cancel", "n_clicks"),
     State("tmpl-clone-modal", "opened"),
     prevent_initial_call=True,
 )
-def toggle_clone_modal(clone_clicks: list[Any], cancel_clicks: Any, is_opened: bool) -> tuple[bool, Any]:
+def toggle_clone_modal(trigger_data: Any, cancel_clicks: Any, is_opened: bool) -> tuple[Any, Any]:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
         return False, None
 
     trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
-    if "tmpl-clone-cancel" in trigger_id or not any(clone_clicks):
+    if trigger_id == "tmpl-clone-cancel":
         return False, None
 
-    try:
-        parsed = json.loads(trigger_id)
-        source_id = parsed.get("index")
-        return True, source_id
-    except Exception:
-        return False, None
+    if isinstance(trigger_data, dict) and trigger_data.get("action") == "clone":
+        return True, trigger_data.get("id")
+    raise PreventUpdate
 
 
 # Callback thực hiện Clone
 @callback(
     Output("tmpl-clone-alert", "children"),
+    Output("tmpl-store-list", "data", allow_duplicate=True),
     Input("tmpl-clone-submit", "n_clicks"),
     State("tmpl-clone-source-id", "data"),
     State("tmpl-clone-target-id", "value"),
     State("tmpl-clone-target-name", "value"),
     prevent_initial_call=True,
 )
-def handle_clone_template(n_clicks: Any, source_id: Any, target_id: str | None, target_name: str | None) -> Any:
+def handle_clone_template(n_clicks: Any, source_id: Any, target_id: str | None, target_name: str | None) -> tuple[Any, Any]:
     if not source_id or not target_id:
-        return alert_box("Lỗi", "Vui lòng nhập mã template mới", tone="crit")
+        return alert_box("Lỗi", "Vui lòng nhập mã template mới", tone="crit"), dash.no_update
 
     ctx = get_current_ctx()
     if ctx is None:
-        return alert_box("Lỗi", "Chưa đăng nhập", tone="crit")
+        return alert_box("Lỗi", "Chưa đăng nhập", tone="crit"), dash.no_update
 
     try:
         src_id_int = int(source_id)
     except Exception:
-        return alert_box("Lỗi", "ID template nguồn không hợp lệ", tone="crit")
+        return alert_box("Lỗi", "ID template nguồn không hợp lệ", tone="crit"), dash.no_update
 
     new_code = target_id.strip().upper()
     new_name = target_name.strip() if target_name else new_code
     res = clone_template(ctx, src_id_int, new_code=new_code, new_name=new_name)
     if not res.ok:
-        return alert_box("Không thể nhân bản", res.message, tone="crit")
+        return alert_box("Không thể nhân bản", res.message, tone="crit"), dash.no_update
 
-    return alert_box("Thành công", f"Đã nhân bản thành công template {target_id}", tone="ok")
+    list_res = list_templates(ctx)
+    items = list_res.data if list_res.ok and list_res.data else []
+    return (
+        alert_box("Thành công", f"Đã nhân bản thành công template {target_id}", tone="ok"),
+        _templates_store_payload(ctx, items),
+    )
 
 
 # Callback mở modal Archive
 @callback(
     Output("tmpl-archive-modal", "opened"),
     Output("tmpl-archive-target-id", "data"),
-    Input({"type": "tmpl-action-archive", "index": ALL}, "n_clicks"),
+    Input("tmpl-row-action-trigger", "data"),
     Input("tmpl-archive-modal-cancel", "n_clicks"),
     State("tmpl-archive-modal", "opened"),
     prevent_initial_call=True,
 )
-def toggle_archive_modal(archive_clicks: list[Any], cancel_clicks: Any, is_opened: bool) -> tuple[bool, Any]:
+def toggle_archive_modal(trigger_data: Any, cancel_clicks: Any, is_opened: bool) -> tuple[Any, Any]:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
         return False, None
 
     trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
-    if "tmpl-archive-modal-cancel" in trigger_id or not any(archive_clicks):
+    if trigger_id == "tmpl-archive-modal-cancel":
         return False, None
 
-    try:
-        parsed = json.loads(trigger_id)
-        target_id = parsed.get("index")
-        return True, target_id
-    except Exception:
-        return False, None
+    if isinstance(trigger_data, dict) and trigger_data.get("action") == "archive":
+        return True, trigger_data.get("id")
+    raise PreventUpdate
 
 
 # Callback thực hiện Archive
@@ -994,42 +983,37 @@ def handle_archive_template(n_clicks: Any, target_id: Any) -> tuple[bool, Any]:
     ctx = get_current_ctx()
     res = list_templates(ctx) if ctx else None
     items = res.data if res and res.ok else []
-    is_adm = is_admin(ctx) if ctx else False
-    return False, {"items": items, "error": None, "is_admin": is_adm}
+    return False, _templates_store_payload(ctx, items)
 
 
 # Callback mở modal Delete (chỉ Admin)
 @callback(
     Output("tmpl-delete-modal", "opened"),
     Output("tmpl-delete-target-id", "data"),
-    Input({"type": "tmpl-action-delete", "index": ALL}, "n_clicks"),
-    Input({"type": "tmpl-action-delete-menu", "index": ALL}, "n_clicks"),
+    Input("tmpl-row-action-trigger", "data"),
     Input("tmpl-delete-modal-cancel", "n_clicks"),
     State("tmpl-delete-modal", "opened"),
     prevent_initial_call=True,
 )
 def toggle_delete_modal(
-    delete_clicks: list[Any],
-    delete_menu_clicks: list[Any],
+    trigger_data: Any,
     cancel_clicks: Any,
     is_opened: bool,
-) -> tuple[bool, Any]:
+) -> tuple[Any, Any]:
     ctx_dash = dash.callback_context
     if not ctx_dash.triggered:
         return False, None
 
     trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
-    has_btn_click = any(bool(c) for c in delete_clicks)
-    has_menu_click = any(bool(c) for c in delete_menu_clicks)
-    if "tmpl-delete-modal-cancel" in trigger_id or not (has_btn_click or has_menu_click):
+    if trigger_id == "tmpl-delete-modal-cancel":
         return False, None
 
-    try:
-        parsed = json.loads(trigger_id)
-        target_id = parsed.get("index")
-        return True, target_id
-    except Exception:
+    if isinstance(trigger_data, dict) and trigger_data.get("action") == "delete":
+        ctx = get_current_ctx()
+        if ctx and is_admin(ctx):
+            return True, trigger_data.get("id")
         return False, None
+    raise PreventUpdate
 
 
 # Callback thực hiện Delete template
@@ -1052,26 +1036,22 @@ def handle_delete_template(n_clicks: Any, target_id: Any) -> tuple[bool, Any]:
     ctx = get_current_ctx()
     res = list_templates(ctx) if ctx else None
     items = res.data if res and res.ok else []
-    is_adm = is_admin(ctx) if ctx else False
-    return False, {"items": items, "error": None, "is_admin": is_adm}
+    return False, _templates_store_payload(ctx, items)
 
 
 # Callback thực hiện Export JSON
 @callback(
     Output("tmpl-export-download", "data"),
-    Input({"type": "tmpl-action-export", "index": ALL}, "n_clicks"),
+    Input("tmpl-row-action-trigger", "data"),
     prevent_initial_call=True,
 )
-def handle_export_template(export_clicks: list[Any]) -> Any:
-    ctx_dash = dash.callback_context
-    if not ctx_dash.triggered or not any(export_clicks):
-        return None
+def handle_export_template(trigger_data: Any) -> Any:
+    if not isinstance(trigger_data, dict) or trigger_data.get("action") != "export":
+        raise PreventUpdate
 
-    trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
-    try:
-        parsed = json.loads(trigger_id)
-        target_id = parsed.get("index")
-        if target_id is not None:
+    target_id = trigger_data.get("id")
+    if target_id is not None:
+        try:
             tid_int = int(target_id)
             ctx = get_current_ctx()
             if ctx:
@@ -1083,27 +1063,24 @@ def handle_export_template(export_clicks: list[Any]) -> Any:
                         "filename": f"{code_val}.json",
                         "type": "application/json",
                     }
-    except Exception:
-        pass
+        except Exception:
+            pass
     return None
 
 
 # Callback tải file mẫu Excel của template
 @callback(
     Output("tmpl-sample-download", "data"),
-    Input({"type": "tmpl-action-sample", "index": ALL}, "n_clicks"),
+    Input("tmpl-row-action-trigger", "data"),
     prevent_initial_call=True,
 )
-def handle_sample_excel_template(sample_clicks: list[Any]) -> Any:
-    ctx_dash = dash.callback_context
-    if not ctx_dash.triggered or not any(sample_clicks):
-        return None
+def handle_sample_excel_template(trigger_data: Any) -> Any:
+    if not isinstance(trigger_data, dict) or trigger_data.get("action") != "sample":
+        raise PreventUpdate
 
-    trigger_id = ctx_dash.triggered[0]["prop_id"].split(".")[0]
-    try:
-        parsed = json.loads(trigger_id)
-        target_id = parsed.get("index")
-        if target_id is not None:
+    target_id = trigger_data.get("id")
+    if target_id is not None:
+        try:
             tid_int = int(target_id)
             ctx = get_current_ctx()
             if ctx:
@@ -1113,8 +1090,8 @@ def handle_sample_excel_template(sample_clicks: list[Any]) -> Any:
                         res.data["content"],
                         filename=str(res.data.get("filename") or "template_mau.xlsx"),
                     )
-    except Exception:
-        pass
+        except Exception:
+            pass
     return None
 
 
