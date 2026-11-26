@@ -299,6 +299,37 @@ def list_exports(
 
 @service
 @requires_menu("report_center")
+def list_exports_by_runs(ctx: Ctx, run_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+    """Lấy danh sách export theo lô nhiều run_id trong 1 câu truy vấn (tránh N+1)."""
+    unique_ids = sorted({int(rid) for rid in run_ids})
+    if not unique_ids:
+        return {}
+    engine = get_recon_engine()
+    admin = is_admin(ctx, engine)
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    with engine.connect() as conn:
+        for i in range(0, len(unique_ids), 500):
+            chunk = unique_ids[i : i + 500]
+            stmt = select(recon_rpt_export).where(recon_rpt_export.c.RUN_ID.in_(chunk))
+            if not admin:
+                stmt = stmt.where(recon_rpt_export.c.CREATED_BY == ctx.username)
+            rows = (
+                conn.execute(
+                    stmt.order_by(
+                        recon_rpt_export.c.CREATED_AT.desc(),
+                        recon_rpt_export.c.ID.desc(),
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            for row in rows:
+                grouped.setdefault(int(row["RUN_ID"]), []).append(_export_dict(row))
+    return grouped
+
+
+@service
+@requires_menu("report_center")
 def get_export(ctx: Ctx, export_id: int) -> dict[str, Any]:
     engine = get_recon_engine()
     admin = is_admin(ctx, engine)

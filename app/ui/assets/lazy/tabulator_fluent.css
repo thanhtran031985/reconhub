@@ -149,6 +149,8 @@
 .tabulator .tabulator-row .tabulator-cell[tabulator-field="status"],
 .tabulator .tabulator-row .tabulator-cell[tabulator-field="cnt_items"],
 .tabulator .tabulator-row .tabulator-cell[tabulator-field="max_parallel_per_ds"],
+.tabulator .tabulator-row .tabulator-cell[tabulator-field="field_count"],
+.tabulator .tabulator-row .tabulator-cell[tabulator-field="current_version"],
 .tabulator .tabulator-row .tabulator-cell[tabulator-field="actions"],
 .tabulator .tabulator-row .tabulator-cell[tabulator-align="center"],
 .tabulator .tabulator-row .tabulator-cell[style*="text-align: center"],
@@ -173,15 +175,141 @@
 
 .tab-cell-name-box {
     line-height: 1.3;
+    min-width: 0;
+    width: 100%;
 }
 .tab-cell-name {
     font-weight: 600;
     color: #0F172A;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .tab-cell-desc {
     font-size: 11px;
     color: #64748B;
     margin-top: 1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tab-cell-file {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.tab-cell-muted {
+    font-size: 12px;
+    color: #64748B;
+}
+
+.tab-actions-group {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    flex-wrap: nowrap;
+}
+
+.tab-icon-btn-danger:hover {
+    background-color: #FEF2F2 !important;
+    color: #DC2626 !important;
+    border-color: #FECACA !important;
+}
+
+.tab-pills-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    max-width: 100%;
+}
+
+.tab-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: nowrap;
+    text-decoration: none;
+}
+.tab-pill-primary {
+    background-color: #2563EB;
+    color: #FFFFFF;
+}
+.tab-pill-blue {
+    background-color: #EFF6FF;
+    color: #1D4ED8;
+}
+.tab-pill-teal {
+    background-color: #F0FDF4;
+    color: #15803D;
+}
+.tab-pill-red {
+    background-color: #FEF2F2;
+    color: #B91C1C;
+}
+.tab-pill-gray {
+    background-color: #F1F5F9;
+    color: #475569;
+}
+.tab-pill-outline {
+    background-color: transparent;
+    color: #475569;
+    border: 1px solid #CBD5E1;
+}
+
+/* Floating row action menu (portal on document.body so Tabulator overflow:hidden never clips it) */
+.tab-floating-menu {
+    position: fixed;
+    z-index: 9999;
+    min-width: 175px;
+    background: var(--surface, #FFFFFF);
+    border: 1px solid var(--line, #E2E8F0);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.14);
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.tab-floating-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-family: inherit;
+    color: var(--ink, #1E293B);
+    cursor: pointer;
+}
+.tab-floating-menu-item:hover {
+    background-color: var(--surface-2, #F1F5F9);
+}
+.tab-floating-menu-item.is-warn {
+    color: #D97706;
+}
+.tab-floating-menu-item.is-warn:hover {
+    background-color: #FFFBEB;
+}
+.tab-floating-menu-item.is-danger {
+    color: #DC2626;
+}
+.tab-floating-menu-item.is-danger:hover {
+    background-color: #FEF2F2;
+}
+.tab-floating-menu-divider {
+    height: 1px;
+    background-color: var(--line, #E2E8F0);
+    margin: 3px 4px;
 }
 
 /* Kéo thả cột (Moving Column) highlight */

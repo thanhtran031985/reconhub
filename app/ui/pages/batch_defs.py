@@ -15,6 +15,7 @@ from dash_iconify import DashIconify
 
 from app.core.context import Role
 from app.core.session import get_current_ctx
+from app.db.engine import get_recon_engine
 from app.services.batch_def import (
     activate_batch_def,
     archive_batch_def,
@@ -28,6 +29,9 @@ from app.ui.components.empty_state import empty_state
 from app.ui.components.modal_confirm import modal_confirm
 from app.ui.components.notification import notify_error, notify_success
 from app.ui.components.page_header import page_header
+from app.ui.components.saved_view_toolbar import saved_view_toolbar
+from app.ui.layout_cache import cached_layout
+from app.ui.swr import compute_fingerprint, is_stale_user_store, should_skip_swr_update
 
 try:
     dash.register_page(  # type: ignore[no-untyped-call]
@@ -55,83 +59,7 @@ def _can_write(ctx: Any) -> bool:
 
 def render_tabulator_toolbar() -> Any:
     """Thanh công cụ phong cách Oracle APEX Interactive Grid: Quản lý Template/Saved Views."""
-    return dmc.Paper(
-        dmc.Group(
-            [
-                dmc.Group(
-                    [
-                        DashIconify(icon="lucide:layout-grid", width=16, color="var(--ink-soft)"),
-                        dmc.Text("Template/View:", size="xs", fw=600),
-                        dmc.Select(
-                            id="batches-view-select",
-                            data=[{"label": "Mặc định hệ thống", "value": "default"}],
-                            value="default",
-                            size="xs",
-                            w=190,
-                            styles={"input": {"height": "28px", "minHeight": "28px", "fontSize": "12px"}},
-                        ),
-                        dmc.Button(
-                            "Lưu vị trí cột",
-                            id="btn-save-view",
-                            size="xs",
-                            color="blue",
-                            style={"height": "28px", "fontSize": "12px"},
-                        ),
-                        dmc.Button(
-                            "Lưu thành View mới...",
-                            id="btn-save-as-view",
-                            size="xs",
-                            variant="default",
-                            style={"height": "28px", "fontSize": "12px"},
-                        ),
-                        dmc.Button(
-                            "Đặt mặc định",
-                            id="btn-set-default",
-                            size="xs",
-                            variant="subtle",
-                            color="gray",
-                            style={"height": "28px", "fontSize": "12px"},
-                        ),
-                        dmc.Button(
-                            "Khôi phục gốc",
-                            id="btn-reset-default",
-                            size="xs",
-                            variant="subtle",
-                            color="gray",
-                            style={"height": "28px", "fontSize": "12px"},
-                        ),
-                        dmc.Button(
-                            "Xóa View",
-                            id="btn-delete-view",
-                            size="xs",
-                            variant="subtle",
-                            color="red",
-                            style={"height": "28px", "fontSize": "12px"},
-                        ),
-                    ],
-                    gap="xs",
-                    align="center",
-                ),
-                html.Span(
-                    id="batches-grid-notification",
-                    style={
-                        "fontSize": "11px",
-                        "color": "#2B8A3E",
-                        "fontWeight": "600",
-                        "transition": "opacity 0.3s ease",
-                        "opacity": "0",
-                    },
-                ),
-            ],
-            justify="space-between",
-            align="center",
-            p="xs",
-        ),
-        withBorder=True,
-        radius="sm",
-        mb="xs",
-        style={"backgroundColor": "var(--surface-2, #FAFAFA)"},
-    )
+    return saved_view_toolbar("batches", mb="xs", btn_prefix="btn", select_w=190)
 
 
 def render_batch_defs_content(
@@ -200,19 +128,7 @@ def render_batch_defs_content(
     )
 
 
-def layout() -> Any:
-    ctx = get_current_ctx()
-    gate = page_gate(ctx, MENU_CODE)
-    if gate:
-        return dmc.Box(
-            [
-                dcc.Location(id="bdef-forbidden-redirect", href=gate),
-                alert_box("Bạn không có quyền truy cập trang Bộ đối soát.", tone="crit"),
-            ],
-            p="md",
-        )
-    can_write = _can_write(ctx)
-
+def _build_batch_defs_layout(can_write: bool) -> Any:
     header_actions: list[Any] = [
         dmc.ActionIcon(
             DashIconify(icon="lucide:refresh-cw", width=14),
@@ -240,7 +156,7 @@ def layout() -> Any:
 
     return dmc.Box(
         [
-            dcc.Store(id="bdef-store-list"),
+            dcc.Store(id="bdef-store-list", storage_type="session"),
             dcc.Store(id="bdef-action-target"),
             dcc.Location(id="bdef-redirect", refresh=True),
             header_node,
@@ -369,6 +285,25 @@ def layout() -> Any:
     )
 
 
+def layout() -> Any:
+    ctx = get_current_ctx()
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
+        return dmc.Box(
+            [
+                dcc.Location(id="bdef-forbidden-redirect", href=gate),
+                alert_box("Bạn không có quyền truy cập trang Bộ đối soát.", tone="crit"),
+            ],
+            p="md",
+        )
+    can_write = _can_write(ctx)
+    return cached_layout(
+        get_recon_engine(),
+        ("batch_defs", can_write),
+        lambda: _build_batch_defs_layout(can_write),
+    )
+
+
 @callback(
     Output("bdef-content", "children"),
     Input("bdef-store-list", "data"),
@@ -377,23 +312,41 @@ def _render_list(store_data: Any) -> Any:
     ctx = get_current_ctx()
     if store_data is None:
         return render_batch_defs_content(None, loading=True)
-    if isinstance(store_data, dict) and store_data.get("error"):
-        return render_batch_defs_content(None, error=str(store_data["error"]))
-    items = store_data if isinstance(store_data, list) else []
-    return render_batch_defs_content(
-        items,
-        can_write=_can_write(ctx),
-    )
+    if isinstance(store_data, list):
+        return render_batch_defs_content(store_data, can_write=_can_write(ctx))
+    if isinstance(store_data, dict):
+        if store_data.get("error"):
+            return render_batch_defs_content(None, error=str(store_data["error"]))
+        uid = getattr(ctx, "user_id", None) if ctx else None
+        if is_stale_user_store(store_data, uid):
+            return render_batch_defs_content(None, loading=True)
+        items = store_data.get("items")
+        return render_batch_defs_content(
+            items if isinstance(items, list) else [],
+            can_write=_can_write(ctx),
+        )
+    return render_batch_defs_content([], can_write=_can_write(ctx))
 
 
 dash.clientside_callback(
     """
     function(data) {
-        if (!data || !Array.isArray(data)) return "";
+        if (!data) return "";
+        var rows = Array.isArray(data) ? data : (Array.isArray(data.items) ? data.items : null);
+        if (!rows) return "";
         function mountTabulator() {
             var container = document.getElementById("bdef-tabulator-table");
             if (container && window.batchesTabulator && window.batchesTabulator.init) {
-                window.batchesTabulator.init("bdef-tabulator-table", data, true);
+                var initFn = function() {
+                    window.batchesTabulator.init("bdef-tabulator-table", rows, true);
+                };
+                if (window.reconLazy && typeof window.reconLazy.ensureTabulator === "function") {
+                    window.reconLazy.ensureTabulator().then(initFn).catch(function(err) {
+                        console.error("[batches] Không tải được Tabulator:", err);
+                    });
+                } else {
+                    initFn();
+                }
             } else {
                 setTimeout(mountTabulator, 100);
             }
@@ -565,16 +518,31 @@ dash.clientside_callback(
     Output("bdef-store-list", "data"),
     Input("bdef-refresh-btn", "n_clicks"),
     Input({"type": "bdef-retry-btn", "index": ALL}, "n_clicks"),
+    State("bdef-store-list", "data"),
     prevent_initial_call=False,
 )
-def _load_list(_refresh: Any, _retry: Any) -> Any:
+def _load_list(_refresh: Any, _retry: Any, cached_data: Any = None) -> Any:
     ctx = get_current_ctx()
     if ctx is None:
         return {"error": "Bạn cần đăng nhập để xem bộ đối soát."}
     res = list_batch_defs(ctx)
     if not res.ok:
-        return {"error": res.message or "Không tải được danh sách."}
-    return res.data
+        return {
+            "error": res.message or "Không tải được danh sách.",
+            "user_id": getattr(ctx, "user_id", None),
+        }
+    items = res.data or []
+    can_w = _can_write(ctx)
+    uid = getattr(ctx, "user_id", None)
+    fp = compute_fingerprint({"can_write": can_w, "items": items})
+    if should_skip_swr_update(cached_data, uid, fp):
+        return dash.no_update
+    return {
+        "items": items,
+        "can_write": can_w,
+        "user_id": uid,
+        "fingerprint": fp,
+    }
 
 
 @callback(

@@ -17,10 +17,12 @@ from app.routes.file_routes import file_bp
 from app.routes.health import health_bp
 from app.services.data_source import sync_current_metadata_source
 from app.services.menu_sync import sync_menus_safely
+from app.ui.http_cache import register_http_optimizations
 from app.ui.layout import create_shell_layout
 from app.ui.theme import THEME
 
 UI_DIR = Path(__file__).resolve().parent
+_LAZY_ASSETS_IGNORE = r"^(mermaid\.min\.js|mermaid_init\.js|tabulator\.min\.js|tabulator\.min\.css|tabulator_fluent\.css)$"
 
 
 def create_app() -> Dash:
@@ -36,12 +38,15 @@ def create_app() -> Dash:
         use_pages=True,
         pages_folder=str(UI_DIR / "pages"),
         assets_folder=str(UI_DIR / "assets"),
+        assets_ignore=_LAZY_ASSETS_IGNORE,
+        assets_path_ignore=[r"^lazy$"],
         title="ReconHub",
         update_title="",
         suppress_callback_exceptions=True,
     )
 
     flask_server = dash_app.server
+    register_http_optimizations(flask_server)
     flask_server.secret_key = settings.FLASK_SECRET_KEY
     flask_server.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=settings.SESSION_HOURS)
     flask_server.config["SESSION_COOKIE_HTTPONLY"] = True

@@ -48,6 +48,7 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 101 | [101-interactive-grid](101-interactive-grid/task.md) — Chuyển grid danh sách sang Interactive Grid (Tabulator) phong cách Oracle APEX | ✅ | 18 | feat/101-interactive-grid |
 | 102 | [102-fastapi-sso](102-fastapi-sso/task.md) — Hệ thống SSO nội bộ độc lập bằng FastAPI, tích hợp Dual-Mode và màn hình Flow SSO | ✅ | 01 | feat/102-fastapi-sso |
 | 103 | [103-forgot-password-email](103-forgot-password-email/task.md) — Chức năng quên mật khẩu và đặt lại mật khẩu tự phục vụ qua email | ✅ | 01, 96 | feat/103-forgot-password-email |
+| 104 | [104-layout-cache-perf](104-layout-cache-perf/task.md) — Cache layout, Persistent AppShell và tối ưu tốc độ tải trang | ✅ | 08, 19, 20, 27 | feat/104-layout-cache-perf |
 
 Thiết kế: 11 màn (designs/components/Screen01–Screen11), 13 thành phần, Gallery. Giao diện dựng bằng Dash Mantine Components.
 

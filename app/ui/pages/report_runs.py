@@ -16,8 +16,9 @@ from typing import Any
 
 import dash
 import dash_mantine_components as dmc
-from dash import Input, Output, State, callback, dcc, html
+from dash import Input, Output, State, callback, clientside_callback, dcc, html
 from dash.exceptions import PreventUpdate
+from dash_iconify import DashIconify
 
 from app.core.session import get_current_ctx
 from app.db.engine import get_recon_engine
@@ -25,7 +26,7 @@ from app.services.perm import is_admin, page_gate
 from app.services.report_export import (
     cancel_export,
     delete_export,
-    list_exports,
+    list_exports_by_runs,
     rerun_and_export,
     retry_export,
 )
@@ -35,7 +36,10 @@ from app.ui.components.command_bar import command_bar
 from app.ui.components.data_grid import data_grid
 from app.ui.components.notification import notify_error, notify_success
 from app.ui.components.page_header import page_header
+from app.ui.components.saved_view_toolbar import saved_view_toolbar
 from app.ui.formatters import format_datetime
+from app.ui.layout_cache import cached_layout
+from app.ui.swr import should_skip_swr_update
 
 try:
     dash.register_page(__name__, path="/report-runs", title="Lịch sử báo cáo – ReconHub")  # type: ignore[no-untyped-call]
@@ -243,17 +247,18 @@ def _filters_to_kwargs(
 def _load_page_data(
     ctx: Any, page: int, page_size: int, filters: dict[str, Any]
 ) -> tuple[list[dict[str, Any]], int, dict[int, list[dict[str, Any]]]]:
-    """Nạp 1 trang lịch sử + exports theo run (dùng chung layout/callback)."""
+    """Nạp 1 trang lịch sử + exports theo lô nhiều run (tránh N+1 query)."""
     res = list_report_runs(ctx, page=page, page_size=page_size, **filters)
     if not res.ok or not isinstance(res.data, dict):
         raise ValueError(res.message or "Không tải được lịch sử.")
     runs = res.data.get("runs", [])
     total = int(res.data.get("total", 0))
+    run_ids = [int(run["id"]) for run in runs]
     exports_by_run: dict[int, list[dict[str, Any]]] = {}
-    for run in runs:
-        e_res = list_exports(ctx, run_id=int(run["id"]))
+    if run_ids:
+        e_res = list_exports_by_runs(ctx, run_ids)
         if e_res.ok and isinstance(e_res.data, dict):
-            exports_by_run[int(run["id"])] = e_res.data.get("exports", [])
+            exports_by_run = e_res.data
     return runs, total, exports_by_run
 
 
@@ -301,34 +306,24 @@ def _runner_options(ctx: Any) -> list[dict[str, str]]:
     ]
 
 
-def layout() -> Any:
-    """Giao diện chính màn hình Lịch sử báo cáo."""
-    ctx = get_current_ctx()
-    gate = page_gate(ctx, MENU_CODE)
-    if gate:
-        return html.Div(
-            [
-                dcc.Location(id="report-runs-forbidden-redirect", href=gate),
-                alert_box("Bạn không có quyền xem lịch sử báo cáo.", tone="crit"),
-            ]
-        )
-    runs: list[dict[str, Any]] = []
-    total = 0
-    exports_by_run: dict[int, list[dict[str, Any]]] = {}
+def render_report_runs_view_toolbar() -> Any:
+    """Thanh công cụ Quản lý Template / Saved Views cho AG Grid Lịch sử báo cáo."""
+    return saved_view_toolbar("rruns")
+
+
+def _build_report_runs_layout(can_delete: bool) -> Any:
+    """Dựng khung Skeleton-first cho màn Lịch sử báo cáo (không query DB nặng)."""
     creators: list[dict[str, str]] = [{"label": "Tất cả người chạy", "value": "all"}]
-    if ctx:
-        try:
-            creators = _runner_options(ctx)
-            runs, total, exports_by_run = _load_page_data(ctx, 1, DEFAULT_PAGE_SIZE, {})
-        except Exception:
-            runs = []
     return dmc.Box(
         [
             dcc.Store(id="report-runs-page-store", data=1),
             dcc.Store(id="report-runs-refresh-store", data=0),
+            dcc.Store(id="rruns-view-init-trigger", data=1),
+            html.Div(id="rruns-view-init-dummy", style={"display": "none"}),
             # Task 53: vân tay dữ liệu đang hiện — tick tự động chỉ vẽ lại
             # bảng khi vân tay đổi, không thì giữ nguyên (khỏi mất vị trí cuộn).
             dcc.Store(id="report-runs-fingerprint", data=""),
+            dcc.Store(id="report-runs-swr-store", storage_type="session"),
             # Task 52: tự làm mới mỗi 10s để thấy export chạy ngầm xong.
             dcc.Interval(id="report-runs-auto-refresh", interval=10000, n_intervals=0),
             html.Div(id="report-runs-alert", **{"aria-live": "polite"}),  # type: ignore[arg-type]
@@ -402,16 +397,15 @@ def layout() -> Any:
                     ),
                 ],
             ),
+            render_report_runs_view_toolbar(),
             # Task 55: AG Grid thay dmc.Table — tick chỉ đưa rowData mới,
             # grid tự diff theo getRowId và cập nhật dòng đổi tại chỗ
             # (không vẽ lại toàn bảng, không spinner, giữ vị trí cuộn).
             # Bỏ dcc.Loading quanh bảng (task 52) vì lý do đó.
             data_grid(
                 id="report-runs-grid",
-                columnDefs=_runs_grid_column_defs(
-                    can_delete=bool(ctx and is_admin(ctx, get_recon_engine()))
-                ),
-                rowData=_runs_row_data(runs, exports_by_run),
+                columnDefs=_runs_grid_column_defs(can_delete=can_delete),
+                rowData=None,
                 getRowId="params.data.id.toString()",
                 # Task 61: grid truyền overlayNoRowsTemplate là chuỗi tĩnh
                 # qua dashGridOptions; dash-ag-grid 35.3.1 chặn chuỗi ở vị
@@ -420,14 +414,15 @@ def layout() -> Any:
                 # Task 56: class rh-runs-grid → font 12px (pattern task 40).
                 className="ag-theme-quartz-auto-dark rh-runs-grid",
                 dashGridOptions={
-                    "overlayNoRowsTemplate": "Chưa có run nào. Chạy một báo cáo ở Trung tâm báo cáo để xem lịch sử tại đây."
+                    "overlayLoadingTemplate": "Đang tải lịch sử báo cáo...",
+                    "overlayNoRowsTemplate": "Chưa có run nào. Chạy một báo cáo ở Trung tâm báo cáo để xem lịch sử tại đây.",
                 },
                 container_style={"flex": 1, "minHeight": 0},
             ),
             dmc.Group(
                 [
                     dmc.Text(
-                        f"Tổng {total} run",
+                        "Tổng 0 run",
                         id="report-runs-total-text",
                         size="xs",
                         c="dimmed",
@@ -441,14 +436,109 @@ def layout() -> Any:
                     ),
                     dmc.Pagination(
                         id="report-runs-pagination",
-                        total=max(1, (total + DEFAULT_PAGE_SIZE - 1) // DEFAULT_PAGE_SIZE),
+                        total=1,
                         value=1,
                         size="xs",
                     ),
                 ],
                 justify="center",
                 gap="md",
-                mt="xs",
+                mt=2,
+            ),
+            # Modal Lưu Template / View mới
+            dmc.Modal(
+                id="rruns-save-view-modal",
+                title=dmc.Group(
+                    [
+                        DashIconify(icon="lucide:layout-grid", width=18, color="var(--primary, #2563EB)"),
+                        dmc.Text("Lưu Template / View mới", fw=600, size="sm"),
+                    ],
+                    gap="xs",
+                ),
+                children=dmc.Stack(
+                    [
+                        dmc.TextInput(
+                            id="rruns-new-view-name",
+                            label="Tên Template / View",
+                            placeholder="Nhập tên template (vd: Theo dõi xuất file, Xem gọn...)",
+                            withAsterisk=True,
+                            size="sm",
+                        ),
+                        dmc.Checkbox(
+                            id="rruns-new-view-default",
+                            label="Đặt làm giao diện mặc định khi mở trang",
+                            size="sm",
+                        ),
+                        dmc.Group(
+                            [
+                                dmc.Button(
+                                    "Hủy",
+                                    id="rruns-cancel-save-view-btn",
+                                    variant="subtle",
+                                    color="gray",
+                                    size="xs",
+                                ),
+                                dmc.Button(
+                                    "Lưu Template",
+                                    id="rruns-confirm-save-view-btn",
+                                    color="primary",
+                                    size="xs",
+                                ),
+                            ],
+                            justify="flex-end",
+                            gap="xs",
+                            mt="sm",
+                        ),
+                    ],
+                    gap="md",
+                ),
+                opened=False,
+                size="sm",
+                centered=True,
+            ),
+            # Modal Xóa Template / View
+            dmc.Modal(
+                id="rruns-delete-view-modal",
+                title=dmc.Group(
+                    [
+                        DashIconify(icon="lucide:trash-2", width=18, color="#DC2626"),
+                        dmc.Text("Xóa Template / View", fw=600, size="sm", c="#DC2626"),
+                    ],
+                    gap="xs",
+                ),
+                children=dmc.Stack(
+                    [
+                        dmc.Text(
+                            "Bạn có chắc chắn muốn xóa Template / View này? Thao tác này không thể hoàn tác.",
+                            size="sm",
+                            c="dimmed",
+                        ),
+                        dmc.Group(
+                            [
+                                dmc.Button(
+                                    "Hủy",
+                                    id="rruns-cancel-delete-view-btn",
+                                    variant="subtle",
+                                    color="gray",
+                                    size="xs",
+                                ),
+                                dmc.Button(
+                                    "Xóa Template",
+                                    id="rruns-confirm-delete-view-btn",
+                                    color="red",
+                                    size="xs",
+                                ),
+                            ],
+                            justify="flex-end",
+                            gap="xs",
+                            mt="sm",
+                        ),
+                    ],
+                    gap="md",
+                ),
+                opened=False,
+                size="sm",
+                centered=True,
             ),
         ],
         style={
@@ -456,16 +546,91 @@ def layout() -> Any:
             "display": "flex",
             "flexDirection": "column",
             "overflow": "hidden",
-            "padding": "12px 16px",
-            "gap": "10px",
+            "padding": "8px 12px",
+            "gap": "6px",
         },
     )
 
 
+def layout() -> Any:
+    """Giao diện chính màn hình Lịch sử báo cáo (Skeleton-first + Server Layout Cache)."""
+    ctx = get_current_ctx()
+    gate = page_gate(ctx, MENU_CODE)
+    if gate:
+        return html.Div(
+            [
+                dcc.Location(id="report-runs-forbidden-redirect", href=gate),
+                alert_box("Bạn không có quyền xem lịch sử báo cáo.", tone="crit"),
+            ]
+        )
+    engine = get_recon_engine()
+    can_delete = bool(ctx and is_admin(ctx, engine))
+    return cached_layout(
+        engine,
+        ("report_runs", can_delete),
+        lambda: _build_report_runs_layout(can_delete),
+    )
+
+
 @callback(
-    Output("report-runs-grid", "rowData"),
-    Output("report-runs-pagination", "total"),
-    Output("report-runs-total-text", "children"),
+    Output("report-runs-filter-runner", "data"),
+    Input("rruns-view-init-trigger", "data"),
+    Input("report-runs-refresh-btn", "n_clicks"),
+)
+def load_runner_options(_trigger: Any, _refresh_clicks: Any) -> list[dict[str, str]]:
+    """Nạp danh sách người chạy bất đồng bộ để layout() không truy vấn DB đồng bộ."""
+    ctx = get_current_ctx()
+    if ctx is None:
+        return [{"label": "Tất cả người chạy", "value": "all"}]
+    return _runner_options(ctx)
+
+
+def _is_default_runs_view(
+    page: int,
+    size: int,
+    from_date: str | None,
+    to_date: str | None,
+    category: str | None,
+    name: str | None,
+    runner: str | None,
+    status: str | None,
+) -> bool:
+    """Trả True nếu bảng đang ở bộ lọc mặc định trang 1 (được phép dùng cache SWR)."""
+    return (
+        page == 1
+        and size == DEFAULT_PAGE_SIZE
+        and not from_date
+        and not to_date
+        and category in (None, "all")
+        and not name
+        and runner in (None, "all")
+        and status in (None, "all")
+    )
+
+
+def _resolve_runs_swr_state(
+    last_fingerprint: Any,
+    page_store: Any,
+    swr_cache: Any,
+) -> tuple[str, Any]:
+    """Chuẩn hóa fingerprint & swr_cache giữa runtime Dash và test gọi trực tiếp."""
+    runtime_fp = (
+        last_fingerprint
+        if isinstance(last_fingerprint, str)
+        else (page_store if isinstance(page_store, str) else "")
+    )
+    effective_swr = (
+        swr_cache
+        if isinstance(swr_cache, dict)
+        else (last_fingerprint if isinstance(last_fingerprint, dict) else None)
+    )
+    return runtime_fp, effective_swr
+
+
+@callback(
+    Output("report-runs-grid", "rowData", allow_duplicate=True),
+    Output("report-runs-pagination", "total", allow_duplicate=True),
+    Output("report-runs-total-text", "children", allow_duplicate=True),
     Output("report-runs-pagination", "value"),
     Output("report-runs-filter-from", "value"),
     Output("report-runs-filter-to", "value"),
@@ -473,7 +638,7 @@ def layout() -> Any:
     Output("report-runs-filter-name", "value"),
     Output("report-runs-filter-runner", "value"),
     Output("report-runs-filter-status", "value"),
-    Output("report-runs-fingerprint", "data"),
+    Output("report-runs-fingerprint", "data", allow_duplicate=True),
     # Task 55: alert cũng do handle_renderer_action ghi — cho phép trùng
     # output (Dash sẽ gọi callback nào trigger trước).
     Output("report-runs-alert", "children", allow_duplicate=True),
@@ -491,6 +656,7 @@ def layout() -> Any:
     Input("report-runs-refresh-store", "data"),
     State("report-runs-page-store", "data"),
     State("report-runs-fingerprint", "data"),
+    State("report-runs-swr-store", "data"),
     # Task 55: output alert trùng với handle_renderer_action nên phải
     # cho phép duplicate; "initial_duplicate" giữ nguyên lần gọi đầu
     # (tải bảng lúc mở trang).
@@ -510,8 +676,9 @@ def handle_runs_refresh(
     _auto_n: int | None = None,
     _refresh_clicks: int | None = None,
     _refresh_store: int | None = None,
-    _page_store: int | None = None,
-    last_fingerprint: str | None = None,
+    _page_store: Any = None,
+    last_fingerprint: Any = None,
+    swr_cache: Any = None,
 ) -> tuple[Any, ...]:
     """Chuyển trang / đổi cỡ trang / lọc lịch sử (đổi lọc → về trang 1).
 
@@ -566,7 +733,13 @@ def handle_runs_refresh(
             alert_box(str(exc), tone="crit"),
         )
     fingerprint = _runs_fingerprint(runs, exports_by_run, total, page)
-    if triggered == "report-runs-auto-refresh" and fingerprint == (last_fingerprint or ""):
+    runtime_fp, effective_swr = _resolve_runs_swr_state(last_fingerprint, _page_store, swr_cache)
+    swr_initial_hit = (
+        triggered is None
+        and _is_default_runs_view(page, size, from_date, to_date, category, name, runner, status)
+        and should_skip_swr_update(effective_swr, getattr(ctx, "user_id", None), fingerprint)
+    )
+    if (triggered == "report-runs-auto-refresh" and fingerprint == (runtime_fp or "")) or swr_initial_hit:
         return (
             dash.no_update,
             dash.no_update,
@@ -681,3 +854,299 @@ def handle_renderer_action(
     if kind == "report-runs-export-delete" and status not in ("DONE", "FAILED", "CANCELLED"):
         raise PreventUpdate
     return _do_export_action(ctx, kind, int(export_id), refresh)
+
+
+# Clientside callbacks cho Saved Views / Templates trên AG Grid Lịch sử báo cáo
+clientside_callback(
+    """
+    function(trigger) {
+        if (!trigger) return "";
+        function initViews() {
+            if (window.reportRunsViews && window.reportRunsViews.init) {
+                window.reportRunsViews.init();
+            } else {
+                setTimeout(initViews, 100);
+            }
+        }
+        setTimeout(initViews, 50);
+        return "";
+    }
+    """,
+    Output("rruns-view-init-dummy", "children"),
+    Input("rruns-view-init-trigger", "data"),
+)
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        if (n_clicks && window.reportRunsViews) {
+            window.reportRunsViews.saveCurrentView();
+        }
+        return "";
+    }
+    """,
+    Output("rruns-grid-notification", "children", allow_duplicate=True),
+    Input("rruns-btn-save-view", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) {
+            return [
+                window.dash_clientside.no_update,
+                window.dash_clientside.no_update,
+                window.dash_clientside.no_update,
+                window.dash_clientside.no_update
+            ];
+        }
+        return [true, "", null, false];
+    }
+    """,
+    Output("rruns-save-view-modal", "opened"),
+    Output("rruns-new-view-name", "value"),
+    Output("rruns-new-view-name", "error"),
+    Output("rruns-new-view-default", "checked"),
+    Input("rruns-btn-save-as-view", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        return false;
+    }
+    """,
+    Output("rruns-save-view-modal", "opened", allow_duplicate=True),
+    Input("rruns-cancel-save-view-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks, name, isDefault) {
+        if (!n_clicks) {
+            return [window.dash_clientside.no_update, window.dash_clientside.no_update];
+        }
+        var vName = (name || "").trim();
+        if (!vName) {
+            return [true, "Vui lòng nhập tên cho Template / View."];
+        }
+        if (window.reportRunsViews && window.reportRunsViews.saveNewView) {
+            window.reportRunsViews.saveNewView(vName, !!isDefault);
+        }
+        return [false, null];
+    }
+    """,
+    Output("rruns-save-view-modal", "opened", allow_duplicate=True),
+    Output("rruns-new-view-name", "error", allow_duplicate=True),
+    Input("rruns-confirm-save-view-btn", "n_clicks"),
+    State("rruns-new-view-name", "value"),
+    State("rruns-new-view-default", "checked"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks, viewId) {
+        if (n_clicks && window.reportRunsViews) {
+            window.reportRunsViews.setDefaultView(viewId || "default");
+        }
+        return "";
+    }
+    """,
+    Output("rruns-grid-notification", "children", allow_duplicate=True),
+    Input("rruns-btn-set-default", "n_clicks"),
+    State("rruns-view-select", "value"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        if (n_clicks && window.reportRunsViews) {
+            window.reportRunsViews.resetToDefault();
+        }
+        return "";
+    }
+    """,
+    Output("rruns-grid-notification", "children", allow_duplicate=True),
+    Input("rruns-btn-reset-default", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks, viewId) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        var activeId = (window.reportRunsViews && window.reportRunsViews.activeViewId)
+            ? window.reportRunsViews.activeViewId
+            : viewId;
+        if (!activeId || activeId === "default") {
+            if (window.reportRunsViews && window.reportRunsViews.showStatusNotification) {
+                window.reportRunsViews.showStatusNotification("Không thể xóa View mặc định hệ thống.");
+            }
+            return false;
+        }
+        return true;
+    }
+    """,
+    Output("rruns-delete-view-modal", "opened"),
+    Input("rruns-btn-delete-view", "n_clicks"),
+    State("rruns-view-select", "value"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        return false;
+    }
+    """,
+    Output("rruns-delete-view-modal", "opened", allow_duplicate=True),
+    Input("rruns-cancel-delete-view-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks, viewId) {
+        if (!n_clicks) return window.dash_clientside.no_update;
+        var activeId = (window.reportRunsViews && window.reportRunsViews.activeViewId)
+            ? window.reportRunsViews.activeViewId
+            : viewId;
+        if (window.reportRunsViews && window.reportRunsViews.deleteView) {
+            window.reportRunsViews.deleteView(activeId);
+        }
+        return false;
+    }
+    """,
+    Output("rruns-delete-view-modal", "opened", allow_duplicate=True),
+    Input("rruns-confirm-delete-view-btn", "n_clicks"),
+    State("rruns-view-select", "value"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(viewId) {
+        if (viewId && window.reportRunsViews) {
+            window.reportRunsViews.applyView(viewId);
+        }
+        return "";
+    }
+    """,
+    Output("rruns-grid-notification", "children", allow_duplicate=True),
+    Input("rruns-view-select", "value"),
+    prevent_initial_call=True,
+)
+
+# Client-side SWR: nạp ngay rowData từ sessionStorage khi quay lại /report-runs
+clientside_callback(
+    """
+    function(swrData, gridRowData, shellMode, currentPage, pageSize, fromDate, toDate, cat, name, runner, status) {
+        var noUp = window.dash_clientside.no_update;
+        if (gridRowData !== null && gridRowData !== undefined) {
+            return [noUp, noUp, noUp, noUp];
+        }
+        if (!swrData || typeof swrData !== "object" || !Array.isArray(swrData.rowData)) {
+            return [noUp, noUp, noUp, noUp];
+        }
+        var uid = shellMode && shellMode.user_id !== undefined ? shellMode.user_id : null;
+        if (uid === null || swrData.user_id !== uid) {
+            return [noUp, noUp, noUp, noUp];
+        }
+        var isDefault = (
+            (currentPage === null || currentPage === undefined || currentPage === 1) &&
+            (!pageSize || String(pageSize) === "50") &&
+            !fromDate && !toDate &&
+            (!cat || cat === "all") &&
+            !name &&
+            (!runner || runner === "all") &&
+            (!status || status === "all")
+        );
+        if (!isDefault) {
+            return [noUp, noUp, noUp, noUp];
+        }
+        return [
+            swrData.rowData,
+            swrData.total || 1,
+            swrData.totalText || ("Tổng " + swrData.rowData.length + " run"),
+            swrData.fingerprint || ""
+        ];
+    }
+    """,
+    Output("report-runs-grid", "rowData", allow_duplicate=True),
+    Output("report-runs-pagination", "total", allow_duplicate=True),
+    Output("report-runs-total-text", "children", allow_duplicate=True),
+    Output("report-runs-fingerprint", "data", allow_duplicate=True),
+    Input("report-runs-swr-store", "data"),
+    State("report-runs-grid", "rowData"),
+    State("app-shell-mode", "data"),
+    State("report-runs-pagination", "value"),
+    State("report-runs-page-size", "value"),
+    State("report-runs-filter-from", "value"),
+    State("report-runs-filter-to", "value"),
+    State("report-runs-filter-category", "value"),
+    State("report-runs-filter-name", "value"),
+    State("report-runs-filter-runner", "value"),
+    State("report-runs-filter-status", "value"),
+    prevent_initial_call="initial_duplicate",
+)
+
+# Client-side SWR: lưu snapshot trang 1 mặc định vào sessionStorage khi vân tay đổi
+clientside_callback(
+    """
+    function(fp, rowData, total, totalText, currentPage, pageSize, fromDate, toDate, cat, name, runner, status, shellMode, prevSwr) {
+        var noUp = window.dash_clientside.no_update;
+        if (!fp || !Array.isArray(rowData)) {
+            return noUp;
+        }
+        var uid = shellMode && shellMode.user_id !== undefined ? shellMode.user_id : null;
+        if (uid === null) {
+            return noUp;
+        }
+        var isDefault = (
+            (currentPage === null || currentPage === undefined || currentPage === 1) &&
+            (!pageSize || String(pageSize) === "50") &&
+            !fromDate && !toDate &&
+            (!cat || cat === "all") &&
+            !name &&
+            (!runner || runner === "all") &&
+            (!status || status === "all")
+        );
+        if (!isDefault) {
+            return noUp;
+        }
+        if (prevSwr && prevSwr.user_id === uid && prevSwr.fingerprint === fp) {
+            return noUp;
+        }
+        return {
+            user_id: uid,
+            rowData: rowData,
+            total: total || 1,
+            totalText: totalText || ("Tổng " + rowData.length + " run"),
+            fingerprint: fp
+        };
+    }
+    """,
+    Output("report-runs-swr-store", "data"),
+    Input("report-runs-fingerprint", "data"),
+    State("report-runs-grid", "rowData"),
+    State("report-runs-pagination", "total"),
+    State("report-runs-total-text", "children"),
+    State("report-runs-pagination", "value"),
+    State("report-runs-page-size", "value"),
+    State("report-runs-filter-from", "value"),
+    State("report-runs-filter-to", "value"),
+    State("report-runs-filter-category", "value"),
+    State("report-runs-filter-name", "value"),
+    State("report-runs-filter-runner", "value"),
+    State("report-runs-filter-status", "value"),
+    State("app-shell-mode", "data"),
+    State("report-runs-swr-store", "data"),
+    prevent_initial_call=True,
+)

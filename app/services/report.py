@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy import Connection, delete, select
+from sqlalchemy import Connection, delete, func, select
 
 from app.core.audit import write_audit_log
 from app.core.context import Ctx
@@ -65,7 +65,7 @@ class ReportUpdate(BaseModel):
     is_active: bool | None = None
 
 
-def _report_dict(row: Any, is_favorite: bool = False) -> dict[str, Any]:
+def _report_dict(row: Any, is_favorite: bool = False, template_count: int = 0) -> dict[str, Any]:
     return {
         "id": int(row["ID"]),
         "code": str(row["CODE"]),
@@ -77,6 +77,7 @@ def _report_dict(row: Any, is_favorite: bool = False) -> dict[str, Any]:
         "is_visible": row["IS_VISIBLE"] == "Y",
         "is_active": row["IS_ACTIVE"] == "Y",
         "is_favorite": is_favorite,
+        "template_count": template_count,
         "row_version": int(row["ROW_VERSION"]),
     }
 
@@ -111,7 +112,23 @@ def list_reports(ctx: Ctx) -> list[dict[str, Any]]:
                 )
             ).all()
         }
-        return [_report_dict(row, int(row["ID"]) in fav_ids) for row in rows]
+        tpl_counts = {
+            int(r[0]): int(r[1])
+            for r in conn.execute(
+                select(
+                    recon_report_template.c.REPORT_ID,
+                    func.count(recon_report_template.c.ID),
+                ).group_by(recon_report_template.c.REPORT_ID)
+            ).all()
+        }
+        return [
+            _report_dict(
+                row,
+                is_favorite=int(row["ID"]) in fav_ids,
+                template_count=tpl_counts.get(int(row["ID"]), 0),
+            )
+            for row in rows
+        ]
 
 
 @service

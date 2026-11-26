@@ -5,6 +5,8 @@ T27-06 (server pagination lịch sử), Q4 (Chạy lại với tham số cũ).
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from app.core.context import Ctx
 from tests.unit.test_page_report_viewer import _dump
 from tests.unit.test_report_export_queue import (
@@ -27,26 +29,33 @@ class TestRunsLayout:
         import app.ui.pages.report_runs as page
 
         monkeypatch.setattr(page, "get_current_ctx", lambda: operator_ctx)
+        monkeypatch.setattr("dash.callback_context", SimpleNamespace(triggered_id=None))
         own = _done_run(operator_ctx, export_env)
         other = _done_run(
             Ctx(user_id=1, username="admin", full_name="admin", roles=["ADMIN"]),
             export_env,
         )
         text = _dump(page.layout())
-        assert f"#{own['id']}" in text
-        assert f"#{other['id']}" not in text
         assert "Lịch sử báo cáo" in text
+        out = page.handle_runs_refresh(1, "50", None, None, "all", "", "all", "all", None, None)
+        rows_text = str(out[0])
+        assert f"#{own['id']}" in rows_text
+        assert f"#{other['id']}" not in rows_text
 
     def test_admin_sees_all_runs(self, export_env, operator_ctx, monkeypatch):
         import app.ui.pages.report_runs as page
 
         admin = Ctx(user_id=1, username="admin", full_name="admin", roles=["ADMIN"])
         monkeypatch.setattr(page, "get_current_ctx", lambda: admin)
+        monkeypatch.setattr("dash.callback_context", SimpleNamespace(triggered_id=None))
         own = _done_run(operator_ctx, export_env)
         other = _done_run(admin, export_env)
         text = _dump(page.layout())
-        assert f"#{own['id']}" in text
-        assert f"#{other['id']}" in text
+        assert "Lịch sử báo cáo" in text
+        out = page.handle_runs_refresh(1, "50", None, None, "all", "", "all", "all", None, None)
+        rows_text = str(out[0])
+        assert f"#{own['id']}" in rows_text
+        assert f"#{other['id']}" in rows_text
 
     def test_forbidden_for_norole(self, export_env, norole_ctx, monkeypatch):
         import app.ui.pages.report_runs as page

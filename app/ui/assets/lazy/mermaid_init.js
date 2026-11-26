@@ -25,6 +25,8 @@
         }
     }
 
+    window.renderMermaidElements = renderMermaidElements;
+
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", initMermaid);
     } else {

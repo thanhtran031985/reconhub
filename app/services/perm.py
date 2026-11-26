@@ -25,6 +25,7 @@ import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, ParamSpec, TypeVar, cast
+from weakref import WeakKeyDictionary
 
 from sqlalchemy import Connection, Engine, Table, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -50,6 +51,14 @@ _REVISION_CACHE: dict[str, Any] = {"value": 0, "at": 0.0}
 _REVISION_TTL_S = 1.0
 _MENUS_CACHE: dict[tuple[int, int], tuple[set[str], float]] = {}
 _MENUS_TTL_S = 5.0
+_TABLES_EXIST_CACHE: WeakKeyDictionary[Engine, bool] = WeakKeyDictionary()
+_CACHE_CLEAR_HOOKS: list[Callable[[], None]] = []
+
+
+def register_cache_clear_hook(hook: Callable[[], None]) -> None:
+    """Đăng ký callback xóa cache phụ thuộc PERM_REVISION khi clear_perm_cache()."""
+    if hook not in _CACHE_CLEAR_HOOKS:
+        _CACHE_CLEAR_HOOKS.append(hook)
 
 
 def clear_perm_cache() -> None:
@@ -57,14 +66,25 @@ def clear_perm_cache() -> None:
     _REVISION_CACHE["value"] = 0
     _REVISION_CACHE["at"] = 0.0
     _MENUS_CACHE.clear()
+    _TABLES_EXIST_CACHE.clear()
+    for hook in list(_CACHE_CLEAR_HOOKS):
+        try:
+            hook()
+        except Exception:
+            pass
 
 
 def _tables_exist(engine: Engine) -> bool:
+    if _TABLES_EXIST_CACHE.get(engine):
+        return True
     try:
         names = inspect(engine).get_table_names()
     except SQLAlchemyError:
         return False
-    return "RECON_MENU" in names and "RECON_ROLE" in names and "RECON_USER_ROLE" in names
+    exists = "RECON_MENU" in names and "RECON_ROLE" in names and "RECON_USER_ROLE" in names
+    if exists:
+        _TABLES_EXIST_CACHE[engine] = True
+    return exists
 
 
 def get_perm_revision(engine: Engine | None = None) -> int:
