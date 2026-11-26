@@ -673,5 +673,68 @@
     "migration_id": "0017_multi_sso_oidc",
     "task_id": null,
     "timestamp": "2026-11-26T07:50:46.386070+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_MODEL",
+    "migration_id": "0018_semantic_model",
+    "task_id": null,
+    "timestamp": "2026-11-26T13:42:44.198128+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_MODEL_FIELD",
+    "migration_id": "0018_semantic_model",
+    "task_id": null,
+    "timestamp": "2026-11-26T13:42:44.198128+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_MODEL_MEASURE",
+    "migration_id": "0018_semantic_model",
+    "task_id": null,
+    "timestamp": "2026-11-26T13:42:44.198128+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_MODEL_REL",
+    "migration_id": "0018_semantic_model",
+    "task_id": null,
+    "timestamp": "2026-11-26T13:42:44.198128+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_MODEL_RLS",
+    "migration_id": "0018_semantic_model",
+    "task_id": null,
+    "timestamp": "2026-11-26T13:42:44.198128+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_MODEL_TABLE",
+    "migration_id": "0018_semantic_model",
+    "task_id": null,
+    "timestamp": "2026-11-26T13:42:44.198128+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_MODEL_VER",
+    "migration_id": "0018_semantic_model",
+    "task_id": null,
+    "timestamp": "2026-11-26T13:42:44.198128+00:00"
   }
 ]

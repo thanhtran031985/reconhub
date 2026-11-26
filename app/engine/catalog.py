@@ -1,32 +1,88 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import Connection, create_engine, select, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.engine import get_recon_engine
 from app.db.metadata import recon_data_source
+from app.engine.sql_dialect import quote_identifier
 from app.services.source_conn import open_source_connection
 
 CACHE_TTL_SECONDS = 600.0  # 10 phút
 
 _TABLES_CACHE: dict[tuple[int, str, str], tuple[float, list[dict[str, str]]]] = {}
 _COLUMNS_CACHE: dict[tuple[int, str, str], tuple[float, list[dict[str, Any]]]] = {}
+_CONSTRAINTS_CACHE: dict[tuple[int, str, str], tuple[float, dict[str, Any]]] = {}
+_ROW_ESTIMATE_CACHE: dict[tuple[int, str, str], tuple[float, int | None]] = {}
 
 
 def invalidate_catalog_cache(ds_id: int | None = None) -> None:
-    """Xóa bộ đệm danh mục bảng và cột."""
+    """Xóa bộ đệm danh mục bảng, cột, constraint và ước lượng số dòng."""
     if ds_id is None:
         _TABLES_CACHE.clear()
         _COLUMNS_CACHE.clear()
+        _CONSTRAINTS_CACHE.clear()
+        _ROW_ESTIMATE_CACHE.clear()
     else:
-        for k in list(_TABLES_CACHE.keys()):
-            if k[0] == ds_id:
-                _TABLES_CACHE.pop(k, None)
-        for k_col in list(_COLUMNS_CACHE.keys()):
-            if k_col[0] == ds_id:
-                _COLUMNS_CACHE.pop(k_col, None)
+        for cache in (_TABLES_CACHE, _COLUMNS_CACHE, _CONSTRAINTS_CACHE, _ROW_ESTIMATE_CACHE):
+            for k in list(cache.keys()):
+                if k[0] == ds_id:
+                    cache.pop(k, None)
+
+
+def _get_ds_row(ds_id: int) -> dict[str, Any] | None:
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        row = (
+            conn.execute(
+                select(
+                    recon_data_source.c.DB_TYPE,
+                    recon_data_source.c.FILE_PATH,
+                    recon_data_source.c.DEFAULT_SCHEMA,
+                    recon_data_source.c.USERNAME,
+                ).where(recon_data_source.c.ID == ds_id)
+            )
+            .mappings()
+            .first()
+        )
+    return dict(row) if row is not None else None
+
+
+@contextmanager
+def _sqlite_connection(ds_row: dict[str, Any] | None) -> Iterator[Connection]:
+    """Mở connection SQLite tới FILE_PATH của Data Source (nếu có) hoặc engine mặc định."""
+    file_path = str(ds_row.get("FILE_PATH") or "").strip() if ds_row else ""
+    if file_path:
+        ext_engine = create_engine(f"sqlite:///{Path(file_path).as_posix()}")
+        try:
+            with ext_engine.connect() as conn:
+                yield conn
+        finally:
+            ext_engine.dispose()
+    else:
+        with get_recon_engine().connect() as conn:
+            yield conn
+
+
+def _verify_sqlite_object(conn: Connection, table_name: str) -> tuple[str, str] | None:
+    """Xác minh bảng/view tồn tại trong sqlite_master bằng bind parameter."""
+    row = conn.execute(
+        text(
+            "SELECT name, LOWER(type) FROM sqlite_master "
+            "WHERE UPPER(name) = UPPER(:name) AND type IN ('table', 'view') "
+            "AND name NOT LIKE 'sqlite_%'"
+        ),
+        {"name": table_name.strip()},
+    ).first()
+    if row is None:
+        return None
+    return str(row[0]), str(row[1])
 
 
 def _resolve_schema(ds_id: int, schema: str | None) -> str:
@@ -34,18 +90,7 @@ def _resolve_schema(ds_id: int, schema: str | None) -> str:
     if schema and schema.strip():
         return schema.strip().upper()
 
-    engine = get_recon_engine()
-    with engine.connect() as conn:
-        row = (
-            conn.execute(
-                select(recon_data_source.c.DEFAULT_SCHEMA, recon_data_source.c.USERNAME).where(
-                    recon_data_source.c.ID == ds_id
-                )
-            )
-            .mappings()
-            .first()
-        )
-
+    row = _get_ds_row(ds_id)
     if row:
         target = row["DEFAULT_SCHEMA"] or row["USERNAME"]
         if target:
@@ -69,24 +114,26 @@ def list_tables(
     if object_type is not None and object_type not in ("TABLE", "VIEW"):
         raise ValueError("object_type phải là None, 'TABLE' hoặc 'VIEW'")
 
-    engine = get_recon_engine()
-    with engine.connect() as conn:
-        ds_row = conn.execute(
-            select(recon_data_source.c.DB_TYPE).where(recon_data_source.c.ID == ds_id)
-        ).mappings().first()
-
+    ds_row = _get_ds_row(ds_id)
     if ds_row and str(ds_row.get("DB_TYPE")).upper() == "SQLITE":
-        from sqlalchemy import text
-        with engine.connect() as conn:
-            types = ("table",) if object_type == "TABLE" else ("view",) if object_type == "VIEW" else ("table", "view")
-            types_str = ", ".join(f"'{t}'" for t in types)
-            query = f"SELECT name, UPPER(type) FROM sqlite_master WHERE type IN ({types_str}) AND name NOT LIKE 'sqlite_%'"
+        with _sqlite_connection(ds_row) as conn:
+            if object_type == "TABLE":
+                raw_rows = conn.execute(
+                    text("SELECT name, UPPER(type) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+                ).fetchall()
+            elif object_type == "VIEW":
+                raw_rows = conn.execute(
+                    text("SELECT name, UPPER(type) FROM sqlite_master WHERE type = 'view' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+                ).fetchall()
+            else:
+                raw_rows = conn.execute(
+                    text("SELECT name, UPPER(type) FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name")
+                ).fetchall()
+            tables = [{"name": str(r[0]), "type": str(r[1]), "schema": "main"} for r in raw_rows]
             if q:
                 term = q.strip().upper()
-                query += f" AND UPPER(name) LIKE '%{term}%'"
-            query += " ORDER BY name"
-            raw_rows = conn.execute(text(query)).fetchall()
-            return [{"name": str(r[0]), "type": str(r[1]), "schema": "main"} for r in raw_rows]
+                return [t for t in tables if term in t["name"].upper()]
+            return tables
 
     resolved_schema = _resolve_schema(ds_id, schema)
     cache_key = (ds_id, resolved_schema, object_type or "")
@@ -159,16 +206,14 @@ def list_columns(
 
     Trả về danh sách: [{"name": str, "data_type": str, "nullable": bool, "length": int, "precision": int, "scale": int}]
     """
-    engine = get_recon_engine()
-    with engine.connect() as conn:
-        ds_row = conn.execute(
-            select(recon_data_source.c.DB_TYPE).where(recon_data_source.c.ID == ds_id)
-        ).mappings().first()
-
+    ds_row = _get_ds_row(ds_id)
     if ds_row and str(ds_row.get("DB_TYPE")).upper() == "SQLITE":
-        from sqlalchemy import text
-        with engine.connect() as conn:
-            raw = conn.execute(text(f"PRAGMA table_info('{table_name}')")).fetchall()
+        with _sqlite_connection(ds_row) as conn:
+            verified = _verify_sqlite_object(conn, table_name)
+            if verified is None:
+                return []
+            safe_name, _ = verified
+            raw = conn.execute(text(f"PRAGMA table_info({quote_identifier(safe_name)})")).fetchall()
             return [
                 {
                     "name": str(r[1]),
@@ -217,6 +262,203 @@ def list_columns(
         ]
         _COLUMNS_CACHE[cache_key] = (now, cols_result)
         return cols_result
+    finally:
+        ora_conn.close()
+
+
+def list_table_constraints(
+    ds_id: int,
+    schema: str,
+    table_name: str,
+) -> dict[str, Any]:
+    """Đọc khóa chính (PK), khóa duy nhất (UK) và khóa ngoại (FK) của bảng.
+
+    View hoặc bảng không có ràng buộc trả về các danh sách rỗng. Kết quả cache 10 phút.
+    """
+    empty: dict[str, Any] = {"primary_key": [], "unique_keys": [], "foreign_keys": []}
+    ds_row = _get_ds_row(ds_id)
+    if ds_row and str(ds_row.get("DB_TYPE")).upper() == "SQLITE":
+        with _sqlite_connection(ds_row) as conn:
+            verified = _verify_sqlite_object(conn, table_name)
+            if verified is None or verified[1] != "table":
+                return empty
+            safe_name, _ = verified
+            quoted = quote_identifier(safe_name)
+
+            ti_rows = conn.execute(text(f"PRAGMA table_info({quoted})")).fetchall()
+            pk_pairs = sorted(
+                [(int(r[5]), str(r[1])) for r in ti_rows if int(r[5] or 0) > 0],
+                key=lambda item: item[0],
+            )
+            pk_cols = [col for _, col in pk_pairs]
+
+            unique_keys: list[list[str]] = []
+            idx_rows = conn.execute(text(f"PRAGMA index_list({quoted})")).fetchall()
+            for idx in idx_rows:
+                idx_name = str(idx[1])
+                is_unique = bool(idx[2])
+                origin = str(idx[3]) if len(idx) > 3 else ""
+                if not is_unique or origin == "pk":
+                    continue
+                ii_rows = conn.execute(text(f"PRAGMA index_info({quote_identifier(idx_name)})")).fetchall()
+                cols = [str(c[2]) for c in sorted(ii_rows, key=lambda r: int(r[0])) if c[2] is not None]
+                if cols and cols != pk_cols:
+                    unique_keys.append(cols)
+
+            fk_groups: dict[int, dict[str, Any]] = {}
+            fk_rows = conn.execute(text(f"PRAGMA foreign_key_list({quoted})")).fetchall()
+            for r in fk_rows:
+                fk_id = int(r[0])
+                seq = int(r[1])
+                ref_tbl = str(r[2])
+                from_col = str(r[3])
+                to_col = str(r[4])
+                grp = fk_groups.setdefault(
+                    fk_id,
+                    {"name": f"fk_{safe_name}_{fk_id}", "ref_schema": "main", "ref_table": ref_tbl, "pairs": []},
+                )
+                grp["pairs"].append((seq, from_col, to_col))
+
+            foreign_keys: list[dict[str, Any]] = []
+            for grp in fk_groups.values():
+                pairs = sorted(grp["pairs"], key=lambda p: p[0])
+                foreign_keys.append(
+                    {
+                        "name": grp["name"],
+                        "columns": [p[1] for p in pairs],
+                        "ref_schema": grp["ref_schema"],
+                        "ref_table": grp["ref_table"],
+                        "ref_columns": [p[2] for p in pairs],
+                    }
+                )
+            return {"primary_key": pk_cols, "unique_keys": unique_keys, "foreign_keys": foreign_keys}
+
+    norm_schema = _resolve_schema(ds_id, schema)
+    norm_table = table_name.strip().upper()
+    cache_key = (ds_id, norm_schema, norm_table)
+    now = time.monotonic()
+    cached = _CONSTRAINTS_CACHE.get(cache_key)
+    if cached is not None and (now - cached[0]) < CACHE_TTL_SECONDS:
+        return cached[1]
+
+    ora_conn = open_source_connection(ds_id)
+    try:
+        cursor = ora_conn.cursor()
+        sql = """
+            SELECT
+                c.CONSTRAINT_NAME,
+                c.CONSTRAINT_TYPE,
+                cc.COLUMN_NAME,
+                cc.POSITION,
+                rc.OWNER AS REF_OWNER,
+                rc.TABLE_NAME AS REF_TABLE,
+                rcc.COLUMN_NAME AS REF_COLUMN
+            FROM ALL_CONSTRAINTS c
+            JOIN ALL_CONS_COLUMNS cc
+                ON cc.OWNER = c.OWNER
+               AND cc.CONSTRAINT_NAME = c.CONSTRAINT_NAME
+            LEFT JOIN ALL_CONSTRAINTS rc
+                ON rc.OWNER = c.R_OWNER
+               AND rc.CONSTRAINT_NAME = c.R_CONSTRAINT_NAME
+            LEFT JOIN ALL_CONS_COLUMNS rcc
+                ON rcc.OWNER = rc.OWNER
+               AND rcc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+               AND rcc.POSITION = cc.POSITION
+            WHERE c.OWNER = :schema
+              AND c.TABLE_NAME = :table_name
+              AND c.CONSTRAINT_TYPE IN ('P', 'U', 'R')
+              AND c.STATUS = 'ENABLED'
+            ORDER BY c.CONSTRAINT_TYPE, c.CONSTRAINT_NAME, cc.POSITION
+        """
+        cursor.execute(sql, {"schema": norm_schema, "table_name": norm_table})
+        rows = cursor.fetchall()
+
+        pk_items: list[tuple[int, str]] = []
+        uk_map: dict[str, list[tuple[int, str]]] = {}
+        fk_map: dict[str, dict[str, Any]] = {}
+        for r in rows:
+            cname = str(r[0])
+            ctype = str(r[1]).upper()
+            col = str(r[2])
+            pos = int(r[3] or 1)
+            ref_owner = str(r[4]) if r[4] is not None else None
+            ora_ref_tbl: str | None = str(r[5]) if r[5] is not None else None
+            ref_col = str(r[6]) if r[6] is not None else None
+            if ctype == "P":
+                pk_items.append((pos, col))
+            elif ctype == "U":
+                uk_map.setdefault(cname, []).append((pos, col))
+            elif ctype == "R" and ora_ref_tbl:
+                grp = fk_map.setdefault(
+                    cname,
+                    {"name": cname, "ref_schema": ref_owner, "ref_table": ora_ref_tbl, "pairs": []},
+                )
+                grp["pairs"].append((pos, col, ref_col or ""))
+
+        result = {
+            "primary_key": [c for _, c in sorted(pk_items, key=lambda x: x[0])],
+            "unique_keys": [
+                [c for _, c in sorted(cols, key=lambda x: x[0])]
+                for cols in uk_map.values()
+            ],
+            "foreign_keys": [
+                {
+                    "name": grp["name"],
+                    "columns": [p[1] for p in sorted(grp["pairs"], key=lambda x: x[0])],
+                    "ref_schema": grp["ref_schema"],
+                    "ref_table": grp["ref_table"],
+                    "ref_columns": [p[2] for p in sorted(grp["pairs"], key=lambda x: x[0])],
+                }
+                for grp in fk_map.values()
+            ],
+        }
+        _CONSTRAINTS_CACHE[cache_key] = (now, result)
+        return result
+    finally:
+        ora_conn.close()
+
+
+def estimate_table_rows(
+    ds_id: int,
+    schema: str,
+    table_name: str,
+) -> int | None:
+    """Ước lượng số dòng của bảng (ALL_TABLES.NUM_ROWS trên Oracle; COUNT cho table SQLite).
+
+    View trả về None. Kết quả cache 10 phút.
+    """
+    ds_row = _get_ds_row(ds_id)
+    if ds_row and str(ds_row.get("DB_TYPE")).upper() == "SQLITE":
+        with _sqlite_connection(ds_row) as conn:
+            verified = _verify_sqlite_object(conn, table_name)
+            if verified is None or verified[1] != "table":
+                return None
+            safe_name, _ = verified
+            try:
+                cnt = conn.execute(text(f"SELECT COUNT(*) FROM {quote_identifier(safe_name)}")).scalar_one()
+                return int(cnt)
+            except SQLAlchemyError:
+                return None
+
+    norm_schema = _resolve_schema(ds_id, schema)
+    norm_table = table_name.strip().upper()
+    cache_key = (ds_id, norm_schema, norm_table)
+    now = time.monotonic()
+    cached = _ROW_ESTIMATE_CACHE.get(cache_key)
+    if cached is not None and (now - cached[0]) < CACHE_TTL_SECONDS:
+        return cached[1]
+
+    ora_conn = open_source_connection(ds_id)
+    try:
+        cursor = ora_conn.cursor()
+        cursor.execute(
+            "SELECT NUM_ROWS FROM ALL_TABLES WHERE OWNER = :schema AND TABLE_NAME = :table_name",
+            {"schema": norm_schema, "table_name": norm_table},
+        )
+        row = cursor.fetchone()
+        est = int(row[0]) if row is not None and row[0] is not None else None
+        _ROW_ESTIMATE_CACHE[cache_key] = (now, est)
+        return est
     finally:
         ora_conn.close()
 

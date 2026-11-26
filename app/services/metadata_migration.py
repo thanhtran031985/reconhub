@@ -66,6 +66,14 @@ RECON_TABLES_ORDER = [
     "RECON_RPT_FAVORITE",
     "RECON_RPT_PRESET",
     "RECON_RPT_LOV_CACHE",
+    # Bảng Semantic Model (task 106): cha trước con sau.
+    "RECON_RPT_MODEL",
+    "RECON_RPT_MODEL_VER",
+    "RECON_RPT_MODEL_TABLE",
+    "RECON_RPT_MODEL_REL",
+    "RECON_RPT_MODEL_FIELD",
+    "RECON_RPT_MODEL_MEASURE",
+    "RECON_RPT_MODEL_RLS",
     "RECON_FILE",
     # Bảng Batch Run (task 18, spec 10 §12): bộ và mục của bộ đi sau
     # RECON_FILE (tham chiếu RECON_TEMPLATE), lần chạy bộ đi sau RECON_RUN.
@@ -119,6 +127,14 @@ CONFIG_ONLY_TABLES = [
     "RECON_RPT_COLUMN",
     "RECON_RPT_PRESET",
     "RECON_RPT_FAVORITE",
+    # Semantic Model (task 106) là cấu hình báo cáo, đi cùng CONFIG_ONLY.
+    "RECON_RPT_MODEL",
+    "RECON_RPT_MODEL_VER",
+    "RECON_RPT_MODEL_TABLE",
+    "RECON_RPT_MODEL_REL",
+    "RECON_RPT_MODEL_FIELD",
+    "RECON_RPT_MODEL_MEASURE",
+    "RECON_RPT_MODEL_RLS",
     "RECON_APP_SETTING",
     "RECON_ISSUE_REASON",
 ]

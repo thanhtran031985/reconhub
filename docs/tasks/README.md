@@ -50,6 +50,10 @@ Bảng tổng các task, chia theo giai đoạn GĐ0–GĐ3 (docs/PRD.md Phần 
 | 103 | [103-forgot-password-email](103-forgot-password-email/task.md) — Chức năng quên mật khẩu và đặt lại mật khẩu tự phục vụ qua email | ✅ | 01, 96 | feat/103-forgot-password-email |
 | 104 | [104-layout-cache-perf](104-layout-cache-perf/task.md) — Cache layout, Persistent AppShell và tối ưu tốc độ tải trang | ✅ | 08, 19, 20, 27 | feat/104-layout-cache-perf |
 | 105 | [105-multi-sso-oidc](105-multi-sso-oidc/task.md) — Hỗ trợ đăng ký nhiều SSO Provider (Google, Microsoft Entra ID, OIDC bên thứ 3) | ✅ | 102 | feat/105-multi-sso-oidc |
+| 106 | [106-semantic-model-core](106-semantic-model-core/task.md) — Semantic Model Core, Catalog Constraints & Impact Analysis (REPORT-STUDIO-01A) | ✅ | 02, 19, 20, 21, 22, 31 | feat/106-semantic-model-core |
+| 107 | [107-model-studio-ui](107-model-studio-ui/task.md) — Model Center & Semantic Model Studio UI (REPORT-STUDIO-01B) | ⬜ | 106, 31, 104 | feat/107-model-studio-ui |
+| 108 | [108-semantic-query-planner](108-semantic-query-planner/task.md) — Semantic Query Planner, Dialect & RLS Metadata Enforcement (REPORT-STUDIO-01C) | ⬜ | 106 | feat/108-semantic-query-planner |
+| 109 | [109-report-studio-viewer](109-report-studio-viewer/task.md) — Report Studio UI, Persistence & Viewer / Per-Visual Export Integration (REPORT-STUDIO-01D) | ⬜ | 106, 107, 108, 25, 26, 27, 29 | feat/109-report-studio-viewer |
 
 Thiết kế: 11 màn (designs/components/Screen01–Screen11), 13 thành phần, Gallery. Giao diện dựng bằng Dash Mantine Components.
 
