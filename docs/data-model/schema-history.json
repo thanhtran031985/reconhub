@@ -655,5 +655,23 @@
     "migration_id": "0016_password_reset_token",
     "task_id": null,
     "timestamp": "2026-11-24T13:34:40.216226+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_SSO_PROVIDER",
+    "migration_id": "0017_multi_sso_oidc",
+    "task_id": null,
+    "timestamp": "2026-11-26T07:50:46.386070+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_USER_IDENTITY",
+    "migration_id": "0017_multi_sso_oidc",
+    "task_id": null,
+    "timestamp": "2026-11-26T07:50:46.386070+00:00"
   }
 ]

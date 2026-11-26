@@ -40,6 +40,7 @@ DOMAIN_LABELS: dict[str, str] = {
 _CORE_EXACT = {
     "RECON_LOGIN_LOG",
     "RECON_PASSWORD_RESET_TOKEN",
+    "RECON_SSO_PROVIDER",
     "RECON_AUDIT_LOG",
     "RECON_APP_SETTING",
     "RECON_METADATA_MIGRATION",
@@ -48,6 +49,7 @@ _CORE_PREFIXES = ("RECON_USER", "RECON_ROLE", "RECON_MENU")
 
 TABLE_DESCRIPTIONS: dict[str, str] = {
     "RECON_USER": "Người dùng đăng nhập",
+    "RECON_USER_IDENTITY": "Liên kết danh tính SSO ngoài với người dùng",
     "RECON_USER_ROLE": "Vai trò của người dùng",
     "RECON_MENU_GROUP": "Nhóm menu",
     "RECON_MENU": "Menu của ứng dụng",
@@ -55,6 +57,7 @@ TABLE_DESCRIPTIONS: dict[str, str] = {
     "RECON_ROLE_MENU": "Quyền menu của vai trò",
     "RECON_LOGIN_LOG": "Lịch sử đăng nhập",
     "RECON_PASSWORD_RESET_TOKEN": "Token đặt lại mật khẩu qua email",
+    "RECON_SSO_PROVIDER": "Cấu hình nhà cung cấp SSO (Internal, Google, Microsoft, OIDC)",
     "RECON_AUDIT_LOG": "Nhật ký kiểm tra (audit)",
     "RECON_APP_SETTING": "Cài đặt ứng dụng",
     "RECON_DATA_SOURCE": "Nguồn dữ liệu (Data Source)",
