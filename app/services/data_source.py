@@ -90,7 +90,7 @@ def list_data_sources(
 
 
 @service
-@requires_menu("template", "data_source", "batch_run", any_of=True)
+@requires_menu("template", "data_source", "batch_run", "report_model", any_of=True)
 def options_data_sources(
     ctx: Ctx,
     purpose: str | None = None,

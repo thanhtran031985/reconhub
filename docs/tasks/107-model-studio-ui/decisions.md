@@ -7,5 +7,7 @@
 | 2026-11-26 | Bổ sung form `+ Tạo quan hệ` song song thao tác kéo cột-sang-cột | Đáp ứng Accessibility bàn phím và thuận tiện cho bảng Oracle nhiều cột | Thêm nút/modal gọn trong Explorer & Canvas toolbar |
 | 2026-11-26 | Mobile (`390×844`) chỉ mở chế độ xem tóm tắt + thông báo thiết kế trên desktop | Kéo thả sơ đồ quan hệ và 3 panel không khả thi trên màn hình 390px | Đáp ứng mục §83 của prompt gốc |
 
+| 2026-11-26 | Dùng vanilla Pointer Events JS thuần trong `semantic_model_canvas.js` | Đồng bộ với `data_model_canvas.js`, đủ nhẹ/mượt 60fps và không phát sinh dependency JS/Python ngoài | Không cần nạp `interactjs` |
+
 ## Câu hỏi còn mở
-- Bước 3 quyết định có cần nạp `interactjs` vào `app/ui/assets/lazy/` hay thuần Pointer Events JS là đủ gọn và mượt.
+- Không có (người dùng đã duyệt kế hoạch và chốt dùng vanilla JS thuần).

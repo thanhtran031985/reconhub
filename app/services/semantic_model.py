@@ -34,6 +34,9 @@ from app.engine.catalog import (
 from app.engine.catalog import (
     list_columns as catalog_list_columns,
 )
+from app.engine.catalog import (
+    list_tables as catalog_list_tables,
+)
 from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.semantic_model import (
     AST_AGG_OPS,
@@ -2054,3 +2057,70 @@ def impact_analysis(ctx: Ctx, model_id: int, target_version_id: int | None = Non
             "scheduled_exports": [],
             "breaking_changes": breaking_changes,
         }
+
+
+@service
+@requires_menu("report_model")
+def discover_source_objects(
+    ctx: Ctx,
+    data_source_id: int,
+    schema: str | None = None,
+    q: str | None = None,
+    object_type: str | None = None,
+    *,
+    enrich: bool = True,
+    enrich_limit: int = 40,
+) -> dict[str, Any]:
+    """Liệt kê bảng/view của Data Source kèm thông tin PK/FK và ước lượng dòng cho Model Studio."""
+    _ = ctx
+    norm_type = object_type.strip().upper() if object_type and object_type.strip().upper() in ("TABLE", "VIEW") else None
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        ds_map = _ds_summary_map(conn, {int(data_source_id)})
+    ds_info = ds_map.get(int(data_source_id))
+    if ds_info is None:
+        raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy Data Source đã chọn.")
+
+    target_schema = (schema or ds_info.get("default_schema") or "").strip() or None
+    raw_tables = catalog_list_tables(
+        int(data_source_id),
+        schema=target_schema,
+        q=q.strip() if q else None,
+        object_type=norm_type,
+    )
+    items: list[dict[str, Any]] = []
+    for idx, tbl in enumerate(raw_tables):
+        t_name = str(tbl["name"])
+        t_type = str(tbl.get("type") or "TABLE").upper()
+        t_schema = str(tbl.get("schema") or target_schema or "")
+        pk_count = 0
+        fk_count = 0
+        row_est: int | None = None
+        if enrich and idx < enrich_limit and t_type == "TABLE":
+            try:
+                cons = list_table_constraints(int(data_source_id), t_schema, t_name)
+                pk_count = len(cons.get("primary_key") or [])
+                fk_count = len(cons.get("foreign_keys") or [])
+            except Exception:
+                pk_count = 0
+                fk_count = 0
+            try:
+                row_est = estimate_table_rows(int(data_source_id), t_schema, t_name)
+            except Exception:
+                row_est = None
+        items.append(
+            {
+                "name": t_name,
+                "type": t_type,
+                "schema": t_schema,
+                "pk_count": pk_count,
+                "fk_count": fk_count,
+                "row_estimate": row_est,
+            }
+        )
+    return {
+        "data_source": ds_info,
+        "schema": target_schema or "",
+        "objects": items,
+        "total_count": len(raw_tables),
+    }
