@@ -36,7 +36,12 @@ from app.services.report_run import (
     stable_order_by,
 )
 from app.services.report_source import open_checked_connection
-from app.services.report_studio import build_visual_run_intent
+from app.services.report_studio import (
+    build_visual_run_intent,
+    enrich_columns_with_visual_fields,
+    load_visual_by_id,
+)
+from app.services.semantic_model import load_version_bundle
 from app.services.semantic_query import open_semantic_export_stream
 
 MAX_RUNNING_PER_USER = 10  # Task 57: mặc định song song (setting
@@ -210,8 +215,19 @@ def rerun_and_export(ctx: Ctx, run_id: int) -> dict[str, Any]:
         if fmt == "ZIP":
             fmt = "XLSX"
     params = dict(orig["PARAMS_JSON"]) if isinstance(orig["PARAMS_JSON"], dict) else {}
+    orig_visual_id = int(orig["VISUAL_ID"]) if orig["VISUAL_ID"] is not None else None
+    orig_query_spec = (
+        dict(orig["QUERY_SPEC_JSON"])
+        if orig_visual_id is not None and isinstance(orig["QUERY_SPEC_JSON"], dict)
+        else None
+    )
     created = create_report_run(
-        ctx, int(orig["REPORT_ID"]), template_id=int(orig["TEMPLATE_ID"]), values=params
+        ctx,
+        int(orig["REPORT_ID"]),
+        template_id=int(orig["TEMPLATE_ID"]),
+        values=params,
+        visual_id=orig_visual_id,
+        query_spec=orig_query_spec,
     )
     if not created.ok or not isinstance(created.data, dict):
         raise ServiceError(ErrorCode.INTERNAL_ERROR, created.message or "Không tạo được run mới.")
@@ -748,6 +764,8 @@ def execute_export(
                 intent, model_version_id = build_visual_run_intent(
                     conn, int(run["VERSION_ID"]), int(visual_id), resolved, query_spec
                 )
+                visual = load_visual_by_id(conn, int(visual_id))
+                bundle = load_version_bundle(conn, int(model_version_id))
             columns_meta, batch_iter = open_semantic_export_stream(
                 owner_ctx,
                 int(model_version_id),
@@ -756,16 +774,17 @@ def execute_export(
                 max_rows=int(detail["export_max_rows"]),
                 timeout_sec=int(detail["timeout_sec"]),
             )
+            enriched_meta = enrich_columns_with_visual_fields(columns_meta, visual, bundle)
             columns = [
                 {
                     "field_name": str(c["name"]),
                     "label": str(c.get("label") or c["name"]),
                     "data_type": str(c.get("data_type") or "STRING"),
-                    "format_mask": None,
-                    "alignment": "",
+                    "format_mask": c.get("format_mask"),
+                    "alignment": "right" if str(c.get("data_type") or "").upper() == "NUMBER" else "",
                     "width": None,
                 }
-                for c in columns_meta
+                for c in enriched_meta
             ]
             fields = [c["field_name"] for c in columns]
             col_names = [str(c["field_name"]) for c in columns]

@@ -1394,3 +1394,9 @@ main > div > div,
     flex-wrap: wrap;
   }
 }
+
+.viewer-sql-pre {
+  font-size: 12px;
+  white-space: pre-wrap;
+  margin-top: 4px;
+}

@@ -29,7 +29,7 @@ from app.services.report_studio import (
     list_studio_reports,
     publish_studio_report,
 )
-from app.services.semantic_model import impact_analysis, list_models
+from app.services.semantic_model import diff_model_versions, get_model, impact_analysis, list_models
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_primary, button_subtle
 from app.ui.components.command_bar import command_bar
@@ -456,9 +456,22 @@ def build_impact_drawer_content(ctx: Ctx | None, report_id: int | None) -> Any:
             title="Không đọc được bản nháp báo cáo",
             message=detail_res.message or "Vui lòng thử lại.",
         )
-    model = (detail_res.data.get("model") or {}).get("model") or {}
+    model_bundle = detail_res.data.get("model") or {}
+    model = model_bundle.get("model") or {}
     model_id = int(model.get("id") or 0)
-    imp_res = impact_analysis(ctx, model_id)
+    report_mv_id = int((detail_res.data.get("version") or {}).get("model_version_id") or 0)
+    report_mv_status = str((model_bundle.get("version") or {}).get("status") or "")
+
+    model_info_res = get_model(ctx, model_id)
+    model_info = model_info_res.data if (model_info_res.ok and isinstance(model_info_res.data, dict)) else {}
+    draft_ver = model_info.get("draft_version") if isinstance(model_info.get("draft_version"), dict) else None
+    active_mv_id = model_info.get("active_version_id")
+    compare_ver_id = (
+        int(draft_ver["id"])
+        if draft_ver and draft_ver.get("id")
+        else (int(active_mv_id) if active_mv_id else None)
+    )
+    imp_res = impact_analysis(ctx, model_id, target_version_id=compare_ver_id)
     if not imp_res.ok or not imp_res.data:
         return error_state(
             title="Không phân tích được ảnh hưởng",
@@ -466,7 +479,21 @@ def build_impact_drawer_content(ctx: Ctx | None, report_id: int | None) -> Any:
         )
     imp = imp_res.data
     breaking = list(imp.get("breaking_changes") or [])
-    visuals = list(imp.get("visuals") or [])
+    report_code = str(target.get("code") or "")
+    visuals = (
+        [v for v in (imp.get("visuals") or []) if str(v.get("report_code") or "") == report_code]
+        if breaking
+        else []
+    )
+    # Nếu báo cáo đang pin phiên bản model cũ (ARCHIVED) và model đã có bản
+    # mới hơn, kiểm tra diff trực tiếp giữa bản mới đó với phiên bản model đang pin.
+    archived_pinned = report_mv_status.upper() == "ARCHIVED" or (
+        active_mv_id is not None and report_mv_id > 0 and int(active_mv_id) != report_mv_id
+    )
+    if archived_pinned and compare_ver_id and report_mv_id and compare_ver_id != report_mv_id and not breaking:
+        diff_res = diff_model_versions(ctx, compare_ver_id, report_mv_id)
+        if diff_res.ok and isinstance(diff_res.data, dict):
+            breaking = list(diff_res.data.get("breaking_changes") or [])
     blocks: list[Any] = [
         dmc.Paper(
             dmc.Group(
@@ -493,6 +520,14 @@ def build_impact_drawer_content(ctx: Ctx | None, report_id: int | None) -> Any:
             bg="var(--surface-2)",
         )
     ]
+    if archived_pinned:
+        blocks.append(
+            alert_box(
+                title="Báo cáo đang gắn phiên bản model cũ (ARCHIVED)",
+                message="Phiên bản model mà báo cáo đang pin đã lưu trữ; chạy/xem trước sẽ bị chặn cho tới khi cập nhật sang phiên bản model mới.",
+                tone="warn",
+            )
+        )
     if breaking:
         blocks.append(
             alert_box(

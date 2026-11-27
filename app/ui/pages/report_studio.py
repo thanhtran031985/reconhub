@@ -166,11 +166,26 @@ def _visible_fields(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _is_detail_editable(detail: dict[str, Any] | None) -> bool:
+    """Bản nháp DRAFT/DRY_RUN_OK mới sửa được; ACTIVE/ARCHIVED là chỉ đọc."""
+    status = str(((detail or {}).get("version") or {}).get("status") or "DRAFT").upper()
+    return status in _EDITABLE_STATUSES
+
+
 def _field_hay(f: dict[str, Any]) -> str:
-    return f"{f.get('source_column', '')} {f.get('field_code', '')} {f.get('display_name', '')}".lower()
+    return (
+        f"{f.get('table_alias', '')} {f.get('source_column', '')} "
+        f"{f.get('field_code', '')} {f.get('display_name', '')}"
+    ).lower()
 
 
-def _field_row(f: dict[str, Any], *, kind: str, matched: bool = False) -> Any:
+def _field_row(
+    f: dict[str, Any],
+    *,
+    kind: str,
+    matched: bool = False,
+    is_editable: bool = True,
+) -> Any:
     """Một dòng field: checkbox + tên/kiểu + nút + (thêm vào visual)."""
     fid = int(f["id"])
     row_cls = "rs-field-row rs-match" if matched else "rs-field-row"
@@ -187,6 +202,7 @@ def _field_row(f: dict[str, Any], *, kind: str, matched: bool = False) -> Any:
                 dmc.Checkbox(
                     id={"type": "rs-field-check", "kind": kind, "id": fid},
                     size="xs",
+                    disabled=not is_editable,
                     **{"aria-label": f"Chọn trường {code}"},
                 ),
                 dmc.Stack(
@@ -203,6 +219,7 @@ def _field_row(f: dict[str, Any], *, kind: str, matched: bool = False) -> Any:
                     variant="subtle",
                     color="gray",
                     size="sm",
+                    disabled=not is_editable,
                     **{"aria-label": f"Thêm trường {code} vào visual"},
                 ),
             ],
@@ -219,6 +236,7 @@ def render_fields_panel(
     bundle: dict[str, Any],
     *,
     query: str = "",
+    is_editable: bool = True,
 ) -> Any:
     """Panel trái: trường nhóm theo Dimensions / Ngày (phân cấp ảo) / Measures.
 
@@ -258,7 +276,7 @@ def render_fields_panel(
         group_nodes.append(
             dmc.Stack(
                 [
-                    _field_row(f, kind="field", matched=bool(q and q in _field_hay(f)))
+                    _field_row(f, kind="field", matched=bool(q and q in _field_hay(f)), is_editable=is_editable)
                     for f in dim_fields
                 ],
                 gap=2,
@@ -271,7 +289,7 @@ def render_fields_panel(
         group_nodes.append(
             dmc.Stack(
                 [
-                    _field_row(f, kind="field", matched=bool(q and q in _field_hay(f)))
+                    _field_row(f, kind="field", matched=bool(q and q in _field_hay(f)), is_editable=is_editable)
                     for f in date_fields
                 ],
                 gap=2,
@@ -294,6 +312,7 @@ def render_fields_panel(
                         },
                         kind="measure",
                         matched=bool(q),
+                        is_editable=is_editable,
                     )
                     for m in shown_measures
                 ],
@@ -392,8 +411,10 @@ def render_canvas_panel(
     previews: dict[str, Any] | None = None,
     selection: dict[str, Any] | None = None,
     dark_mode: bool = False,
+    is_editable: bool | None = None,
 ) -> Any:
     """Panel giữa: lưới 12 cột chứa các visual (thiết kế hoặc xem trước dữ liệu)."""
+    editable = _is_detail_editable(detail) if is_editable is None else bool(is_editable)
     visuals = sorted(detail.get("visuals") or [], key=lambda v: int(v.get("display_order") or 0))
     sel_code = (selection or {}).get("visual_code")
     bundle = detail.get("model") or {}
@@ -486,6 +507,7 @@ def render_canvas_panel(
                                 variant="subtle",
                                 color="gray",
                                 size="sm",
+                                disabled=not editable,
                                 **{"aria-label": f"Di chuyển visual {code} lên"},
                             ),
                             dmc.ActionIcon(
@@ -494,6 +516,7 @@ def render_canvas_panel(
                                 variant="subtle",
                                 color="gray",
                                 size="sm",
+                                disabled=not editable,
                                 **{"aria-label": f"Di chuyển visual {code} xuống"},
                             ),
                             dmc.ActionIcon(
@@ -502,6 +525,7 @@ def render_canvas_panel(
                                 variant="subtle",
                                 color="gray",
                                 size="sm",
+                                disabled=not editable,
                                 **{"aria-label": f"Nhân bản visual {code}"},
                             ),
                             dmc.ActionIcon(
@@ -510,6 +534,7 @@ def render_canvas_panel(
                                 variant="subtle",
                                 color="red",
                                 size="sm",
+                                disabled=not editable,
                                 **{"aria-label": f"Xóa visual {code}"},
                             ),
                         ],
@@ -541,25 +566,31 @@ def _preview_visual_node(
 
 
 def _well_field_row(
-    visual: dict[str, Any], f: dict[str, Any], idx: int, bundle: dict[str, Any]
+    visual: dict[str, Any],
+    f: dict[str, Any],
+    idx: int,
+    bundle: dict[str, Any],
+    *,
+    is_editable: bool = True,
 ) -> Any:
-    """Một dòng field trong Data Well: nhãn + Aggregation / Sort / Format / Xóa."""
+    """Một dòng field trong Data Well: nhãn + Aggregation / Date part / Sort / Format / Xóa."""
     code = str(visual.get("code"))
     label = _field_label(bundle, field_id=f.get("field_id"), measure_id=f.get("measure_id"))
     well_role = str(f.get("well_role") or "")
+    field_meta = (
+        next((x for x in _visible_fields(bundle) if int(x["id"]) == int(f.get("field_id") or 0)), None)
+        if f.get("measure_id") is None
+        else None
+    )
     controls: list[Any] = [
         dmc.Text(label, size="xs", fw=500, className="rh-code", style={"flex": 1, "minWidth": 0}),
     ]
     if f.get("measure_id") is not None:
         controls.append(dmc.Text("NONE", size="xs", c="dimmed"))
     elif well_role in _MEASURE_WELLS_UI:
-        field = next(
-            (x for x in _visible_fields(bundle) if int(x["id"]) == int(f.get("field_id") or 0)),
-            None,
-        )
         options = [
             a
-            for a in allowed_aggregations_for(str((field or {}).get("data_type") or ""))
+            for a in allowed_aggregations_for(str((field_meta or {}).get("data_type") or ""))
             if a != "NONE"
         ]
         controls.append(
@@ -569,7 +600,29 @@ def _well_field_row(
                 value=str(f.get("aggregation") or "NONE"),
                 size="xs",
                 w=96,
+                disabled=not is_editable,
                 **{"aria-label": f"Aggregation của {label}"},
+            )
+        )
+    elif (
+        well_role in _DIMENSION_WELLS_UI
+        and str((field_meta or {}).get("data_type") or "").upper() in _DATE_TYPES
+    ):
+        controls.append(
+            dmc.Select(
+                id={"type": "rs-well-datepart", "code": code, "idx": idx},
+                data=[
+                    {"label": "Nguyên gốc", "value": ""},
+                    {"label": "Ngày", "value": "DAY"},
+                    {"label": "Tháng", "value": "MONTH"},
+                    {"label": "Quý", "value": "QUARTER"},
+                    {"label": "Năm", "value": "YEAR"},
+                ],
+                value=str(f.get("date_part") or ""),
+                size="xs",
+                w=96,
+                disabled=not is_editable,
+                **{"aria-label": f"Phân cấp ngày của {label}"},
             )
         )
     controls.append(
@@ -583,6 +636,7 @@ def _well_field_row(
             value=str(f.get("sort_direction") or ""),
             size="xs",
             w=110,
+            disabled=not is_editable,
             **{"aria-label": f"Sắp xếp của {label}"},
         )
     )
@@ -594,6 +648,7 @@ def _well_field_row(
             size="xs",
             w=90,
             debounce=300,
+            disabled=not is_editable,
             **{"aria-label": f"Định dạng của {label}"},
         )
     )
@@ -604,14 +659,121 @@ def _well_field_row(
             variant="subtle",
             color="gray",
             size="xs",
+            disabled=not is_editable,
             **{"aria-label": f"Gỡ {label} khỏi visual"},
         )
     )
     return dmc.Group(controls, gap="xs", align="center", wrap="nowrap")
 
 
-def render_settings_panel(detail: dict[str, Any], selection: dict[str, Any] | None = None) -> Any:
-    """Panel phải: thiết lập visual đang chọn (loại, lưới, Data Wells, bộ lọc)."""
+def _render_report_params_section(detail: dict[str, Any], *, is_editable: bool) -> list[Any]:
+    """Khối cấu hình tham số báo cáo (RECON_RPT_PARAM) hiển thị trên Viewer."""
+    bundle = detail.get("model") or {}
+    params = list(detail.get("params") or [])
+    nodes: list[Any] = [
+        dmc.Divider(),
+        dmc.Text("Tham số / Bộ lọc báo cáo (Viewer)", fw=700, size="xs"),
+    ]
+    for p in params:
+        pcode = str(p.get("code") or "")
+        nodes.append(
+            dmc.Group(
+                [
+                    dmc.Text(
+                        f"{p.get('label') or pcode} ({p.get('filter_column') or pcode} {p.get('filter_operator') or '='})",
+                        size="xs",
+                        className="rh-code",
+                        style={"flex": 1, "minWidth": 0},
+                    ),
+                    dmc.ActionIcon(
+                        DashIconify(icon="lucide:x", width=13),
+                        id={"type": "rs-param-remove", "code": pcode},
+                        variant="subtle",
+                        color="gray",
+                        size="xs",
+                        disabled=not is_editable,
+                        **{"aria-label": f"Xóa tham số {pcode}"},
+                    ),
+                ],
+                gap="xs",
+                justify="space-between",
+                wrap="nowrap",
+            )
+        )
+    if not params:
+        nodes.append(dmc.Text("Chưa có tham số báo cáo nào.", size="xs", c="dimmed"))
+    field_options = [
+        {
+            "label": str(f.get("display_name") or f.get("field_code")),
+            "value": str(f["id"]),
+        }
+        for f in _visible_fields(bundle)
+    ]
+    nodes.append(
+        dmc.Stack(
+            [
+                dmc.Group(
+                    [
+                        dmc.Select(
+                            id={"type": "rs-param-field", "k": "main"},
+                            data=field_options,
+                            placeholder="Trường lọc",
+                            size="xs",
+                            clearable=True,
+                            disabled=not is_editable,
+                            style={"flex": 1},
+                        ),
+                        dmc.Select(
+                            id={"type": "rs-param-op", "k": "main"},
+                            data=[
+                                {"label": _FILTER_OPERATOR_LABELS[o], "value": o}
+                                for o in _FILTER_OPERATORS
+                            ],
+                            value="=",
+                            size="xs",
+                            w=110,
+                            disabled=not is_editable,
+                        ),
+                    ],
+                    gap="xs",
+                    wrap="nowrap",
+                ),
+                dmc.Group(
+                    [
+                        dmc.TextInput(
+                            id={"type": "rs-param-label", "k": "main"},
+                            placeholder="Nhãn hiển thị ở Viewer...",
+                            size="xs",
+                            disabled=not is_editable,
+                            style={"flex": 1},
+                        ),
+                        dmc.ActionIcon(
+                            DashIconify(icon="lucide:plus", width=14),
+                            id={"type": "rs-param-add-btn", "k": "main"},
+                            variant="light",
+                            size="sm",
+                            disabled=not is_editable,
+                            **{"aria-label": "Thêm tham số báo cáo"},
+                        ),
+                    ],
+                    gap="xs",
+                    wrap="nowrap",
+                ),
+            ],
+            gap="xs",
+        )
+    )
+    return nodes
+
+
+def render_settings_panel(
+    detail: dict[str, Any],
+    selection: dict[str, Any] | None = None,
+    *,
+    is_editable: bool | None = None,
+) -> Any:
+    """Panel phải: thiết lập visual đang chọn (loại, lưới, Data Wells, bộ lọc) hoặc tham số báo cáo."""
+    editable = _is_detail_editable(detail) if is_editable is None else bool(is_editable)
     visuals = list(detail.get("visuals") or [])
     sel_code = (selection or {}).get("visual_code")
     selected = next((v for v in visuals if str(v.get("code")) == str(sel_code)), None) if sel_code else None
@@ -628,6 +790,7 @@ def render_settings_panel(detail: dict[str, Any], selection: dict[str, Any] | No
                 dmc.Text("Báo cáo", fw=700, size="xs"),
                 dmc.Text(f"Mô hình: {(detail.get('model') or {}).get('model', {}).get('code', '—')}", size="xs"),
                 dmc.Text(f"Phiên bản: v{detail['version']['version_no']} ({detail['version']['status']})", size="xs"),
+                *_render_report_params_section(detail, is_editable=editable),
             ],
             gap="xs",
             p="xs",
@@ -643,6 +806,7 @@ def render_settings_panel(detail: dict[str, Any], selection: dict[str, Any] | No
             value=str(selected.get("title") or ""),
             size="xs",
             debounce=300,
+            disabled=not editable,
         ),
         dmc.Select(
             id="rs-set-type",
@@ -650,6 +814,7 @@ def render_settings_panel(detail: dict[str, Any], selection: dict[str, Any] | No
             data=[{"label": t, "value": t} for t in ("TABLE", "MATRIX", "KPI", "BAR", "LINE")],
             value=vtype,
             size="xs",
+            disabled=not editable,
         ),
         dmc.Group(
             [
@@ -659,6 +824,7 @@ def render_settings_panel(detail: dict[str, Any], selection: dict[str, Any] | No
                     data=[{"label": str(s), "value": str(s)} for s in (3, 4, 6, 8, 12)],
                     value=str(selected.get("grid_span") or 12),
                     size="xs",
+                    disabled=not editable,
                     style={"flex": 1},
                 ),
                 dmc.Select(
@@ -667,6 +833,7 @@ def render_settings_panel(detail: dict[str, Any], selection: dict[str, Any] | No
                     data=[{"label": s, "value": s} for s in ("S", "M", "L")],
                     value=str(selected.get("height_size") or "M"),
                     size="xs",
+                    disabled=not editable,
                     style={"flex": 1},
                 ),
             ],
@@ -681,7 +848,7 @@ def render_settings_panel(detail: dict[str, Any], selection: dict[str, Any] | No
         well_rows: list[Any] = []
         for idx, f in enumerate(fields):
             if str(f.get("well_role")) == role:
-                well_rows.append(_well_field_row(selected, f, idx, bundle))
+                well_rows.append(_well_field_row(selected, f, idx, bundle, is_editable=editable))
         nodes.append(
             html.Div(
                 well_rows
@@ -716,6 +883,7 @@ def render_settings_panel(detail: dict[str, Any], selection: dict[str, Any] | No
                         variant="subtle",
                         color="gray",
                         size="xs",
+                        disabled=not editable,
                         **{"aria-label": "Xóa bộ lọc visual"},
                     ),
                 ],
@@ -741,6 +909,7 @@ def render_settings_panel(detail: dict[str, Any], selection: dict[str, Any] | No
                     size="xs",
                     style={"flex": 1},
                     clearable=True,
+                    disabled=not editable,
                 ),
                 dmc.Select(
                     id="rs-filter-op",
@@ -751,11 +920,13 @@ def render_settings_panel(detail: dict[str, Any], selection: dict[str, Any] | No
                     value="=",
                     size="xs",
                     w=110,
+                    disabled=not editable,
                 ),
                 dmc.TextInput(
                     id="rs-filter-value",
                     placeholder="Giá trị",
                     size="xs",
+                    disabled=not editable,
                     style={"flex": 1},
                 ),
                 dmc.ActionIcon(
@@ -763,6 +934,7 @@ def render_settings_panel(detail: dict[str, Any], selection: dict[str, Any] | No
                     id="rs-filter-add-btn",
                     variant="light",
                     size="sm",
+                    disabled=not editable,
                     **{"aria-label": "Thêm bộ lọc visual"},
                 ),
             ],
@@ -778,6 +950,7 @@ def render_settings_panel(detail: dict[str, Any], selection: dict[str, Any] | No
             size="xs",
             variant="outline",
             color="red",
+            disabled=not editable,
             leftSection=DashIconify(icon="lucide:trash-2", width=14),
         )
     )
@@ -1263,6 +1436,120 @@ def add_field_to_draft(
     return detail, f"Đã tạo visual {code} với trường {label}."
 
 
+def add_checked_fields_to_draft(
+    detail: dict[str, Any],
+    checked_items: list[dict[str, Any]],
+    selection: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], str | None]:
+    """Thêm hàng loạt các field/measure đã tick vào visual đang chọn hoặc tạo visual mới."""
+    if not checked_items:
+        return detail, None
+    cur_detail = copy.deepcopy(detail)
+    cur_sel = dict(selection) if selection else None
+    added = 0
+    for item in checked_items:
+        kind = str(item.get("kind") or "field")
+        fid = int(item.get("id") or 0)
+        if fid <= 0:
+            continue
+        before = {str(v.get("code")) for v in (cur_detail.get("visuals") or [])}
+        cur_detail, msg = add_field_to_draft(cur_detail, kind=kind, field_id=fid, selection=cur_sel)
+        after_new = [str(v.get("code")) for v in (cur_detail.get("visuals") or []) if str(v.get("code")) not in before]
+        if after_new:
+            cur_sel = {"visual_code": after_new[-1]}
+            added += 1
+        elif msg and msg.startswith("Đã thêm"):
+            added += 1
+    if added == 0:
+        return detail, "Không có trường mới nào phù hợp để thêm."
+    return cur_detail, f"Đã thêm {added} trường đã chọn."
+
+
+def _param_payload_from_store(p: dict[str, Any]) -> dict[str, Any]:
+    """Chuẩn hóa param trong Store về payload ParamCreate cho save_studio_draft."""
+    return {
+        "code": str(p.get("code") or ""),
+        "label": str(p.get("label") or p.get("code") or ""),
+        "data_type": str(p.get("data_type") or "STRING"),
+        "control_type": str(p.get("control_type") or "TEXT"),
+        "required": bool(p.get("required", False)),
+        "default_type": str(p.get("default_type") or "NONE"),
+        "default_value": p.get("default_value"),
+        "display_row": p.get("display_row"),
+        "display_order": p.get("display_order"),
+        "grid_span": int(p.get("grid_span") or 6),
+        "filter_column": p.get("filter_column"),
+        "filter_operator": p.get("filter_operator") or "=",
+        "is_visible": bool(p.get("is_visible", True)),
+        "lov": p.get("lov"),
+    }
+
+
+def add_studio_param(
+    detail: dict[str, Any],
+    *,
+    field_id: int,
+    operator: str = "=",
+    label: str | None = None,
+) -> tuple[dict[str, Any], str | None]:
+    """Thêm 1 tham số lọc báo cáo (RECON_RPT_PARAM) vào bản nháp Studio."""
+    bundle = detail.get("model") or {}
+    field = next((f for f in _visible_fields(bundle) if int(f["id"]) == int(field_id)), None)
+    if field is None:
+        return detail, "Không tìm thấy trường lọc trong mô hình."
+    op = str(operator or "=").upper()
+    if op not in _FILTER_OPERATORS:
+        return detail, f"Toán tử {op} không được hỗ trợ cho tham số Studio."
+    fcode = str(field.get("field_code") or field.get("source_column") or "PARAM").upper()
+    dtype = str(field.get("data_type") or "STRING").upper()
+    if dtype not in ("STRING", "NUMBER", "DATE", "DATETIME", "BOOLEAN"):
+        dtype = "STRING"
+    if dtype in ("DATE", "DATETIME"):
+        ctype = "DATE_RANGE" if op == "BETWEEN" else "DATE"
+    elif dtype == "NUMBER":
+        ctype = "NUMBER"
+    else:
+        ctype = "TEXT"
+    existing_codes = {str(p.get("code") or "").upper() for p in (detail.get("params") or [])}
+    base_code = f"P_{fcode}"[:56]
+    pcode = base_code
+    n = 2
+    while pcode in existing_codes:
+        pcode = f"{base_code}_{n}"
+        n += 1
+    new_detail = copy.deepcopy(detail)
+    params = list(new_detail.get("params") or [])
+    params.append(
+        {
+            "code": pcode,
+            "label": (label or str(field.get("display_name") or fcode)).strip(),
+            "data_type": dtype,
+            "control_type": ctype,
+            "required": False,
+            "default_type": "NONE",
+            "default_value": None,
+            "grid_span": 6,
+            "filter_column": fcode,
+            "filter_operator": op,
+            "is_visible": True,
+            "lov": None,
+        }
+    )
+    new_detail["params"] = params
+    return new_detail, None
+
+
+def remove_studio_param(detail: dict[str, Any], param_code: str) -> tuple[dict[str, Any], bool]:
+    """Xóa tham số báo cáo theo mã khỏi bản nháp."""
+    params = list(detail.get("params") or [])
+    kept = [p for p in params if str(p.get("code") or "") != str(param_code)]
+    if len(kept) == len(params):
+        return detail, False
+    new_detail = copy.deepcopy(detail)
+    new_detail["params"] = kept
+    return new_detail, True
+
+
 def layout(report_id: str | None = None) -> Any:
     """Layout chính của Report Studio Designer (/report-studio/<report_id>)."""
     ctx = get_current_ctx()
@@ -1409,7 +1696,17 @@ def layout(report_id: str | None = None) -> Any:
                     html.Div(
                         [
                             dmc.Group(
-                                [dmc.Text("Trường & Chỉ số", fw=700, size="xs")],
+                                [
+                                    dmc.Text("Trường & Chỉ số", fw=700, size="xs"),
+                                    dmc.Button(
+                                        "+ Đã chọn",
+                                        id="rs-field-add-checked-btn",
+                                        size="xs",
+                                        variant="light",
+                                        disabled=True,
+                                        **{"aria-label": "Thêm các trường đã chọn"},
+                                    ),
+                                ],
                                 justify="space-between",
                                 p="xs",
                                 style={"borderBottom": "1px solid var(--line)"},
@@ -1429,7 +1726,7 @@ def layout(report_id: str | None = None) -> Any:
                                 style={"borderBottom": "1px solid var(--line)"},
                             ),
                             html.Div(
-                                render_fields_panel(bundle, query=""),
+                                render_fields_panel(bundle, query="", is_editable=is_editable),
                                 id="rs-fields-body",
                                 className="rs-fields-scroll",
                             ),
@@ -1449,7 +1746,7 @@ def layout(report_id: str | None = None) -> Any:
                             # (kẻo xóa bộ lọc user đang nhập + mất focus).
                             html.Div(id="rs-preview-filter-wrap"),
                             html.Div(
-                                render_canvas_panel(detail),
+                                render_canvas_panel(detail, is_editable=is_editable),
                                 id="rs-canvas-body",
                                 className="rs-canvas-scroll",
                             ),
@@ -1465,7 +1762,7 @@ def layout(report_id: str | None = None) -> Any:
                                 style={"borderBottom": "1px solid var(--line)"},
                             ),
                             html.Div(
-                                render_settings_panel(detail, None),
+                                render_settings_panel(detail, None, is_editable=is_editable),
                                 id="rs-settings-body",
                                 className="rs-settings-scroll",
                             ),
@@ -1490,6 +1787,7 @@ def layout(report_id: str | None = None) -> Any:
         ],
         id="rs-page",
         className="rs-page",
+        **{"data-editable": "true" if is_editable else "false"},
     )
 
 
@@ -1507,7 +1805,7 @@ def handle_fields_search(
     if not detail:
         raise PreventUpdate
     bundle = detail.get("model") or {}
-    return render_fields_panel(bundle, query=query or "")
+    return render_fields_panel(bundle, query=query or "", is_editable=_is_detail_editable(detail))
 
 
 @callback(
@@ -1530,7 +1828,7 @@ def handle_field_add(
     dirty: bool | None,
 ) -> tuple[Any, Any, Any, Any, Any, Any]:
     """Nút +: thêm field/measure vào visual đang chọn hoặc tạo visual TABLE mới."""
-    if not detail or not any(add_clicks or []):
+    if not detail or not _is_detail_editable(detail) or not any(add_clicks or []):
         raise PreventUpdate
     trig = dash.callback_context.triggered_id
     if not isinstance(trig, dict):
@@ -1554,17 +1852,17 @@ def handle_field_add(
 
 @callback(
     Output("rs-checked-fields-store", "data"),
+    Output("rs-field-add-checked-btn", "disabled"),
+    Output("rs-field-add-checked-btn", "children"),
     Input({"type": "rs-field-check", "kind": ALL, "id": ALL}, "checked"),
+    State("rs-draft-store", "data"),
     prevent_initial_call=True,
 )
 def handle_field_check(
     checked_list: list[bool | None] | None,
-) -> list[dict[str, Any]]:
-    """Theo dõi field đã tick (dùng cho thêm hàng loạt ở Bước 4).
-
-    Dựng lại toàn bộ từ danh sách checked hiện tại nên an toàn khi panel
-    re-render (mount-firing không làm lệch Store).
-    """
+    detail: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], bool, str]:
+    """Theo dõi field đã tick và cập nhật trạng thái nút '+ Đã chọn'."""
     items = (dash.callback_context.inputs_list[0] if dash.callback_context.inputs_list else []) or []
     out: list[dict[str, Any]] = []
     for item, val in zip(items, checked_list or [], strict=False):
@@ -1572,7 +1870,49 @@ def handle_field_check(
             continue
         ident = (item or {}).get("id") or {}
         out.append({"kind": str(ident.get("kind") or "field"), "id": int(ident.get("id") or 0)})
-    return out
+    editable = _is_detail_editable(detail) if detail else True
+    btn_label = f"+ Đã chọn ({len(out)})" if out else "+ Đã chọn"
+    return out, (len(out) == 0 or not editable), btn_label
+
+
+@callback(
+    Output("rs-draft-store", "data", allow_duplicate=True),
+    Output("rs-canvas-body", "children", allow_duplicate=True),
+    Output("rs-status-wrap", "children", allow_duplicate=True),
+    Output("rs-dirty-store", "data", allow_duplicate=True),
+    Output("rs-studio-notif", "sendNotifications", allow_duplicate=True),
+    Output("rs-settings-body", "children", allow_duplicate=True),
+    Output("rs-fields-body", "children", allow_duplicate=True),
+    Output("rs-checked-fields-store", "data", allow_duplicate=True),
+    Input("rs-field-add-checked-btn", "n_clicks"),
+    State("rs-checked-fields-store", "data"),
+    State("rs-draft-store", "data"),
+    State("rs-selection-store", "data"),
+    State("rs-fields-search", "value"),
+    prevent_initial_call=True,
+)
+def handle_bulk_field_add(
+    n_clicks: int | None,
+    checked_items: list[dict[str, Any]] | None,
+    detail: dict[str, Any] | None,
+    selection: dict[str, Any] | None,
+    search_query: str | None,
+) -> tuple[Any, Any, Any, Any, Any, Any, Any, Any]:
+    """Thêm hàng loạt các trường đã tick rồi bỏ tick danh sách chọn."""
+    if not n_clicks or not detail or not _is_detail_editable(detail) or not checked_items:
+        raise PreventUpdate
+    new_detail, msg = add_checked_fields_to_draft(detail, checked_items, selection=selection)
+    bundle = new_detail.get("model") or {}
+    return (
+        new_detail,
+        render_canvas_panel(new_detail, selection=selection),
+        render_status_bar(new_detail, dirty=True),
+        True,
+        [toast_success(msg or "Đã thêm trường đã chọn.")],
+        render_settings_panel(new_detail, selection),
+        render_fields_panel(bundle, query=search_query or "", is_editable=True),
+        [],
+    )
 
 
 @callback(
@@ -1695,7 +2035,10 @@ def handle_save_draft(
     version_id = int(detail["version"]["id"])
     row_version = int(detail["version"]["row_version"])
     visuals = [_visual_payload_from_store(v) for v in (detail.get("visuals") or [])]
-    res = save_studio_draft(ctx, version_id, {"row_version": row_version, "visuals": visuals})
+    save_payload: dict[str, Any] = {"row_version": row_version, "visuals": visuals}
+    if detail.get("params") is not None:
+        save_payload["params"] = [_param_payload_from_store(p) for p in detail["params"]]
+    res = save_studio_draft(ctx, version_id, save_payload)
     if not res.ok:
         if res.code == ErrorCode.STALE_DATA:
             return (
@@ -1927,7 +2270,7 @@ def handle_dnd_drop(
     selection: dict[str, Any] | None,
 ) -> tuple[Any, Any, Any, Any, Any, Any]:
     """Nhận sự kiện kéo-thả từ studio_drag_drop.js (field vào well / đổi thứ tự)."""
-    if not detail or not payload or not isinstance(payload, dict):
+    if not detail or not _is_detail_editable(detail) or not payload or not isinstance(payload, dict):
         raise PreventUpdate
     kind = str(payload.get("kind") or "")
     if kind == "field-drop":
@@ -2001,7 +2344,7 @@ def handle_visual_actions(
     selection: dict[str, Any] | None,
 ) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
     """Nút lên/xuống, nhân bản, xóa visual trên canvas và panel phải."""
-    if not detail:
+    if not detail or not _is_detail_editable(detail):
         raise PreventUpdate
     trig = dash.callback_context.triggered_id
     if isinstance(trig, dict):
@@ -2074,7 +2417,7 @@ def handle_settings_change(
 
     Đổi loại visual có field bị loại -> mở modal xác nhận thay vì áp ngay.
     """
-    if not detail:
+    if not detail or not _is_detail_editable(detail):
         raise PreventUpdate
     sel_code = (selection or {}).get("visual_code")
     visual = next(
@@ -2179,6 +2522,8 @@ def handle_type_confirm(
 ) -> tuple[Any, Any, Any, Any, Any, bool, Any]:
     """Modal xác nhận đổi loại visual: áp remap hoặc hủy (vẽ lại panel)."""
     trig = dash.callback_context.triggered_id
+    if not _is_detail_editable(detail):
+        raise PreventUpdate
     if trig == "rs-type-confirm-no" and no_clicks:
         return (
             dash.no_update,
@@ -2221,6 +2566,7 @@ def handle_type_confirm(
     Input({"type": "rs-well-sort", "code": ALL, "idx": ALL}, "value"),
     Input({"type": "rs-well-remove", "code": ALL, "idx": ALL}, "n_clicks"),
     Input({"type": "rs-well-format", "code": ALL, "idx": ALL}, "value"),
+    Input({"type": "rs-well-datepart", "code": ALL, "idx": ALL}, "value"),
     State("rs-draft-store", "data"),
     State("rs-selection-store", "data"),
     prevent_initial_call=True,
@@ -2230,11 +2576,12 @@ def handle_well_change(
     sort_vals: list[str | None] | None,
     remove_clicks: list[int | None] | None,
     format_vals: list[str | None] | None,
+    datepart_vals: list[str | None] | None,
     detail: dict[str, Any] | None,
     selection: dict[str, Any] | None,
 ) -> tuple[Any, Any, Any, Any, Any]:
-    """Aggregation / Sort / Format / Gỡ field trong Data Well (guard mount-firing)."""
-    if not detail:
+    """Aggregation / DatePart / Sort / Format / Gỡ field trong Data Well (guard mount-firing)."""
+    if not detail or not _is_detail_editable(detail):
         raise PreventUpdate
     trig = dash.callback_context.triggered_id
     if not isinstance(trig, dict):
@@ -2268,6 +2615,11 @@ def handle_well_change(
         if new_val is None or str(new_val) == str(field.get("format_mask") or ""):
             raise PreventUpdate
         field["format_mask"] = str(new_val) or None
+    elif kind == "rs-well-datepart":
+        new_val = _triggered_input_value(4, code, idx)
+        if new_val is None or str(new_val) == str(field.get("date_part") or ""):
+            raise PreventUpdate
+        field["date_part"] = str(new_val) or None
     else:
         raise PreventUpdate
     return (
@@ -2276,8 +2628,8 @@ def handle_well_change(
         render_status_bar(detail, dirty=True),
         True,
         # Chỉ vẽ lại panel phải khi gỡ field (hàng biến mất). Đổi
-        # agg/sort/format: control đã hiển thị giá trị mới, vẽ lại
-        # chỉ làm mất focus khi user đang gõ format (debounce 300ms).
+        # agg/sort/format/datepart: control đã hiển thị giá trị mới,
+        # vẽ lại chỉ làm mất focus khi user đang gõ format (debounce 300ms).
         render_settings_panel(detail, selection)
         if kind == "rs-well-remove"
         else dash.no_update,
@@ -2309,7 +2661,7 @@ def handle_visual_filter(
     value: str | None,
 ) -> tuple[Any, Any, Any, Any, Any]:
     """Thêm / xóa bộ lọc của visual đang chọn (lưu trong config.filters)."""
-    if not detail:
+    if not detail or not _is_detail_editable(detail):
         raise PreventUpdate
     trig = dash.callback_context.triggered_id
     sel_code = str((selection or {}).get("visual_code") or "")
@@ -2506,4 +2858,72 @@ def handle_validation_issue_click(
         render_canvas_panel(
             detail, preview_mode=bool(preview_on), selection=selection
         ),
+    )
+
+
+@callback(
+    Output("rs-draft-store", "data", allow_duplicate=True),
+    Output("rs-settings-body", "children", allow_duplicate=True),
+    Output("rs-status-wrap", "children", allow_duplicate=True),
+    Output("rs-dirty-store", "data", allow_duplicate=True),
+    Output("rs-studio-notif", "sendNotifications", allow_duplicate=True),
+    Input({"type": "rs-param-add-btn", "k": ALL}, "n_clicks"),
+    Input({"type": "rs-param-remove", "code": ALL}, "n_clicks"),
+    State("rs-draft-store", "data"),
+    State("rs-selection-store", "data"),
+    State({"type": "rs-param-field", "k": ALL}, "value"),
+    State({"type": "rs-param-op", "k": ALL}, "value"),
+    State({"type": "rs-param-label", "k": ALL}, "value"),
+    prevent_initial_call=True,
+)
+def handle_report_param_action(
+    add_clicks: list[int | None] | None,
+    remove_clicks: list[int | None] | None,
+    detail: dict[str, Any] | None,
+    selection: dict[str, Any] | None,
+    field_vals: list[str | None] | None,
+    op_vals: list[str | None] | None,
+    label_vals: list[str | None] | None,
+) -> tuple[Any, Any, Any, Any, Any]:
+    """Thêm / xóa tham số báo cáo (RECON_RPT_PARAM) trong panel phải."""
+    if not detail or not _is_detail_editable(detail):
+        raise PreventUpdate
+    trig = dash.callback_context.triggered_id
+    if not isinstance(trig, dict):
+        raise PreventUpdate
+    kind = str(trig.get("type") or "")
+    if kind == "rs-param-add-btn":
+        if not any(add_clicks or []):
+            raise PreventUpdate
+        fid_raw = next((v for v in (field_vals or []) if v not in (None, "")), None)
+        if not fid_raw:
+            return (
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
+                [toast_error("Vui lòng chọn trường lọc cho tham số.")],
+            )
+        op = str(next((v for v in (op_vals or []) if v), "="))
+        lbl = next((v for v in (label_vals or []) if v is not None), None)
+        new_detail, err = add_studio_param(detail, field_id=int(fid_raw), operator=op, label=lbl)
+        if err:
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, [toast_error(err)]
+        msg = "Đã thêm tham số báo cáo."
+    elif kind == "rs-param-remove":
+        if not any(remove_clicks or []):
+            raise PreventUpdate
+        pcode = str(trig.get("code") or "")
+        new_detail, ok = remove_studio_param(detail, pcode)
+        if not ok:
+            raise PreventUpdate
+        msg = f"Đã xóa tham số {pcode}."
+    else:
+        raise PreventUpdate
+    return (
+        new_detail,
+        render_settings_panel(new_detail, selection),
+        render_status_bar(new_detail, dirty=True),
+        True,
+        [toast_success(msg)],
     )

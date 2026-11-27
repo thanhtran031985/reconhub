@@ -536,14 +536,19 @@ def _execute_semantic_page(
     page: int,
     page_size: int,
     sorts: list[dict[str, Any]] | None,
-) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None]:
     """Chạy 1 trang của run Studio qua Query Planner 108.
 
-    Trả (total, rows, columns_meta [{name, label, data_type}]) — semantic
-    trả columns dạng meta (khác classic list[str]) để Viewer vẽ visual
-    đúng label/kiểu dữ liệu.
+    Trả (total, rows, columns_meta, pivot) — columns kèm ``well_role`` &
+    ``format_mask``; visual MATRIX trả thêm ``pivot`` tổng hợp phía server.
     """
-    from app.services.report_studio import build_visual_run_intent
+    from app.services.report_studio import (
+        build_visual_run_intent,
+        enrich_columns_with_visual_fields,
+        load_visual_by_id,
+        pivot_visual_rows,
+    )
+    from app.services.semantic_model import load_version_bundle
     from app.services.semantic_query import execute_semantic_query_for_run
 
     visual_id = run["VISUAL_ID"]
@@ -563,6 +568,8 @@ def _execute_semantic_page(
             query_spec,
             sorts=sorts,
         )
+        visual = load_visual_by_id(conn, int(visual_id))
+        bundle = load_version_bundle(conn, int(pinned_id))
     if int(pinned_id) != int(model_version_id):
         raise ServiceError(
             ErrorCode.VALIDATION_ERROR,
@@ -575,15 +582,14 @@ def _execute_semantic_page(
             result.message or "Chạy semantic query lỗi.",
         )
     data = result.data
-    columns = [
-        {
-            "name": str(c["name"]),
-            "label": str(c.get("label") or c["name"]),
-            "data_type": str(c.get("data_type") or "STRING"),
-        }
-        for c in (data.get("columns") or [])
-    ]
-    return int(data.get("total") or 0), list(data.get("rows") or []), columns
+    rows = list(data.get("rows") or [])
+    columns = enrich_columns_with_visual_fields(list(data.get("columns") or []), visual, bundle)
+    pivot = (
+        pivot_visual_rows(visual, columns, rows)
+        if str(visual.get("visual_type") or "").upper() == "MATRIX"
+        else None
+    )
+    return int(data.get("total") or 0), rows, columns, pivot
 
 
 @service
@@ -613,8 +619,9 @@ def execute_report_run(ctx: Ctx, run_id: int, page: int = 1, page_size: int = 50
     started = time.monotonic()
     try:
         col_names: list[Any] = []
+        pivot: dict[str, Any] | None = None
         if detail["source_type"] == "SEMANTIC_MODEL":
-            total, rows, col_names = _execute_semantic_page(ctx, run, detail, resolved, page, page_size, sorts=[])
+            total, rows, col_names, pivot = _execute_semantic_page(ctx, run, detail, resolved, page, page_size, sorts=[])
         else:
             total, rows, col_names = _execute_count_page(detail, resolved, page, page_size, sorts=[])
     except ServiceError as exc:
@@ -668,7 +675,7 @@ def execute_report_run(ctx: Ctx, run_id: int, page: int = 1, page_size: int = 50
         row = conn.execute(select(recon_report_run).where(recon_report_run.c.ID == run_id)).mappings().first()
     # Task 78: báo chủ run khi xong (DONE chỉ khi chủ bật REPORT_RUN_DONE).
     notify_for_report_run(engine, run_id, "REPORT_RUN_DONE", f"Chạy báo cáo #{run_id} đã xong", f"Đã chạy xong: {total} dòng.")
-    return {
+    res_payload: dict[str, Any] = {
         "run": _run_dict(row),
         "total": total,
         "rows": rows,
@@ -676,6 +683,9 @@ def execute_report_run(ctx: Ctx, run_id: int, page: int = 1, page_size: int = 50
         "page": page,
         "page_size": page_size,
     }
+    if pivot is not None:
+        res_payload["pivot"] = pivot
+    return res_payload
 
 
 # Task 36: dry-run chỉ xem trước tối đa 10 dòng — không chạy COUNT toàn bộ
@@ -808,8 +818,8 @@ def get_report_page(
         _check_prod_admin(conn, detail["data_source_id"], admin)
         resolved = dict(run["PARAMS_JSON"] or {})
     if detail["source_type"] == "SEMANTIC_MODEL":
-        total, rows, columns_meta = _execute_semantic_page(ctx, run, detail, resolved, page, page_size, sorts)
-        return {
+        total, rows, columns_meta, pivot = _execute_semantic_page(ctx, run, detail, resolved, page, page_size, sorts)
+        out: dict[str, Any] = {
             "run_id": run_id,
             "total": total,
             "rows": rows,
@@ -817,6 +827,9 @@ def get_report_page(
             "page": page,
             "page_size": page_size,
         }
+        if pivot is not None:
+            out["pivot"] = pivot
+        return out
     field_names = [c["field_name"] for c in detail["columns"]]
     valid_sorts = _validate_sorts(sorts, field_names)
     total, rows, col_names = _execute_count_page(detail, resolved, page, page_size, valid_sorts)

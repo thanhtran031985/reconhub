@@ -67,8 +67,14 @@
     });
   }
 
+  function isDesignerEditable() {
+    var page = document.getElementById('rs-page');
+    return !page || page.getAttribute('data-editable') !== 'false';
+  }
+
   // Bật draggable khi di chuột/bấm vào tay cầm kéo.
   function enableDraggable(e) {
+    if (!isDesignerEditable()) return;
     if (!e.target || typeof e.target.closest !== 'function') return;
     var handle = e.target.closest('.rs-drag-handle');
     if (!handle) return;
@@ -86,6 +92,7 @@
   document.addEventListener('mousedown', enableDraggable);
 
   document.addEventListener('dragstart', function (e) {
+    if (!isDesignerEditable()) return;
     if (!e.target || typeof e.target.closest !== 'function') return;
     var fieldRow = e.target.closest('.rs-field-row');
     if (fieldRow) {

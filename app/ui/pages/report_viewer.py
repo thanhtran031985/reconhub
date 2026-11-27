@@ -27,7 +27,7 @@ from app.services.report_run import (
     get_report_run,
     get_run_sql,
 )
-from app.services.report_studio import list_version_visuals
+from app.services.report_studio import list_version_visuals, pivot_visual_rows
 from app.services.report_template import get_version, list_templates
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_subtle
@@ -460,7 +460,9 @@ def _run_semantic_report(
             errors.append(f"{code}: {created.message}")
             continue
         run_id = int(created.data["id"])
-        executed = execute_report_run(ctx, run_id)
+        vtype = str(vis.get("visual_type") or "TABLE").upper()
+        req_page_size = 200 if vtype in ("MATRIX", "BAR", "LINE") else 50
+        executed = execute_report_run(ctx, run_id, page_size=req_page_size)
         if not executed.ok or not isinstance(executed.data, dict):
             errors.append(f"{code}: {executed.message}")
             continue
@@ -468,16 +470,19 @@ def _run_semantic_report(
         entry: dict[str, Any] = {
             "visual_id": int(vis["id"]),
             "visual_code": code,
-            "visual_type": str(vis.get("visual_type") or "TABLE"),
+            "visual_type": vtype,
             "title": str(vis.get("title") or code),
             "grid_span": int(vis.get("grid_span") or 12),
             "height_size": str(vis.get("height_size") or "M"),
+            "fields": list(vis.get("fields") or []),
             "run_id": run_id,
             "status": str(run.get("status") or "FAILED"),
             "error": run.get("error_message") or "",
             "total": int(executed.data.get("total") or 0),
             "columns": executed.data.get("columns") or [],
             "rows": executed.data.get("rows") or [],
+            "pivot": executed.data.get("pivot"),
+            "page_size": req_page_size,
         }
         runs.append(entry)
         if entry["status"] != "DONE":
@@ -568,6 +573,7 @@ def handle_run_click(
     Output("viewer-run-store", "data", allow_duplicate=True),
     Output("viewer-page-store", "data", allow_duplicate=True),
     Output("viewer-run-error", "children", allow_duplicate=True),
+    Output("viewer-export-controls", "style"),
     Input("viewer-tabs", "value"),
     State("viewer-version-store", "data"),
     State("viewer-templates-store", "data"),
@@ -579,17 +585,22 @@ def handle_viewer_tab_switch_click(
     version_store: dict[str, Any] | None,
     templates_store: list[dict[str, Any]] | None,
     run_store: dict[str, Any] | None,
-) -> tuple[Any, Any, Any, Any, Any]:
+) -> tuple[Any, Any, Any, Any, Any, Any]:
     """Task 77: chọn tab template khác -> vẽ lại form tham số + xóa kết quả cũ."""
     form, version_detail, new_run, page, error = handle_viewer_tab_switch(
         tab_value, version_store, templates_store, run_store
     )
+    export_style: Any = dash.no_update
+    if version_detail is not None:
+        is_sem = str(version_detail.get("source_type") or "") == "SEMANTIC_MODEL"
+        export_style = {"display": "none"} if is_sem else {}
     return (
         form if form is not None else dash.no_update,
         version_detail if version_detail is not None else dash.no_update,
         new_run if new_run is not None else dash.no_update,
         page if page is not None else dash.no_update,
         error,
+        export_style,
     )
 
 
@@ -726,12 +737,14 @@ def _render_semantic_results(run_store: dict[str, Any] | None, dark_mode: bool |
     cards: list[Any] = []
     for entry in runs:
         code = str(entry.get("visual_code") or "")
+        vtype = str(entry.get("visual_type") or "TABLE").upper()
         visual = {
             "code": code,
-            "visual_type": str(entry.get("visual_type") or "TABLE"),
+            "visual_type": vtype,
             "title": str(entry.get("title") or code),
             "grid_span": int(entry.get("grid_span") or 12),
             "height_size": str(entry.get("height_size") or "M"),
+            "fields": list(entry.get("fields") or []),
         }
         if str(entry.get("status") or "") != "DONE":
             body: Any = alert_box(
@@ -743,18 +756,26 @@ def _render_semantic_results(run_store: dict[str, Any] | None, dark_mode: bool |
             total_text = "Lỗi"
         else:
             rows = entry.get("rows") or []
+            cols = entry.get("columns") or []
             total = int(entry.get("total") or 0)
-            preview = {
-                "columns": entry.get("columns") or [],
+            pivot = entry.get("pivot")
+            if vtype == "MATRIX" and pivot is None and rows:
+                pivot = pivot_visual_rows(visual, cols, rows)
+            pivot_trunc = bool((pivot or {}).get("truncated"))
+            shown_limit = int(entry.get("page_size") or len(rows) or 50)
+            preview: dict[str, Any] = {
+                "columns": cols,
                 "rows": rows,
                 "row_count": len(rows),
-                "truncated": total > len(rows),
+                "truncated": (total > len(rows)) or pivot_trunc,
                 "warning_message": None,
             }
+            if pivot is not None:
+                preview["pivot"] = pivot
             body = render_semantic_visual(
                 visual,
                 preview,
-                state="data" if rows else "empty",
+                state="data" if (rows or (pivot or {}).get("row_headers")) else "empty",
                 dark_mode=bool(dark_mode),
             )
             export_row = dmc.Group(
@@ -777,7 +798,7 @@ def _render_semantic_results(run_store: dict[str, Any] | None, dark_mode: bool |
                 gap="xs",
                 mt="xs",
             )
-            total_text = f"{total} dòng" + (" (hiển thị 50 dòng đầu)" if total > len(rows) else "")
+            total_text = f"{total} dòng" + (f" (hiển thị {min(shown_limit, len(rows))} dòng đầu)" if total > len(rows) else "")
         cards.append(
             dmc.GridCol(
                 dmc.Paper(
@@ -1340,7 +1361,7 @@ def _render_sql_field(label: str, text: str) -> Any:
             dmc.Title(label, order=5, size="sm", mt="sm"),
             html.Pre(
                 text,
-                style={"fontFamily": "monospace", "fontSize": "12px", "whiteSpace": "pre-wrap", "marginTop": "4px"},
+                className="rh-code viewer-sql-pre",
             ),
         ]
     )
@@ -1413,7 +1434,6 @@ def handle_sql_tab_render(run_store: dict[str, Any] | None) -> Any:
             "Chưa chạy báo cáo.",
             "Bấm Xem báo cáo để xem SQL đã thực hiện.",
         )
-        raise PreventUpdate
     res = get_run_sql(ctx, int(run_store["run_id"]))
     if not res.ok or not isinstance(res.data, dict):
         return alert_box(res.message or "Không xem được SQL.", tone="crit")
@@ -1425,12 +1445,12 @@ def handle_sql_tab_render(run_store: dict[str, Any] | None) -> Any:
         dmc.Title("Câu truy vấn", order=5, size="sm"),
         html.Pre(
             str(data.get("sql_text") or ""),
-            style={"fontFamily": "monospace", "fontSize": "12px", "whiteSpace": "pre-wrap", "marginTop": "4px"},
+            className="rh-code viewer-sql-pre",
         ),
         dmc.Title("Binds", order=5, size="sm", mt="sm"),
         html.Pre(
             binds_text,
-            style={"fontFamily": "monospace", "fontSize": "12px", "whiteSpace": "pre-wrap", "marginTop": "4px"},
+            className="rh-code viewer-sql-pre",
         ),
     ]
     if data.get("warning"):
@@ -1440,12 +1460,12 @@ def handle_sql_tab_render(run_store: dict[str, Any] | None) -> Any:
             dmc.Title("Câu COUNT", order=5, size="sm", mt="sm"),
             html.Pre(
                 str(data.get("count_sql") or ""),
-                style={"fontFamily": "monospace", "fontSize": "12px", "whiteSpace": "pre-wrap", "marginTop": "4px"},
+                className="rh-code viewer-sql-pre",
             ),
             dmc.Title("Câu phân trang (trang 1, 50 dòng)", order=5, size="sm", mt="sm"),
             html.Pre(
                 str(data.get("paged_sql") or ""),
-                style={"fontFamily": "monospace", "fontSize": "12px", "whiteSpace": "pre-wrap", "marginTop": "4px"},
+                className="rh-code viewer-sql-pre",
             ),
         ]
     )

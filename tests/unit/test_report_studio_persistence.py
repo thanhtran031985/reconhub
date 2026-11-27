@@ -1262,3 +1262,77 @@ def test_validate_reports_per_visual_error_when_model_archived(studio_svc_env) -
 
     blocked = publish_studio_report(ctxs["owner"], vid, {"change_note": "v1"})
     assert not blocked.ok and blocked.code == ErrorCode.VALIDATION_ERROR
+
+
+def test_delete_studio_report_with_fk_enabled(studio_svc_env) -> None:
+    """Xóa Report Studio từ Report Admin không được vướng FK RECON_RPT_VISUAL*."""
+    from sqlalchemy import event, select
+
+    from app.db.metadata import recon_report, recon_rpt_visual, recon_rpt_visual_field
+    from app.services.report import delete_report
+    from app.services.report_export import request_export
+    from app.services.report_run import create_report_run, execute_report_run
+    from app.services.report_studio import (
+        open_or_create_studio_draft,
+        publish_studio_report,
+        save_studio_draft,
+        validate_studio_report,
+    )
+
+    engine, ds_id, ctxs = studio_svc_env
+
+    @event.listens_for(engine, "connect")
+    def _fk_on(dbapi_conn, _rec):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA foreign_keys = ON")
+        cur.close()
+
+    ver_id, bundle = _build_published_model(ctxs["owner"], ds_id)
+    created = _create_studio_report(ctxs["owner"], ver_id)
+    report_id = int(created["report"]["id"])
+    opened = open_or_create_studio_draft(ctxs["owner"], report_id)
+    assert opened.ok
+    vid = int(opened.data["version"]["id"])
+    rv = int(opened.data["version"]["row_version"])
+    saved = save_studio_draft(
+        ctxs["owner"],
+        vid,
+        {
+            "row_version": rv,
+            "visuals": [_table_visual(bundle)],
+            "params": [
+                {
+                    "code": "P_CUST",
+                    "label": "Khách hàng",
+                    "data_type": "STRING",
+                    "control_type": "TEXT",
+                    "required": False,
+                    "filter_column": "CUSTOMER_NAME",
+                    "filter_operator": "LIKE_PREFIX",
+                }
+            ],
+        },
+    )
+    assert saved.ok, saved.message
+    assert validate_studio_report(ctxs["owner"], vid).ok
+    assert publish_studio_report(ctxs["owner"], vid, {"change_note": "v1"}).ok
+    reloaded = open_or_create_studio_draft(ctxs["owner"], report_id)
+    assert reloaded.ok and len(reloaded.data["params"]) == 1
+
+    with engine.connect() as conn:
+        vis_id = int(
+            conn.execute(
+                select(recon_rpt_visual.c.ID).where(recon_rpt_visual.c.VERSION_ID == vid)
+            ).scalar_one()
+        )
+    run_res = create_report_run(ctxs["admin"], report_id, values={}, visual_id=vis_id)
+    assert run_res.ok, run_res.message
+    assert execute_report_run(ctxs["admin"], int(run_res.data["id"])).ok
+    assert request_export(ctxs["admin"], int(run_res.data["id"]), "XLSX").ok
+
+    deleted = delete_report(ctxs["admin"], report_id)
+    assert deleted.ok, deleted.message
+    with engine.connect() as conn:
+        assert conn.execute(select(recon_report.c.ID).where(recon_report.c.ID == report_id)).first() is None
+        assert conn.execute(select(recon_rpt_visual.c.ID).where(recon_rpt_visual.c.VERSION_ID == vid)).first() is None
+        assert conn.execute(select(recon_rpt_visual_field.c.ID).where(recon_rpt_visual_field.c.VISUAL_ID == vis_id)).first() is None

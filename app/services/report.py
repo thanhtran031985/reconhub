@@ -29,6 +29,8 @@ from app.db.metadata import (
     recon_rpt_param_lov,
     recon_rpt_preset,
     recon_rpt_tpl_ver,
+    recon_rpt_visual,
+    recon_rpt_visual_field,
 )
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
@@ -351,6 +353,17 @@ def delete_report(ctx: Ctx, report_id: int) -> dict[str, Any]:
                     conn.execute(delete(recon_rpt_param_lov).where(recon_rpt_param_lov.c.PARAM_ID.in_(param_ids)))
                 conn.execute(delete(recon_rpt_param).where(recon_rpt_param.c.VERSION_ID.in_(ver_ids)))
                 conn.execute(delete(recon_rpt_column).where(recon_rpt_column.c.VERSION_ID.in_(ver_ids)))
+                vis_ids = [
+                    int(r[0])
+                    for r in conn.execute(
+                        select(recon_rpt_visual.c.ID).where(recon_rpt_visual.c.VERSION_ID.in_(ver_ids))
+                    ).all()
+                ]
+                if vis_ids:
+                    conn.execute(
+                        delete(recon_rpt_visual_field).where(recon_rpt_visual_field.c.VISUAL_ID.in_(vis_ids))
+                    )
+                    conn.execute(delete(recon_rpt_visual).where(recon_rpt_visual.c.ID.in_(vis_ids)))
                 conn.execute(delete(recon_rpt_tpl_ver).where(recon_rpt_tpl_ver.c.ID.in_(ver_ids)))
         if tpl_ids:
             conn.execute(delete(recon_report_template).where(recon_report_template.c.ID.in_(tpl_ids)))

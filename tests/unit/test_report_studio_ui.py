@@ -563,7 +563,7 @@ def test_semantic_visuals_render_all_five_types(rs_ui_env) -> None:
     matrix_node = render_semantic_visual(matrix_vis, matrix_prev)
     matrix_grids = _ui_find_all(matrix_node, "AgGrid")
     assert len(matrix_grids) == 1
-    assert [c["field"] for c in matrix_grids[0].columnDefs] == ["", "VIP", "STD"]
+    assert [c["field"] for c in matrix_grids[0].columnDefs] == ["__row_key", "VIP", "STD"]
     assert matrix_grids[0].rowData[0]["VIP"] == 800000
 
     kpi_vis = _ui_visual("V_003", "KPI", [_ui_well("VALUE", rev_sum)])
@@ -982,3 +982,218 @@ def test_model_studio_report_studio_button_enabled() -> None:
     assert "button" in found, "Không tìm thấy nút rms-open-report-studio-btn trong header Model Studio."
     assert found["button"].get("disabled") is not True, "Nút Report Studio vẫn đang disabled."
     assert found.get("href") == "/report-studio", "Nút Report Studio phải mở /report-studio."
+
+
+def test_bar_line_chart_with_series_splits_traces_by_series(rs_ui_env) -> None:
+    """BAR/LINE có well SERIES phải tách trace theo từng giá trị của SERIES, không vẽ cột chuỗi lên trục Y."""
+    from app.ui.components.semantic_visuals import render_semantic_visual
+
+    _, _, _, bundle, _ = rs_ui_env
+    cust = _ui_field_id(bundle, "DIM_CUSTOMER", "CUSTOMER_NAME")
+    seg = _ui_field_id(bundle, "DIM_CUSTOMER", "SEGMENT")
+    rev_sum = _ui_measure_id(bundle, "REV_SUM")
+    cols = [
+        {"name": "CUSTOMER_NAME", "label": "CUSTOMER_NAME", "data_type": "STRING", "well_role": "X"},
+        {"name": "SEGMENT", "label": "SEGMENT", "data_type": "STRING", "well_role": "SERIES"},
+        {"name": "REV_SUM", "label": "REV_SUM", "data_type": "NUMBER", "well_role": "Y"},
+    ]
+    rows = [
+        {"CUSTOMER_NAME": "Cong ty A", "SEGMENT": "VIP", "REV_SUM": 800000},
+        {"CUSTOMER_NAME": "Cong ty B", "SEGMENT": "STD", "REV_SUM": 200000},
+    ]
+    for vtype in ("BAR", "LINE"):
+        vis = _ui_visual(
+            f"V_{vtype}",
+            vtype,
+            [_ui_well("X", cust), _ui_well("SERIES", seg), _ui_well("Y", measure_id=rev_sum)],
+        )
+        node = render_semantic_visual(vis, _ui_preview(vtype, cols, rows, visual_code=f"V_{vtype}"))
+        graphs = _ui_find_all(node, "Graph")
+        assert len(graphs) == 1
+        fig = graphs[0].figure
+        assert [t["name"] for t in fig["data"]] == ["VIP", "STD"]
+        assert list(fig["data"][0]["y"]) == [800000, None]
+        assert list(fig["data"][1]["y"]) == [None, 200000]
+        assert fig["layout"]["showlegend"] is True
+
+
+def test_kpi_and_table_apply_format_mask(rs_ui_env) -> None:
+    """FORMAT_MASK cấu hình trên well phải áp cho KPI và AG Grid Table."""
+    from app.ui.components.semantic_visuals import render_semantic_visual
+
+    _, _, _, bundle, _ = rs_ui_env
+    cust = _ui_field_id(bundle, "DIM_CUSTOMER", "CUSTOMER_NAME")
+    rev_sum = _ui_measure_id(bundle, "REV_SUM")
+    kpi_vis = _ui_visual("V_KPI", "KPI", [_ui_well("VALUE", measure_id=rev_sum, format_mask="#,##0.00")])
+    kpi_cols = [
+        {"name": "REV_SUM", "label": "REV_SUM", "data_type": "NUMBER", "format_mask": "#,##0.00", "well_role": "VALUE"}
+    ]
+    kpi_dump = _dump(render_semantic_visual(kpi_vis, _ui_preview("KPI", kpi_cols, [{"REV_SUM": 1000000}])))
+    assert "1.000.000,00" in kpi_dump
+
+    tbl_vis = _ui_visual(
+        "V_TBL",
+        "TABLE",
+        [_ui_well("X", cust), _ui_well("Y", measure_id=rev_sum, format_mask="#,##0.00")],
+    )
+    tbl_cols = [
+        {"name": "CUSTOMER_NAME", "label": "CUSTOMER_NAME", "data_type": "STRING", "well_role": "X"},
+        {"name": "REV_SUM", "label": "REV_SUM", "data_type": "NUMBER", "format_mask": "#,##0.00", "well_role": "Y"},
+    ]
+    tbl_node = render_semantic_visual(
+        tbl_vis, _ui_preview("TABLE", tbl_cols, [{"CUSTOMER_NAME": "Cong ty A", "REV_SUM": 800000}])
+    )
+    grid = _ui_find_all(tbl_node, "AgGrid")[0]
+    rev_col = next(c for c in grid.columnDefs if c["field"] == "REV_SUM")
+    assert rev_col.get("valueFormatter") is not None
+
+
+def test_fields_panel_search_matches_table_alias_and_bulk_add(rs_ui_env) -> None:
+    """Tìm theo tên bảng phải trả về các field của bảng đó; thêm hàng loạt field đã tick hoạt động."""
+    import app.ui.pages.report_studio as studio
+
+    _, _, _, bundle, created = rs_ui_env
+    cust_panel = studio.render_fields_panel(bundle, query="DIM_CUSTOMER")
+    assert "CUSTOMER_NAME" in _dump(cust_panel)
+
+    cust = _ui_field_id(bundle, "DIM_CUSTOMER", "CUSTOMER_NAME")
+    rev_sum = _ui_measure_id(bundle, "REV_SUM")
+    detail = _ui_detail(bundle, created, [])
+    new_detail, msg = studio.add_checked_fields_to_draft(
+        detail,
+        [{"kind": "field", "id": cust}, {"kind": "measure", "id": rev_sum}],
+    )
+    assert msg is not None
+    assert len(new_detail["visuals"]) == 1
+    assert len(new_detail["visuals"][0]["fields"]) == 2
+
+
+def test_well_date_part_dropdown_and_param_editor(rs_ui_env) -> None:
+    """Trường DATE/DATETIME trong dimension well hiện dropdown DATE_PART; không chọn visual hiện quản lý tham số."""
+    import app.ui.pages.report_studio as studio
+
+    _, _, _, bundle, created = rs_ui_env
+    sale_day = _ui_field_id(bundle, "FACT_SALES", "SALE_DAY")
+    rev_sum = _ui_measure_id(bundle, "REV_SUM")
+    vis = _ui_visual(
+        "V_001",
+        "BAR",
+        [_ui_well("X", sale_day, date_part="MONTH"), _ui_well("Y", measure_id=rev_sum)],
+    )
+    detail = _ui_detail(bundle, created, [vis])
+    detail["params"] = []
+
+    panel_selected = studio.render_settings_panel(detail, {"visual_code": "V_001"})
+    assert "rs-well-datepart" in _dump(panel_selected)
+
+    updated_detail, msg = studio.add_studio_param(detail, field_id=sale_day, operator=">=", label="Từ ngày")
+    assert msg is None
+    assert len(updated_detail["params"]) == 1
+    assert updated_detail["params"][0]["filter_column"] == "SALE_DAY"
+    panel_report = studio.render_settings_panel(updated_detail, None)
+    assert "rs-param-add-btn" in _dump(panel_report)
+    assert "Từ ngày" in _dump(panel_report)
+
+
+def test_studio_readonly_active_blocks_edit_callbacks(rs_ui_env, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Khi báo cáo ở trạng thái ACTIVE, panel khóa chỉnh sửa và callback sửa bị chặn."""
+    from dash.exceptions import PreventUpdate
+
+    import app.ui.pages.report_studio as studio
+    from app.services.report_studio import (
+        open_or_create_studio_draft,
+        publish_studio_report,
+        save_studio_draft,
+        validate_studio_report,
+    )
+
+    _, _, _, bundle, created = rs_ui_env
+    report_id = created["report"]["id"]
+    opened = open_or_create_studio_draft(_owner(), report_id)
+    vid = opened.data["version"]["id"]
+    rv = opened.data["version"]["row_version"]
+    cust = _ui_field_id(bundle, "DIM_CUSTOMER", "CUSTOMER_NAME")
+    rev_sum = _ui_measure_id(bundle, "REV_SUM")
+    vis = _ui_visual("V_001", "TABLE", [_ui_well("X", cust), _ui_well("Y", measure_id=rev_sum)])
+    assert save_studio_draft(_owner(), vid, {"row_version": rv, "visuals": [vis]}).ok
+    assert validate_studio_report(_owner(), vid).ok
+    pub = publish_studio_report(_owner(), vid, {"change_note": "v1"})
+    assert pub.ok
+    active_detail = pub.data
+    monkeypatch.setattr(studio, "get_current_ctx", _owner)
+
+    fields_ui = studio.render_fields_panel(bundle, is_editable=False)
+    add_btns = [b for b in _ui_find_all(fields_ui, "ActionIcon") if isinstance(getattr(b, "id", None), dict)]
+    assert add_btns and all(getattr(b, "disabled", False) is True for b in add_btns)
+
+    with pytest.raises(PreventUpdate):
+        studio.handle_settings_change("Sửa tên", "TABLE", "6", "M", active_detail, {"visual_code": "V_001"})
+    with pytest.raises(PreventUpdate):
+        studio.handle_dnd_drop(
+            {"kind": "field-drop", "field_kind": "field", "field_id": cust, "visual_code": "V_001", "well_role": "X"},
+            active_detail,
+            {"visual_code": "V_001"},
+        )
+
+
+def test_center_impact_drawer_scopes_to_report_and_shows_draft_breaking(rs_ui_env, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drawer Ảnh hưởng ở /report-studio kiểm tra model Draft breaking change và lọc đúng báo cáo đang xem."""
+    import app.ui.pages.report_studio_center as center
+    from app.services.report_studio import (
+        create_studio_report,
+        open_or_create_studio_draft,
+        save_studio_draft,
+    )
+    from app.services.semantic_model import get_model_version_detail, open_or_create_draft, update_field_props
+
+    _, _, _, bundle, created_a = rs_ui_env
+    model_id = int(bundle["model"]["id"])
+    ver_id = int(bundle["version"]["id"])
+    cust = _ui_field_id(bundle, "DIM_CUSTOMER", "CUSTOMER_NAME")
+    seg = _ui_field_id(bundle, "DIM_CUSTOMER", "SEGMENT")
+    rev_sum = _ui_measure_id(bundle, "REV_SUM")
+
+    res_a = save_studio_draft(
+        _owner(),
+        created_a["version"]["id"],
+        {
+            "row_version": created_a["version"]["row_version"],
+            "visuals": [_ui_visual("V_A", "TABLE", [_ui_well("X", cust), _ui_well("Y", measure_id=rev_sum)], title="Visual A")],
+        },
+    )
+    assert res_a.ok
+
+    created_b = create_studio_report(
+        _owner(),
+        {"code": "RPT_IMP_B", "name": "Báo cáo B", "model_version_id": ver_id},
+    )
+    assert created_b.ok
+    rpt_b_id = created_b.data["report"]["id"]
+    draft_b = open_or_create_studio_draft(_owner(), rpt_b_id)
+    assert save_studio_draft(
+        _owner(),
+        draft_b.data["version"]["id"],
+        {
+            "row_version": draft_b.data["version"]["row_version"],
+            "visuals": [_ui_visual("V_B", "TABLE", [_ui_well("X", seg), _ui_well("Y", measure_id=rev_sum)], title="Visual B")],
+        },
+    ).ok
+
+    # Tạo Draft v2 ẩn cột SEGMENT -> chỉ RPT_IMP_B (Visual B) bị ảnh hưởng.
+    model_draft = open_or_create_draft(_owner(), model_id)
+    assert model_draft.ok
+    d_ver_id = int(model_draft.data["version"]["id"])
+    detail2 = get_model_version_detail(_owner(), d_ver_id)
+    assert detail2.ok
+    seg_id = _ui_field_id(detail2.data, "DIM_CUSTOMER", "SEGMENT")
+    assert update_field_props(_owner(), seg_id, {"is_visible": False}).ok
+
+    monkeypatch.setattr(center, "get_current_ctx", _owner)
+    drawer_b = _dump(center.build_impact_drawer_content(_owner(), rpt_b_id))
+    assert "Breaking changes" in drawer_b
+    assert "Visual B" in drawer_b
+    assert "Visual A" not in drawer_b
+
+    drawer_a = _dump(center.build_impact_drawer_content(_owner(), created_a["report"]["id"]))
+    assert "Visual B" not in drawer_a
+    assert "Visual A" not in drawer_a

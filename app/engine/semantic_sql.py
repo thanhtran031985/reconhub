@@ -73,6 +73,7 @@ class _Compiler:
         preview_max_rows: int,
         chart_max_points: int,
         now: datetime | None,
+        export_max_rows: int | None = None,
     ) -> None:
         self.plan = resolved
         self.intent = intent
@@ -84,6 +85,7 @@ class _Compiler:
         self.preview_max_rows = preview_max_rows
         self.chart_max_points = chart_max_points
         self.now = now
+        self.export_max_rows = export_max_rows
         self.binder = _Binder()
         self.warnings: list[str] = list(resolved.warnings)
         self.alias_by_table: dict[int, str] = {tid: f"t{i}" for i, tid in enumerate(resolved.tables_used)}
@@ -419,19 +421,24 @@ class _Compiler:
         if order_items:
             sql_parts.append("ORDER BY " + ", ".join(order_items))
 
-        # Giới hạn dòng: TABLE/KPI theo preview_max_rows; chart lấy thêm 1 dòng
+        # Giới hạn dòng: export dùng export_max_rows 1 cursor liên tục;
+        # TABLE/KPI theo preview_max_rows; chart lấy thêm 1 dòng
         # để phát hiện truncated (BAR/LINE chỉ hiển thị chart_max_points điểm).
         fetch_extra_row = False
-        if str(self.intent.visual_type).upper() in ("BAR", "LINE"):
-            row_limit = min(int(self.intent.limit), int(self.chart_max_points) + 1)
-            fetch_extra_row = row_limit == int(self.chart_max_points) + 1
+        if self.export_max_rows is not None:
+            row_limit = max(1, int(self.export_max_rows))
+            sql = top_limit_sql(" ".join(sql_parts), row_limit, self.dialect)
         else:
-            row_limit = min(int(self.intent.limit), int(self.preview_max_rows))
-        sql = " ".join(sql_parts)
-        if int(self.intent.offset) > 0:
-            sql = paged_sql(sql, row_limit, int(self.intent.offset), self.dialect)
-        else:
-            sql = top_limit_sql(sql, row_limit, self.dialect)
+            if str(self.intent.visual_type).upper() in ("BAR", "LINE"):
+                row_limit = min(int(self.intent.limit), int(self.chart_max_points) + 1)
+                fetch_extra_row = row_limit == int(self.chart_max_points) + 1
+            else:
+                row_limit = min(int(self.intent.limit), int(self.preview_max_rows))
+            sql = " ".join(sql_parts)
+            if int(self.intent.offset) > 0:
+                sql = paged_sql(sql, row_limit, int(self.intent.offset), self.dialect)
+            else:
+                sql = top_limit_sql(sql, row_limit, self.dialect)
 
         # Kiểm chứng cuối: SQL guard + khớp tập bind (fail-closed).
         ok, reason, discovered = check_report_sql(sql)
@@ -483,6 +490,7 @@ def compile_semantic_query(
     preview_max_rows: int = 500,
     chart_max_points: int = 50,
     now: datetime | None = None,
+    export_max_rows: int | None = None,
 ) -> SemanticQueryPlan:
     """Biên dịch kế hoạch đã duyệt thành SQL read-only + binds.
 
@@ -500,5 +508,6 @@ def compile_semantic_query(
         preview_max_rows=preview_max_rows,
         chart_max_points=chart_max_points,
         now=now,
+        export_max_rows=export_max_rows,
     )
     return compiler.compile()

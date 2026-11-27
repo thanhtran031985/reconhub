@@ -294,3 +294,42 @@ dagcomp.rsStudioActionsCell = function (props) {
     mk('archive', 'Lưu trữ', 'lucide:archive', 'red', isArchived)
   );
 };
+
+/* Task 109: Định dạng ô theo format_mask cho Table/Matrix semantic (giữ rowData dạng số để filter/sort đúng). */
+dagfuncs.reconSemanticFormat = function (params) {
+  if (!params || params.value == null || params.value === '') return '—';
+  var ctx = (params.colDef && params.colDef.context) || {};
+  var mask = ctx.formatMask || '';
+  var dtype = String(ctx.dataType || '').toUpperCase();
+  var val = params.value;
+  if (!mask) return String(val);
+
+  if (dtype === 'NUMBER' || typeof val === 'number') {
+    var num = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, ''));
+    if (isNaN(num)) return String(val);
+    var fmtNum = function (n, dec) {
+      var fixed = n.toFixed(dec);
+      var parts = fixed.split('.');
+      parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+      return dec > 0 ? parts[0] + ',' + parts[1] : parts[0];
+    };
+    if (mask === '#,##0%') return fmtNum(num * 100, 2) + '%';
+    if (mask === '#,##0.00') return fmtNum(num, 2);
+    if (mask === '#,##0') return fmtNum(num, 0);
+    return fmtNum(num, 0);
+  }
+
+  if (dtype === 'DATE' || dtype === 'DATETIME') {
+    var d = new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    var pad = function (x) { return x < 10 ? '0' + x : String(x); };
+    var dd = pad(d.getDate()), mm = pad(d.getMonth() + 1), yyyy = d.getFullYear();
+    var hh = pad(d.getHours()), mi = pad(d.getMinutes()), ss = pad(d.getSeconds());
+    if (mask === 'DD/MM/YYYY HH:mm') return dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + mi;
+    if (mask === 'DD/MM/YYYY HH:mm:ss') return dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + mi + ':' + ss;
+    if (mask === 'MM/YYYY') return mm + '/' + yyyy;
+    if (mask === 'YYYY-MM-DD') return yyyy + '-' + mm + '-' + dd;
+    if (mask === 'DD/MM/YYYY') return dd + '/' + mm + '/' + yyyy;
+  }
+  return String(val);
+};

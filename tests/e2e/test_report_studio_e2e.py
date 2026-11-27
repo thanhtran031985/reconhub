@@ -616,6 +616,9 @@ def test_report_studio_playwright_e2e(live_report_studio_server: dict[str, Any])
         page.wait_for_selector("#rs-new-draft-btn", timeout=15000)
         page.wait_for_selector("#rs-publish-modal", state="hidden", timeout=5000)
         page.wait_for_timeout(350)
+        # Khi ACTIVE (chỉ đọc), nút thêm trường và lưu/phát hành đều khóa.
+        assert page.locator("button[aria-label='Thêm trường CUSTOMER_NAME vào visual']").is_disabled()
+        assert page.locator("#rs-save-btn").is_disabled()
 
         # 12. Chèn param lọc + mở Viewer
         report_id = _insert_viewer_param(app_db)

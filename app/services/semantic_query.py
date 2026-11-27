@@ -234,6 +234,7 @@ def _load_plan(
     preview_max_rows: int,
     chart_max_points: int,
     check_prod: bool,
+    export_max_rows: int | None = None,
 ) -> tuple[dict[str, Any], SemanticQueryPlan, str, str | None, bool]:
     """Nạp bundle + kiểm quyền PROD + trạng thái Data Source + resolve + compile."""
     engine = get_recon_engine()
@@ -285,6 +286,7 @@ def _load_plan(
         dialect=db_type,  # type: ignore[arg-type]
         preview_max_rows=preview_max_rows,
         chart_max_points=chart_max_points,
+        export_max_rows=export_max_rows,
     )
     return bundle, plan, db_type, file_path, admin
 
@@ -438,12 +440,10 @@ def open_semantic_export_stream(
     """Biên dịch intent 1 lần cho export; trả (output_columns, iterator lô).
 
     output_columns: [{name, label, data_type}] để caller dựng writer trước
-    khi stream. Iterator chạy cửa sổ 10.000 dòng (trần limit của intent),
-    mỗi cửa sổ fetchmany theo batch_size, dừng khi hết dữ liệu hoặc đủ
-    max_rows. SQL mỗi cửa sổ qua check_report_sql (fail-closed); RLS ép
-    theo Ctx chủ export (username/roles); ORG_SCOPE_HOOK thiếu scope thì
-    lỗi thay vì rò dữ liệu. Visual nào cũng xuất dạng TABLE (MATRIX xuất
-    dữ liệu gốc, không pivot có trần ở file).
+    khi stream. Iterator mở 1 kết nối và 1 cursor duy nhất, stream qua
+    ``fetchmany`` theo ``batch_size`` tới khi hết dữ liệu hoặc đủ
+    ``max_rows`` (tránh lặp OFFSET/mở connection nhiều lần). SQL qua
+    ``check_report_sql`` (fail-closed); RLS ép theo Ctx chủ export.
     """
     if int(batch_size) < 1:
         raise ServiceError(ErrorCode.VALIDATION_ERROR, "batch_size phải >= 1.")
@@ -463,9 +463,10 @@ def open_semantic_export_stream(
         ctx,
         base_intent,
         org_scopes=org_scopes,
-        preview_max_rows=10000,
+        preview_max_rows=settings.PREVIEW_MAX_ROWS,
         chart_max_points=settings.CHART_MAX_POINTS,
         check_prod=True,
+        export_max_rows=int(max_rows),
     )
     ok, reason, _discovered = check_report_sql(plan.sql)
     if not ok:
@@ -482,55 +483,34 @@ def open_semantic_export_stream(
 
     def _batches() -> Iterator[list[dict[str, Any]]]:
         fetched = 0
-        offset = 0
-        while fetched < int(max_rows):
-            window_limit = min(10000, int(max_rows) - fetched)
-            window_intent = base_intent.model_copy(update={"limit": window_limit, "offset": offset})
-            _b, plan_w, db_type_w, file_path_w, _a = _load_plan(
-                ctx,
-                window_intent,
-                org_scopes=org_scopes,
-                preview_max_rows=10000,
-                chart_max_points=settings.CHART_MAX_POINTS,
-                check_prod=True,
-            )
-            ok_w, reason_w, _d = check_report_sql(plan_w.sql)
-            if not ok_w:
-                raise ServiceError(ErrorCode.SQL_NOT_ALLOWED, reason_w or "SQL export không được phép.")
-            rows_in_window = 0
-            with _open_semantic_source(ds_id, db_type_w, file_path_w, int(timeout_sec)) as raw_conn:
-                prepared = _prepare_binds(db_type_w, plan_w.binds, plan_w.bind_types)
-                cursor = raw_conn.cursor()
+        with _open_semantic_source(ds_id, db_type, file_path, int(timeout_sec)) as raw_conn:
+            prepared = _prepare_binds(db_type, plan.binds, plan.bind_types)
+            cursor = raw_conn.cursor()
+            try:
+                cursor.execute(plan.sql, prepared)
+                col_names = [str(d[0]) for d in (cursor.description or [])]
+                while fetched < int(max_rows):
+                    to_fetch = min(int(batch_size), int(max_rows) - fetched)
+                    batch = cursor.fetchmany(to_fetch)
+                    if not batch:
+                        break
+                    rows = [dict(zip(col_names, tuple(r), strict=False)) for r in batch]
+                    fetched += len(rows)
+                    yield rows
+            except ServiceError:
+                raise
+            except Exception as exc:
+                if db_type == "ORACLE":
+                    raise map_oracle_error(exc, int(timeout_sec)) from exc
+                raise ServiceError(
+                    ErrorCode.SOURCE_QUERY_FAILED,
+                    f"Lỗi thực thi truy vấn nguồn SQLite: {exc}",
+                ) from exc
+            finally:
                 try:
-                    cursor.execute(plan_w.sql, prepared)
-                    col_names = [str(d[0]) for d in (cursor.description or [])]
-                    while True:
-                        batch = cursor.fetchmany(int(batch_size))
-                        if not batch:
-                            break
-                        rows = [dict(zip(col_names, tuple(r), strict=False)) for r in batch]
-                        rows_in_window += len(rows)
-                        fetched += len(rows)
-                        yield rows
-                        if fetched >= int(max_rows):
-                            break
-                except ServiceError:
-                    raise
-                except Exception as exc:
-                    if db_type_w == "ORACLE":
-                        raise map_oracle_error(exc, int(timeout_sec)) from exc
-                    raise ServiceError(
-                        ErrorCode.SOURCE_QUERY_FAILED,
-                        f"Lỗi thực thi truy vấn nguồn SQLite: {exc}",
-                    ) from exc
-                finally:
-                    try:
-                        cursor.close()
-                    except Exception:
-                        pass
-            if rows_in_window < window_limit:
-                break
-            offset += window_limit
+                    cursor.close()
+                except Exception:
+                    pass
 
     return columns, _batches()
 

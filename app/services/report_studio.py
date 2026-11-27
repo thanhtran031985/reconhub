@@ -566,6 +566,33 @@ def _replace_params(
 # ---------------------------------------------------------------------------
 
 
+def _ordered_visual_fields(visual: dict[str, Any]) -> list[dict[str, Any]]:
+    """Sắp field theo thứ tự chuẩn của visual trước khi biên dịch intent.
+
+    MATRIX luôn đặt ROWS trước COLUMNS; BAR/LINE đặt X trước SERIES
+    nên ``output_columns`` luôn giữ đúng vị trí trục bất kể user kéo thả
+    vào well nào trước.
+    """
+    vtype = str(visual.get("visual_type") or "TABLE").upper()
+    priority: dict[str, int]
+    if vtype == "MATRIX":
+        priority = {"ROWS": 0, "COLUMNS": 1, "VALUES": 2}
+    elif vtype in ("BAR", "LINE"):
+        priority = {"X": 0, "SERIES": 1, "Y": 2}
+    else:
+        priority = {}
+    fields = list(visual.get("fields") or [])
+    if not priority:
+        return fields
+    return [
+        f
+        for _idx, f in sorted(
+            enumerate(fields),
+            key=lambda pair: (priority.get(str(pair[1].get("well_role") or ""), 99), pair[0]),
+        )
+    ]
+
+
 def build_visual_intent(
     visual: dict[str, Any],
     bundle: dict[str, Any],
@@ -573,13 +600,13 @@ def build_visual_intent(
 ) -> dict[str, Any]:
     """Chuyển một visual (dict đã lưu) thành SemanticQueryIntent.
 
-    MATRIX chạy như TABLE ở tầng planner; pivot dựng ở server khi preview.
+    MATRIX chạy như TABLE ở tầng planner; pivot dựng ở server khi preview/run.
     """
     vtype = str(visual["visual_type"])
     dimensions: list[dict[str, Any]] = []
     measures: list[dict[str, Any]] = []
     sorts: list[dict[str, Any]] = []
-    for f in visual.get("fields") or []:
+    for f in _ordered_visual_fields(visual):
         role = str(f["well_role"])
         if role in _DIMENSION_WELLS:
             dim: dict[str, Any] = {"field_id": int(f["field_id"])}
@@ -617,6 +644,66 @@ def build_visual_intent(
         "limit": 500,
         "offset": 0,
     }
+
+
+def enrich_columns_with_visual_fields(
+    columns: list[dict[str, Any]],
+    visual: dict[str, Any],
+    bundle: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Bổ sung ``well_role`` và ``format_mask`` từ metadata visual vào columns output."""
+    fields_by_id = {
+        int(f["id"]): f for t in (bundle.get("tables") or []) for f in (t.get("fields") or [])
+    }
+    measures_by_id = {int(m["id"]): m for m in (bundle.get("measures") or [])}
+    meta_by_name: dict[str, dict[str, Any]] = {}
+    for f in _ordered_visual_fields(visual):
+        if f.get("measure_id"):
+            meas = measures_by_id.get(int(f["measure_id"]))
+            out_name = str(f.get("alias") or (meas["code"] if meas else ""))
+        else:
+            fld = fields_by_id.get(int(f.get("field_id") or 0))
+            out_name = str(f.get("alias") or (fld["field_code"] if fld else ""))
+        if not out_name:
+            continue
+        meta_by_name[out_name.upper()] = {
+            "well_role": str(f.get("well_role") or ""),
+            "format_mask": f.get("format_mask"),
+            "label_override": f.get("label_override"),
+        }
+    out: list[dict[str, Any]] = []
+    for col in columns:
+        name = str(col.get("name") or "")
+        meta = meta_by_name.get(name.upper()) or {}
+        entry = {
+            "name": name,
+            "label": str(meta.get("label_override") or col.get("label") or name),
+            "data_type": str(col.get("data_type") or "STRING"),
+            "well_role": meta.get("well_role") or col.get("well_role"),
+            "format_mask": meta.get("format_mask") if meta.get("format_mask") is not None else col.get("format_mask"),
+        }
+        out.append(entry)
+    return out
+
+
+def pivot_visual_rows(
+    visual: dict[str, Any],
+    columns: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Dựng bảng pivot server-side cho visual MATRIX theo well ROWS/COLUMNS/VALUES."""
+    by_role: dict[str, str] = {}
+    for col in columns:
+        role = str(col.get("well_role") or "").upper()
+        if role and role not in by_role:
+            by_role[role] = str(col.get("name") or "")
+    col_names = [str(c.get("name")) for c in columns]
+    if not col_names:
+        return {"row_headers": [], "col_headers": [], "cells": [], "truncated": False}
+    row_field = by_role.get("ROWS") or col_names[0]
+    col_field = by_role.get("COLUMNS") or (col_names[1] if len(col_names) > 1 else col_names[0])
+    value_field = by_role.get("VALUES") or col_names[-1]
+    return _pivot_matrix(rows, row_field, col_field, value_field)
 
 
 _QUERY_FILTER_OPERATORS = ("=", ">=", "<=", "BETWEEN", "IN", "LIKE_PREFIX", "IS_NULL", "RELATIVE_DATE")
@@ -1556,10 +1643,12 @@ def preview_studio_visual(
             details=preview.details,
         )
     data = preview.data or {}
+    raw_cols = list(data.get("columns") or [])
+    enriched_cols = enrich_columns_with_visual_fields(raw_cols, visual_dict, bundle)
     out: dict[str, Any] = {
         "visual_code": visual_dict["code"],
         "visual_type": visual_dict["visual_type"],
-        "columns": data.get("columns") or [],
+        "columns": enriched_cols,
         "rows": data.get("rows") or [],
         "row_count": int(data.get("row_count") or 0),
         "truncated": bool(data.get("truncated")),
@@ -1582,11 +1671,7 @@ def preview_studio_visual(
                 ErrorCode.VALIDATION_ERROR,
                 "Visual MATRIX cần đủ 3 well ROWS, COLUMNS, VALUES.",
             )
-        columns = [str(c.get("name")) for c in out["columns"]]
-        row_field = columns[0]
-        col_field = columns[1] if len(columns) > 1 else columns[0]
-        value_field = columns[-1]
-        pivot = _pivot_matrix(out["rows"], row_field, col_field, value_field)
+        pivot = pivot_visual_rows(visual_dict, enriched_cols, out["rows"])
         out["pivot"] = pivot
         out["truncated"] = bool(out["truncated"] or pivot["truncated"])
     return out
