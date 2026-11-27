@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     TEMP_WARN_DAYS: int = 30
     RESULT_RETENTION_DAYS: int = 0
 
+    # Semantic Query Planner — preview / chart (Task 108)
+    PREVIEW_MAX_ROWS: int = 500
+    PREVIEW_TIMEOUT_SECONDS: int = 25
+    CHART_MAX_POINTS: int = 50
+
     # Dash & Worker
     DASH_PORT: int = 8050
     DASH_DEBUG: bool = True
