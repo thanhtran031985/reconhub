@@ -7,7 +7,7 @@ from typing import Any
 
 import dash
 import dash_mantine_components as dmc
-from dash import ALL, Input, Output, State, callback, dcc, html
+from dash import ALL, Input, Output, State, callback, clientside_callback, dcc, html
 from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 
@@ -102,18 +102,33 @@ def _fmt_int(val: int | None) -> str:
 
 
 def load_studio_bundle(ctx: Ctx, model_id: int) -> tuple[dict[str, Any] | None, str | None]:
-    """Tải metadata model và bản Draft editable (hoặc bản chỉ đọc nếu đã Archive)."""
+    """Tải phiên bản hiển thị cho Model Studio: ưu tiên Draft/Validated đang mở, nếu không giữ nguyên ACTIVE chỉ đọc."""
     model_res = get_model(ctx, model_id)
     if not model_res.ok or not model_res.data:
         return None, model_res.message or "Không tìm thấy mô hình."
     model = model_res.data
+    versions = list(model.get("versions") or [])
+
     if not model.get("is_archived"):
+        draft_ver = model.get("draft_version")
+        if isinstance(draft_ver, dict) and draft_ver.get("id"):
+            ver_res = get_model_version_detail(ctx, int(draft_ver["id"]))
+            if ver_res.ok and ver_res.data:
+                return ver_res.data, None
+            return None, ver_res.message or "Không tải được bản nháp mô hình."
+
+        active_vid = model.get("active_version_id")
+        if active_vid:
+            ver_res = get_model_version_detail(ctx, int(active_vid))
+            if ver_res.ok and ver_res.data:
+                return ver_res.data, None
+            return None, ver_res.message or "Không tải được phiên bản đang hoạt động."
+
         draft_res = open_or_create_draft(ctx, model_id)
         if draft_res.ok and draft_res.data:
             return draft_res.data, None
         return None, draft_res.message or "Không mở được bản nháp mô hình."
 
-    versions = list(model.get("versions") or [])
     if not versions:
         return None, "Mô hình chưa có phiên bản."
     ver_id = int(model.get("active_version_id") or versions[0]["id"])
@@ -135,12 +150,38 @@ def render_studio_header(
     ver_status = str(ver.get("status") or "DRAFT").upper()
     is_editable = ver_status in ("DRAFT", "VALIDATED") and not model.get("is_archived")
 
+    active_vno = model.get("active_version_no")
+    if ver_status == "ACTIVE":
+        pub_badge = dmc.Badge(
+            f"Đang phát hành: v{ver_no}",
+            color="ok",
+            variant="light",
+            size="sm",
+            leftSection=DashIconify(icon="lucide:check-circle-2", width=12),
+        )
+    elif active_vno is not None:
+        pub_badge = dmc.Badge(
+            f"Đang phát hành: v{int(active_vno)}",
+            color="ok",
+            variant="light",
+            size="sm",
+            leftSection=DashIconify(icon="lucide:check-circle-2", width=12),
+        )
+    else:
+        pub_badge = dmc.Badge(
+            "Chưa phát hành",
+            color="gray",
+            variant="light",
+            size="sm",
+        )
+
     title_group = dmc.Group(
         [
             dmc.Title(str(model.get("name") or "Model Studio"), order=4, size=18, fw=600),
             dmc.Badge(str(model.get("code") or ""), variant="outline", size="sm", className="rh-code"),
             dmc.Badge(f"v{ver_no}", variant="light", size="sm"),
             status_chip(ver_status, size="sm"),
+            pub_badge,
         ],
         gap="xs",
         align="center",
@@ -154,7 +195,8 @@ def render_studio_header(
             "Report Studio",
             id="rms-open-report-studio-btn",
             size="xs",
-            variant="default",
+            radius="xl",
+            variant="outline",
             disabled=True,
             leftSection=DashIconify(icon="lucide:bar-chart-3", width=14),
             **{"aria-label": "Mở Report Studio (Khả dụng ở Task 109)"},
@@ -170,6 +212,7 @@ def render_studio_header(
                     variant="subtle",
                     color="gray",
                     size="sm",
+                    radius="xl",
                     **{"aria-label": "Thao tác khác"},
                 )
             ),
@@ -189,18 +232,22 @@ def render_studio_header(
 
     actions: list[Any] = [
         report_studio_btn,
-        button_subtle(
+        dmc.Button(
             "Kiểm tra model",
             id="rms-validate-btn",
-            icon="lucide:shield-check",
             size="xs",
+            radius="xl",
+            variant="outline",
+            leftSection=DashIconify(icon="lucide:shield-check", width=14),
             **{"aria-label": "Kiểm tra model"},
         ),
         dmc.Button(
             "Lưu nháp*" if dirty else "Lưu nháp",
             id="rms-save-btn",
             size="xs",
-            variant="default",
+            radius="xl",
+            variant="light" if dirty else "outline",
+            color="warn" if dirty else "gray",
             disabled=not is_editable,
             leftSection=DashIconify(icon="lucide:save", width=14),
             **{"aria-label": "Lưu nháp thay đổi"},
@@ -210,6 +257,7 @@ def render_studio_header(
             id="rms-publish-btn",
             icon="lucide:upload-cloud",
             size="xs",
+            radius="xl",
             disabled=not is_editable,
             **{"aria-label": "Phát hành phiên bản mô hình"},  # type: ignore[arg-type]
         ),
@@ -221,16 +269,15 @@ def render_studio_header(
                 id="rms-new-draft-btn",
                 icon="lucide:git-branch-plus",
                 size="xs",
+                radius="xl",
                 **{"aria-label": "Tạo bản nháp mới từ phiên bản ACTIVE"},  # type: ignore[arg-type]
             )
         )
     actions.append(more_menu)
 
-    ds = model.get("data_source") or {}
-    ds_sub = f"Data Source: {ds.get('name') or '—'} ({ds.get('env') or 'DEV'})"
     return page_header(
         title=title_group,
-        subtitle=ds_sub,
+        subtitle=None,
         actions=actions,
         mb=0,
     )
@@ -251,10 +298,11 @@ def render_explorer_panel(
     sel_kind = (selection or {}).get("kind")
     sel_id = (selection or {}).get("id")
     expanded_set = {int(tid) for tid in (expanded_tables or [])}
-    if sel_kind == "table" and sel_id:
-        expanded_set.add(int(sel_id))
-    elif sel_kind == "field" and (selection or {}).get("table_id"):
-        expanded_set.add(int((selection or {})["table_id"]))
+    if expanded_tables is None:
+        if sel_kind == "table" and sel_id:
+            expanded_set.add(int(sel_id))
+        elif sel_kind == "field" and (selection or {}).get("table_id"):
+            expanded_set.add(int((selection or {})["table_id"]))
 
     if not tables:
         return dmc.Stack(
@@ -453,8 +501,9 @@ def render_source_picker_list(
     existing_objects: set[str],
     query: str = "",
     object_type: str = "ALL",
+    limit: int = 60,
 ) -> Any:
-    """Dựng danh sách đối tượng nguồn trong Drawer + Thêm bảng."""
+    """Dựng danh sách đối tượng nguồn trong Drawer + Thêm bảng (giới hạn DOM để không treo trình duyệt)."""
     q = (query or "").strip().lower()
     otype_flt = (object_type or "ALL").upper()
     filtered = [
@@ -469,13 +518,23 @@ def render_source_picker_list(
             description="Kiểm tra từ khóa tìm kiếm, schema nguồn hoặc nhấn Tải lại.",
         )
 
-    rows: list[Any] = []
-    for obj in filtered:
+    cap = max(1, int(limit or 60))
+    visible = filtered[:cap]
+    remaining = len(filtered) - len(visible)
+    rows: list[Any] = [
+        dmc.Text(
+            f"Hiển thị {len(visible)} / {len(filtered)} đối tượng phù hợp"
+            + (" — nhập từ khóa để thu hẹp nhanh." if remaining > 0 else "."),
+            size="xs",
+            c="dimmed",
+        )
+    ]
+    for obj in visible:
         name = str(obj["name"])
         t_type = str(obj.get("type") or "TABLE").upper()
         schema = str(obj.get("schema") or "")
         already = name.upper() in existing_objects
-        est_label = "View" if t_type == "VIEW" else f"{_fmt_int(obj.get('row_estimate'))} dòng"
+        est_label = "View" if t_type == "VIEW" else (f"{_fmt_int(obj.get('row_estimate'))} dòng" if obj.get("row_estimate") is not None else "— dòng")
 
         right_ctrl: Any = (
             dmc.Badge("Đã thêm", color="ok", variant="light", size="sm")
@@ -496,10 +555,6 @@ def render_source_picker_list(
                             [
                                 dmc.Group(
                                     [
-                                        DashIconify(
-                                            icon="lucide:table-2" if t_type == "TABLE" else "lucide:eye",
-                                            width=14,
-                                        ),
                                         dmc.Text(name, size="xs", fw=600, className="rh-code"),
                                         dmc.Badge(t_type, size="xs", variant="outline"),
                                     ],
@@ -528,6 +583,23 @@ def render_source_picker_list(
                 radius="sm",
             )
         )
+    if remaining > 0:
+        step = min(60, remaining)
+        rows.append(
+            dmc.Group(
+                [
+                    button_subtle(
+                        f"Xem thêm +{step} (còn {remaining})",
+                        id={"type": "rms-picker-more-btn", "k": "more"},
+                        icon="lucide:chevrons-down",
+                        size="xs",
+                        **{"aria-label": "Hiển thị thêm bảng nguồn"},
+                    )
+                ],
+                justify="center",
+                pt="xs",
+            )
+        )
     return dmc.Stack(rows, gap="xs")
 
 
@@ -543,6 +615,17 @@ def render_canvas_panel(
         [
             dmc.Group(
                 [
+                    dmc.Tooltip(
+                        dmc.ActionIcon(
+                            DashIconify(icon="lucide:panel-left", width=15),
+                            id="rms-toggle-explorer-btn",
+                            variant="subtle",
+                            color="gray",
+                            size="sm",
+                            **{"aria-label": "Ẩn hoặc hiện Model Explorer"},
+                        ),
+                        label="Ẩn / Hiện Model Explorer",
+                    ),
                     button_subtle(
                         "+ Tạo quan hệ",
                         id="rms-new-rel-btn",
@@ -566,6 +649,7 @@ def render_canvas_panel(
                     ),
                 ],
                 gap="xs",
+                align="center",
             ),
             dmc.Group(
                 [
@@ -592,6 +676,17 @@ def render_canvas_panel(
                         icon="lucide:maximize-2",
                         size="xs",
                         **{"aria-label": "Vừa khung nhìn"},
+                    ),
+                    dmc.Tooltip(
+                        dmc.ActionIcon(
+                            DashIconify(icon="lucide:panel-right", width=15),
+                            id="rms-toggle-props-btn",
+                            variant="subtle",
+                            color="gray",
+                            size="sm",
+                            **{"aria-label": "Ẩn hoặc hiện Properties"},
+                        ),
+                        label="Ẩn / Hiện Properties",
                     ),
                 ],
                 gap=4,
@@ -785,7 +880,29 @@ def layout(model_id: str | None = None) -> Any:
                     gap="xs",
                     align="center",
                 ),
-                html.Div(skeleton_panel(lines=4), id="rms-picker-list"),
+                html.Div(
+                    dmc.Stack(
+                        [
+                            dmc.Group(
+                                [
+                                    dmc.Loader(size="xs"),
+                                    dmc.Text(
+                                        "Đang tải danh sách bảng từ Data Source...",
+                                        id="rms-picker-progress-text",
+                                        size="xs",
+                                        c="dimmed",
+                                    ),
+                                ],
+                                gap="xs",
+                            ),
+                            dmc.Progress(value=100, animated=True, striped=True, size="xs", color="blue"),
+                        ],
+                        gap=6,
+                    ),
+                    id="rms-picker-progress-wrap",
+                    style={"display": "none"},
+                ),
+                html.Div(id="rms-picker-list", children=skeleton_panel(lines=4)),
                 dmc.Group(
                     [button_subtle("Đóng", id="rms-picker-close-btn", size="xs")],
                     justify="flex-end",
@@ -884,7 +1001,12 @@ def layout(model_id: str | None = None) -> Any:
         [
             dcc.Store(id="rms-bundle-store", data=bundle),
             dcc.Store(id="rms-selection-store", data=None),
+            dcc.Store(id="rms-pending-tbl-draft-store", data=None),
+            dcc.Store(id="rms-expanded-tables-store", data=[]),
+            dcc.Store(id="rms-panels-store", data={"explorer": True, "properties": True}),
             dcc.Store(id="rms-source-objects-store", data=[]),
+            dcc.Store(id="rms-picker-fetch-req", data=None),
+            dcc.Store(id="rms-picker-limit-store", data=60),
             dcc.Store(id="rms-zoom-store", data=1.0),
             dcc.Store(id="rms-dirty-store", data=False),
             dcc.Store(id="rms-layout-history-store", data=[]),
@@ -939,7 +1061,7 @@ def layout(model_id: str | None = None) -> Any:
                                 style={"borderBottom": "1px solid var(--line)"},
                             ),
                             html.Div(
-                                render_explorer_panel(bundle, selection=None, query=""),
+                                render_explorer_panel(bundle, selection=None, query="", expanded_tables=[]),
                                 id="rms-explorer-body",
                                 className="rms-explorer-scroll",
                             ),
@@ -1016,6 +1138,41 @@ def layout(model_id: str | None = None) -> Any:
     )
 
 
+clientside_callback(
+    """
+    function (expClicks, propClicks, panels) {
+        var ctx = window.dash_clientside && window.dash_clientside.callback_context;
+        if (!ctx || !ctx.triggered || !ctx.triggered.length) {
+            return window.dash_clientside.no_update;
+        }
+        var item = ctx.triggered[0];
+        if (!item || !item.value) {
+            return window.dash_clientside.no_update;
+        }
+        var cur = Object.assign({explorer: true, properties: true}, panels || {});
+        if (item.prop_id.indexOf('rms-toggle-explorer-btn') === 0) {
+            cur.explorer = !cur.explorer;
+        } else if (item.prop_id.indexOf('rms-toggle-props-btn') === 0) {
+            cur.properties = !cur.properties;
+        } else {
+            return window.dash_clientside.no_update;
+        }
+        var expEl = document.getElementById('rms-explorer');
+        var propEl = document.getElementById('rms-properties');
+        if (expEl) expEl.classList.toggle('is-collapsed', !cur.explorer);
+        if (propEl) propEl.classList.toggle('is-collapsed', !cur.properties);
+        window.dispatchEvent(new Event('rms:layout-changed'));
+        return cur;
+    }
+    """,
+    Output("rms-panels-store", "data"),
+    Input("rms-toggle-explorer-btn", "n_clicks"),
+    Input("rms-toggle-props-btn", "n_clicks"),
+    State("rms-panels-store", "data"),
+    prevent_initial_call=True,
+)
+
+
 @callback(
     Output("rms-explorer-body", "children", allow_duplicate=True),
     Output("rms-explorer-search", "value"),
@@ -1023,6 +1180,7 @@ def layout(model_id: str | None = None) -> Any:
     Input({"type": "rms-exp-clear-btn", "k": ALL}, "n_clicks"),
     State("rms-bundle-store", "data"),
     State("rms-selection-store", "data"),
+    State("rms-expanded-tables-store", "data"),
     prevent_initial_call=True,
 )
 def handle_explorer_search(
@@ -1030,19 +1188,24 @@ def handle_explorer_search(
     _clear_clicks: list[Any],
     bundle: dict[str, Any] | None,
     selection: dict[str, Any] | None,
+    expanded_tables: list[int] | None = None,
 ) -> tuple[Any, Any]:
     if not bundle:
         raise PreventUpdate
     trig = dash.callback_context.triggered_id
+    if trig is None:
+        raise PreventUpdate
+    exp_list = list(expanded_tables or [])
     if isinstance(trig, dict) and trig.get("type") == "rms-exp-clear-btn":
         if not dash.callback_context.triggered or not dash.callback_context.triggered[0].get("value"):
             raise PreventUpdate
-        return render_explorer_panel(bundle, selection=selection, query=""), ""
-    return render_explorer_panel(bundle, selection=selection, query=query or ""), dash.no_update
+        return render_explorer_panel(bundle, selection=selection, query="", expanded_tables=exp_list), ""
+    return render_explorer_panel(bundle, selection=selection, query=query or "", expanded_tables=exp_list), dash.no_update
 
 
 @callback(
     Output("rms-selection-store", "data", allow_duplicate=True),
+    Output("rms-expanded-tables-store", "data", allow_duplicate=True),
     Output("rms-explorer-body", "children", allow_duplicate=True),
     Output("rms-canvas-wrap", "children", allow_duplicate=True),
     Output("rms-properties-body", "children", allow_duplicate=True),
@@ -1053,6 +1216,7 @@ def handle_explorer_search(
     State("rms-bundle-store", "data"),
     State("rms-explorer-search", "value"),
     State("rms-zoom-store", "data"),
+    State("rms-expanded-tables-store", "data"),
     prevent_initial_call=True,
 )
 def handle_explorer_select(
@@ -1063,7 +1227,8 @@ def handle_explorer_select(
     bundle: dict[str, Any] | None,
     query: str | None,
     zoom: float | None,
-) -> tuple[Any, Any, Any, Any]:
+    expanded_tables: list[int] | None = None,
+) -> tuple[Any, Any, Any, Any, Any]:
     if not bundle or not dash.callback_context.triggered:
         raise PreventUpdate
     trig_val = dash.callback_context.triggered[0].get("value")
@@ -1074,10 +1239,18 @@ def handle_explorer_select(
         raise PreventUpdate
     t = str(raw_id.get("type") or "")
     sel: dict[str, Any] | None = None
+    exp_set = {int(tid) for tid in (expanded_tables or [])}
     if t == "rms-exp-table-btn":
-        sel = {"kind": "table", "id": int(raw_id["id"])}
+        tid = int(raw_id["id"])
+        sel = {"kind": "table", "id": tid}
+        if tid in exp_set:
+            exp_set.remove(tid)
+        else:
+            exp_set.add(tid)
     elif t == "rms-exp-field-btn":
-        sel = {"kind": "field", "id": int(raw_id["id"]), "table_id": int(raw_id["table_id"])}
+        ftid = int(raw_id["table_id"])
+        sel = {"kind": "field", "id": int(raw_id["id"]), "table_id": ftid}
+        exp_set.add(ftid)
     elif t == "rms-exp-rel-btn":
         sel = {"kind": "relationship", "id": int(raw_id["id"])}
     elif t == "rms-exp-meas-btn":
@@ -1085,66 +1258,141 @@ def handle_explorer_select(
     if sel is None:
         raise PreventUpdate
     z = float(zoom or 1.0)
+    new_exp = sorted(exp_set)
     return (
         sel,
-        render_explorer_panel(bundle, selection=sel, query=query or ""),
+        new_exp,
+        render_explorer_panel(bundle, selection=sel, query=query or "", expanded_tables=new_exp),
         render_canvas_panel(bundle, selection=sel, zoom=z),
         render_properties_panel(bundle, selection=sel),
     )
 
 
-@callback(
+clientside_callback(
+    """
+    function (openC, _emptyC, refreshC, closeC, cachedObjs) {
+        var ctx = window.dash_clientside && window.dash_clientside.callback_context;
+        var no = window.dash_clientside.no_update;
+        if (!ctx || !ctx.triggered || !ctx.triggered.length) {
+            return [no, no, no];
+        }
+        var item = ctx.triggered[0];
+        if (!item || !item.value) {
+            return [no, no, no];
+        }
+        var pid = item.prop_id || '';
+        if (pid.indexOf('rms-picker-close-btn') === 0) {
+            return [false, no, no];
+        }
+        var isRefresh = pid.indexOf('rms-picker-refresh-btn') === 0;
+        var hasCache = Array.isArray(cachedObjs) && cachedObjs.length > 0;
+        var barStyle = (isRefresh || !hasCache) ? {display: 'block'} : {display: 'none'};
+        return [true, barStyle, {ts: Date.now(), refresh: isRefresh}];
+    }
+    """,
     Output("rms-add-table-drawer", "opened"),
-    Output("rms-source-objects-store", "data"),
-    Output("rms-picker-list", "children"),
+    Output("rms-picker-progress-wrap", "style"),
+    Output("rms-picker-fetch-req", "data"),
     Input("rms-add-table-btn", "n_clicks"),
     Input({"type": "rms-empty-add-btn", "src": ALL}, "n_clicks"),
     Input("rms-picker-refresh-btn", "n_clicks"),
     Input("rms-picker-close-btn", "n_clicks"),
-    Input("rms-picker-search", "value"),
-    Input("rms-picker-type", "value"),
-    State("rms-bundle-store", "data"),
     State("rms-source-objects-store", "data"),
     prevent_initial_call=True,
 )
-def handle_add_table_drawer(
-    open_c: int | None,
-    _empty_clicks: list[Any],
-    refresh_c: int | None,
-    close_c: int | None,
-    q: str | None,
-    otype: str | None,
+
+
+@callback(
+    Output("rms-source-objects-store", "data"),
+    Output("rms-picker-list", "children"),
+    Output("rms-picker-progress-wrap", "style", allow_duplicate=True),
+    Output("rms-picker-limit-store", "data"),
+    Input("rms-picker-fetch-req", "data"),
+    State("rms-bundle-store", "data"),
+    State("rms-source-objects-store", "data"),
+    State("rms-picker-search", "value"),
+    State("rms-picker-type", "value"),
+    prevent_initial_call=True,
+)
+def handle_fetch_source_objects(
+    req: dict[str, Any] | None,
     bundle: dict[str, Any] | None,
     cached_objs: list[dict[str, Any]] | None,
-) -> tuple[bool, Any, Any]:
-    if not bundle:
+    q: str | None,
+    otype: str | None,
+) -> tuple[Any, Any, dict[str, str], int]:
+    if not bundle or not isinstance(req, dict):
         raise PreventUpdate
-    trig = dash.callback_context.triggered_id
-    if trig == "rms-picker-close-btn":
-        if not close_c:
-            raise PreventUpdate
-        return False, dash.no_update, dash.no_update
     ctx = get_current_ctx()
     if ctx is None:
         raise PreventUpdate
-    is_empty_open = isinstance(trig, dict) and trig.get("type") == "rms-empty-add-btn"
-    if trig == "rms-add-table-btn" or is_empty_open:
-        triggered_val = dash.callback_context.triggered[0].get("value") if dash.callback_context.triggered else None
-        if not triggered_val:
-            raise PreventUpdate
+
+    force_refresh = bool(req.get("refresh"))
     objects = list(cached_objs or [])
-    if trig in ("rms-add-table-btn", "rms-picker-refresh-btn") or is_empty_open or not objects:
+    if force_refresh or not objects:
         ds_id = int((bundle.get("model") or {}).get("data_source_id") or 0)
-        res = discover_source_objects(ctx, ds_id, enrich=True)
+        res = discover_source_objects(ctx, ds_id, enrich=True, force_refresh=force_refresh)
         if not res.ok or not res.data:
-            return True, dash.no_update, error_state(title="Không tải được bảng nguồn", message=res.message)
+            return (
+                dash.no_update,
+                error_state(title="Không tải được bảng nguồn", message=res.message),
+                {"display": "none"},
+                60,
+            )
         objects = list(res.data.get("objects") or [])
 
     existing = {str(t["source_object"]).upper() for t in (bundle.get("tables") or [])}
     return (
-        True,
         objects,
-        render_source_picker_list(objects, existing_objects=existing, query=q or "", object_type=otype or "ALL"),
+        render_source_picker_list(objects, existing_objects=existing, query=q or "", object_type=otype or "ALL", limit=60),
+        {"display": "none"},
+        60,
+    )
+
+
+@callback(
+    Output("rms-picker-list", "children", allow_duplicate=True),
+    Output("rms-picker-limit-store", "data", allow_duplicate=True),
+    Input("rms-picker-search", "value"),
+    Input("rms-picker-type", "value"),
+    Input({"type": "rms-picker-more-btn", "k": ALL}, "n_clicks"),
+    State("rms-bundle-store", "data"),
+    State("rms-source-objects-store", "data"),
+    State("rms-picker-limit-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_filter_picker_list(
+    q: str | None,
+    otype: str | None,
+    _more_clicks: list[Any],
+    bundle: dict[str, Any] | None,
+    cached_objs: list[dict[str, Any]] | None,
+    cur_limit: int | None,
+) -> tuple[Any, int]:
+    """Lọc client-cached danh sách bảng nguồn và phân trang Xem thêm (không gọi lại Oracle)."""
+    if not bundle or not cached_objs:
+        raise PreventUpdate
+    trig = dash.callback_context.triggered_id
+    if trig is None:
+        raise PreventUpdate
+    limit = 60
+    if isinstance(trig, dict) and trig.get("type") == "rms-picker-more-btn":
+        if not dash.callback_context.triggered or not dash.callback_context.triggered[0].get("value"):
+            raise PreventUpdate
+        limit = int(cur_limit or 60) + 60
+    elif trig not in ("rms-picker-search", "rms-picker-type"):
+        raise PreventUpdate
+
+    existing = {str(t["source_object"]).upper() for t in (bundle.get("tables") or [])}
+    return (
+        render_source_picker_list(
+            list(cached_objs),
+            existing_objects=existing,
+            query=q or "",
+            object_type=otype or "ALL",
+            limit=limit,
+        ),
+        limit,
     )
 
 
@@ -1163,6 +1411,8 @@ def handle_add_table_drawer(
     State("rms-picker-search", "value"),
     State("rms-picker-type", "value"),
     State("rms-zoom-store", "data"),
+    State("rms-picker-limit-store", "data"),
+    State("rms-expanded-tables-store", "data"),
     prevent_initial_call=True,
 )
 def handle_picker_add_table(
@@ -1174,6 +1424,8 @@ def handle_picker_add_table(
     pick_q: str | None,
     pick_type: str | None,
     zoom: float | None,
+    pick_limit: int | None = 60,
+    expanded_tables: list[int] | None = None,
 ) -> tuple[Any, ...]:
     if not bundle or not dash.callback_context.triggered:
         raise PreventUpdate
@@ -1210,10 +1462,16 @@ def handle_picker_add_table(
     existing = {str(t["source_object"]).upper() for t in (new_bundle.get("tables") or [])}
     return (
         new_bundle,
-        render_explorer_panel(new_bundle, selection=selection, query=exp_query or ""),
+        render_explorer_panel(new_bundle, selection=selection, query=exp_query or "", expanded_tables=list(expanded_tables or [])),
         render_canvas_panel(new_bundle, selection=selection, zoom=float(zoom or 1.0)),
         render_status_bar(new_bundle, dirty=False),
-        render_source_picker_list(list(objects or []), existing_objects=existing, query=pick_q or "", object_type=pick_type or "ALL"),
+        render_source_picker_list(
+            list(objects or []),
+            existing_objects=existing,
+            query=pick_q or "",
+            object_type=pick_type or "ALL",
+            limit=int(pick_limit or 60),
+        ),
         [toast_success(f"Đã thêm bảng {trig_id['object']} vào mô hình.")],
     )
 
@@ -1393,6 +1651,7 @@ def handle_card_drag_end(
 
 @callback(
     Output("rms-selection-store", "data", allow_duplicate=True),
+    Output("rms-expanded-tables-store", "data", allow_duplicate=True),
     Output("rms-explorer-body", "children", allow_duplicate=True),
     Output("rms-canvas-wrap", "children", allow_duplicate=True),
     Output("rms-properties-body", "children", allow_duplicate=True),
@@ -1400,6 +1659,7 @@ def handle_card_drag_end(
     State("rms-bundle-store", "data"),
     State("rms-explorer-search", "value"),
     State("rms-zoom-store", "data"),
+    State("rms-expanded-tables-store", "data"),
     prevent_initial_call=True,
 )
 def handle_canvas_click(
@@ -1407,23 +1667,33 @@ def handle_canvas_click(
     bundle: dict[str, Any] | None,
     exp_query: str | None,
     zoom: float | None,
-) -> tuple[Any, Any, Any, Any]:
+    expanded_tables: list[int] | None = None,
+) -> tuple[Any, Any, Any, Any, Any]:
     if not bundle or not isinstance(click_data, dict):
         raise PreventUpdate
     kind = str(click_data.get("kind") or "")
     sel: dict[str, Any] | None = None
+    exp_set = {int(tid) for tid in (expanded_tables or [])}
     if kind == "clear":
         sel = None
-    elif kind in ("table", "relationship"):
-        sel = {"kind": kind, "id": int(click_data["id"])}
+    elif kind == "table":
+        tid = int(click_data["id"])
+        sel = {"kind": "table", "id": tid}
+        exp_set.add(tid)
+    elif kind == "relationship":
+        sel = {"kind": "relationship", "id": int(click_data["id"])}
     elif kind == "field":
-        sel = {"kind": "field", "id": int(click_data["id"]), "table_id": int(click_data["table_id"])}
+        ftid = int(click_data["table_id"])
+        sel = {"kind": "field", "id": int(click_data["id"]), "table_id": ftid}
+        exp_set.add(ftid)
     else:
         raise PreventUpdate
 
+    new_exp = sorted(exp_set)
     return (
         sel,
-        render_explorer_panel(bundle, selection=sel, query=exp_query or ""),
+        new_exp,
+        render_explorer_panel(bundle, selection=sel, query=exp_query or "", expanded_tables=new_exp),
         render_canvas_panel(bundle, selection=sel, zoom=float(zoom or 1.0)),
         render_properties_panel(bundle, selection=sel),
     )
@@ -1813,8 +2083,87 @@ def handle_open_measure_from_empty(
 
 
 @callback(
+    Output("rms-pending-tbl-draft-store", "data", allow_duplicate=True),
+    Output("rms-dirty-store", "data", allow_duplicate=True),
+    Output("rms-header-wrap", "children", allow_duplicate=True),
+    Output("rms-status-wrap", "children", allow_duplicate=True),
+    Input("rms-prop-tbl-alias", "value"),
+    Input("rms-prop-tbl-name", "value"),
+    Input("rms-prop-tbl-role", "value"),
+    Input("rms-prop-tbl-grain-desc", "value"),
+    Input("rms-prop-tbl-grain-keys", "value"),
+    Input("rms-prop-tbl-date-fld", "value"),
+    Input("rms-prop-tbl-hidden", "checked"),
+    State("rms-bundle-store", "data"),
+    State("rms-selection-store", "data"),
+    prevent_initial_call=True,
+)
+def sync_pending_table_form(
+    alias: str | None,
+    display_name: str | None,
+    role: str | None,
+    grain_desc: str | None,
+    grain_keys: list[str] | None,
+    date_fld: str | None,
+    is_hidden: bool | None,
+    bundle: dict[str, Any] | None,
+    selection: dict[str, Any] | None,
+) -> tuple[Any, Any, Any, Any]:
+    """Ghi nhận chỉnh sửa form Table/Grain tạm thời để cả nút 'Lưu bảng' lẫn 'Lưu nháp' đều lưu được."""
+    if not bundle or not selection or selection.get("kind") != "table":
+        raise PreventUpdate
+    ver_status = str((bundle.get("version") or {}).get("status") or "DRAFT").upper()
+    if ver_status not in ("DRAFT", "VALIDATED") or (bundle.get("model") or {}).get("is_archived"):
+        raise PreventUpdate
+    tid = int(selection["id"])
+    tbl = next((t for t in (bundle.get("tables") or []) if int(t["id"]) == tid), None)
+    if tbl is None:
+        raise PreventUpdate
+
+    norm_alias = str(alias or "").strip() or None
+    norm_name = str(display_name or "").strip() or None
+    norm_role = str(role or "UNCLASSIFIED").upper()
+    norm_grain_desc = str(grain_desc or "").strip() or None
+    norm_grain_keys = [str(k).strip() for k in (grain_keys or []) if str(k).strip()]
+    norm_date_fld = str(date_fld or "").strip() or None
+    norm_hidden = bool(is_hidden)
+
+    cur_alias = str(tbl.get("alias") or "").strip() or None
+    cur_name = str(tbl.get("display_name") or "").strip() or None
+    cur_role = str(tbl.get("table_role") or "UNCLASSIFIED").upper()
+    cur_gdesc = str(tbl.get("grain_desc") or "").strip() or None
+    cur_gkeys = [str(k).strip() for k in (tbl.get("grain_keys") or []) if str(k).strip()]
+    cur_dfld = str(tbl.get("default_date_field") or "").strip() or None
+    cur_hidden = bool(tbl.get("is_hidden"))
+
+    if (
+        norm_alias == cur_alias
+        and norm_name == cur_name
+        and norm_role == cur_role
+        and norm_grain_desc == cur_gdesc
+        and norm_grain_keys == cur_gkeys
+        and norm_date_fld == cur_dfld
+        and norm_hidden == cur_hidden
+    ):
+        return None, dash.no_update, dash.no_update, dash.no_update
+
+    pending = {
+        "table_id": tid,
+        "alias": norm_alias,
+        "display_name": norm_name,
+        "table_role": norm_role,
+        "grain_desc": norm_grain_desc,
+        "grain_keys": norm_grain_keys,
+        "default_date_field": norm_date_fld,
+        "is_hidden": norm_hidden,
+    }
+    return pending, True, render_studio_header(bundle, dirty=True), render_status_bar(bundle, dirty=True)
+
+
+@callback(
     Output("rms-prop-tbl-alert", "children"),
     Output("rms-bundle-store", "data", allow_duplicate=True),
+    Output("rms-pending-tbl-draft-store", "data", allow_duplicate=True),
     Output("rms-explorer-body", "children", allow_duplicate=True),
     Output("rms-canvas-wrap", "children", allow_duplicate=True),
     Output("rms-properties-body", "children", allow_duplicate=True),
@@ -1833,6 +2182,7 @@ def handle_open_measure_from_empty(
     State("rms-explorer-search", "value"),
     State("rms-zoom-store", "data"),
     State("rms-dirty-store", "data"),
+    State("rms-expanded-tables-store", "data"),
     prevent_initial_call=True,
 )
 def handle_save_table_props(
@@ -1849,6 +2199,7 @@ def handle_save_table_props(
     exp_q: str | None,
     zoom: float | None,
     dirty: bool | None,
+    expanded_tables: list[int] | None = None,
 ) -> tuple[Any, ...]:
     if not n_clicks or not bundle or not selection or selection.get("kind") != "table":
         raise PreventUpdate
@@ -1867,11 +2218,12 @@ def handle_save_table_props(
     )
     no = dash.no_update
     if err or not new_bundle:
-        return alert_box(message=err or "Lỗi lưu bảng.", tone="crit"), no, no, no, no, no, no
+        return alert_box(message=err or "Lỗi lưu bảng.", tone="crit"), no, no, no, no, no, no, no
     return (
         None,
         new_bundle,
-        render_explorer_panel(new_bundle, selection=selection, query=exp_q or ""),
+        None,
+        render_explorer_panel(new_bundle, selection=selection, query=exp_q or "", expanded_tables=list(expanded_tables or [])),
         render_canvas_panel(new_bundle, selection=selection, zoom=float(zoom or 1.0)),
         render_properties_panel(new_bundle, selection=selection),
         render_status_bar(new_bundle, dirty=bool(dirty)),
@@ -2625,6 +2977,7 @@ def handle_validate_model(
 @callback(
     Output("rms-validate-drawer", "opened", allow_duplicate=True),
     Output("rms-selection-store", "data", allow_duplicate=True),
+    Output("rms-expanded-tables-store", "data", allow_duplicate=True),
     Output("rms-focus-seq-store", "data"),
     Output("rms-explorer-body", "children", allow_duplicate=True),
     Output("rms-canvas-wrap", "children", allow_duplicate=True),
@@ -2635,6 +2988,7 @@ def handle_validate_model(
     State("rms-explorer-search", "value"),
     State("rms-zoom-store", "data"),
     State("rms-focus-seq-store", "data"),
+    State("rms-expanded-tables-store", "data"),
     prevent_initial_call=True,
 )
 def handle_validation_issue_click(
@@ -2644,6 +2998,7 @@ def handle_validation_issue_click(
     exp_q: str | None,
     zoom: float | None,
     focus_seq: int | None,
+    expanded_tables: list[int] | None = None,
 ) -> tuple[Any, ...]:
     if not bundle or not issues or not dash.callback_context.triggered:
         raise PreventUpdate
@@ -2658,12 +3013,19 @@ def handle_validation_issue_click(
     sel = resolve_validation_issue_selection(bundle, issues[idx])
     if sel is None:
         raise PreventUpdate
+    exp_set = {int(tid) for tid in (expanded_tables or [])}
+    if sel.get("kind") == "table" and sel.get("id"):
+        exp_set.add(int(sel["id"]))
+    elif sel.get("kind") == "field" and sel.get("table_id"):
+        exp_set.add(int(sel["table_id"]))
+    new_exp = sorted(exp_set)
     next_seq = int(focus_seq or 0) + 1
     return (
         False,
         sel,
+        new_exp,
         next_seq,
-        render_explorer_panel(bundle, selection=sel, query=exp_q or ""),
+        render_explorer_panel(bundle, selection=sel, query=exp_q or "", expanded_tables=new_exp),
         render_canvas_panel(
             bundle,
             selection=sel,
@@ -2677,18 +3039,32 @@ def handle_validation_issue_click(
 @callback(
     Output("rms-bundle-store", "data", allow_duplicate=True),
     Output("rms-dirty-store", "data", allow_duplicate=True),
+    Output("rms-pending-tbl-draft-store", "data", allow_duplicate=True),
     Output("rms-header-wrap", "children", allow_duplicate=True),
+    Output("rms-explorer-body", "children", allow_duplicate=True),
+    Output("rms-canvas-wrap", "children", allow_duplicate=True),
+    Output("rms-properties-body", "children", allow_duplicate=True),
     Output("rms-status-wrap", "children", allow_duplicate=True),
     Output("rms-stale-modal", "opened"),
     Output("rms-stale-modal-body", "children"),
     Output("rms-studio-notif", "sendNotifications", allow_duplicate=True),
     Input("rms-save-btn", "n_clicks"),
     State("rms-bundle-store", "data"),
+    State("rms-pending-tbl-draft-store", "data"),
+    State("rms-selection-store", "data"),
+    State("rms-explorer-search", "value"),
+    State("rms-zoom-store", "data"),
+    State("rms-expanded-tables-store", "data"),
     prevent_initial_call=True,
 )
 def handle_save_draft(
     n_clicks: int | None,
     bundle: dict[str, Any] | None,
+    pending_tbl: dict[str, Any] | None = None,
+    selection: dict[str, Any] | None = None,
+    exp_q: str | None = None,
+    zoom: float | None = None,
+    expanded_tables: list[int] | None = None,
 ) -> tuple[Any, ...]:
     if not n_clicks or not bundle:
         raise PreventUpdate
@@ -2702,16 +3078,49 @@ def handle_save_draft(
             no,
             no,
             no,
+            no,
+            no,
+            no,
+            no,
             True,
             render_stale_conflict_body(res.message or "Bản nháp đã thay đổi trên phiên khác.", srv_rv),
             [toast_error(res.message or "Xung đột phiên bản bản nháp.")],
         )
     if not res.ok or saved_bundle is None:
-        return no, no, no, no, False, no, [toast_error(res.message or "Không lưu được bản nháp.")]
+        return no, no, no, no, no, no, no, no, False, no, [toast_error(res.message or "Không lưu được bản nháp.")]
+
+    if (
+        isinstance(pending_tbl, dict)
+        and selection
+        and selection.get("kind") == "table"
+        and int(pending_tbl.get("table_id") or 0) == int(selection.get("id") or -1)
+    ):
+        tbl_bundle, tbl_err, _ = save_table_properties(
+            ctx,
+            bundle=saved_bundle,
+            table_id=int(pending_tbl["table_id"]),
+            alias=pending_tbl.get("alias"),
+            display_name=pending_tbl.get("display_name"),
+            table_role=pending_tbl.get("table_role"),
+            grain_desc=pending_tbl.get("grain_desc"),
+            grain_keys=pending_tbl.get("grain_keys"),
+            default_date_field=pending_tbl.get("default_date_field"),
+            is_hidden=bool(pending_tbl.get("is_hidden")),
+        )
+        if tbl_err or tbl_bundle is None:
+            return no, no, no, no, no, no, no, no, False, no, [toast_error(tbl_err or "Không lưu được thuộc tính bảng.")]
+        saved_bundle = tbl_bundle
+
+    z = float(zoom or 1.0)
+    exp_list = list(expanded_tables or [])
     return (
         saved_bundle,
         False,
+        None,
         render_studio_header(saved_bundle, dirty=False),
+        render_explorer_panel(saved_bundle, selection=selection, query=exp_q or "", expanded_tables=exp_list),
+        render_canvas_panel(saved_bundle, selection=selection, zoom=z),
+        render_properties_panel(saved_bundle, selection=selection),
         render_status_bar(saved_bundle, dirty=False),
         False,
         no,

@@ -259,3 +259,47 @@ def test_create_clone_impact_and_archive_flows(rm_center_env) -> None:
     all_rows = list_models(_owner(), include_archived=True).data
     fin_after = next(m for m in all_rows if int(m["id"]) == fin_id)
     assert fin_after["is_archived"] is True
+
+
+def test_pattern_matching_callbacks_prevent_mount_trigger_and_actions(rm_center_env, monkeypatch) -> None:
+    """Đảm bảo nút động trong body không gây ReferenceError và bỏ qua mount trigger n_clicks=None."""
+    import dash
+    from dash.exceptions import PreventUpdate
+
+    import app.ui.pages.report_models as page
+    from app.services.semantic_model import list_models
+
+    _, _, models_map = rm_center_env
+    fin_id = int(models_map["FIN_SALES"]["id"])
+    models = list_models(_owner(), include_archived=True).data or []
+
+    monkeypatch.setattr(page, "get_current_ctx", lambda: _owner())
+
+    class _FakeCtx:
+        def __init__(self, triggered_id):
+            self.triggered_id = triggered_id
+
+    # 1. Clear-filter button mount (n_clicks=None) -> PreventUpdate; click (n_clicks=1) -> reset bộ lọc
+    monkeypatch.setattr(dash, "callback_context", _FakeCtx({"type": "rm-center-clear-filter-btn", "k": "empty"}))
+    with pytest.raises(PreventUpdate):
+        page.handle_center_filter_or_refresh("abc", "DRAFT", None, None, [None], models)
+
+    res = page.handle_center_filter_or_refresh("abc", "DRAFT", None, None, [1], models)
+    assert res[2:] == ("", "ALL")
+
+    # 2. Retry button mount (n_clicks=None) -> PreventUpdate
+    monkeypatch.setattr(dash, "callback_context", _FakeCtx({"type": "rm-center-retry-btn", "k": "full"}))
+    with pytest.raises(PreventUpdate):
+        page.handle_center_filter_or_refresh("", "ALL", None, [None], None, models)
+
+    # 3. Empty create button mount vs click
+    monkeypatch.setattr(dash, "callback_context", _FakeCtx({"type": "rm-center-empty-create-btn", "k": "empty"}))
+    with pytest.raises(PreventUpdate):
+        page.handle_create_modal_toggle(None, [None], None)
+    assert page.handle_create_modal_toggle(None, [1], None)[0] is True
+
+    # 4. Grid pattern-matching ALL input
+    with pytest.raises(PreventUpdate):
+        page.handle_grid_action([None], models)
+    action_res = page.handle_grid_action([{"value": {"action": "open", "id": fin_id}}], models)
+    assert action_res[0] == f"/report-models/{fin_id}"

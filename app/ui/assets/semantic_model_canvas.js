@@ -386,25 +386,48 @@
   );
 
   var lastFocusToken = '';
-  var observer = new MutationObserver(function () {
-    if (document.getElementById(SVG_HOST_ID)) {
-      window.requestAnimationFrame(renderSvgLayer);
-    }
-    var inner = document.getElementById(INNER_ID);
-    if (inner) {
-      var token = inner.getAttribute('data-focus-target') || '';
-      if (token && token !== lastFocusToken) {
-        lastFocusToken = token;
-        var target = inner.querySelector('.rms-entity-card.selected') || inner.querySelector('.rms-rel-chip.selected');
-        if (target && target.scrollIntoView) {
-          target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+  var rafScheduled = false;
+  function scheduleRender() {
+    if (rafScheduled) return;
+    rafScheduled = true;
+    window.requestAnimationFrame(function () {
+      rafScheduled = false;
+      if (document.getElementById(SVG_HOST_ID)) {
+        renderSvgLayer();
+      }
+      var inner = document.getElementById(INNER_ID);
+      if (inner) {
+        var token = inner.getAttribute('data-focus-target') || '';
+        if (token && token !== lastFocusToken) {
+          lastFocusToken = token;
+          var target = inner.querySelector('.rms-entity-card.selected') || inner.querySelector('.rms-rel-chip.selected');
+          if (target && target.scrollIntoView) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+          }
         }
       }
+    });
+  }
+
+  function isCanvasMutation(mutations) {
+    var wrap = document.getElementById('rms-canvas-wrap');
+    if (!wrap) return false;
+    for (var i = 0; i < mutations.length; i++) {
+      var t = mutations[i].target;
+      if (t && (wrap.contains(t) || (t.contains && t.contains(wrap)))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  var observer = new MutationObserver(function (mutations) {
+    if (isCanvasMutation(mutations)) {
+      scheduleRender();
     }
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
-  window.addEventListener('load', function () {
-    renderSvgLayer();
-  });
+  window.addEventListener('rms:layout-changed', scheduleRender);
+  window.addEventListener('load', scheduleRender);
 })();

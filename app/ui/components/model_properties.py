@@ -226,9 +226,12 @@ def render_table_properties(bundle: dict[str, Any], tbl: dict[str, Any]) -> Any:
             ),
             dmc.MultiSelect(
                 id="rms-prop-tbl-grain-keys",
-                label="Khóa Grain (Grain Keys)",
+                label="Khóa Grain (bắt buộc cho Fact)" if role == "FACT" else "Khóa Grain (Grain Keys)",
+                description="Chọn 1 hoặc nhiều cột xác định tính duy nhất của 1 dòng trong bảng.",
+                placeholder="Chọn cột khóa duy nhất..." if col_opts else "Không có cột",
                 data=col_opts,
                 value=[str(k) for k in (tbl.get("grain_keys") or [])],
+                withAsterisk=(role == "FACT"),
                 searchable=True,
                 size="xs",
             ),

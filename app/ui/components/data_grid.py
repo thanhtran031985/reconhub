@@ -11,7 +11,7 @@ from app.ui.components.grid_defaults import (
 
 
 def data_grid(
-    id: str,
+    id: str | dict[str, Any],
     columnDefs: list[dict[str, Any]],
     rowData: list[dict[str, Any]] | None = None,
     rowModelType: str = "clientSide",

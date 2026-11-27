@@ -29,6 +29,7 @@ from app.db.metadata import (
 )
 from app.engine.catalog import (
     estimate_table_rows,
+    list_schema_table_stats,
     list_table_constraints,
 )
 from app.engine.catalog import (
@@ -321,6 +322,18 @@ def load_version_bundle(conn: Connection, version_id: int) -> dict[str, Any]:
         .all()
     )
 
+    active_vno: int | None = None
+    if model["ACTIVE_VERSION_ID"] is not None:
+        if int(model["ACTIVE_VERSION_ID"]) == version_id:
+            active_vno = int(ver["VERSION_NO"])
+        else:
+            av = conn.execute(
+                select(recon_rpt_model_ver.c.VERSION_NO).where(
+                    recon_rpt_model_ver.c.ID == int(model["ACTIVE_VERSION_ID"])
+                )
+            ).scalar_one_or_none()
+            active_vno = int(av) if av is not None else None
+
     return {
         "model": {
             "id": int(model["ID"]),
@@ -330,6 +343,7 @@ def load_version_bundle(conn: Connection, version_id: int) -> dict[str, Any]:
             "data_source_id": int(model["DATA_SOURCE_ID"]),
             "data_source": ds_info,
             "active_version_id": int(model["ACTIVE_VERSION_ID"]) if model["ACTIVE_VERSION_ID"] is not None else None,
+            "active_version_no": active_vno,
             "is_archived": model["IS_ARCHIVED"] == "Y",
             "row_version": int(model["ROW_VERSION"]),
         },
@@ -2070,9 +2084,11 @@ def discover_source_objects(
     *,
     enrich: bool = True,
     enrich_limit: int = 40,
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
-    """Liệt kê bảng/view của Data Source kèm thông tin PK/FK và ước lượng dòng cho Model Studio."""
+    """Liệt kê bảng/view của Data Source kèm thông tin PK/FK và ước lượng dòng (1 query batch + cache 10 phút)."""
     _ = ctx
+    _ = enrich_limit
     norm_type = object_type.strip().upper() if object_type and object_type.strip().upper() in ("TABLE", "VIEW") else None
     engine = get_recon_engine()
     with engine.connect() as conn:
@@ -2082,45 +2098,40 @@ def discover_source_objects(
         raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy Data Source đã chọn.")
 
     target_schema = (schema or ds_info.get("default_schema") or "").strip() or None
-    raw_tables = catalog_list_tables(
-        int(data_source_id),
-        schema=target_schema,
-        q=q.strip() if q else None,
-        object_type=norm_type,
-    )
-    items: list[dict[str, Any]] = []
-    for idx, tbl in enumerate(raw_tables):
-        t_name = str(tbl["name"])
-        t_type = str(tbl.get("type") or "TABLE").upper()
-        t_schema = str(tbl.get("schema") or target_schema or "")
-        pk_count = 0
-        fk_count = 0
-        row_est: int | None = None
-        if enrich and idx < enrich_limit and t_type == "TABLE":
-            try:
-                cons = list_table_constraints(int(data_source_id), t_schema, t_name)
-                pk_count = len(cons.get("primary_key") or [])
-                fk_count = len(cons.get("foreign_keys") or [])
-            except Exception:
-                pk_count = 0
-                fk_count = 0
-            try:
-                row_est = estimate_table_rows(int(data_source_id), t_schema, t_name)
-            except Exception:
-                row_est = None
-        items.append(
-            {
-                "name": t_name,
-                "type": t_type,
-                "schema": t_schema,
-                "pk_count": pk_count,
-                "fk_count": fk_count,
-                "row_estimate": row_est,
-            }
+    q_norm = (q or "").strip().lower()
+
+    if enrich:
+        all_items = list_schema_table_stats(
+            int(data_source_id),
+            schema=target_schema,
+            force_refresh=force_refresh,
         )
+    else:
+        raw_tables = catalog_list_tables(
+            int(data_source_id),
+            schema=target_schema,
+        )
+        all_items = [
+            {
+                "name": str(tbl["name"]),
+                "type": str(tbl.get("type") or "TABLE").upper(),
+                "schema": str(tbl.get("schema") or target_schema or ""),
+                "pk_count": 0,
+                "fk_count": 0,
+                "row_estimate": None,
+            }
+            for tbl in raw_tables
+        ]
+
+    items = [
+        item
+        for item in all_items
+        if (norm_type is None or str(item.get("type") or "").upper() == norm_type)
+        and (not q_norm or q_norm in str(item.get("name") or "").lower())
+    ]
     return {
         "data_source": ds_info,
         "schema": target_schema or "",
         "objects": items,
-        "total_count": len(raw_tables),
+        "total_count": len(items),
     }

@@ -208,7 +208,8 @@ dagcomp.rmModelActionsCell = function (props) {
         color: color || undefined,
         disabled: !!disabled,
         'aria-label': label + ' ' + (row.code || ''),
-        leftSection: React.createElement(Icon, { icon: icon, width: 14 }),
+        leftSection: React.createElement(Icon, { icon: icon, width: 13 }),
+        style: { paddingInline: '6px', height: '24px' },
         onClick: function () {
           props.setData({ action: action, id: modelId, ts: Date.now() });
         },

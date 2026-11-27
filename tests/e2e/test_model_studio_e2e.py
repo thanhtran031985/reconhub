@@ -296,6 +296,24 @@ def test_model_center_and_studio_playwright_e2e(live_studio_server: dict[str, An
         page.wait_for_selector(".rms-entity-card", timeout=10000)
         assert page.locator(".rms-entity-card").count() == 2
 
+        # Kiểm tra thu gọn/mở rộng panel Explorer & Properties qua nút toolbar
+        page.locator("#rms-toggle-explorer-btn").click()
+        page.wait_for_function("() => !document.querySelector('#rms-explorer').offsetParent", timeout=5000)
+        page.locator("#rms-toggle-explorer-btn").click()
+        page.wait_for_function("() => !!document.querySelector('#rms-explorer').offsetParent", timeout=5000)
+
+        page.locator("#rms-toggle-props-btn").click()
+        page.wait_for_function("() => !document.querySelector('#rms-properties').offsetParent", timeout=5000)
+        page.locator("#rms-toggle-props-btn").click()
+        page.wait_for_function("() => !!document.querySelector('#rms-properties').offsetParent", timeout=5000)
+
+        # Kiểm tra Explorer click lần 1 mở cột, click lần 2 đóng cột
+        exp_fact = page.locator("#rms-explorer-body button[aria-label='Bảng FACT_SALES']")
+        exp_fact.click()
+        page.wait_for_selector("#rms-explorer-body .rms-col-item", timeout=5000)
+        exp_fact.click()
+        page.wait_for_function("() => document.querySelectorAll('#rms-explorer-body .rms-col-item').length === 0", timeout=5000)
+
         page.locator("button[aria-label='Bảng FACT_SALES']").click()
         page.wait_for_selector("#rms-prop-tbl-role", timeout=10000)
         _select_dmc_option(page, "#rms-prop-tbl-role", "Fact (Bảng sự kiện)")

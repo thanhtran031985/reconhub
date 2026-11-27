@@ -20,6 +20,7 @@ _TABLES_CACHE: dict[tuple[int, str, str], tuple[float, list[dict[str, str]]]] = 
 _COLUMNS_CACHE: dict[tuple[int, str, str], tuple[float, list[dict[str, Any]]]] = {}
 _CONSTRAINTS_CACHE: dict[tuple[int, str, str], tuple[float, dict[str, Any]]] = {}
 _ROW_ESTIMATE_CACHE: dict[tuple[int, str, str], tuple[float, int | None]] = {}
+_SCHEMA_STATS_CACHE: dict[tuple[int, str], tuple[float, list[dict[str, Any]]]] = {}
 
 
 def invalidate_catalog_cache(ds_id: int | None = None) -> None:
@@ -29,8 +30,16 @@ def invalidate_catalog_cache(ds_id: int | None = None) -> None:
         _COLUMNS_CACHE.clear()
         _CONSTRAINTS_CACHE.clear()
         _ROW_ESTIMATE_CACHE.clear()
+        _SCHEMA_STATS_CACHE.clear()
     else:
-        for cache in (_TABLES_CACHE, _COLUMNS_CACHE, _CONSTRAINTS_CACHE, _ROW_ESTIMATE_CACHE):
+        caches: tuple[dict[Any, Any], ...] = (
+            _TABLES_CACHE,
+            _COLUMNS_CACHE,
+            _CONSTRAINTS_CACHE,
+            _ROW_ESTIMATE_CACHE,
+            _SCHEMA_STATS_CACHE,
+        )
+        for cache in caches:
             for k in list(cache.keys()):
                 if k[0] == ds_id:
                     cache.pop(k, None)
@@ -193,6 +202,126 @@ def list_tables(
             term = q.strip().upper()
             return [t for t in tables_result if term in t["name"].upper()]
         return tables_result
+    finally:
+        ora_conn.close()
+
+
+def list_schema_table_stats(
+    ds_id: int,
+    schema: str | None = None,
+    *,
+    force_refresh: bool = False,
+) -> list[dict[str, Any]]:
+    """Đọc toàn bộ bảng/view của schema kèm NUM_ROWS và PK/FK count chỉ với 1 kết nối Oracle (cache 10 phút).
+
+    Giúp Drawer + Thêm bảng không bị N+1 query (80+ round-trip VPN) như cách enrich từng bảng.
+    """
+    ds_row = _get_ds_row(ds_id)
+    if ds_row and str(ds_row.get("DB_TYPE")).upper() == "SQLITE":
+        raw = list_tables(ds_id, schema=schema)
+        out_sqlite: list[dict[str, Any]] = []
+        for t in raw:
+            t_name = str(t["name"])
+            t_type = str(t["type"]).upper()
+            t_schema = str(t.get("schema") or "main")
+            pk_cnt = 0
+            fk_cnt = 0
+            row_est: int | None = None
+            if t_type == "TABLE":
+                try:
+                    cons = list_table_constraints(ds_id, t_schema, t_name)
+                    pk_cnt = len(cons.get("primary_key") or [])
+                    fk_cnt = len(cons.get("foreign_keys") or [])
+                except Exception:
+                    pk_cnt = 0
+                    fk_cnt = 0
+                try:
+                    row_est = estimate_table_rows(ds_id, t_schema, t_name)
+                except Exception:
+                    row_est = None
+            out_sqlite.append(
+                {
+                    "name": t_name,
+                    "type": t_type,
+                    "schema": t_schema,
+                    "pk_count": pk_cnt,
+                    "fk_count": fk_cnt,
+                    "row_estimate": row_est,
+                }
+            )
+        return out_sqlite
+
+    resolved_schema = _resolve_schema(ds_id, schema)
+    cache_key = (ds_id, resolved_schema)
+    now = time.monotonic()
+    if not force_refresh:
+        cached = _SCHEMA_STATS_CACHE.get(cache_key)
+        if cached is not None and (now - cached[0]) < CACHE_TTL_SECONDS:
+            return cached[1]
+    else:
+        invalidate_catalog_cache(ds_id)
+
+    ora_conn = open_source_connection(ds_id)
+    try:
+        cursor = ora_conn.cursor()
+        cursor.execute(
+            """
+            SELECT TABLE_NAME, 'TABLE' AS TABLE_TYPE, NUM_ROWS
+            FROM ALL_TABLES
+            WHERE OWNER = :schema
+            UNION ALL
+            SELECT VIEW_NAME AS TABLE_NAME, 'VIEW' AS TABLE_TYPE, NULL AS NUM_ROWS
+            FROM ALL_VIEWS
+            WHERE OWNER = :schema
+            ORDER BY TABLE_NAME
+            """,
+            {"schema": resolved_schema},
+        )
+        obj_rows = cursor.fetchall()
+
+        cons_map: dict[str, tuple[int, int]] = {}
+        try:
+            cursor.execute(
+                """
+                SELECT
+                    TABLE_NAME,
+                    SUM(CASE WHEN CONSTRAINT_TYPE = 'P' THEN 1 ELSE 0 END) AS PK_CNT,
+                    SUM(CASE WHEN CONSTRAINT_TYPE = 'R' THEN 1 ELSE 0 END) AS FK_CNT
+                FROM ALL_CONSTRAINTS
+                WHERE OWNER = :schema AND CONSTRAINT_TYPE IN ('P', 'R')
+                GROUP BY TABLE_NAME
+                """,
+                {"schema": resolved_schema},
+            )
+            for cr in cursor.fetchall():
+                cons_map[str(cr[0]).upper()] = (int(cr[1] or 0), int(cr[2] or 0))
+        except Exception:
+            cons_map = {}
+
+        result: list[dict[str, Any]] = []
+        base_tables: list[dict[str, str]] = []
+        for row in obj_rows:
+            t_name = str(row[0])
+            t_type = str(row[1]).upper()
+            num_rows = int(row[2]) if t_type == "TABLE" and row[2] is not None else None
+            pk_cnt, fk_cnt = cons_map.get(t_name.upper(), (0, 0)) if t_type == "TABLE" else (0, 0)
+            result.append(
+                {
+                    "name": t_name,
+                    "type": t_type,
+                    "schema": resolved_schema,
+                    "pk_count": pk_cnt,
+                    "fk_count": fk_cnt,
+                    "row_estimate": num_rows,
+                }
+            )
+            base_tables.append({"name": t_name, "type": t_type, "schema": resolved_schema})
+            if t_type == "TABLE":
+                _ROW_ESTIMATE_CACHE[(ds_id, resolved_schema, t_name.upper())] = (now, num_rows)
+
+        _SCHEMA_STATS_CACHE[cache_key] = (now, result)
+        _TABLES_CACHE[(ds_id, resolved_schema, "")] = (now, base_tables)
+        return result
     finally:
         ora_conn.close()
 

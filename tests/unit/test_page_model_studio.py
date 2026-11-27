@@ -702,3 +702,196 @@ def test_publish_modal_preview_diff_impact_and_readonly_active(studio_env) -> No
     assert v2_err is None and v2_prev is not None and v2_prev["diff"] is not None
     v2_dump = _dump(studio.render_publish_modal_body(v2_bundle, v2_prev))
     assert "V_CUSTOMER_ACTIVE" in v2_dump
+
+
+def test_explorer_toggle_collapse_panel_buttons_and_picker_cap(studio_env, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bấm bảng ở Explorer lần 2 sẽ đóng cột; Canvas có nút Ẩn/Hiện 2 panel; Picker giới hạn DOM 60 dòng."""
+    import dash
+
+    import app.ui.pages.report_model_studio as studio
+    from app.services.semantic_model import get_model_version_detail
+
+    _, _, model_id, ver_id = studio_env
+    bundle = get_model_version_detail(_owner(), ver_id).data
+    assert bundle is not None
+    fact_id = int(bundle["tables"][0]["id"])
+    col_name = str(bundle["tables"][0]["fields"][0]["source_column"])
+
+    # 1. Explorer toggle: mở khi chưa có trong expanded, đóng khi bấm lần 2
+    class _FakeCtx:
+        def __init__(self, triggered_id: dict[str, Any], value: int = 1) -> None:
+            self.triggered_id = triggered_id
+            self.triggered = [{"prop_id": "btn.n_clicks", "value": value}]
+
+    monkeypatch.setattr(dash, "callback_context", _FakeCtx({"type": "rms-exp-table-btn", "id": fact_id}, 1))
+    sel1, exp1, html1, _canvas1, _props1 = studio.handle_explorer_select([1], [], [], [], bundle, "", 1.0, [])
+    assert sel1 == {"kind": "table", "id": fact_id}
+    assert exp1 == [fact_id]
+    assert col_name in _dump(html1)
+
+    monkeypatch.setattr(dash, "callback_context", _FakeCtx({"type": "rms-exp-table-btn", "id": fact_id}, 2))
+    sel2, exp2, html2, _canvas2, _props2 = studio.handle_explorer_select([2], [], [], [], bundle, "", 1.0, exp1)
+    assert sel2 == {"kind": "table", "id": fact_id}
+    assert exp2 == []
+    assert col_name not in _dump(html2)
+
+    # 2. Layout & Toolbar có nút Ẩn/Hiện Explorer & Properties + Progress wrap trong Drawer
+    monkeypatch.setattr(studio, "get_current_ctx", _owner)
+    layout_dump = _dump(studio.layout(model_id=str(model_id)))
+    assert "rms-toggle-explorer-btn" in layout_dump
+    assert "rms-toggle-props-btn" in layout_dump
+    assert "rms-picker-progress-wrap" in layout_dump
+
+    # 3. Picker render giới hạn 60 dòng + nút Xem thêm khi schema lớn
+    big_objs = [
+        {"name": f"TBL_{i:04d}", "type": "TABLE", "schema": "DATARAW", "pk_count": 1, "fk_count": 0, "row_estimate": 1000 + i}
+        for i in range(135)
+    ]
+    picker_60 = _dump(studio.render_source_picker_list(big_objs, existing_objects=set(), limit=60))
+    assert "Hiển thị 60 / 135 đối tượng" in picker_60
+    assert "Xem thêm +60 (còn 75)" in picker_60
+    assert "TBL_0059" in picker_60
+    assert "TBL_0060" not in picker_60
+
+
+def test_oracle_batch_schema_table_stats_cache(studio_env, monkeypatch: pytest.MonkeyPatch) -> None:
+    """discover_source_objects trên Oracle chỉ mở 1 connection batch và dùng cache 10 phút cho lần sau."""
+    import app.engine.catalog as catalog
+    from app.services.semantic_model import discover_source_objects
+
+    catalog.invalidate_catalog_cache()
+    _, ds_id, _, _ = studio_env
+    conn_calls = {"count": 0}
+
+    class _FakeCursor:
+        def __init__(self) -> None:
+            self._last_sql = ""
+
+        def execute(self, sql: str, _params: dict[str, Any] | None = None) -> None:
+            self._last_sql = sql
+
+        def fetchall(self) -> list[tuple[Any, ...]]:
+            if "ALL_CONSTRAINTS" in self._last_sql:
+                return [("APP_ETL_HIGH_WATER_MARK", 1, 2)]
+            return [
+                ("APP_ETL_HIGH_WATER_MARK", "TABLE", 229507),
+                ("V_ETL_SUMMARY", "VIEW", None),
+            ]
+
+    class _FakeConn:
+        def cursor(self) -> _FakeCursor:
+            return _FakeCursor()
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        catalog,
+        "_get_ds_row",
+        lambda _id: {"DB_TYPE": "ORACLE", "FILE_PATH": None, "DEFAULT_SCHEMA": "DATARAW", "USERNAME": "DATARAW"},
+    )
+
+    def _fake_open(_id: int) -> _FakeConn:
+        conn_calls["count"] += 1
+        return _FakeConn()
+
+    monkeypatch.setattr(catalog, "open_source_connection", _fake_open)
+
+    res1 = discover_source_objects(_owner(), ds_id, enrich=True)
+    assert res1.ok and res1.data is not None
+    assert conn_calls["count"] == 1
+    hwm = next(x for x in res1.data["objects"] if x["name"] == "APP_ETL_HIGH_WATER_MARK")
+    assert hwm["row_estimate"] == 229507
+    assert hwm["pk_count"] == 1 and hwm["fk_count"] == 2
+
+    # Lần 2 không gọi lại Oracle (dùng cache)
+    res2 = discover_source_objects(_owner(), ds_id, q="ETL", enrich=True)
+    assert res2.ok and len(res2.data["objects"]) == 2
+    assert conn_calls["count"] == 1
+
+    # force_refresh=True mới đọc lại Oracle
+    res3 = discover_source_objects(_owner(), ds_id, enrich=True, force_refresh=True)
+    assert res3.ok
+    assert conn_calls["count"] == 2
+    catalog.invalidate_catalog_cache()
+
+
+def test_save_draft_persists_pending_grain_without_save_table_click(studio_env, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nhập Mô tả Grain / Khóa Grain rồi bấm Lưu nháp trên header phải lưu được vào DB."""
+    import app.ui.pages.report_model_studio as studio
+    from app.services.semantic_model import get_model_version_detail
+
+    _, _, _, ver_id = studio_env
+    bundle = get_model_version_detail(_owner(), ver_id).data
+    assert bundle is not None
+    fact_t = bundle["tables"][0]
+    fact_id = int(fact_t["id"])
+    sel = {"kind": "table", "id": fact_id}
+    monkeypatch.setattr(studio, "get_current_ctx", _owner)
+
+    pending, dirty, _hdr, _st = studio.sync_pending_table_form(
+        str(fact_t["alias"]),
+        str(fact_t["display_name"]),
+        "FACT",
+        "1 dòng = 1 hóa đơn chi tiết",
+        ["SALES_ID"],
+        "TRANS_DATE",
+        False,
+        bundle,
+        sel,
+    )
+    assert dirty is True
+    assert isinstance(pending, dict) and pending["grain_desc"] == "1 dòng = 1 hóa đơn chi tiết"
+
+    save_res = studio.handle_save_draft(1, bundle, pending, sel, "", 1.0, [fact_id])
+    saved_bundle = save_res[0]
+    assert saved_bundle is not None
+    assert save_res[2] is None  # pending store cleared
+    reloaded = get_model_version_detail(_owner(), ver_id).data
+    assert reloaded is not None
+    reloaded_fact = next(t for t in reloaded["tables"] if int(t["id"]) == fact_id)
+    assert reloaded_fact["table_role"] == "FACT"
+    assert reloaded_fact["grain_desc"] == "1 dòng = 1 hóa đơn chi tiết"
+    assert reloaded_fact["grain_keys"] == ["SALES_ID"]
+
+
+def test_load_studio_bundle_keeps_active_readonly_without_auto_draft(studio_env) -> None:
+    """Sau khi Phát hành v1 (ACTIVE), vào lại Model Studio vẫn giữ v1 ACTIVE chỉ đọc, không tự tăng lên v2."""
+    import app.ui.pages.report_model_studio as studio
+    from app.services.semantic_model import get_model, get_model_version_detail, open_or_create_draft
+
+    _, _, model_id, ver_id = studio_env
+    bundle = get_model_version_detail(_owner(), ver_id).data
+    assert bundle is not None
+    fact_t = bundle["tables"][0]
+
+    bundle, err_t, _ = studio.save_table_properties(
+        _owner(),
+        bundle=bundle,
+        table_id=fact_t["id"],
+        alias="FACT_SALES",
+        display_name="FACT_SALES",
+        table_role="FACT",
+        grain_desc="1 dòng / SALES_ID",
+        grain_keys=["SALES_ID"],
+        default_date_field="TRANS_DATE",
+        is_hidden=False,
+    )
+    assert err_t is None and bundle is not None
+
+    active_b, pub_err = studio.publish_from_studio(_owner(), bundle, change_note="Phát hành v1")
+    assert pub_err is None and active_b is not None
+
+    reloaded_b, load_err = studio.load_studio_bundle(_owner(), model_id)
+    assert load_err is None and reloaded_b is not None
+    assert reloaded_b["version"]["version_no"] == 1
+    assert reloaded_b["version"]["status"] == "ACTIVE"
+    assert len(get_model(_owner(), model_id).data["versions"]) == 1
+    assert "Đang phát hành: v1" in _dump(studio.render_studio_header(reloaded_b, dirty=False))
+
+    # Chỉ khi bấm Tạo bản nháp mới (open_or_create_draft) mới sinh v2 DRAFT và vẫn báo Đang phát hành: v1
+    v2_res = open_or_create_draft(_owner(), model_id)
+    assert v2_res.ok and v2_res.data is not None
+    assert v2_res.data["version"]["version_no"] == 2
+    assert v2_res.data["version"]["status"] == "DRAFT"
+    assert "Đang phát hành: v1" in _dump(studio.render_studio_header(v2_res.data, dirty=False))

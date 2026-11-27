@@ -697,6 +697,8 @@ main > div > div,
   display: flex;
   flex-direction: column;
   gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  box-sizing: border-box;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -726,6 +728,8 @@ main > div > div,
   display: flex;
   flex-direction: column;
   gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  box-sizing: border-box;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -753,6 +757,10 @@ main > div > div,
   flex-direction: column;
   border-right: 1px solid var(--line, #E0E0E0);
   background-color: var(--surface, #FFFFFF);
+}
+
+.rms-explorer.is-collapsed {
+  display: none;
 }
 
 .rms-explorer-scroll {
@@ -802,6 +810,10 @@ main > div > div,
   flex-direction: column;
   border-left: 1px solid var(--line, #E0E0E0);
   background-color: var(--surface-2, #FAFAFA);
+}
+
+.rms-properties.is-collapsed {
+  display: none;
 }
 
 .rms-properties-scroll {

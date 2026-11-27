@@ -7,7 +7,7 @@ from typing import Any
 
 import dash
 import dash_mantine_components as dmc
-from dash import Input, Output, State, callback, dcc, html
+from dash import ALL, Input, Output, State, callback, dcc, html
 from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 
@@ -167,11 +167,6 @@ def _grid_column_defs() -> list[dict[str, Any]]:
             "flex": 1,
         },
         {
-            "field": "ds_label",
-            "headerName": "Data Source",
-            "width": 180,
-        },
-        {
             "field": "counts_label",
             "headerName": "Fact / Dim / Rel",
             "width": 140,
@@ -180,23 +175,24 @@ def _grid_column_defs() -> list[dict[str, Any]]:
         {
             "field": "active_version_label",
             "headerName": "Phiên bản",
-            "width": 160,
+            "width": 150,
         },
         {
             "field": "status_label",
             "headerName": "Trạng thái",
-            "width": 145,
+            "width": 140,
             "cellRenderer": "rmModelStatusCell",
         },
         {
             "field": "updated_label",
             "headerName": "Cập nhật",
-            "width": 140,
+            "width": 130,
         },
         {
             "colId": "actions",
             "headerName": "Thao tác",
-            "width": 310,
+            "width": 360,
+            "minWidth": 350,
             "sortable": False,
             "filter": False,
             "resizable": False,
@@ -221,7 +217,12 @@ def render_models_body(
             id="rm-center-error",
             title="Không thể tải danh sách mô hình",
             message=error_msg,
-            retry_id="rm-center-retry-btn",
+            action=button_primary(
+                "Thử lại",
+                id={"type": "rm-center-retry-btn", "k": "full"},
+                icon="lucide:refresh-cw",
+                size="xs",
+            ),
         )
 
     parts: list[Any] = []
@@ -231,7 +232,12 @@ def render_models_body(
                 id="rm-center-error-banner",
                 title="Không thể làm mới danh sách mô hình",
                 message=f"{error_msg} Đang hiển thị dữ liệu đã tải trước đó.",
-                retry_id="rm-center-retry-btn",
+                action=button_primary(
+                    "Thử lại",
+                    id={"type": "rm-center-retry-btn", "k": "banner"},
+                    icon="lucide:refresh-cw",
+                    size="xs",
+                ),
                 banner_only=True,
             )
         )
@@ -243,7 +249,7 @@ def render_models_body(
                 description="Hãy đổi từ khóa tìm kiếm hoặc xóa bộ lọc để xem toàn bộ mô hình.",
                 action=button_subtle(
                     "Xóa bộ lọc",
-                    id="rm-center-clear-filter-btn",
+                    id={"type": "rm-center-clear-filter-btn", "k": "empty"},
                     icon="lucide:x",
                 ),
             )
@@ -252,13 +258,13 @@ def render_models_body(
             description="Tạo mô hình ngữ nghĩa đầu tiên từ Data Source Oracle hoặc SQLite.",
             action=button_primary(
                 "Tạo mô hình",
-                id="rm-center-empty-create-btn",
+                id={"type": "rm-center-empty-create-btn", "k": "empty"},
                 icon="lucide:plus",
             ),
         )
 
     grid_node = data_grid(
-        id="rm-center-grid",
+        id={"type": "rm-center-grid", "k": "main"},
         columnDefs=_grid_column_defs(),
         rowData=rows,
         rowModelType="clientSide",
@@ -509,7 +515,6 @@ def layout() -> Any:
     assert ctx is not None
 
     ds_options = _load_ds_options(ctx)
-    ds_filter_options = [{"label": "Tất cả Data Source", "value": "ALL"}, *ds_options]
 
     initial_models: list[dict[str, Any]] = []
     initial_err: str | None = None
@@ -548,14 +553,17 @@ def layout() -> Any:
                     withAsterisk=True,
                     size="xs",
                 ),
-                dmc.Select(
-                    id="rm-center-create-ds",
-                    label="Data Source nguồn",
-                    data=ds_options,
-                    value=ds_options[0]["value"] if ds_options else None,
-                    searchable=True,
-                    withAsterisk=True,
-                    size="xs",
+                html.Div(
+                    dmc.Select(
+                        id="rm-center-create-ds",
+                        label="Data Source nguồn",
+                        data=ds_options,
+                        value=ds_options[0]["value"] if ds_options else None,
+                        searchable=True,
+                        withAsterisk=True,
+                        size="xs",
+                    ),
+                    style={"display": "none"} if len(ds_options) <= 1 else None,
                 ),
                 dmc.Textarea(
                     id="rm-center-create-desc",
@@ -655,13 +663,14 @@ def layout() -> Any:
             dmc.NotificationContainer(id="rm-center-notif", position="top-right", **{"aria-live": "polite"}),
             page_header(
                 title="Mô hình báo cáo",
-                subtitle="Thiết kế Semantic Model (Fact, Dimension, Relationship, Measure) từ Data Source.",
+                subtitle="Thiết kế Semantic Model (Fact, Dimension, Relationship, Measure).",
                 actions=[
                     button_primary(
                         "Tạo mô hình",
                         id="rm-center-create-btn",
                         icon="lucide:plus",
                         size="xs",
+                        radius="xl",
                         **{"aria-label": "Tạo mô hình báo cáo mới"},  # type: ignore[arg-type]
                     )
                 ],
@@ -672,14 +681,6 @@ def layout() -> Any:
                 search_placeholder="Tìm mã hoặc tên mô hình...",
                 search_debounce=250,
                 filters=[
-                    dmc.Select(
-                        id="rm-center-ds-filter",
-                        data=ds_filter_options,
-                        value="ALL",
-                        size="xs",
-                        w=220,
-                        **{"aria-label": "Lọc theo Data Source"},
-                    ),
                     dmc.Select(
                         id="rm-center-status-filter",
                         data=STATUS_OPTIONS,
@@ -696,6 +697,7 @@ def layout() -> Any:
                         variant="subtle",
                         color="gray",
                         size="sm",
+                        radius="xl",
                         **{"aria-label": "Làm mới danh sách mô hình"},
                     )
                 ],
@@ -726,57 +728,66 @@ def layout() -> Any:
     Output("rm-center-models-store", "data"),
     Output("rm-center-body", "children"),
     Output("rm-center-search", "value"),
-    Output("rm-center-ds-filter", "value"),
     Output("rm-center-status-filter", "value"),
     Input("rm-center-search", "value"),
-    Input("rm-center-ds-filter", "value"),
     Input("rm-center-status-filter", "value"),
     Input("rm-center-refresh-btn", "n_clicks"),
-    Input("rm-center-retry-btn", "n_clicks"),
-    Input("rm-center-clear-filter-btn", "n_clicks"),
+    Input({"type": "rm-center-retry-btn", "k": ALL}, "n_clicks"),
+    Input({"type": "rm-center-clear-filter-btn", "k": ALL}, "n_clicks"),
     State("rm-center-models-store", "data"),
     prevent_initial_call=True,
 )
 def handle_center_filter_or_refresh(
     query: str | None,
-    ds_id: str | None,
     status: str | None,
     refresh_clicks: int | None,
-    retry_clicks: int | None,
-    clear_clicks: int | None,
+    retry_clicks: list[int | None] | None,
+    clear_clicks: list[int | None] | None,
     cached_models: list[dict[str, Any]] | None,
-) -> tuple[Any, Any, Any, Any, Any]:
+) -> tuple[Any, Any, Any, Any]:
     """Lọc client-side hoặc nạp lại danh sách từ service khi bấm Làm mới/Thử lại."""
     ctx = get_current_ctx()
     if ctx is None:
         raise PreventUpdate
 
     trig = dash.callback_context.triggered_id
-    if trig == "rm-center-clear-filter-btn":
+    if trig is None:
+        raise PreventUpdate
+    is_clear = isinstance(trig, dict) and trig.get("type") == "rm-center-clear-filter-btn"
+    if is_clear:
+        if not any(clear_clicks or []):
+            raise PreventUpdate
         filtered = filter_models(cached_models, query="", data_source_id="ALL", status="ALL")
         return (
             dash.no_update,
             render_models_body(models_to_grid_rows(filtered), has_filter=False),
             "",
             "ALL",
-            "ALL",
         )
 
+    is_retry = isinstance(trig, dict) and trig.get("type") == "rm-center-retry-btn"
+    if is_retry and not any(retry_clicks or []):
+        raise PreventUpdate
+    if trig == "rm-center-refresh-btn" and not refresh_clicks:
+        raise PreventUpdate
+
+    is_refresh_req = (trig == "rm-center-refresh-btn") or is_retry
+    if not is_refresh_req and trig not in ("rm-center-search", "rm-center-status-filter"):
+        raise PreventUpdate
     models = list(cached_models or [])
     err_msg: str | None = None
-    if trig in ("rm-center-refresh-btn", "rm-center-retry-btn"):
+    if is_refresh_req:
         res = list_models(ctx, include_archived=True)
         if res.ok:
             models = list(res.data or [])
         else:
             err_msg = res.message or "Không tải được danh sách mô hình."
 
-    has_filter = bool((query or "").strip() or (ds_id not in (None, "", "ALL")) or (status not in (None, "", "ALL")))
-    filtered = filter_models(models, query=query, data_source_id=ds_id, status=status)
+    has_filter = bool((query or "").strip() or (status not in (None, "", "ALL")))
+    filtered = filter_models(models, query=query, data_source_id="ALL", status=status)
     return (
-        models if trig in ("rm-center-refresh-btn", "rm-center-retry-btn") and err_msg is None else dash.no_update,
+        models if is_refresh_req and err_msg is None else dash.no_update,
         render_models_body(models_to_grid_rows(filtered), has_filter=has_filter, error_msg=err_msg),
-        dash.no_update,
         dash.no_update,
         dash.no_update,
     )
@@ -789,23 +800,23 @@ def handle_center_filter_or_refresh(
     Output("rm-center-create-name", "value"),
     Output("rm-center-create-desc", "value"),
     Input("rm-center-create-btn", "n_clicks"),
-    Input("rm-center-empty-create-btn", "n_clicks"),
+    Input({"type": "rm-center-empty-create-btn", "k": ALL}, "n_clicks"),
     Input("rm-center-create-cancel", "n_clicks"),
     prevent_initial_call=True,
 )
 def handle_create_modal_toggle(
     btn_clicks: int | None,
-    empty_clicks: int | None,
+    empty_clicks: list[int | None] | None,
     cancel_clicks: int | None,
 ) -> tuple[bool, Any, Any, Any, Any]:
     trig = dash.callback_context.triggered_id
-    if trig == "rm-center-create-cancel":
+    if trig == "rm-center-create-cancel" and cancel_clicks:
         return False, None, dash.no_update, dash.no_update, dash.no_update
-    if trig == "rm-center-create-btn" and not btn_clicks:
-        raise PreventUpdate
-    if trig == "rm-center-empty-create-btn" and not empty_clicks:
-        raise PreventUpdate
-    return True, None, "", "", ""
+    if trig == "rm-center-create-btn" and btn_clicks:
+        return True, None, "", "", ""
+    if isinstance(trig, dict) and trig.get("type") == "rm-center-empty-create-btn" and any(empty_clicks or []):
+        return True, None, "", "", ""
+    raise PreventUpdate
 
 
 @callback(
@@ -849,14 +860,15 @@ def handle_create_submit(
     Output("rm-center-impact-content", "children"),
     Output("rm-center-archive-modal", "opened", allow_duplicate=True),
     Output("rm-center-archive-desc", "children"),
-    Input("rm-center-grid", "cellRendererData"),
+    Input({"type": "rm-center-grid", "k": ALL}, "cellRendererData"),
     State("rm-center-models-store", "data"),
     prevent_initial_call=True,
 )
 def handle_grid_action(
-    cell_data: dict[str, Any] | None,
+    cell_data_list: list[dict[str, Any] | None] | None,
     models: list[dict[str, Any]] | None,
 ) -> tuple[Any, ...]:
+    cell_data = next((c for c in (cell_data_list or []) if isinstance(c, dict)), None)
     if not isinstance(cell_data, dict):
         raise PreventUpdate
     payload = cell_data.get("value")
