@@ -128,7 +128,7 @@ def test_get_data_model_returns_manifest_and_drift(dm_env):
     assert res.ok, res.message
     assert res.data is not None
     tables = res.data["manifest"]["tables"]
-    assert len(tables) == 59
+    assert len(tables) == 61
     names = {t["name"] for t in tables}
     assert "RECON_RUN" in names
     assert "RECON_RPT_PARAM" in names
@@ -136,7 +136,7 @@ def test_get_data_model_returns_manifest_and_drift(dm_env):
     assert res.data["drift"]["drifts"] == []
     assert isinstance(res.data["history"], list)
     assert (
-        len(res.data["history"]) == 82
+        len(res.data["history"]) == 89
     )  # task 78..106: +7 RECON_RPT_MODEL* tables
 
 
@@ -241,7 +241,7 @@ def test_filter_tables_by_name_column_description(dm_manifest):
     }
     # Tìm theo tên cột: GRID_SPAN chỉ có ở RECON_RPT_PARAM.
     by_col = page.filter_tables(tables, "GRID_SPAN", "all")
-    assert [t["name"] for t in by_col] == ["RECON_RPT_PARAM"]
+    assert [t["name"] for t in by_col] == ["RECON_RPT_PARAM", "RECON_RPT_VISUAL"]
     # Tìm không dấu vẫn ra mô tả có dấu.
     by_desc = page.filter_tables(tables, "bao cao", "all")
     assert "RECON_REPORT" in {t["name"] for t in by_desc}
@@ -253,13 +253,13 @@ def test_filter_tables_by_domain(dm_manifest):
     import app.ui.pages.data_model as page
 
     tables = _manifest_tables(dm_manifest)
-    assert len(page.filter_tables(tables, "", "report")) == 18
+    assert len(page.filter_tables(tables, "", "report")) == 20
     assert len(page.filter_tables(tables, "", "core")) == 13
     assert len(page.filter_tables(tables, "", "recon")) == 21
     assert len(page.filter_tables(tables, "", "admin")) == 7
     assert len(page.filter_tables(tables, "", "other")) == 0
     # Domain + query kết hợp.
-    assert [t["name"] for t in page.filter_tables(tables, "GRID_SPAN", "report")] == ["RECON_RPT_PARAM"]
+    assert [t["name"] for t in page.filter_tables(tables, "GRID_SPAN", "report")] == ["RECON_RPT_PARAM", "RECON_RPT_VISUAL"]
     assert page.filter_tables(tables, "GRID_SPAN", "core") == []
 
 
@@ -268,7 +268,7 @@ def test_group_tables_order_and_counts(dm_manifest):
 
     groups = page.group_tables(_manifest_tables(dm_manifest))
     assert [code for code, _label, _t in groups] == ["core", "recon", "report", "admin"]
-    assert [len(t) for _c, _l, t in groups] == [13, 21, 18, 7]
+    assert [len(t) for _c, _l, t in groups] == [13, 21, 20, 7]
     assert groups[0][1] == "Core"
     assert groups[1][1] == "Đối soát"
 
@@ -291,12 +291,12 @@ def test_render_explorer_groups_and_selection(dm_manifest):
     text = str(node)
     assert "Core (13)" in text
     assert "Đối soát (21)" in text
-    assert "Báo cáo (18)" in text
+    assert "Báo cáo (20)" in text
     assert "Quản trị (7)" in text
     assert "RECON_RUN" in text
     nodes = list(_walk(node))
     rows = [n for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-table-item"]
-    assert len(rows) == 59
+    assert len(rows) == 61
     selected = [n for n in rows if n.id.get("table") == "RECON_RUN"]
     assert len(selected) == 1
     assert "active" in (selected[0].className or "")
@@ -500,7 +500,7 @@ def test_update_workspace_filters_and_counts(dm_manifest):
     explorer, _canvas, _detail, count_text, _status, _zoom = page.update_workspace(
         dm_manifest, "", "all", "relations", {"kind": None, "table": None}, {"expanded": {}}, 1.0
     )
-    assert "59 tables" in count_text
+    assert "61 tables" in count_text
     assert "RECON_RUN" in str(explorer)
     # Nhãn zoom theo zoom-store (fit đổi zoom thì nhãn cũng đổi theo).
     assert _zoom == "100%"
@@ -511,12 +511,13 @@ def test_update_workspace_filters_and_counts(dm_manifest):
     explorer2, _c2, _d2, count2, _s2, _z2 = page.update_workspace(
         dm_manifest, "GRID_SPAN", "all", "relations", {"kind": None, "table": None}, {"expanded": {}}, 1.0
     )
-    assert "1 tables" in count2
+    assert "2 tables" in count2
     assert "RECON_RPT_PARAM" in str(explorer2)
+    assert "RECON_RPT_VISUAL" in str(explorer2)
     explorer3, _c3, _d3, count3, _s3, _z3 = page.update_workspace(
         dm_manifest, "", "report", "relations", {"kind": None, "table": None}, {"expanded": {}}, 1.0
     )
-    assert "18 tables" in count3
+    assert "20 tables" in count3
     # Không có manifest -> lỗi đọc metadata.
     explorer4, _c4, _d4, _ct4, _s4, _z4 = page.update_workspace(
         None, "", "all", "relations", {"kind": None, "table": None}, {"expanded": {}}, 1.0
@@ -548,7 +549,7 @@ def test_layout_entities_deterministic(dm_manifest):
     first = page.layout_entities(tables, "relations")
     second = page.layout_entities(tables, "relations")
     assert first == second
-    assert len(first) == 59
+    assert len(first) == 61
     # Cột theo domain, thứ tự Core, Đối soát, Báo cáo, Quản trị.
     ew = page.ENTITY_W
     assert first["RECON_USER"]["x"] == 0
@@ -574,7 +575,7 @@ def test_layout_entities_compact_fixed_height(dm_manifest):
 
     layout = page.layout_entities(_manifest_tables(dm_manifest), "compact")
     assert {v["h"] for v in layout.values()} == {40}
-    assert len(layout) == 59
+    assert len(layout) == 61
 
 
 def test_relationship_lines_match_manifest_fk(dm_manifest):
@@ -584,7 +585,7 @@ def test_relationship_lines_match_manifest_fk(dm_manifest):
     layout = page.layout_entities(tables, "relations")
     lines = page.relationship_lines(tables, layout)
     total_fk = sum(len(t.get("foreign_keys", [])) for t in tables)
-    assert len(lines) == total_fk == 74
+    assert len(lines) == total_fk == 80
     assert all(line["length"] > 0 for line in lines)
     assert all(isinstance(line["angle_deg"], float) for line in lines)
     user_role_line = next(line for line in lines if line["source"] == "RECON_USER_ROLE" and line["column"] == "USER_ID")
@@ -602,9 +603,9 @@ def test_render_canvas_entities_and_markers(dm_manifest):
     assert "data-model-canvas-inner" in text
     nodes = list(_walk(node))
     entities = [n for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-entity"]
-    assert len(entities) == 59
+    assert len(entities) == 61
     lines = [n for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-rel-line"]
-    assert len(lines) == 74
+    assert len(lines) == 80
     # Marker PK/FK bằng ký tự, không chỉ bằng màu.
     assert "◆" in text
     assert "↗" in text
@@ -848,7 +849,7 @@ def test_filter_history_by_type_table_query(dm_manifest):
 
     history = dm_manifest["history"]
     assert (
-        len(page.filter_history(history, "", "COLUMN_ADDED", None)) == 19
+        len(page.filter_history(history, "", "COLUMN_ADDED", None)) == 22
     )  # task 63: +CHECKLIST_JSON; task 79: +RELATED_TYPE/RELATED_ID; task 94: +TELEGRAM_CHAT_ID/LINK_CODE/LINK_EXPIRES_AT
     assert len(page.filter_history(history, "", "all", "RECON_RUN")) == 3
     assert len(page.filter_history(history, "0006", "all", None)) == 12
@@ -1365,7 +1366,7 @@ def test_update_workspace_selection_none_shows_empty_detail(dm_manifest):
     )
     assert "Chọn một table hoặc relationship để xem chi tiết." in str(detail)
     assert "RECON_RUN" in str(explorer)
-    assert "59 tables" in count_text
+    assert "61 tables" in count_text
     nodes = list(_walk(canvas))
     entities = {
         n.id["table"]: n for n in nodes if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-entity"
@@ -1571,8 +1572,9 @@ def test_update_workspace_search_change_rebuilds_explorer(dm_manifest, monkeypat
         dm_manifest, "GRID_SPAN", "all", "relations", {"kind": None, "table": None}, {"expanded": {}}, 1.0
     )
     assert explorer is not dash.no_update
-    assert "1 tables" in count_text
+    assert "2 tables" in count_text
     assert "RECON_RPT_PARAM" in str(explorer)
+    assert "RECON_RPT_VISUAL" in str(explorer)
 
 
 def test_table_click_does_not_touch_zoom_or_url(monkeypatch):
@@ -1614,7 +1616,7 @@ def test_render_canvas_rel_lines_carry_data_attributes(dm_manifest):
     tables = _manifest_tables(dm_manifest)
     node = page.render_canvas(tables, {"kind": None, "table": None}, {"mode": "relations"}, 1.0, "")
     lines = [n for n in _walk(node) if isinstance(getattr(n, "id", None), dict) and n.id.get("type") == "dm-rel-line"]
-    assert len(lines) == 74
+    assert len(lines) == 80
     for line in lines:
         props = line.to_plotly_json()["props"]
         assert props.get("data-source"), f"line {line.id} thieu data-source"

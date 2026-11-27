@@ -736,5 +736,68 @@
     "migration_id": "0018_semantic_model",
     "task_id": null,
     "timestamp": "2026-11-26T13:42:44.198128+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_VISUAL",
+    "migration_id": "0019_report_studio",
+    "task_id": null,
+    "timestamp": "2026-11-27T05:46:32.630727+00:00"
+  },
+  {
+    "after": "TABLE",
+    "before": null,
+    "change_type": "TABLE_CREATED",
+    "entity": "RECON_RPT_VISUAL_FIELD",
+    "migration_id": "0019_report_studio",
+    "task_id": null,
+    "timestamp": "2026-11-27T05:46:32.630727+00:00"
+  },
+  {
+    "after": "TEXT, nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_REPORT_RUN.QUERY_SPEC_JSON",
+    "migration_id": "0019_report_studio",
+    "task_id": null,
+    "timestamp": "2026-11-27T05:46:32.630727+00:00"
+  },
+  {
+    "after": "INTEGER, nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_REPORT_RUN.VISUAL_ID",
+    "migration_id": "0019_report_studio",
+    "task_id": null,
+    "timestamp": "2026-11-27T05:46:32.630727+00:00"
+  },
+  {
+    "after": "REPORT_ID->RECON_REPORT.ID; TEMPLATE_ID->RECON_REPORT_TEMPLATE.ID; VERSION_ID->RECON_RPT_TPL_VER.ID; VISUAL_ID->RECON_RPT_VISUAL.ID",
+    "before": "REPORT_ID->RECON_REPORT.ID; TEMPLATE_ID->RECON_REPORT_TEMPLATE.ID; VERSION_ID->RECON_RPT_TPL_VER.ID",
+    "change_type": "FK_CHANGED",
+    "entity": "RECON_REPORT_RUN",
+    "migration_id": "0019_report_studio",
+    "task_id": null,
+    "timestamp": "2026-11-27T05:46:32.630727+00:00"
+  },
+  {
+    "after": "INTEGER, nullable=True",
+    "before": null,
+    "change_type": "COLUMN_ADDED",
+    "entity": "RECON_RPT_TPL_VER.MODEL_VERSION_ID",
+    "migration_id": "0019_report_studio",
+    "task_id": null,
+    "timestamp": "2026-11-27T05:46:32.630727+00:00"
+  },
+  {
+    "after": "DATA_SOURCE_ID->RECON_DATA_SOURCE.ID; MODEL_VERSION_ID->RECON_RPT_MODEL_VER.ID; TEMPLATE_ID->RECON_REPORT_TEMPLATE.ID",
+    "before": "DATA_SOURCE_ID->RECON_DATA_SOURCE.ID; TEMPLATE_ID->RECON_REPORT_TEMPLATE.ID",
+    "change_type": "FK_CHANGED",
+    "entity": "RECON_RPT_TPL_VER",
+    "migration_id": "0019_report_studio",
+    "task_id": null,
+    "timestamp": "2026-11-27T05:46:32.630727+00:00"
   }
 ]

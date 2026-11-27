@@ -407,37 +407,14 @@ def test_validate_publish_diff_impact_and_reopen_draft(val_env) -> None:
     assert diff.ok
     assert any(c["change_type"] == "FIELD_HIDDEN_OR_REMOVED" for c in diff.data["breaking_changes"])
 
-    # Impact Analysis an toàn khi chưa có RECON_RPT_VISUAL (trước Task 109)
+    # Impact Analysis an toàn khi chưa có report nào dùng model
     imp = impact_analysis(owner, model_id, v2_id)
     assert imp.ok
     assert imp.data["reports"] == []
     assert len(imp.data["breaking_changes"]) >= 1
 
-    # Mô phỏng có bảng RECON_RPT_VISUAL + RECON_RPT_VISUAL_FIELD (như sau Task 109) -> trả dependency
+    # Ghi report + visual vào bảng thật (task 109 Bước 1) -> trả dependency
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                CREATE TABLE RECON_RPT_VISUAL (
-                    ID INTEGER PRIMARY KEY,
-                    VERSION_ID INTEGER NOT NULL,
-                    TITLE TEXT NOT NULL
-                )
-                """
-            )
-        )
-        conn.execute(
-            text(
-                """
-                CREATE TABLE RECON_RPT_VISUAL_FIELD (
-                    ID INTEGER PRIMARY KEY,
-                    VISUAL_ID INTEGER NOT NULL,
-                    FIELD_ID INTEGER,
-                    MEASURE_ID INTEGER
-                )
-                """
-            )
-        )
         conn.execute(
             text(
                 "INSERT INTO RECON_REPORT (CODE, NAME, OWNER, DEFAULT_FAVORITE, IS_VISIBLE, IS_ACTIVE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT, ROW_VERSION) "
@@ -455,24 +432,24 @@ def test_validate_publish_diff_impact_and_reopen_draft(val_env) -> None:
         tpl_id = conn.execute(text("SELECT ID FROM RECON_REPORT_TEMPLATE WHERE REPORT_ID=:rid"), {"rid": rpt_id}).scalar_one()
         conn.execute(
             text(
-                "INSERT INTO RECON_RPT_TPL_VER (TEMPLATE_ID, VERSION_NO, STATUS, TIMEOUT_SEC, PREVIEW_MAX_ROWS, EXPORT_MAX_ROWS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT, ROW_VERSION) "
-                "VALUES (:tid, 1, 'ACTIVE', 300, 100, 1000000, 'owner', '2026-11-26 00:00:00', 'owner', '2026-11-26 00:00:00', 1)"
+                "INSERT INTO RECON_RPT_TPL_VER (TEMPLATE_ID, VERSION_NO, STATUS, MODEL_VERSION_ID, TIMEOUT_SEC, PREVIEW_MAX_ROWS, EXPORT_MAX_ROWS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT, ROW_VERSION) "
+                "VALUES (:tid, 1, 'ACTIVE', :mvid, 300, 100, 1000000, 'owner', '2026-11-26 00:00:00', 'owner', '2026-11-26 00:00:00', 1)"
             ),
-            {"tid": tpl_id},
+            {"tid": tpl_id, "mvid": v1_id},
         )
         tver_id = conn.execute(text("SELECT ID FROM RECON_RPT_TPL_VER WHERE TEMPLATE_ID=:tid"), {"tid": tpl_id}).scalar_one()
-        # Gắn thêm cột MODEL_VERSION_ID như Task 109 sẽ tạo
-        conn.execute(text("ALTER TABLE RECON_RPT_TPL_VER ADD COLUMN MODEL_VERSION_ID INTEGER"))
         conn.execute(
-            text("UPDATE RECON_RPT_TPL_VER SET MODEL_VERSION_ID = :mvid WHERE ID = :tver"),
-            {"mvid": v1_id, "tver": tver_id},
-        )
-        conn.execute(
-            text("INSERT INTO RECON_RPT_VISUAL (ID, VERSION_ID, TITLE) VALUES (1, :tver, 'Bieu do doanh thu')"),
+            text(
+                "INSERT INTO RECON_RPT_VISUAL (ID, VERSION_ID, CODE, TITLE, VISUAL_TYPE, DISPLAY_ORDER, GRID_SPAN, HEIGHT_SIZE, CREATED_AT, UPDATED_AT, ROW_VERSION) "
+                "VALUES (1, :tver, 'V_REV', 'Bieu do doanh thu', 'BAR', 10, 12, 'M', '2026-11-26 00:00:00', '2026-11-26 00:00:00', 1)"
+            ),
             {"tver": tver_id},
         )
         conn.execute(
-            text("INSERT INTO RECON_RPT_VISUAL_FIELD (ID, VISUAL_ID, FIELD_ID, MEASURE_ID) VALUES (1, 1, :fid, NULL)"),
+            text(
+                "INSERT INTO RECON_RPT_VISUAL_FIELD (ID, VISUAL_ID, WELL_ROLE, FIELD_ID, MEASURE_ID, AGGREGATION, DISPLAY_ORDER) "
+                "VALUES (1, 1, 'Y', :fid, NULL, 'NONE', 10)"
+            ),
             {"fid": f_rev["id"]},
         )
 

@@ -937,6 +937,12 @@ recon_rpt_tpl_ver = Table(
         ForeignKey("RECON_DATA_SOURCE.ID"),
         nullable=True,
     ),
+    Column(
+        "MODEL_VERSION_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_RPT_MODEL_VER.ID", name="fk_recon_rpt_tpl_ver_model_ver"),
+        nullable=True,
+    ),
     Column("SOURCE_TYPE", String(20), nullable=True),
     Column("SQL_TEXT", Text, nullable=True),
     Column("SOURCE_OWNER", String(60), nullable=True),
@@ -958,7 +964,7 @@ recon_rpt_tpl_ver = Table(
         name="ck_recon_rpt_tpl_ver_status",
     ),
     CheckConstraint(
-        "SOURCE_TYPE IS NULL OR SOURCE_TYPE IN ('CUSTOM_SQL', 'VIEW', 'TABLE')",
+        "SOURCE_TYPE IS NULL OR SOURCE_TYPE IN ('CUSTOM_SQL', 'VIEW', 'TABLE', 'SEMANTIC_MODEL')",
         name="ck_recon_rpt_tpl_ver_source_type",
     ),
 )
@@ -1068,6 +1074,13 @@ recon_report_run = Table(
         ForeignKey("RECON_RPT_TPL_VER.ID"),
         nullable=False,
     ),
+    Column(
+        "VISUAL_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_RPT_VISUAL.ID", name="fk_recon_report_run_visual"),
+        nullable=True,
+    ),
+    Column("QUERY_SPEC_JSON", JsonText, nullable=True),
     Column("PARAMS_JSON", JsonText, nullable=False),
     Column("STATUS", String(30), nullable=False, default="QUEUED"),
     Column("ROW_COUNT", Integer, nullable=True),
@@ -1499,4 +1512,83 @@ recon_rpt_model_rls = Table(
     CheckConstraint("ADMIN_BYPASS IN ('Y', 'N')", name="ck_recon_rpt_model_rls_bypass"),
     CheckConstraint("IS_ACTIVE IN ('Y', 'N')", name="ck_recon_rpt_model_rls_active"),
     Index("ix_recon_rpt_model_rls_ver", "MODEL_VERSION_ID"),
+)
+
+# Report Studio (task 109): visual thuộc một phiên bản template báo cáo
+# (RECON_RPT_TPL_VER, SOURCE_TYPE='SEMANTIC_MODEL'); field/measure trong
+# visual trỏ sang RECON_RPT_MODEL_FIELD / RECON_RPT_MODEL_MEASURE của
+# MODEL_VERSION_ID mà version đó pin.
+recon_rpt_visual = Table(
+    "RECON_RPT_VISUAL",
+    metadata,
+    pk_id_column(),
+    Column(
+        "VERSION_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_RPT_TPL_VER.ID", name="fk_recon_rpt_visual_ver"),
+        nullable=False,
+    ),
+    Column("CODE", String(60), nullable=False),
+    Column("TITLE", String(200), nullable=False),
+    Column("VISUAL_TYPE", String(20), nullable=False),
+    Column("DISPLAY_ORDER", Integer, nullable=False, default=10),
+    Column("GRID_SPAN", Integer, nullable=False, default=12),
+    Column("HEIGHT_SIZE", String(10), nullable=False, default="M"),
+    Column("CONFIG_JSON", JsonText, nullable=True),
+    Column("CREATED_AT", DateTime, nullable=False),
+    Column("UPDATED_AT", DateTime, nullable=False),
+    Column("ROW_VERSION", Integer, nullable=False, default=1),
+    UniqueConstraint("VERSION_ID", "CODE", name="uq_recon_rpt_visual_ver_code"),
+    CheckConstraint(
+        "VISUAL_TYPE IN ('TABLE', 'MATRIX', 'KPI', 'BAR', 'LINE')",
+        name="ck_recon_rpt_visual_type",
+    ),
+    CheckConstraint("GRID_SPAN IN (3, 4, 6, 8, 12)", name="ck_recon_rpt_visual_grid_span"),
+    CheckConstraint("HEIGHT_SIZE IN ('S', 'M', 'L')", name="ck_recon_rpt_visual_height"),
+    Index("ix_recon_rpt_visual_ver", "VERSION_ID"),
+)
+
+recon_rpt_visual_field = Table(
+    "RECON_RPT_VISUAL_FIELD",
+    metadata,
+    pk_id_column(),
+    Column(
+        "VISUAL_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_RPT_VISUAL.ID", name="fk_recon_rpt_visual_field_visual", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("WELL_ROLE", String(20), nullable=False),
+    Column(
+        "FIELD_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_RPT_MODEL_FIELD.ID", name="fk_recon_rpt_visual_field_field"),
+        nullable=True,
+    ),
+    Column(
+        "MEASURE_ID",
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("RECON_RPT_MODEL_MEASURE.ID", name="fk_recon_rpt_visual_field_measure"),
+        nullable=True,
+    ),
+    Column("AGGREGATION", String(20), nullable=True),
+    Column("DATE_PART", String(20), nullable=True),
+    Column("ALIAS", String(128), nullable=True),
+    Column("LABEL_OVERRIDE", String(200), nullable=True),
+    Column("FORMAT_MASK", String(100), nullable=True),
+    Column("SORT_DIRECTION", String(10), nullable=True),
+    Column("DISPLAY_ORDER", Integer, nullable=False, default=10),
+    CheckConstraint(
+        "AGGREGATION IS NULL OR AGGREGATION IN ('NONE', 'SUM', 'AVG', 'MIN', 'MAX', 'COUNT', 'COUNT_DISTINCT')",
+        name="ck_recon_rpt_visual_field_agg",
+    ),
+    CheckConstraint(
+        "DATE_PART IS NULL OR DATE_PART IN ('DAY', 'MONTH', 'QUARTER', 'YEAR')",
+        name="ck_recon_rpt_visual_field_date_part",
+    ),
+    CheckConstraint(
+        "SORT_DIRECTION IS NULL OR SORT_DIRECTION IN ('ASC', 'DESC')",
+        name="ck_recon_rpt_visual_field_sort",
+    ),
+    Index("ix_recon_rpt_visual_field_vis", "VISUAL_ID"),
 )

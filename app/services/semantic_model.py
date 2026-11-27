@@ -2014,23 +2014,36 @@ def impact_analysis(ctx: Ctx, model_id: int, target_version_id: int | None = Non
                     and "RECON_RPT_VISUAL" in table_names
                     and "RECON_RPT_VISUAL_FIELD" in table_names
                 ):
+                    vis_cols = {
+                        c["name"].upper()
+                        for c in insp.get_columns("RECON_RPT_VISUAL")
+                    }
+                    code_select = (
+                        ", vis.CODE AS visual_code" if "CODE" in vis_cols else ""
+                    )
                     vis_rows = (
                         conn.execute(
                             text(
                                 f"""
                                 SELECT
                                     vis.ID AS visual_id,
-                                    vis.TITLE AS visual_title,
+                                    vis.TITLE AS visual_title{code_select},
                                     r.CODE AS report_code,
                                     r.NAME AS report_name,
                                     v.MODEL_VERSION_ID AS model_version_id,
                                     vf.FIELD_ID AS field_id,
-                                    vf.MEASURE_ID AS measure_id
+                                    vf.MEASURE_ID AS measure_id,
+                                    mt.ALIAS AS field_table_alias,
+                                    mf.FIELD_CODE AS field_code,
+                                    mm.CODE AS measure_code
                                 FROM RECON_RPT_VISUAL vis
                                 JOIN RECON_RPT_TPL_VER v ON v.ID = vis.VERSION_ID
                                 JOIN RECON_REPORT_TEMPLATE t ON t.ID = v.TEMPLATE_ID
                                 JOIN RECON_REPORT r ON r.ID = t.REPORT_ID
                                 LEFT JOIN RECON_RPT_VISUAL_FIELD vf ON vf.VISUAL_ID = vis.ID
+                                LEFT JOIN RECON_RPT_MODEL_FIELD mf ON mf.ID = vf.FIELD_ID
+                                LEFT JOIN RECON_RPT_MODEL_TABLE mt ON mt.ID = mf.TABLE_ID
+                                LEFT JOIN RECON_RPT_MODEL_MEASURE mm ON mm.ID = vf.MEASURE_ID
                                 WHERE v.MODEL_VERSION_ID IN ({placeholders})
                                   AND v.STATUS IN ('DRAFT', 'DRY_RUN_OK', 'ACTIVE')
                                 ORDER BY vis.ID
@@ -2041,26 +2054,78 @@ def impact_analysis(ctx: Ctx, model_id: int, target_version_id: int | None = Non
                         .mappings()
                         .all()
                     )
-                    affected_field_ids = {b["field_id"] for b in breaking_changes if "field_id" in b}
-                    affected_meas_ids = {b["measure_id"] for b in breaking_changes if "measure_id" in b}
+                    # Map breaking change theo (SOURCE_OBJECT, FIELD_CODE, CODE)
+                    # thay vì chỉ theo ID — ID field/measure đổi mỗi khi model
+                    # clone sang version mới (rủi ro ghi ở plan Bước 2).
+                    affected_field_ids = {
+                        int(b["field_id"])
+                        for b in breaking_changes
+                        if "field_id" in b
+                    }
+                    affected_field_keys: set[tuple[str, str]] = set()
+                    affected_meas_ids = {
+                        int(b["measure_id"])
+                        for b in breaking_changes
+                        if "measure_id" in b
+                    }
+                    affected_meas_codes: set[str] = set()
+                    affected_table_aliases: set[str] = set()
+                    for b in breaking_changes:
+                        ctype = str(b.get("change_type") or "")
+                        entity = str(b.get("entity") or "")
+                        if ctype in ("TABLE_REMOVED_OR_HIDDEN", "GRAIN_CHANGED"):
+                            affected_table_aliases.add(entity.upper())
+                        elif ctype.startswith("FIELD_") and "." in entity:
+                            alias, fcode = entity.split(".", 1)
+                            affected_field_keys.add((alias.upper(), fcode.upper()))
+                        elif ctype == "MEASURE_CHANGED":
+                            affected_meas_codes.add(entity.upper())
+
+                    def _row_affected(vr: Any) -> bool:
+                        if not breaking_changes:
+                            return True
+                        if vr["field_id"] is not None and int(vr["field_id"]) in affected_field_ids:
+                            return True
+                        if vr["field_table_alias"] is not None and vr["field_code"] is not None:
+                            if (
+                                str(vr["field_table_alias"]).upper(),
+                                str(vr["field_code"]).upper(),
+                            ) in affected_field_keys:
+                                return True
+                            if str(vr["field_table_alias"]).upper() in affected_table_aliases:
+                                return True
+                        if vr["measure_id"] is not None and int(vr["measure_id"]) in affected_meas_ids:
+                            return True
+                        if vr["measure_code"] is not None and str(vr["measure_code"]).upper() in affected_meas_codes:
+                            return True
+                        return False
+
                     seen_vis: set[int] = set()
+                    affected_report_codes: set[str] = set()
                     for vr in vis_rows:
                         vid_int = int(vr["visual_id"])
                         if vid_int in seen_vis:
                             continue
-                        if breaking_changes:
-                            if vr["field_id"] not in affected_field_ids and vr["measure_id"] not in affected_meas_ids:
-                                continue
+                        if not _row_affected(vr):
+                            continue
                         seen_vis.add(vid_int)
-                        visuals.append(
-                            {
-                                "visual_id": vid_int,
-                                "visual_title": vr["visual_title"],
-                                "report_code": vr["report_code"],
-                                "report_name": vr["report_name"],
-                                "model_version_id": vr["model_version_id"],
-                            }
-                        )
+                        affected_report_codes.add(str(vr["report_code"]))
+                        item: dict[str, Any] = {
+                            "visual_id": vid_int,
+                            "visual_title": vr["visual_title"],
+                            "report_code": vr["report_code"],
+                            "report_name": vr["report_name"],
+                            "model_version_id": vr["model_version_id"],
+                        }
+                        if "visual_code" in vr:
+                            item["code"] = vr["visual_code"]
+                        visuals.append(item)
+                    if breaking_changes:
+                        reports = [
+                            r
+                            for r in reports
+                            if str(r["report_code"]) in affected_report_codes
+                        ]
 
         return {
             "model_id": model_id,

@@ -77,12 +77,12 @@ def test_upgrade_creates_tables_and_seeds(v4_db: str, root: Path) -> None:
     engine = create_engine(v4_db)
     with engine.connect() as conn:
         assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU_GROUP")).scalar() == 3
-        assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 17  # task 66 (+1), task 78 (+1), task 98/0015 (+1), task 106/0018 (+1 report_model)
+        assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 18  # task 66 (+1), task 78 (+1), task 98/0015 (+1), task 106/0018 (+1 report_model), task 109/0019 (+1 report_studio)
         assert conn.execute(text("SELECT COUNT(*) FROM RECON_ROLE")).scalar() == 4
         admin = conn.execute(text("SELECT CODE, IS_SYSTEM FROM RECON_ROLE WHERE CODE='ADMIN'")).one()
         assert admin[1] == "Y"
         # ADMIN không có dòng ở RECON_ROLE_MENU
-        assert conn.execute(text("SELECT COUNT(*) FROM RECON_ROLE_MENU")).scalar() == (8 + 6 + 5 + 3 + 3 + 1)  # task 66: +3; task 78: +3; task 106: 0018 cấp report_model cho TEMPLATE_OWNER
+        assert conn.execute(text("SELECT COUNT(*) FROM RECON_ROLE_MENU")).scalar() == (8 + 6 + 5 + 3 + 3 + 1 + 1)  # task 66: +3; task 78: +3; task 106: 0018 cấp report_model cho TEMPLATE_OWNER; task 109: 0019 cấp report_studio cho TEMPLATE_OWNER
         # PERM_REVISION + MENU_SYNC_LOCK
         rev = conn.execute(text("SELECT VALUE FROM RECON_APP_SETTING WHERE KEY='PERM_REVISION'")).scalar()
         assert rev is not None and int(rev) >= 1
@@ -116,7 +116,7 @@ def test_upgrade_idempotent(v4_db: str, root: Path) -> None:
     engine = create_engine(v4_db)
     with engine.connect() as conn:
         assert conn.execute(text("SELECT COUNT(*) FROM RECON_ROLE")).scalar() == 4
-        assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 17  # task 66 (+1), task 78 (+1), task 98/0015 (+1), task 106/0018 (+1 report_model)
+        assert conn.execute(text("SELECT COUNT(*) FROM RECON_MENU")).scalar() == 18  # task 66 (+1), task 78 (+1), task 98/0015 (+1), task 106/0018 (+1 report_model), task 109/0019 (+1 report_studio)
     engine.dispose()
 
 

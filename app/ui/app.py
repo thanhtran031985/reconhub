@@ -155,6 +155,10 @@ def create_app() -> Dash:
     def _redirect_model_studio_edit(model_id: int) -> Any:
         return redirect(f"/report-models/{model_id}")
 
+    @flask_server.route("/report-studio/<int:report_id>/edit")  # type: ignore[untyped-decorator]
+    def _redirect_report_studio_edit(report_id: int) -> Any:
+        return redirect(f"/report-studio/{report_id}")
+
     dash_app.layout = dmc.MantineProvider(
         children=create_shell_layout(),
         theme=THEME,

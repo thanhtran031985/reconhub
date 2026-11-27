@@ -27,6 +27,7 @@ from app.db.metadata import (
 )
 from app.engine.sql_dialect import quote_identifier
 from app.schemas.errors import ErrorCode, ServiceError
+from app.schemas.semantic_query import QueryFilter
 from app.services import service
 from app.services.lookup import get_db_column_mappings
 from app.services.notification import notify_for_report_run
@@ -39,6 +40,10 @@ from app.services.report_source import (
     open_checked_connection,
 )
 from app.services.report_timeouts import get_report_timeouts
+
+# Lưu ý: KHÔNG import report_studio/semantic_query ở module-level —
+# semantic_query import _check_prod_admin/map_oracle_error từ module này
+# nên import trên sẽ tạo vòng. Các hàm semantic import lười trong hàm.
 
 
 def _now() -> datetime:
@@ -95,6 +100,7 @@ def load_version_detail(conn: Connection, version_id: int) -> dict[str, Any]:
         "template_id": int(row["TEMPLATE_ID"]),
         "status": str(row["STATUS"]),
         "data_source_id": row["DATA_SOURCE_ID"],
+        "model_version_id": row["MODEL_VERSION_ID"],
         "source_type": row["SOURCE_TYPE"],
         "sql_text": row["SQL_TEXT"],
         "source_owner": row["SOURCE_OWNER"],
@@ -154,6 +160,8 @@ def _run_dict(row: Any) -> dict[str, Any]:
         "category_code": mapping.get("category_code"),
         "template_id": int(row["TEMPLATE_ID"]),
         "version_id": int(row["VERSION_ID"]),
+        "visual_id": mapping.get("VISUAL_ID"),
+        "query_spec": dict(mapping["QUERY_SPEC_JSON"]) if isinstance(mapping.get("QUERY_SPEC_JSON"), dict) else {},
         "params": dict(params) if isinstance(params, dict) else {},
         "status": str(row["STATUS"]),
         "row_count": row["ROW_COUNT"],
@@ -423,8 +431,14 @@ def create_report_run(
     report_id: int,
     template_id: int | None = None,
     values: dict[str, Any] | None = None,
+    visual_id: int | None = None,
+    query_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Tạo REPORT_RUN QUEUED, snapshot ACTIVE version + params đã resolve (T25-01)."""
+    """Tạo REPORT_RUN QUEUED, snapshot ACTIVE version + params đã resolve (T25-01).
+
+    Báo cáo Studio (SEMANTIC_MODEL): bắt buộc visual_id (1 run = 1 visual);
+    query_spec mang filter bổ sung của lần chạy (vd từ thanh lọc preview).
+    """
     engine = get_recon_engine()
     admin = is_admin(ctx, engine)
     with engine.begin() as conn:
@@ -434,6 +448,31 @@ def create_report_run(
             select(recon_rpt_tpl_ver.c.DATA_SOURCE_ID).where(recon_rpt_tpl_ver.c.ID == version_id)
         ).scalar_one_or_none()
         _check_prod_admin(conn, ds_id, admin)
+        source_type = conn.execute(
+            select(recon_rpt_tpl_ver.c.SOURCE_TYPE).where(recon_rpt_tpl_ver.c.ID == version_id)
+        ).scalar_one_or_none()
+        source_type = str(source_type or "")
+        if source_type == "SEMANTIC_MODEL":
+            if visual_id is None:
+                raise ServiceError(
+                    ErrorCode.VALIDATION_ERROR,
+                    "Báo cáo Studio chạy theo từng visual; cần chọn visual để chạy.",
+                )
+            from app.services.report_studio import load_visual_by_id
+
+            visual = load_visual_by_id(conn, int(visual_id))
+            if int(visual["version_id"]) != int(version_id):
+                raise ServiceError(
+                    ErrorCode.NOT_FOUND,
+                    f"Visual #{visual_id} không thuộc phiên bản báo cáo này.",
+                )
+        elif visual_id is not None or query_spec is not None:
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                "visual_id/query_spec chỉ dùng cho báo cáo Studio (SEMANTIC_MODEL).",
+            )
+    if query_spec is not None:
+        _validate_query_spec(query_spec)
     resolved = _resolve_or_raise(ctx, version_id, values)
     with engine.begin() as conn:
         now = _now()
@@ -442,6 +481,8 @@ def create_report_run(
                 REPORT_ID=report_id,
                 TEMPLATE_ID=tpl_id,
                 VERSION_ID=version_id,
+                VISUAL_ID=visual_id,
+                QUERY_SPEC_JSON=dict(query_spec) if query_spec is not None else {},
                 PARAMS_JSON=resolved,
                 STATUS="QUEUED",
                 CREATED_BY=ctx.username,
@@ -459,10 +500,90 @@ def create_report_run(
                 "report_id": report_id,
                 "template_id": tpl_id,
                 "version_id": version_id,
+                "visual_id": visual_id,
             },
         )
         row = conn.execute(select(recon_report_run).where(recon_report_run.c.ID == run_id)).mappings().first()
         return _run_dict(row)
+
+
+def _validate_query_spec(query_spec: dict[str, Any]) -> None:
+    """Kiểm tra hình dạng query_spec trước khi lưu (filter phải đúng QueryFilter)."""
+    if not isinstance(query_spec, dict):
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "query_spec phải là dict.")
+    filters = query_spec.get("filters")
+    if filters is None:
+        return
+    if not isinstance(filters, list):
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "query_spec.filters phải là danh sách.")
+    for item in filters:
+        if not isinstance(item, dict):
+            raise ServiceError(ErrorCode.VALIDATION_ERROR, "Mỗi filter trong query_spec phải là dict.")
+        try:
+            QueryFilter(**item)
+        except Exception as exc:
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                f"Filter trong query_spec không hợp lệ: {exc}",
+            ) from exc
+
+
+def _execute_semantic_page(
+    ctx: Ctx,
+    run: Any,
+    detail: dict[str, Any],
+    resolved: dict[str, Any],
+    page: int,
+    page_size: int,
+    sorts: list[dict[str, Any]] | None,
+) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Chạy 1 trang của run Studio qua Query Planner 108.
+
+    Trả (total, rows, columns_meta [{name, label, data_type}]) — semantic
+    trả columns dạng meta (khác classic list[str]) để Viewer vẽ visual
+    đúng label/kiểu dữ liệu.
+    """
+    from app.services.report_studio import build_visual_run_intent
+    from app.services.semantic_query import execute_semantic_query_for_run
+
+    visual_id = run["VISUAL_ID"]
+    if visual_id is None:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Run báo cáo Studio thiếu visual_id.")
+    model_version_id = detail.get("model_version_id")
+    if model_version_id is None:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Version Studio thiếu MODEL_VERSION_ID.")
+    query_spec = dict(run["QUERY_SPEC_JSON"]) if isinstance(run["QUERY_SPEC_JSON"], dict) else {}
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        intent, pinned_id = build_visual_run_intent(
+            conn,
+            int(run["VERSION_ID"]),
+            int(visual_id),
+            resolved,
+            query_spec,
+            sorts=sorts,
+        )
+    if int(pinned_id) != int(model_version_id):
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR,
+            "MODEL_VERSION_ID của run không khớp version đã snapshot.",
+        )
+    result = execute_semantic_query_for_run(ctx, int(model_version_id), intent, page=page, page_size=page_size)
+    if not result.ok or not isinstance(result.data, dict):
+        raise ServiceError(
+            result.code or ErrorCode.INTERNAL_ERROR,
+            result.message or "Chạy semantic query lỗi.",
+        )
+    data = result.data
+    columns = [
+        {
+            "name": str(c["name"]),
+            "label": str(c.get("label") or c["name"]),
+            "data_type": str(c.get("data_type") or "STRING"),
+        }
+        for c in (data.get("columns") or [])
+    ]
+    return int(data.get("total") or 0), list(data.get("rows") or []), columns
 
 
 @service
@@ -491,7 +612,11 @@ def execute_report_run(ctx: Ctx, run_id: int, page: int = 1, page_size: int = 50
         conn.execute(recon_report_run.update().where(recon_report_run.c.ID == run_id).values(STATUS="RUNNING"))
     started = time.monotonic()
     try:
-        total, rows, col_names = _execute_count_page(detail, resolved, page, page_size, sorts=[])
+        col_names: list[Any] = []
+        if detail["source_type"] == "SEMANTIC_MODEL":
+            total, rows, col_names = _execute_semantic_page(ctx, run, detail, resolved, page, page_size, sorts=[])
+        else:
+            total, rows, col_names = _execute_count_page(detail, resolved, page, page_size, sorts=[])
     except ServiceError as exc:
         with engine.begin() as conn:
             conn.execute(
@@ -682,6 +807,16 @@ def get_report_page(
         detail = load_version_detail(conn, int(run["VERSION_ID"]))
         _check_prod_admin(conn, detail["data_source_id"], admin)
         resolved = dict(run["PARAMS_JSON"] or {})
+    if detail["source_type"] == "SEMANTIC_MODEL":
+        total, rows, columns_meta = _execute_semantic_page(ctx, run, detail, resolved, page, page_size, sorts)
+        return {
+            "run_id": run_id,
+            "total": total,
+            "rows": rows,
+            "columns": columns_meta,
+            "page": page,
+            "page_size": page_size,
+        }
     field_names = [c["field_name"] for c in detail["columns"]]
     valid_sorts = _validate_sorts(sorts, field_names)
     total, rows, col_names = _execute_count_page(detail, resolved, page, page_size, valid_sorts)
@@ -872,6 +1007,68 @@ def get_report_run(ctx: Ctx, run_id: int) -> dict[str, Any]:
         return _run_dict(row)
 
 
+def _get_semantic_run_sql(
+    ctx: Ctx,
+    run: Any,
+    detail: dict[str, Any],
+    resolved: dict[str, Any],
+) -> dict[str, Any]:
+    """SQL đã biên dịch của run Studio — chỉ ADMIN (get_run_sql đã chặn).
+
+    Chỉ trả TÊN bind (không lộ giá trị, theo get_semantic_sql_debug task
+    108) + RLS/tables/output columns; không có câu COUNT/phân trang riêng
+    vì planner đã nhúng LIMIT/OFFSET vào câu đã biên dịch.
+    """
+    from app.services.report_studio import build_visual_run_intent
+    from app.services.semantic_query import get_semantic_sql_debug
+
+    visual_id = run["VISUAL_ID"]
+    if visual_id is None:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Run báo cáo Studio thiếu visual_id.")
+    model_version_id = detail.get("model_version_id")
+    if model_version_id is None:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Version Studio thiếu MODEL_VERSION_ID.")
+    query_spec = dict(run["QUERY_SPEC_JSON"]) if isinstance(run["QUERY_SPEC_JSON"], dict) else {}
+    engine = get_recon_engine()
+    with engine.connect() as conn:
+        intent, pinned_id = build_visual_run_intent(
+            conn,
+            int(run["VERSION_ID"]),
+            int(visual_id),
+            resolved,
+            query_spec,
+        )
+    if int(pinned_id) != int(model_version_id):
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR,
+            "MODEL_VERSION_ID của run không khớp version đã snapshot.",
+        )
+    debug = get_semantic_sql_debug(ctx, intent)
+    if not debug.ok or not isinstance(debug.data, dict):
+        raise ServiceError(
+            debug.code or ErrorCode.INTERNAL_ERROR,
+            debug.message or "Không lấy được SQL debug.",
+        )
+    data = debug.data
+    warnings = list(data.get("warnings") or [])
+    return {
+        "run_id": int(run["ID"]),
+        "version_id": int(run["VERSION_ID"]),
+        "source_type": "SEMANTIC_MODEL",
+        "sql_text": str(data.get("sql") or ""),
+        "binds": {},
+        "bind_names": list(data.get("binds") or []),
+        "count_sql": "",
+        "paged_sql": "",
+        "null_guard_missing": [],
+        "warning": "; ".join(str(w) for w in warnings),
+        "rls_applied": bool(data.get("rls_applied")),
+        "tables_used": list(data.get("tables_used") or []),
+        "output_columns": list(data.get("output_columns") or []),
+        "dialect": str(data.get("dialect") or ""),
+    }
+
+
 def _format_bind_value(value: Any) -> Any:
     """Bind hiển thị ở tab SQL: datetime → chuỗi ISO, còn lại giữ nguyên."""
     if isinstance(value, datetime):
@@ -912,6 +1109,8 @@ def get_run_sql(ctx: Ctx, run_id: int) -> dict[str, Any]:
             )
             if ds_row is not None:
                 db_type = str(ds_row.get("DB_TYPE") or "ORACLE").upper()
+    if detail["source_type"] == "SEMANTIC_MODEL":
+        return _get_semantic_run_sql(ctx, run, detail, resolved)
     sql, raw_binds = build_run_query(detail, resolved)
     binds = {str(k): _format_bind_value(v) for k, v in _prepare_query_binds(detail, raw_binds).items()}
     order_by = stable_order_by(detail, [])

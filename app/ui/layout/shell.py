@@ -144,6 +144,21 @@ def build_breadcrumbs(pathname: str | None) -> list[dict[str, str]]:
                 {"label": "Model Studio"},
             ]
         )
+    elif pathname == "/report-studio":
+        items.extend(
+            [
+                {"label": "Cấu hình"},
+                {"label": "Report Studio"},
+            ]
+        )
+    elif pathname.startswith("/report-studio/"):
+        items.extend(
+            [
+                {"label": "Cấu hình"},
+                {"label": "Report Studio", "href": "/report-studio"},
+                {"label": "Thiết kế báo cáo"},
+            ]
+        )
     elif pathname == "/data-sources":
         items.extend(
             [

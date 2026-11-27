@@ -35,6 +35,7 @@ STATUS_MAP: dict[str, tuple[str, str, str]] = {
     "ACCEPTED": ("purple", "Đã chấp nhận lệch", "lucide:shield-check"),
     # Trạng thái template
     "DRAFT": ("off", "Bản nháp", "lucide:file-edit"),
+    "DRY_RUN_OK": ("info", "Đã kiểm tra", "lucide:shield-check"),
     "ARCHIVED": ("off", "Đã lưu trữ", "lucide:archive"),
     # Dữ liệu tạm
     "PURGED": ("off", "Đã xóa", "lucide:trash-2"),

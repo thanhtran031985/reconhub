@@ -25,7 +25,7 @@ from app.db.metadata import recon_report, recon_report_run, recon_rpt_export
 from app.schemas.errors import ErrorCode, ServiceError
 from app.services import service
 from app.services.notification import notify_for_export
-from app.services.perm import is_admin, requires_menu
+from app.services.perm import is_admin, load_ctx_for_username, requires_menu
 from app.services.report_run import (
     _prepare_query_binds,
     build_run_query,
@@ -36,6 +36,8 @@ from app.services.report_run import (
     stable_order_by,
 )
 from app.services.report_source import open_checked_connection
+from app.services.report_studio import build_visual_run_intent
+from app.services.semantic_query import open_semantic_export_stream
 
 MAX_RUNNING_PER_USER = 10  # Task 57: mặc định song song (setting
 # EXPORT_MAX_CONCURRENT, trang Cài đặt hệ thống) cũng là 10 — 1 con số
@@ -723,8 +725,55 @@ def execute_export(
     total_rows = int(run["ROW_COUNT"] or 0)
     try:
         _update_export_progress(eng, export_id, 5, "Đang chuẩn bị")
-        columns = [c for c in detail["columns"] if c["excel_visible"]]
-        fields = [c["field_name"] for c in columns]
+        batches: Iterator[tuple[list[str], list[dict[str, Any]]]]
+        if detail["source_type"] == "SEMANTIC_MODEL":
+            # Task 109 Bước 5: export theo visual — biên dịch lại intent
+            # bằng Ctx của CHỦ export (username/roles) để RLS V1 ép đúng
+            # người; worker không bao giờ biên dịch bằng ADMIN/system.
+            owner_ctx = load_ctx_for_username(eng, str(export["CREATED_BY"]))
+            if owner_ctx is None:
+                raise ServiceError(
+                    ErrorCode.NOT_FOUND,
+                    "Không tìm thấy chủ export (tài khoản đã xóa/vô hiệu).",
+                )
+            visual_id = run["VISUAL_ID"]
+            if visual_id is None:
+                raise ServiceError(
+                    ErrorCode.VALIDATION_ERROR,
+                    "Run báo cáo Studio thiếu visual_id.",
+                )
+            resolved = dict(run["PARAMS_JSON"] or {})
+            query_spec = dict(run["QUERY_SPEC_JSON"]) if isinstance(run["QUERY_SPEC_JSON"], dict) else {}
+            with eng.connect() as conn:
+                intent, model_version_id = build_visual_run_intent(
+                    conn, int(run["VERSION_ID"]), int(visual_id), resolved, query_spec
+                )
+            columns_meta, batch_iter = open_semantic_export_stream(
+                owner_ctx,
+                int(model_version_id),
+                intent,
+                batch_size=FETCH_BATCH_SIZE,
+                max_rows=int(detail["export_max_rows"]),
+                timeout_sec=int(detail["timeout_sec"]),
+            )
+            columns = [
+                {
+                    "field_name": str(c["name"]),
+                    "label": str(c.get("label") or c["name"]),
+                    "data_type": str(c.get("data_type") or "STRING"),
+                    "format_mask": None,
+                    "alignment": "",
+                    "width": None,
+                }
+                for c in columns_meta
+            ]
+            fields = [c["field_name"] for c in columns]
+            col_names = [str(c["field_name"]) for c in columns]
+            batches = ((col_names, batch) for batch in batch_iter)
+        else:
+            columns = [c for c in detail["columns"] if c["excel_visible"]]
+            fields = [c["field_name"] for c in columns]
+            batches = _iter_batches(detail, resolved)
         part = 1
         part_paths = [out_dir / f"part-{part:03d}.{ext}"]
         writer = _make_writer(fmt, part_paths[0], columns)
@@ -734,7 +783,7 @@ def execute_export(
         last_pct = 10
         _update_export_progress(eng, export_id, 10, "Đang truy vấn dữ liệu")
         try:
-            for _col_names, batch in _iter_batches(detail, resolved):
+            for _col_names, batch in batches:
                 batch_no += 1
                 # Task 58: checkpoint hủy mỗi batch (1 SELECT đơn theo
                 # khóa chính) — checkpoint cũ mỗi 10 batch (50.000 dòng)

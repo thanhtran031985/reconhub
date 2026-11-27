@@ -111,6 +111,7 @@ def _version_dict(row: Any) -> dict[str, Any]:
         "version_no": int(row["VERSION_NO"]),
         "status": str(row["STATUS"]),
         "data_source_id": row["DATA_SOURCE_ID"],
+        "model_version_id": row["MODEL_VERSION_ID"],
         "source_type": row["SOURCE_TYPE"],
         "sql_text": row["SQL_TEXT"],
         "source_owner": row["SOURCE_OWNER"],

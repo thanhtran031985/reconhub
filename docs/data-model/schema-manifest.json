@@ -1,7 +1,7 @@
 {
   "database": "sqlite",
   "generated": true,
-  "generated_at": "2026-11-26T13:42:44.097818+00:00",
+  "generated_at": "2026-11-27T05:46:32.592796+00:00",
   "generator": "schema-introspect",
   "schema": "main",
   "tables": [
@@ -4031,6 +4031,24 @@
         },
         {
           "default": null,
+          "foreign_key": "RECON_RPT_VISUAL.ID",
+          "name": "VISUAL_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "QUERY_SPEC_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
           "foreign_key": null,
           "name": "PARAMS_JSON",
           "nullable": false,
@@ -4135,6 +4153,13 @@
           "on_delete": null,
           "references_column": "ID",
           "references_table": "RECON_RPT_TPL_VER"
+        },
+        {
+          "column": "VISUAL_ID",
+          "constraint_name": "fk_recon_report_run_visual",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_RPT_VISUAL"
         }
       ],
       "indexes": [],
@@ -6847,6 +6872,15 @@
         },
         {
           "default": null,
+          "foreign_key": "RECON_RPT_MODEL_VER.ID",
+          "name": "MODEL_VERSION_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
           "foreign_key": null,
           "name": "SOURCE_TYPE",
           "nullable": true,
@@ -6993,6 +7027,13 @@
           "references_table": "RECON_DATA_SOURCE"
         },
         {
+          "column": "MODEL_VERSION_ID",
+          "constraint_name": "fk_recon_rpt_tpl_ver_model_ver",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_RPT_MODEL_VER"
+        },
+        {
           "column": "TEMPLATE_ID",
           "constraint_name": "fk_RECON_RPT_TPL_VER_TEMPLATE_ID_RECON_REPORT_TEMPLATE",
           "on_delete": null,
@@ -7018,6 +7059,312 @@
           "name": "uq_recon_rpt_tpl_ver_template_version"
         }
       ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_RPT_TPL_VER.ID",
+          "name": "VERSION_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CODE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(60)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "TITLE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "VISUAL_TYPE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": "10",
+          "foreign_key": null,
+          "name": "DISPLAY_ORDER",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "12",
+          "foreign_key": null,
+          "name": "GRID_SPAN",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": "M",
+          "foreign_key": null,
+          "name": "HEIGHT_SIZE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(10)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CONFIG_JSON",
+          "nullable": true,
+          "primary_key": false,
+          "type": "TEXT",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "CREATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "UPDATED_AT",
+          "nullable": false,
+          "primary_key": false,
+          "type": "DATETIME",
+          "unique": false
+        },
+        {
+          "default": "1",
+          "foreign_key": null,
+          "name": "ROW_VERSION",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Biểu đồ/bảng trong báo cáo Report Studio",
+      "domain": "report",
+      "domain_label": "Báo cáo",
+      "foreign_keys": [
+        {
+          "column": "VERSION_ID",
+          "constraint_name": "fk_recon_rpt_visual_ver",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_RPT_TPL_VER"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "VERSION_ID"
+          ],
+          "name": "ix_recon_rpt_visual_ver",
+          "unique": false
+        }
+      ],
+      "name": "RECON_RPT_VISUAL",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0019_report_studio",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": [
+        {
+          "columns": [
+            "VERSION_ID",
+            "CODE"
+          ],
+          "name": "uq_recon_rpt_visual_ver_code"
+        }
+      ]
+    },
+    {
+      "columns": [
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ID",
+          "nullable": false,
+          "primary_key": true,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_RPT_VISUAL.ID",
+          "name": "VISUAL_ID",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "WELL_ROLE",
+          "nullable": false,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_RPT_MODEL_FIELD.ID",
+          "name": "FIELD_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": "RECON_RPT_MODEL_MEASURE.ID",
+          "name": "MEASURE_ID",
+          "nullable": true,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "AGGREGATION",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "DATE_PART",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(20)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "ALIAS",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(128)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "LABEL_OVERRIDE",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(200)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "FORMAT_MASK",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(100)",
+          "unique": false
+        },
+        {
+          "default": null,
+          "foreign_key": null,
+          "name": "SORT_DIRECTION",
+          "nullable": true,
+          "primary_key": false,
+          "type": "VARCHAR(10)",
+          "unique": false
+        },
+        {
+          "default": "10",
+          "foreign_key": null,
+          "name": "DISPLAY_ORDER",
+          "nullable": false,
+          "primary_key": false,
+          "type": "INTEGER",
+          "unique": false
+        }
+      ],
+      "description": "Trường/chỉ số gắn vào Data Well của visual",
+      "domain": "report",
+      "domain_label": "Báo cáo",
+      "foreign_keys": [
+        {
+          "column": "FIELD_ID",
+          "constraint_name": "fk_recon_rpt_visual_field_field",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_RPT_MODEL_FIELD"
+        },
+        {
+          "column": "MEASURE_ID",
+          "constraint_name": "fk_recon_rpt_visual_field_measure",
+          "on_delete": null,
+          "references_column": "ID",
+          "references_table": "RECON_RPT_MODEL_MEASURE"
+        },
+        {
+          "column": "VISUAL_ID",
+          "constraint_name": "fk_recon_rpt_visual_field_visual",
+          "on_delete": "CASCADE",
+          "references_column": "ID",
+          "references_table": "RECON_RPT_VISUAL"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": [
+            "VISUAL_ID"
+          ],
+          "name": "ix_recon_rpt_visual_field_vis",
+          "unique": false
+        }
+      ],
+      "name": "RECON_RPT_VISUAL_FIELD",
+      "primary_key": [
+        "ID"
+      ],
+      "source": {
+        "migration": "0019_report_studio",
+        "model": "app/db/metadata.py"
+      },
+      "unique_constraints": []
     },
     {
       "columns": [
@@ -8517,6 +8864,6 @@
       "unique_constraints": []
     }
   ],
-  "version": "0018_semantic_model",
+  "version": "0019_report_studio",
   "warnings": []
 }

@@ -108,6 +108,7 @@ class TestEffectiveMenus:
             "report_center",
             "report_history",
             "report_model",
+            "report_studio",
             "queue_health",
             "notifications",
         }

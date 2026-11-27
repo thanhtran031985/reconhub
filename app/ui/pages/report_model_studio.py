@@ -188,18 +188,22 @@ def render_studio_header(
         style={"minWidth": 0, "flexWrap": "wrap"},
     )
 
+    # Task 109: Report Studio đã có — nút mở /report-studio (trước đây
+    # disabled với tooltip "Khả dụng ở Task 109").
     report_studio_btn = dmc.Tooltip(
-        label="Khả dụng ở Task 109 (Report Studio)",
+        label="Mở Report Studio",
         withArrow=True,
-        children=dmc.Button(
-            "Report Studio",
-            id="rms-open-report-studio-btn",
-            size="xs",
-            radius="xl",
-            variant="outline",
-            disabled=True,
-            leftSection=DashIconify(icon="lucide:bar-chart-3", width=14),
-            **{"aria-label": "Mở Report Studio (Khả dụng ở Task 109)"},
+        children=dcc.Link(
+            dmc.Button(
+                "Report Studio",
+                id="rms-open-report-studio-btn",
+                size="xs",
+                radius="xl",
+                variant="outline",
+                leftSection=DashIconify(icon="lucide:bar-chart-3", width=14),
+                **{"aria-label": "Mở Report Studio"},
+            ),
+            href="/report-studio",
         ),
     )
 

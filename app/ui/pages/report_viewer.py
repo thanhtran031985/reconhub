@@ -27,6 +27,7 @@ from app.services.report_run import (
     get_report_run,
     get_run_sql,
 )
+from app.services.report_studio import list_version_visuals
 from app.services.report_template import get_version, list_templates
 from app.ui.components.alert_box import alert_box
 from app.ui.components.button import button_subtle
@@ -41,6 +42,7 @@ from app.ui.components.report_widgets import (
     render_result_grid,
     render_result_table,
 )
+from app.ui.components.semantic_visuals import render_semantic_visual
 
 __all__ = [
     "_format_cell",
@@ -164,6 +166,10 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
     # Task 40: tab SQL thực hiện chỉ ADMIN thấy (chặn ở server lúc dựng
     # layout, không chỉ ẩn bằng CSS).
     show_sql = is_admin(ctx)
+    # Task 109 Bước 5: báo cáo Studio (SEMANTIC_MODEL) xem đa visual +
+    # xuất từng visual; nút Xuất Excel cả báo cáo của luồng cổ điển bị ẩn
+    # (không xóa khỏi layout để clientside callback vẫn hợp lệ).
+    is_semantic = str(version_detail.get("source_type") or "") == "SEMANTIC_MODEL"
     result_tabs_list: list[Any] = [dmc.TabsTab("Kết quả", value="result")]
     result_panels: list[Any] = [
         dmc.TabsPanel(
@@ -234,6 +240,7 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
             dcc.Store(id="viewer-page-store", data=1),
             dcc.Store(id="viewer-sort-store", data=[]),
             dcc.Store(id="viewer-export-store", data={}),
+            dcc.Store(id="viewer-dark-mode-store", data=False),
             dcc.Download(id="viewer-download"),
             page_header(
                 title=str(report["name"]),
@@ -305,35 +312,41 @@ def layout(report_id: str | int | None = 1, **kwargs: Any) -> Any:
                                 ],
                                 gap=0,
                             ),
-                            dmc.Group(
+                            html.Div(
                                 [
-                                    dmc.SegmentedControl(
-                                        id="viewer-page-size",
-                                        data=PAGE_SIZE_OPTIONS,
-                                        value="50",
-                                        size="xs",
-                                        radius="xl",
-                                        **{"aria-label": "Số dòng mỗi trang"},
-                                    ),
-                                    # Task 70: chế độ xuất dạng Switch thay cho
-                                    # Select — tắt = Xuất ngay (mặc định như cũ),
-                                    # bật = Chạy ngầm (mẫu switch task 67).
-                                    dmc.Switch(
-                                        id="viewer-export-mode",
-                                        label="Chạy ngầm",
-                                        checked=False,
-                                        size="xs",
-                                        styles={"label": {"fontSize": "11px", "cursor": "pointer"}},
-                                        **{"aria-label": "Chế độ xuất Excel"},
-                                    ),
-                                    dmc.Button(
-                                        "Xuất Excel",
-                                        id="viewer-export-btn",
-                                        variant="filled",
-                                        size="xs",
-                                    ),
+                                    dmc.Group(
+                                        [
+                                            dmc.SegmentedControl(
+                                                id="viewer-page-size",
+                                                data=PAGE_SIZE_OPTIONS,
+                                                value="50",
+                                                size="xs",
+                                                radius="xl",
+                                                **{"aria-label": "Số dòng mỗi trang"},
+                                            ),
+                                            # Task 70: chế độ xuất dạng Switch thay cho
+                                            # Select — tắt = Xuất ngay (mặc định như cũ),
+                                            # bật = Chạy ngầm (mẫu switch task 67).
+                                            dmc.Switch(
+                                                id="viewer-export-mode",
+                                                label="Chạy ngầm",
+                                                checked=False,
+                                                size="xs",
+                                                styles={"label": {"fontSize": "11px", "cursor": "pointer"}},
+                                                **{"aria-label": "Chế độ xuất Excel"},
+                                            ),
+                                            dmc.Button(
+                                                "Xuất Excel",
+                                                id="viewer-export-btn",
+                                                variant="filled",
+                                                size="xs",
+                                            ),
+                                        ],
+                                        gap="xs",
+                                    )
                                 ],
-                                gap="xs",
+                                id="viewer-export-controls",
+                                style={"display": "none"} if is_semantic else {},
                             ),
                         ],
                         justify="space-between",
@@ -418,6 +431,71 @@ clientside_callback(
 )
 
 
+def _run_semantic_report(
+    ctx: Any,
+    report_id: int,
+    template_id: int,
+    version_id: int,
+    values: dict[str, Any],
+) -> tuple[dict[str, Any], int, Any, bool]:
+    """Chạy báo cáo Studio: 1 run cho mỗi visual của version ACTIVE.
+
+    Trả (run_store, page, error, loading) khớp handle_run_click. Visual
+    lỗi không chặn visual khác — visual đó hiện trạng thái lỗi trên lưới.
+    """
+    visuals_res = list_version_visuals(ctx, version_id)
+    if not visuals_res.ok or not isinstance(visuals_res.data, list):
+        return {}, 1, notify_error(visuals_res.message or "Không tải được danh sách visual."), False
+    visuals = visuals_res.data
+    if not visuals:
+        return {}, 1, notify_error("Báo cáo chưa có visual nào."), False
+    runs: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for vis in visuals:
+        code = str(vis.get("code") or "")
+        created = create_report_run(
+            ctx, report_id, template_id=template_id, values=values, visual_id=int(vis["id"])
+        )
+        if not created.ok or not isinstance(created.data, dict):
+            errors.append(f"{code}: {created.message}")
+            continue
+        run_id = int(created.data["id"])
+        executed = execute_report_run(ctx, run_id)
+        if not executed.ok or not isinstance(executed.data, dict):
+            errors.append(f"{code}: {executed.message}")
+            continue
+        run = executed.data.get("run") or {}
+        entry: dict[str, Any] = {
+            "visual_id": int(vis["id"]),
+            "visual_code": code,
+            "visual_type": str(vis.get("visual_type") or "TABLE"),
+            "title": str(vis.get("title") or code),
+            "grid_span": int(vis.get("grid_span") or 12),
+            "height_size": str(vis.get("height_size") or "M"),
+            "run_id": run_id,
+            "status": str(run.get("status") or "FAILED"),
+            "error": run.get("error_message") or "",
+            "total": int(executed.data.get("total") or 0),
+            "columns": executed.data.get("columns") or [],
+            "rows": executed.data.get("rows") or [],
+        }
+        runs.append(entry)
+        if entry["status"] != "DONE":
+            errors.append(f"{code}: {entry['error'] or 'chạy lỗi'}")
+    if not runs:
+        return {}, 1, notify_error("Chạy báo cáo lỗi: " + "; ".join(errors)), False
+    store = {
+        "semantic": True,
+        "report_id": report_id,
+        "template_id": template_id,
+        "version_id": version_id,
+        "values": values,
+        "runs": runs,
+    }
+    error = notify_error("Một số visual chạy lỗi: " + "; ".join(errors)) if errors else ""
+    return store, 1, error, False
+
+
 @callback(
     Output("viewer-run-store", "data"),
     Output("viewer-page-store", "data"),
@@ -428,6 +506,7 @@ clientside_callback(
     State("viewer-tabs", "value"),
     State({"type": "viewer-param", "index": dash.ALL}, "value"),
     State({"type": "viewer-param", "index": dash.ALL}, "id"),
+    State("viewer-version-store", "data"),
     prevent_initial_call=True,
 )
 def handle_run_click(
@@ -436,12 +515,13 @@ def handle_run_click(
     template_id: str | None,
     param_values: list[Any] | None,
     param_ids: list[dict[str, Any]] | None,
+    version_store: dict[str, Any] | None,
     page_size: int = 50,
 ) -> tuple[dict[str, Any], int, Any, bool]:
     """Tạo + chạy run đồng bộ (task 25 Q2); render do handle_result_render.
 
     run-store mang sẵn total/total_pages (từ execute) để đồng bộ pagination
-    mà không cần truy vấn thêm.
+    mà không cần truy vấn thêm. Báo cáo Studio chạy 1 run cho mỗi visual.
     """
     if not n_clicks:
         raise PreventUpdate
@@ -450,6 +530,8 @@ def handle_run_click(
         raise PreventUpdate
     report_id = int(report["id"]) if isinstance(report, dict) else int(report)
     values = _values_from_inputs(param_values, param_ids)
+    if isinstance(version_store, dict) and str(version_store.get("source_type") or "") == "SEMANTIC_MODEL":
+        return _run_semantic_report(ctx, report_id, int(template_id), int(version_store.get("id") or 0), values)
     created = create_report_run(ctx, report_id, template_id=int(template_id), values=values)
     if not created.ok or not isinstance(created.data, dict):
         return {}, 1, notify_error(created.message or "Không tạo được run."), False
@@ -592,6 +674,8 @@ def handle_page_change(page_no: int | None, run_store: dict[str, Any] | None) ->
     """Chuyển trang kết quả (server-side, T27-06)."""
     if not page_no or not run_store or not run_store.get("run_id"):
         raise PreventUpdate
+    if run_store.get("semantic"):
+        raise PreventUpdate
     return int(page_no)
 
 
@@ -628,12 +712,103 @@ def handle_grid_sort_change(
     return new_sorts, 1
 
 
+def _render_semantic_results(run_store: dict[str, Any] | None, dark_mode: bool | None) -> tuple[Any, str]:
+    """Lưới 12 cột đa visual cho báo cáo Studio + nút xuất từng visual."""
+    runs = (run_store or {}).get("runs") or []
+    if not runs:
+        return (
+            empty_state(
+                "Nhập tham số và bấm Xem báo cáo.",
+                "Mỗi visual chạy 1 lần và hiển thị trên lưới 12 cột.",
+            ),
+            "Chưa chạy",
+        )
+    cards: list[Any] = []
+    for entry in runs:
+        code = str(entry.get("visual_code") or "")
+        visual = {
+            "code": code,
+            "visual_type": str(entry.get("visual_type") or "TABLE"),
+            "title": str(entry.get("title") or code),
+            "grid_span": int(entry.get("grid_span") or 12),
+            "height_size": str(entry.get("height_size") or "M"),
+        }
+        if str(entry.get("status") or "") != "DONE":
+            body: Any = alert_box(
+                f"Visual {code} chạy lỗi.",
+                str(entry.get("error") or "Không rõ nguyên nhân."),
+                tone="crit",
+            )
+            export_row: Any = None
+            total_text = "Lỗi"
+        else:
+            rows = entry.get("rows") or []
+            total = int(entry.get("total") or 0)
+            preview = {
+                "columns": entry.get("columns") or [],
+                "rows": rows,
+                "row_count": len(rows),
+                "truncated": total > len(rows),
+                "warning_message": None,
+            }
+            body = render_semantic_visual(
+                visual,
+                preview,
+                state="data" if rows else "empty",
+                dark_mode=bool(dark_mode),
+            )
+            export_row = dmc.Group(
+                [
+                    dmc.Button(
+                        "Xuất XLSX",
+                        id={"type": "viewer-visual-export", "code": code, "format": "XLSX"},
+                        variant="outline",
+                        size="xs",
+                        **{"data-visual-code": code, "data-export-format": "XLSX"},
+                    ),
+                    dmc.Button(
+                        "Xuất CSV",
+                        id={"type": "viewer-visual-export", "code": code, "format": "CSV"},
+                        variant="outline",
+                        size="xs",
+                        **{"data-visual-code": code, "data-export-format": "CSV"},
+                    ),
+                ],
+                gap="xs",
+                mt="xs",
+            )
+            total_text = f"{total} dòng" + (" (hiển thị 50 dòng đầu)" if total > len(rows) else "")
+        cards.append(
+            dmc.GridCol(
+                dmc.Paper(
+                    [
+                        dmc.Group(
+                            [
+                                dmc.Text(str(entry.get("title") or code), fw=600, size="sm"),
+                                dmc.Text(total_text, c="dimmed", size="xs"),
+                            ],
+                            justify="space-between",
+                        ),
+                        body,
+                        export_row,
+                    ],
+                    withBorder=True,
+                    radius="sm",
+                    p="xs",
+                ),
+                span=int(entry.get("grid_span") or 12),
+            )
+        )
+    return dmc.Grid(cards, gutter="sm"), f"{len(runs)} visual"
+
+
 @callback(
     Output("viewer-result-container", "children"),
     Output("viewer-result-count", "children"),
     Input("viewer-run-store", "data"),
     Input("viewer-page-store", "data"),
     Input("viewer-sort-store", "data"),
+    Input("viewer-dark-mode-store", "data"),
     State("viewer-page-size", "value"),
     State("viewer-result-container", "children"),
 )
@@ -641,6 +816,7 @@ def handle_result_render(
     run_store: dict[str, Any] | None,
     page_no: int | None,
     sorts: list[dict[str, str]] | None,
+    dark_mode: bool | None,
     page_size: int | None,
     prev_children: Any = None,
 ) -> tuple[Any, str]:
@@ -656,6 +832,8 @@ def handle_result_render(
     lookups.py — nút Thử lại không phải Input của callback).
     """
     if not run_store or not run_store.get("run_id"):
+        if run_store and run_store.get("semantic"):
+            return _render_semantic_results(run_store, dark_mode)
         return (
             empty_state(
                 "Nhập tham số và bấm Xem báo cáo.",
@@ -710,7 +888,10 @@ def handle_pagination_sync(
     """Đồng bộ Pagination từ run-store (total có sẵn, không query).
 
     Nút Xuất Excel luôn mở (task 39) nên không còn điều khiển disabled ở đây.
+    Báo cáo Studio hiển thị 50 dòng đầu mỗi visual, không phân trang chung.
     """
+    if run_store and run_store.get("semantic"):
+        return 1, 1
     if not run_store or not run_store.get("run_id"):
         return 1, 1
     total = int(run_store.get("total") or 0)
@@ -753,13 +934,28 @@ def handle_location_run(href: str | None, run_store: dict[str, Any] | None) -> t
     res = get_report_run(ctx, run_id)
     if not res.ok or not isinstance(res.data, dict):
         raise PreventUpdate
-    total = int(res.data.get("row_count") or 0)
+    data = res.data
+    # Task 109 Bước 5: run Studio mở lại bằng tham số snapshot của nó và
+    # chạy mới từng visual (dữ liệu hiện tại; snapshot là version + params).
+    version_res = get_version(ctx, int(data["version_id"]))
+    if version_res.ok and isinstance(version_res.data, dict):
+        if str(version_res.data.get("source_type") or "") == "SEMANTIC_MODEL":
+            values = dict(data.get("params") or {})
+            store, _page, _err, _loading = _run_semantic_report(
+                ctx,
+                int(data["report_id"]),
+                int(data["template_id"]),
+                int(data["version_id"]),
+                values,
+            )
+            return store, 1
+    total = int(data.get("row_count") or 0)
     return (
         {
             "run_id": run_id,
-            "template_id": int(res.data["template_id"]),
-            "report_id": int(res.data["report_id"]),
-            "version_id": int(res.data["version_id"]),
+            "template_id": int(data["template_id"]),
+            "report_id": int(data["report_id"]),
+            "version_id": int(data["version_id"]),
             "total": total,
             "total_pages": _total_pages(total, 50),
         },
@@ -847,10 +1043,10 @@ def _queued_run_id_from_export_store(
 
 
 @callback(
-    Output("viewer-export-store", "data"),
-    Output("viewer-export-status", "children"),
-    Output("viewer-export-poll", "disabled"),
-    Output("viewer-download", "data"),
+    Output("viewer-export-store", "data", allow_duplicate=True),
+    Output("viewer-export-status", "children", allow_duplicate=True),
+    Output("viewer-export-poll", "disabled", allow_duplicate=True),
+    Output("viewer-download", "data", allow_duplicate=True),
     Output("viewer-run-store", "data", allow_duplicate=True),
     Output("viewer-page-store", "data", allow_duplicate=True),
     Output("viewer-export-btn", "loading"),
@@ -863,6 +1059,7 @@ def _queued_run_id_from_export_store(
     State("viewer-page-store", "data"),
     State("viewer-export-mode", "checked"),
     State("viewer-export-store", "data"),
+    State("viewer-version-store", "data"),
     prevent_initial_call=True,
 )
 def handle_export_click(
@@ -875,6 +1072,7 @@ def handle_export_click(
     page_no: int | None,
     run_bg: bool | None = False,
     export_store: dict[str, Any] | None = None,
+    version_store: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], Any, bool, Any, dict[str, Any], int, bool]:
     """Xuất Excel theo điều kiện tìm kiếm hiện tại (không cần xem trước).
 
@@ -901,6 +1099,16 @@ def handle_export_click(
     values = _values_from_inputs(param_values, param_ids)
     current = dict(run_store or {})
     page = int(page_no or 1)
+    if isinstance(version_store, dict) and str(version_store.get("source_type") or "") == "SEMANTIC_MODEL":
+        return (
+            {},
+            notify_error("Báo cáo Studio xuất theo từng visual ở từng thẻ kết quả."),
+            True,
+            dash.no_update,
+            current,
+            page,
+            False,
+        )
     run_id = current.get("run_id")
     if not run_id or current.get("values") != values:
         if (mode or "now") == "background":
@@ -1003,6 +1211,90 @@ def handle_export_click(
 
 
 @callback(
+    Output("viewer-export-store", "data", allow_duplicate=True),
+    Output("viewer-export-status", "children", allow_duplicate=True),
+    Output("viewer-export-poll", "disabled", allow_duplicate=True),
+    Output("viewer-download", "data", allow_duplicate=True),
+    Input({"type": "viewer-visual-export", "code": dash.ALL, "format": dash.ALL}, "n_clicks"),
+    State("viewer-run-store", "data"),
+    State("viewer-report-store", "data"),
+    State("viewer-tabs", "value"),
+    prevent_initial_call=True,
+)
+def handle_visual_export_click(
+    clicks: list[int | None] | None,
+    run_store: dict[str, Any] | None,
+    report: dict[str, Any] | int | None,
+    template_id: str | None,
+) -> tuple[dict[str, Any], Any, bool, Any]:
+    """Xuất XLSX/CSV của 1 visual (task 109 Bước 5): 1 run + 1 export/visual.
+
+    Visual chưa có run DONE thì chạy mới rồi xuất (luôn qua worker để
+    dùng chung poll + tự tải như nút Xuất Excel cổ điển).
+    """
+    trig = dash.callback_context.triggered_id
+    if not isinstance(trig, dict) or not any(clicks or []):
+        raise PreventUpdate
+    ctx = get_current_ctx()
+    if ctx is None or not report or not template_id:
+        raise PreventUpdate
+    if not run_store or not run_store.get("semantic"):
+        raise PreventUpdate
+    code = str(trig.get("code") or "")
+    fmt = str(trig.get("format") or "XLSX").upper()
+    if fmt not in ("XLSX", "CSV"):
+        raise PreventUpdate
+    entry = next(
+        (r for r in (run_store.get("runs") or []) if str(r.get("visual_code")) == code),
+        None,
+    )
+    if entry is None:
+        raise PreventUpdate
+    report_id = int(report["id"]) if isinstance(report, dict) else int(report)
+    values = dict(run_store.get("values") or {})
+    run_id = entry.get("run_id")
+    if not run_id or str(entry.get("status") or "") != "DONE":
+        created = create_report_run(
+            ctx,
+            report_id,
+            template_id=int(template_id),
+            values=values,
+            visual_id=int(entry.get("visual_id") or 0),
+        )
+        if not created.ok or not isinstance(created.data, dict):
+            return {}, notify_error(created.message or "Không tạo được run."), True, dash.no_update
+        run_id = int(created.data["id"])
+        executed = execute_report_run(ctx, run_id)
+        if not executed.ok or not isinstance(executed.data, dict):
+            return {}, notify_error(executed.message or "Chạy báo cáo lỗi."), True, dash.no_update
+        run = executed.data.get("run") or {}
+        if run.get("status") != "DONE":
+            detail = run.get("error_message") or "Run lỗi, chưa rõ nguyên nhân."
+            return {}, notify_error(f"Chạy báo cáo lỗi: {detail}"), True, dash.no_update
+    res = request_export(ctx, int(run_id), fmt)
+    if not res.ok or not isinstance(res.data, dict):
+        return {}, notify_error(res.message or "Không tạo được export."), True, dash.no_update
+    export = res.data
+    if export["status"] == "DONE":
+        download, status = _auto_download(ctx, int(export["id"]))
+        return (
+            {"export_id": export["id"], "visual_code": code},
+            status,
+            True,
+            download,
+        )
+    return (
+        {"export_id": export["id"], "visual_code": code},
+        _export_progress(
+            int(export.get("progress_pct") or 0),
+            str(export.get("progress_step") or "Đã đưa vào hàng đợi export…"),
+        ),
+        False,
+        dash.no_update,
+    )
+
+
+@callback(
     Output("viewer-export-status", "children", allow_duplicate=True),
     Output("viewer-export-poll", "disabled", allow_duplicate=True),
     Output("viewer-download", "data", allow_duplicate=True),
@@ -1040,6 +1332,20 @@ def handle_export_poll(_n: int | None, export_store: dict[str, Any] | None) -> t
     )
 
 
+def _render_sql_field(label: str, text: str) -> Any:
+    """Một mục trong tab SQL thực hiện: tiêu đề + khối mono (theo mẫu
+    nhánh cổ điển của handle_sql_tab_render)."""
+    return html.Div(
+        [
+            dmc.Title(label, order=5, size="sm", mt="sm"),
+            html.Pre(
+                text,
+                style={"fontFamily": "monospace", "fontSize": "12px", "whiteSpace": "pre-wrap", "marginTop": "4px"},
+            ),
+        ]
+    )
+
+
 @callback(
     Output("viewer-sql-container", "children"),
     Input("viewer-run-store", "data"),
@@ -1050,14 +1356,63 @@ def handle_sql_tab_render(run_store: dict[str, Any] | None) -> Any:
 
     Tab chỉ xuất hiện trong layout khi ADMIN nên đường thường không tới
     đây; callback vẫn chặn lại để không rò rỉ SQL qua store.
+
+    Báo cáo Studio: 1 mục cho mỗi visual (SQL đã biên dịch + tên bind +
+    RLS/tables — không lộ giá trị bind).
     """
+    ctx = get_current_ctx()
+    if ctx is None:
+        raise PreventUpdate
+    if run_store and run_store.get("semantic"):
+        sections: list[Any] = []
+        for entry in run_store.get("runs") or []:
+            code = str(entry.get("visual_code") or "")
+            if not entry.get("run_id"):
+                continue
+            res = get_run_sql(ctx, int(entry["run_id"]))
+            if not res.ok or not isinstance(res.data, dict):
+                sections.append(
+                    alert_box(
+                        f"Visual {code}: không lấy được SQL.",
+                        res.message or "",
+                        tone="crit",
+                    )
+                )
+                continue
+            d = res.data
+            sections.append(
+                dmc.Paper(
+                    [
+                        dmc.Text(f"Visual {code} — {entry.get('title') or ''}", fw=600, size="sm"),
+                        _render_sql_field("Câu truy vấn đã biên dịch", str(d.get("sql_text") or "")),
+                        _render_sql_field(
+                            "Binds (chỉ tên, không lộ giá trị)",
+                            ", ".join(str(b) for b in d.get("bind_names") or []) or "(không có)",
+                        ),
+                        _render_sql_field(
+                            "RLS áp dụng / Bảng dùng",
+                            f"RLS: {'có' if d.get('rls_applied') else 'không'} — "
+                            f"{', '.join(str(t) for t in d.get('tables_used') or [])}",
+                        ),
+                    ],
+                    withBorder=True,
+                    radius="sm",
+                    p="sm",
+                )
+            )
+        if not sections:
+            return empty_state(
+                "Chưa chạy báo cáo.",
+                "Bấm Xem báo cáo để xem SQL đã thực hiện.",
+            )
+        if len(sections) == 1:
+            return sections[0]
+        return dmc.Stack(sections, gap="md")
     if not run_store or not run_store.get("run_id"):
         return empty_state(
             "Chưa chạy báo cáo.",
             "Bấm Xem báo cáo để xem SQL đã thực hiện.",
         )
-    ctx = get_current_ctx()
-    if ctx is None:
         raise PreventUpdate
     res = get_run_sql(ctx, int(run_store["run_id"]))
     if not res.ok or not isinstance(res.data, dict):

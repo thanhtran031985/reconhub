@@ -101,6 +101,8 @@ TABLE_DESCRIPTIONS: dict[str, str] = {
     "RECON_RPT_MODEL_FIELD": "Trường dữ liệu, định dạng và hiển thị trong mô hình",
     "RECON_RPT_MODEL_MEASURE": "Chỉ số tổng hợp và tính toán trong mô hình",
     "RECON_RPT_MODEL_RLS": "Khung metadata bảo mật dòng dữ liệu (RLS) của mô hình",
+    "RECON_RPT_VISUAL": "Biểu đồ/bảng trong báo cáo Report Studio",
+    "RECON_RPT_VISUAL_FIELD": "Trường/chỉ số gắn vào Data Well của visual",
     "RECON_EMAIL_TEMPLATE": "Mẫu email động gửi thông báo và kết xuất dữ liệu",
     "RECON_MAIL_TEMPLATE": "Mẫu email đa phiên bản Mail Template Studio",
     "RECON_MAIL_TPL_VERSION": "Phiên bản thiết kế email (Draft/Active/Archived)",

@@ -227,3 +227,70 @@ dagcomp.rmModelActionsCell = function (props) {
     mk('archive', 'Lưu trữ', 'lucide:archive', 'red', isArchived)
   );
 };
+
+/* Task 109 Bước 3: Report Studio Center (/report-studio) status & actions renderers. */
+dagcomp.rsStudioStatusCell = function (props) {
+  var colors = {
+    ACTIVE: 'var(--ok)',
+    DRY_RUN_OK: 'var(--info)',
+    DRAFT: 'var(--warn)',
+    ARCHIVED: 'var(--ink-soft)',
+  };
+  var code = (props.data && props.data.status) || 'DRAFT';
+  var color = colors[code] || 'var(--ink-soft)';
+  return React.createElement(
+    'span',
+    { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', color: color, fontWeight: 600 } },
+    React.createElement('span', {
+      style: {
+        width: '7px',
+        height: '7px',
+        borderRadius: '50%',
+        backgroundColor: color,
+        display: 'inline-block',
+        flexShrink: 0,
+      },
+    }),
+    props.value || code
+  );
+};
+
+dagcomp.rsStudioActionsCell = function (props) {
+  var Button = window.dash_mantine_components.Button;
+  var Icon = window.dash_iconify.DashIconify;
+  var row = props.data || {};
+  var reportId = row.id;
+  var isArchived = !!row.is_archived;
+  var canPublish = !!row.can_publish;
+
+  function mk(action, label, icon, color, disabled) {
+    return React.createElement(
+      Button,
+      {
+        key: action,
+        size: 'xs',
+        variant: 'subtle',
+        color: color || undefined,
+        disabled: !!disabled,
+        'aria-label': label + ' ' + (row.code || ''),
+        leftSection: React.createElement(Icon, { icon: icon, width: 13 }),
+        style: { paddingInline: '6px', height: '24px' },
+        onClick: function () {
+          props.setData({ action: action, id: reportId, ts: Date.now() });
+        },
+      },
+      label
+    );
+  }
+
+  return React.createElement(
+    'div',
+    { style: { display: 'flex', gap: '2px', alignItems: 'center' } },
+    mk('design', 'Thiết kế', 'lucide:pen-line', undefined, false),
+    mk('view', 'Xem', 'lucide:eye', undefined, false),
+    mk('clone', 'Clone', 'lucide:copy', undefined, false),
+    mk('publish', 'Phát hành', 'lucide:upload-cloud', undefined, !canPublish),
+    mk('impact', 'Ảnh hưởng', 'lucide:git-branch', undefined, false),
+    mk('archive', 'Lưu trữ', 'lucide:archive', 'red', isArchived)
+  );
+};

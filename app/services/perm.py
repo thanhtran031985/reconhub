@@ -248,6 +248,42 @@ def has_role(ctx: Ctx | None, *codes: str, engine: Engine | None = None) -> bool
     return bool(user_role_codes(ctx, engine) & {str(c) for c in codes})
 
 
+def load_ctx_for_username(engine: Engine, username: str) -> Ctx | None:
+    """Dựng Ctx từ username trong DB (cho worker chạy thay chủ export/run).
+
+    Chỉ user đang kích hoạt + vai trò đang kích hoạt mới được tính; user
+    không có/không kích hoạt thì trả None để caller chặn fail-closed
+    (không tự nâng quyền thành ADMIN/system).
+    """
+    with engine.connect() as conn:
+        user = (
+            conn.execute(
+                select(recon_user.c.ID, recon_user.c.USERNAME, recon_user.c.FULL_NAME)
+                .where(recon_user.c.USERNAME == username)
+                .where(recon_user.c.IS_ACTIVE == "Y")
+            )
+            .mappings()
+            .first()
+        )
+        if user is None:
+            return None
+        roles = [
+            str(r[0])
+            for r in conn.execute(
+                select(recon_role.c.CODE)
+                .select_from(recon_user_role.join(recon_role, recon_user_role.c.ROLE_ID == recon_role.c.ID))
+                .where(recon_user_role.c.USER_ID == int(user["ID"]))
+                .where(recon_role.c.IS_ACTIVE == "Y")
+            ).fetchall()
+        ]
+    return Ctx(
+        user_id=int(user["ID"]),
+        username=str(user["USERNAME"]),
+        full_name=str(user["FULL_NAME"] or ""),
+        roles=roles,
+    )
+
+
 def is_admin(ctx: Ctx | None, engine: Engine | None = None) -> bool:
     """User có vai trò ADMIN đang kích hoạt không."""
     if ctx is None:

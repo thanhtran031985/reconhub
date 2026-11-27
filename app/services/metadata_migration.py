@@ -54,10 +54,22 @@ RECON_TABLES_ORDER = [
     "RECON_DATA_SOURCE",
     "RECON_TEMPLATE",
     "RECON_TEMPLATE_VERSION",
+    # Bảng Semantic Model (task 106): cha trước con sau. Task 109 đưa cụm
+    # này lên trước RECON_RPT_TPL_VER vì TPL_VER có FK MODEL_VERSION_ID.
+    "RECON_RPT_MODEL",
+    "RECON_RPT_MODEL_VER",
+    "RECON_RPT_MODEL_TABLE",
+    "RECON_RPT_MODEL_REL",
+    "RECON_RPT_MODEL_FIELD",
+    "RECON_RPT_MODEL_MEASURE",
+    "RECON_RPT_MODEL_RLS",
     # Bảng Dynamic Reporting (task 21, spec 12a): cha trước con sau.
     "RECON_REPORT",
     "RECON_REPORT_TEMPLATE",
     "RECON_RPT_TPL_VER",
+    # Visual Report Studio (task 109): con của RECON_RPT_TPL_VER, cha của RECON_REPORT_RUN.
+    "RECON_RPT_VISUAL",
+    "RECON_RPT_VISUAL_FIELD",
     "RECON_RPT_PARAM",
     "RECON_RPT_PARAM_LOV",
     "RECON_RPT_COLUMN",
@@ -66,14 +78,6 @@ RECON_TABLES_ORDER = [
     "RECON_RPT_FAVORITE",
     "RECON_RPT_PRESET",
     "RECON_RPT_LOV_CACHE",
-    # Bảng Semantic Model (task 106): cha trước con sau.
-    "RECON_RPT_MODEL",
-    "RECON_RPT_MODEL_VER",
-    "RECON_RPT_MODEL_TABLE",
-    "RECON_RPT_MODEL_REL",
-    "RECON_RPT_MODEL_FIELD",
-    "RECON_RPT_MODEL_MEASURE",
-    "RECON_RPT_MODEL_RLS",
     "RECON_FILE",
     # Bảng Batch Run (task 18, spec 10 §12): bộ và mục của bộ đi sau
     # RECON_FILE (tham chiếu RECON_TEMPLATE), lần chạy bộ đi sau RECON_RUN.
@@ -135,6 +139,9 @@ CONFIG_ONLY_TABLES = [
     "RECON_RPT_MODEL_FIELD",
     "RECON_RPT_MODEL_MEASURE",
     "RECON_RPT_MODEL_RLS",
+    # Visual Report Studio (task 109) là cấu hình báo cáo, đi cùng CONFIG_ONLY.
+    "RECON_RPT_VISUAL",
+    "RECON_RPT_VISUAL_FIELD",
     "RECON_APP_SETTING",
     "RECON_ISSUE_REASON",
 ]

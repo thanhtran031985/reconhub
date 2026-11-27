@@ -384,7 +384,7 @@ class TestViewerRun:
             )
             assert run_store["run_id"] is not None
             assert page_store == 1
-            result_html, _count = page.handle_result_render(run_store, 1, [], 50)
+            result_html, _count = page.handle_result_render(run_store, 1, [], False, 50)
         text = _dump(result_html)
         assert "1.000" in text
         assert "HN" in text
@@ -454,7 +454,7 @@ class TestViewerRun:
                 [{"type": "viewer-param", "index": "p_org"}],
                 50,
             )
-            result_html, _count = page.handle_result_render(run_store, 1, [], 50)
+            result_html, _count = page.handle_result_render(run_store, 1, [], False, 50)
         text = _dump(result_html)
         assert "AgGrid" in text
         assert "AMOUNT" in text
@@ -511,7 +511,7 @@ class TestViewerRun:
         ):
             page_no = page.handle_page_change(2, run_store)
             assert page_no == 2
-            result_html, _count = page.handle_result_render(run_store, 2, [], 2)
+            result_html, _count = page.handle_result_render(run_store, 2, [], False, 2)
         text = _dump(result_html)
         # Trang 2 (page_size 2) → dòng 3, 4 (3.000/HCM, 4.000/HCM).
         assert "3.000" in text
@@ -542,7 +542,7 @@ class TestViewerRun:
             "report_id": export_env["report_id"],
         }
         old = [html.Div("OLD-TABLE-MARKER")]
-        result_html, count = page.handle_result_render(run_store, 1, [], 50, old)
+        result_html, count = page.handle_result_render(run_store, 1, [], False, 50, old)
         assert count == "Lỗi tải kết quả"
         dumped = _dump(result_html)
         assert "OLD-TABLE-MARKER" in dumped
@@ -577,6 +577,7 @@ class TestViewerRun:
                 run_store,
                 1,
                 [{"field": "AMOUNT", "direction": "DESC"}],
+                False,
                 50,
             )
         text = _dump(result_html)
