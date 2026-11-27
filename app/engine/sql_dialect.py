@@ -51,7 +51,10 @@ def date_part_expr(expr: str, part: str, dialect: str) -> str:
         if p == "MONTH":
             return f"TO_CHAR({expr}, 'YYYY-MM')"
         if p == "QUARTER":
-            return f"TO_CHAR({expr}, 'YYYY') || '-Q' || TO_CHAR({expr}, 'Q')"
+            return (
+                f"CASE WHEN {expr} IS NULL THEN NULL "
+                f"ELSE TO_CHAR({expr}, 'YYYY') || '-Q' || TO_CHAR({expr}, 'Q') END"
+            )
         return f"TO_CHAR({expr}, 'YYYY')"
     if p == "DAY":
         return f"DATE({expr})"
@@ -59,9 +62,10 @@ def date_part_expr(expr: str, part: str, dialect: str) -> str:
         return f"STRFTIME('%Y-%m', {expr})"
     if p == "QUARTER":
         return (
+            f"CASE WHEN {expr} IS NULL THEN NULL ELSE "
             "PRINTF('%04d-Q%d', CAST(STRFTIME('%Y', "
             f"{expr}) AS INTEGER), "
-            f"CAST((CAST(STRFTIME('%m', {expr}) AS INTEGER) + 2) / 3 AS INTEGER))"
+            f"CAST((CAST(STRFTIME('%m', {expr}) AS INTEGER) + 2) / 3 AS INTEGER)) END"
         )
     return f"STRFTIME('%Y', {expr})"
 

@@ -77,11 +77,18 @@ class QueryFilter(BaseModel):
 
 
 class QuerySort(BaseModel):
-    """Sắp xếp theo field hoặc measure đã chọn."""
+    """Sắp xếp theo field hoặc measure đã chọn (theo id hoặc alias)."""
 
     target_type: Literal["FIELD", "MEASURE"]
-    id: int = Field(gt=0)
+    id: int | None = Field(default=None, gt=0)
+    alias: str | None = Field(default=None, max_length=128, pattern=FIELD_CODE_RE)
     direction: Literal["ASC", "DESC"] = "ASC"
+
+    @model_validator(mode="after")
+    def _needs_target(self) -> QuerySort:
+        if self.id is None and not self.alias:
+            raise ValueError("Sort cần ít nhất 'id' hoặc 'alias'.")
+        return self
 
 
 class SemanticQueryIntent(BaseModel):
@@ -121,6 +128,8 @@ class SemanticQueryPlan(BaseModel):
     fetch_extra_row: bool = False
     # SQL chưa có ORDER BY/phân trang (service dùng làm subquery đếm total cho for_run).
     base_sql: str = ""
+    # Ánh xạ tên bind param -> kiểu dữ liệu nguồn (DATE/DATETIME) để chuẩn hóa theo driver.
+    bind_types: dict[str, str] = Field(default_factory=dict)
 
 
 class SemanticQueryResult(BaseModel):

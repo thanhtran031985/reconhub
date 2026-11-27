@@ -8,9 +8,8 @@ model publish ACTIVE qua service task 106 rồi chạy preview qua
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -21,7 +20,7 @@ from app.db.metadata import metadata, recon_data_source, recon_user
 from app.engine.catalog import invalidate_catalog_cache
 from app.schemas.errors import ErrorCode
 
-VN = ZoneInfo("Asia/Ho_Chi_Minh")
+VN = timezone(timedelta(hours=7))
 
 
 def _today() -> date:
@@ -836,6 +835,7 @@ def test_for_run_pagination_and_total(sq_env):
     assert page1.data["total"] == 3
     assert page1.data["row_count"] == 2
     assert page1.data["page"] == 1
+    assert page1.data["truncated"] is False
     assert [r["CUSTOMER_NAME"] for r in page1.data["rows"]] == ["Cong ty A", "Cong ty B"]
     page2 = execute_semantic_query_for_run(
         sq_env["ctxs"]["admin"], sq_env["active_version_id"], payload, page=2, page_size=2
@@ -958,3 +958,212 @@ def test_preview_archived_version_rejected_despite_cached_bundle(sq_env):
         )
     res = _preview(sq_env, "admin", payload)
     assert not res.ok and res.code == ErrorCode.MODEL_VERSION_LOCKED
+
+
+def test_preview_relative_date_on_sqlite_date_column(sq_env):
+    """Cột SALE_DAY kiểu DATE ('YYYY-MM-DD') trên SQLite phải khớp RELATIVE_DATE TODAY."""
+    fids = _field_ids(sq_env)
+    mids = _measure_ids(sq_env)
+    today_sum = sum(s[5] for s in SALES if s[3] == _today())
+    res = _preview(
+        sq_env,
+        "admin",
+        _intent(
+            sq_env["active_version_id"],
+            dimensions=[],
+            measures=[{"measure_id": mids["REV_SUM"]}],
+            filters=[{"field_id": fids["SALE_DAY"], "operator": "RELATIVE_DATE", "value": "TODAY"}],
+        ),
+    )
+    assert res.ok, res.message
+    assert res.data["rows"][0]["REV_SUM"] == today_sum
+    assert today_sum > 0
+
+
+def test_sql_dialect_quarter_null_returns_none_in_sqlite():
+    import sqlite3
+
+    from app.engine.sql_dialect import date_part_expr
+
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.execute("CREATE TABLE T_DT (D DATE)")
+        conn.execute("INSERT INTO T_DT VALUES (NULL)")
+        expr = date_part_expr('"D"', "QUARTER", "SQLITE")
+        got = conn.execute(f"SELECT {expr} FROM T_DT").fetchone()[0]
+        assert got is None
+    finally:
+        conn.close()
+
+
+def test_preview_snowflake_multihop_and_intermediate_rls(sq_env):
+    """Snowflake FACT_SALES -> DIM_CUSTOMER -> DIM_REGION tự join bảng trung gian và ép RLS trung gian."""
+    from app.services.semantic_model import (
+        add_table_to_draft,
+        create_model,
+        update_table_props,
+        upsert_measure,
+        upsert_rls_policy,
+    )
+    from app.services.semantic_model_validate import publish_model_version, upsert_relationship
+
+    src_engine = create_engine(f"sqlite:///{Path(sq_env['src_db']).as_posix()}")
+    with src_engine.begin() as sconn:
+        sconn.execute(text("CREATE TABLE DIM_REGION (REGION_ID INTEGER PRIMARY KEY, REGION_NAME TEXT NOT NULL)"))
+        sconn.execute(text("INSERT INTO DIM_REGION VALUES (10, 'Mien Bac'), (20, 'Mien Nam')"))
+        sconn.execute(text("ALTER TABLE DIM_CUSTOMER ADD COLUMN REGION_ID INTEGER"))
+        sconn.execute(text("UPDATE DIM_CUSTOMER SET REGION_ID = 10 WHERE CUSTOMER_ID IN (1, 2)"))
+        sconn.execute(text("UPDATE DIM_CUSTOMER SET REGION_ID = 20 WHERE CUSTOMER_ID = 3"))
+    src_engine.dispose()
+
+    owner = sq_env["ctxs"]["owner"]
+    created = create_model(owner, {"code": "M_SNOW", "name": "Snowflake", "data_source_id": sq_env["ds_id"]})
+    assert created.ok, created.message
+    ver_id = created.data["draft_version"]["id"]
+    tbls = {}
+    for obj in ("FACT_SALES", "DIM_CUSTOMER", "DIM_REGION"):
+        r = add_table_to_draft(owner, ver_id, {"source_object": obj})
+        assert r.ok, r.message
+        tbls[obj] = r.data
+    assert update_table_props(
+        owner, tbls["FACT_SALES"]["id"], {"table_role": "FACT", "grain_desc": "Theo dòng", "grain_keys": ["SALE_ID"]}
+    ).ok
+    assert update_table_props(owner, tbls["DIM_CUSTOMER"]["id"], {"table_role": "DIMENSION"}).ok
+    assert update_table_props(owner, tbls["DIM_REGION"]["id"], {"table_role": "DIMENSION"}).ok
+    assert upsert_relationship(
+        owner,
+        ver_id,
+        {
+            "name": "R_SC",
+            "from_table_id": tbls["FACT_SALES"]["id"],
+            "from_column": "CUSTOMER_ID",
+            "to_table_id": tbls["DIM_CUSTOMER"]["id"],
+            "to_column": "CUSTOMER_ID",
+        },
+    ).ok
+    assert upsert_relationship(
+        owner,
+        ver_id,
+        {
+            "name": "R_CR",
+            "from_table_id": tbls["DIM_CUSTOMER"]["id"],
+            "from_column": "REGION_ID",
+            "to_table_id": tbls["DIM_REGION"]["id"],
+            "to_column": "REGION_ID",
+        },
+    ).ok
+    fcols = {f["source_column"]: f for f in tbls["FACT_SALES"]["fields"]}
+    rcols = {f["source_column"]: f for f in tbls["DIM_REGION"]["fields"]}
+    m_rev = upsert_measure(
+        owner,
+        ver_id,
+        {
+            "code": "REV_SUM",
+            "name": "Doanh thu",
+            "table_id": tbls["FACT_SALES"]["id"],
+            "measure_type": "SIMPLE",
+            "base_field_id": fcols["REVENUE"]["id"],
+            "aggregation": "SUM",
+        },
+    )
+    assert m_rev.ok, m_rev.message
+    # Gắn RLS lên bảng trung gian DIM_CUSTOMER (không được chọn cột trực tiếp trong query).
+    assert upsert_rls_policy(
+        owner,
+        ver_id,
+        {
+            "table_id": tbls["DIM_CUSTOMER"]["id"],
+            "column_name": "ROLE_COL",
+            "policy_type": "ROLE_LIST",
+            "admin_bypass": True,
+        },
+    ).ok
+    assert publish_model_version(owner, ver_id, {"change_note": "Pub snow"}).ok
+
+    res_admin = _preview(
+        sq_env,
+        "admin",
+        _intent(
+            ver_id,
+            dimensions=[{"field_id": rcols["REGION_NAME"]["id"]}],
+            measures=[{"measure_id": m_rev.data["id"]}],
+            sorts=[{"target_type": "FIELD", "id": rcols["REGION_NAME"]["id"]}],
+        ),
+    )
+    assert res_admin.ok, res_admin.message
+    assert {r["REGION_NAME"]: r["REV_SUM"] for r in res_admin.data["rows"]} == {
+        "Mien Bac": 1400000 + 800000,
+        "Mien Nam": 100000,
+    }
+    # Viewer chỉ có ROLE_COL='VIEWER' (Cong ty B -> Mien Bac = 800000), không thấy Cong ty A hay Mien Nam.
+    res_viewer = _preview(
+        sq_env,
+        "viewer",
+        _intent(
+            ver_id,
+            dimensions=[{"field_id": rcols["REGION_NAME"]["id"]}],
+            measures=[{"measure_id": m_rev.data["id"]}],
+        ),
+    )
+    assert res_viewer.ok, res_viewer.message
+    assert {r["REGION_NAME"]: r["REV_SUM"] for r in res_viewer.data["rows"]} == {"Mien Bac": 800000}
+
+
+def test_preview_inactive_data_source_blocked(sq_env):
+    fids = _field_ids(sq_env)
+    mids = _measure_ids(sq_env)
+    payload = _intent(
+        sq_env["active_version_id"],
+        dimensions=[{"field_id": fids["CUSTOMER_NAME"]}],
+        measures=[{"measure_id": mids["REV_SUM"]}],
+    )
+    assert _preview(sq_env, "admin", payload).ok  # nạp cache trước
+    with sq_env["engine"].begin() as conn:
+        conn.execute(
+            recon_data_source.update().where(recon_data_source.c.ID == sq_env["ds_id"]).values(IS_ACTIVE="N")
+        )
+    res = _preview(sq_env, "admin", payload)
+    assert not res.ok and res.code == ErrorCode.VALIDATION_ERROR
+
+
+def test_open_semantic_source_sqlite_readonly(sq_env):
+    import sqlite3
+
+    from app.services.semantic_query import _open_semantic_source
+
+    with _open_semantic_source(sq_env["ds_id"], "SQLITE", str(sq_env["src_db"]), 10) as raw:
+        with pytest.raises(sqlite3.OperationalError):
+            raw.cursor().execute("INSERT INTO DIM_SERVICE VALUES (99, 'Hack')")
+
+
+def test_prepare_binds_oracle_iso_dates_and_rejects_invalid():
+    from app.schemas.errors import ServiceError
+    from app.services.semantic_query import _prepare_binds
+
+    prepared = _prepare_binds(
+        "ORACLE",
+        {"b0": "2026-11-27", "b1": "2026-11-27T10:30:00", "b2": "keep_str"},
+        {"b0": "DATE", "b1": "DATETIME"},
+    )
+    assert prepared["b0"] == datetime(2026, 11, 27, 0, 0)
+    assert prepared["b1"] == datetime(2026, 11, 27, 10, 30)
+    assert prepared["b2"] == "keep_str"
+    with pytest.raises(ServiceError) as exc:
+        _prepare_binds("ORACLE", {"b0": "not-a-date"}, {"b0": "DATE"})
+    assert exc.value.code == str(ErrorCode.VALIDATION_ERROR)
+
+
+def test_preview_sort_by_adhoc_measure_alias(sq_env):
+    fids = _field_ids(sq_env)
+    res = _preview(
+        sq_env,
+        "admin",
+        _intent(
+            sq_env["active_version_id"],
+            dimensions=[{"field_id": fids["CUSTOMER_NAME"]}],
+            measures=[{"field_id": fids["REVENUE"], "aggregation": "SUM", "alias": "TOTAL_REV"}],
+            sorts=[{"target_type": "MEASURE", "alias": "TOTAL_REV", "direction": "DESC"}],
+        ),
+    )
+    assert res.ok, res.message
+    assert [r["CUSTOMER_NAME"] for r in res.data["rows"]] == ["Cong ty A", "Cong ty B", "Cong ty C"]

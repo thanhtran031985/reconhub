@@ -787,3 +787,130 @@ def test_resolve_const_only_measure_without_table_blocked():
     with pytest.raises(ServiceError) as exc:
         _resolve(_intent(dimensions=[], measures=[{"measure_id": 25}]), bundle)
     assert exc.value.code == str(ErrorCode.MODEL_INVALID)
+
+
+def test_date_part_quarter_guards_null_both_dialects():
+    q_sql = sql_dialect.date_part_expr('"t0"."TX_DATE"', "QUARTER", "SQLITE")
+    q_ora = sql_dialect.date_part_expr('"t0"."TX_DATE"', "QUARTER", "ORACLE")
+    assert q_sql.startswith('CASE WHEN "t0"."TX_DATE" IS NULL THEN NULL ELSE ')
+    assert q_ora.startswith('CASE WHEN "t0"."TX_DATE" IS NULL THEN NULL ELSE ')
+
+
+def test_resolve_date_part_non_date_column_blocked():
+    from app.schemas.errors import ErrorCode, ServiceError
+
+    with pytest.raises(ServiceError) as exc:
+        _resolve(_intent(dimensions=[{"field_id": 202, "date_part": "MONTH"}]), _star_bundle())
+    assert exc.value.code == str(ErrorCode.VALIDATION_ERROR)
+
+
+def test_resolve_hidden_table_blocked():
+    from app.schemas.errors import ErrorCode, ServiceError
+
+    bundle = _star_bundle()
+    bundle["tables"][1]["is_hidden"] = True  # DIM_CUSTOMER
+    for kw in (
+        {"dimensions": [{"field_id": 202}]},
+        {"dimensions": [], "measures": [{"field_id": 202, "aggregation": "COUNT"}]},
+        {"dimensions": [], "measures": [{"measure_id": 21}], "filters": [{"field_id": 202, "operator": "=", "value": "A"}]},
+    ):
+        with pytest.raises(ServiceError) as exc:
+            _resolve(_intent(**kw), bundle)
+        assert exc.value.code == str(ErrorCode.VALIDATION_ERROR)
+
+
+def test_resolve_snowflake_multihop_joins_intermediate_and_applies_rls():
+    region = _mk_table(
+        5,
+        "DIM_REGION",
+        "DIMENSION",
+        [
+            _mk_field(501, 5, "REGION_ID", "NUMBER", "KEY", is_pk=True),
+            _mk_field(502, 5, "REGION_NAME", "STRING"),
+        ],
+    )
+    bundle = _star_bundle(
+        extra_tables=[region],
+        extra_rels=[_mk_rel(9, "FK_CUST_REGION", 2, "REGION_ID", 5, "REGION_ID")],
+        extra_rls=[
+            {
+                "id": 1,
+                "model_version_id": 10,
+                "table_id": 2,
+                "column_name": "ORG_CODE",
+                "policy_type": "OWNER_USERNAME",
+                "scope_attr": None,
+                "admin_bypass": True,
+                "is_active": True,
+                "description": None,
+            }
+        ],
+    )
+    bundle["tables"][1]["fields"].append(_mk_field(204, 2, "REGION_ID", "NUMBER", "KEY", is_fk=True))
+    # Không chọn cột nào của DIM_CUSTOMER (id=2), chỉ chọn FACT (21) và DIM_REGION (502).
+    plan = _resolve(_intent(dimensions=[{"field_id": 502}], measures=[{"measure_id": 21}]), bundle)
+    assert plan.tables_used == [1, 2, 5]
+    assert [s.rel_name for s in plan.join_steps] == ["FK_SALES_CUSTOMER", "FK_CUST_REGION"]
+    assert len(plan.resolved_rls) == 1
+    assert plan.resolved_rls[0].table_id == 2
+
+
+def test_resolve_snowflake_hidden_diamond_blocked():
+    from app.schemas.errors import ErrorCode, ServiceError
+
+    region = _mk_table(
+        5,
+        "DIM_REGION",
+        "DIMENSION",
+        [
+            _mk_field(501, 5, "REGION_ID", "NUMBER", "KEY", is_pk=True),
+            _mk_field(502, 5, "REGION_NAME", "STRING"),
+        ],
+    )
+    channel = _mk_table(
+        6,
+        "DIM_CHANNEL",
+        "DIMENSION",
+        [
+            _mk_field(601, 6, "CHANNEL_ID", "NUMBER", "KEY", is_pk=True),
+            _mk_field(602, 6, "REGION_ID", "NUMBER", "KEY", is_fk=True),
+        ],
+    )
+    bundle = _star_bundle(
+        extra_tables=[region, channel],
+        extra_rels=[
+            _mk_rel(9, "FK_CUST_REGION", 2, "REGION_ID", 5, "REGION_ID"),
+            _mk_rel(10, "FK_SALES_CHANNEL", 1, "CHANNEL_ID", 6, "CHANNEL_ID"),
+            _mk_rel(11, "FK_CHANNEL_REGION", 6, "REGION_ID", 5, "REGION_ID"),
+        ],
+    )
+    bundle["tables"][0]["fields"].append(_mk_field(110, 1, "CHANNEL_ID", "NUMBER", "KEY", is_fk=True))
+    bundle["tables"][1]["fields"].append(_mk_field(204, 2, "REGION_ID", "NUMBER", "KEY", is_fk=True))
+    with pytest.raises(ServiceError) as exc:
+        _resolve(_intent(dimensions=[{"field_id": 502}], measures=[{"measure_id": 21}]), bundle)
+    assert exc.value.code == str(ErrorCode.AMBIGUOUS_PATH)
+
+
+def test_resolve_sort_by_adhoc_measure_and_case_insensitive_alias():
+    from app.schemas.errors import ErrorCode, ServiceError
+
+    plan = _resolve(
+        _intent(
+            dimensions=[{"field_id": 202}],
+            measures=[{"field_id": 107, "aggregation": "SUM", "alias": "TOTAL_REV"}],
+            sorts=[{"target_type": "MEASURE", "alias": "total_rev", "direction": "DESC"}],
+        ),
+        _star_bundle(),
+    )
+    assert plan.resolved_sorts[0].output_alias == "TOTAL_REV"
+    assert plan.resolved_sorts[0].direction == "DESC"
+
+    with pytest.raises(ServiceError) as exc:
+        _resolve(
+            _intent(
+                dimensions=[{"field_id": 202, "alias": "ColA"}, {"field_id": 203, "alias": "cola"}],
+                measures=[],
+            ),
+            _star_bundle(),
+        )
+    assert exc.value.code == str(ErrorCode.VALIDATION_ERROR)

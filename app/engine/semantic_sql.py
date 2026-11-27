@@ -16,9 +16,8 @@ cho Oracle hoặc SQLite. Nguyên tắc bảo mật:
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, NoReturn
-from zoneinfo import ZoneInfo
 
 from app.engine.semantic_planner import ResolvedFilter, ResolvedMeasure, ResolvedSemanticPlan
 from app.engine.sql_dialect import (
@@ -34,7 +33,8 @@ from app.schemas.errors import ErrorCode, ServiceError
 from app.schemas.semantic_model import AST_ALL_OPS
 from app.schemas.semantic_query import SemanticQueryIntent, SemanticQueryPlan
 
-_VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+# Múi giờ Việt Nam (UTC+7 cố định, tương thích cả Windows lẫn Linux không cần gói tzdata).
+_VN_TZ = timezone(timedelta(hours=7))
 _MAX_AST_DEPTH = 8
 
 
@@ -43,16 +43,19 @@ def _fail(code: ErrorCode, message: str) -> NoReturn:
 
 
 class _Binder:
-    """Cấp bind param ``:b0``, ``:b1``, ... theo thứ tự xuất hiện."""
+    """Cấp bind param ``:b0``, ``:b1``, ... theo thứ tự xuất hiện kèm kiểu nguồn tùy chọn."""
 
     def __init__(self) -> None:
         self.binds: dict[str, Any] = {}
+        self.bind_types: dict[str, str] = {}
         self._counter = 0
 
-    def add(self, value: Any) -> str:
+    def add(self, value: Any, data_type: str | None = None) -> str:
         name = f"b{self._counter}"
         self._counter += 1
         self.binds[name] = value
+        if data_type:
+            self.bind_types[name] = str(data_type).upper()
         return f":{name}"
 
 
@@ -310,25 +313,27 @@ class _Compiler:
     def _filter_predicate(self, flt: ResolvedFilter) -> str:
         col = self._col(flt.table_id, flt.source_column)
         op = str(flt.operator).upper()
+        dtype = str(flt.data_type).upper()
+        bind_dtype = dtype if dtype in ("DATE", "DATETIME") else None
         value = flt.value
         if op == "IS_NULL":
             return f"{col} IS NULL"
         if op == "RELATIVE_DATE":
             start, end = self._relative_range(str(value))
-            return f"{col} >= {self.binder.add(start)} AND {col} < {self.binder.add(end)}"
+            return f"{col} >= {self.binder.add(start, dtype)} AND {col} < {self.binder.add(end, dtype)}"
         if op == "BETWEEN":
             if not isinstance(value, list) or len(value) != 2:
                 _fail(ErrorCode.VALIDATION_ERROR, "BETWEEN cần value là danh sách đúng 2 phần tử.")
             if value[0] is None or value[1] is None:
                 _fail(ErrorCode.VALIDATION_ERROR, "BETWEEN không chấp nhận đầu mút NULL.")
-            return f"{col} BETWEEN {self.binder.add(value[0])} AND {self.binder.add(value[1])}"
+            return f"{col} BETWEEN {self.binder.add(value[0], bind_dtype)} AND {self.binder.add(value[1], bind_dtype)}"
         if op == "IN":
             if not isinstance(value, list) or not value:
                 _fail(ErrorCode.VALIDATION_ERROR, "IN cần value là danh sách không rỗng.")
             for item in value:
                 if item is None or isinstance(item, (list, dict)):
                     _fail(ErrorCode.VALIDATION_ERROR, "IN chỉ chấp nhận danh sách giá trị đơn.")
-            binds = ", ".join(self.binder.add(v) for v in value)
+            binds = ", ".join(self.binder.add(v, bind_dtype) for v in value)
             return f"{col} IN ({binds})"
         if op == "LIKE_PREFIX":
             if not isinstance(value, str):
@@ -338,7 +343,7 @@ class _Compiler:
         if op in ("=", ">=", "<="):
             if value is None or isinstance(value, (list, dict)):
                 _fail(ErrorCode.VALIDATION_ERROR, f"Toán tử {op} cần value là giá trị đơn.")
-            return f"{col} {op} {self.binder.add(value)}"
+            return f"{col} {op} {self.binder.add(value, bind_dtype)}"
         _fail(ErrorCode.SQL_NOT_ALLOWED, f"Toán tử lọc '{op}' không nằm trong danh sách cho phép.")
 
     # -- biên dịch chính ----------------------------------------------------
@@ -401,14 +406,14 @@ class _Compiler:
             sql_parts.append("GROUP BY " + ", ".join(group_by))
         base_sql = " ".join(sql_parts)
 
-        order_aliases = [s.output_alias for s in plan.resolved_sorts]
+        order_aliases_upper = {s.output_alias.upper() for s in plan.resolved_sorts}
         order_items = [
             f"{quote_identifier(s.output_alias, self.dialect)} {str(s.direction).upper()}" for s in plan.resolved_sorts
         ]
         # Tie-breaker ổn định cho phân trang: cột đầu ra đầu tiên chưa có trong
         # ORDER BY (kể cả khi sort đã ở cột đầu thì lấy cột tiếp theo).
         for col in output_columns:
-            if col["name"] not in order_aliases:
+            if str(col["name"]).upper() not in order_aliases_upper:
                 order_items.append(f"{quote_identifier(str(col['name']), self.dialect)} ASC")
                 break
         if order_items:
@@ -450,6 +455,7 @@ class _Compiler:
             row_limit=row_limit,
             fetch_extra_row=fetch_extra_row,
             base_sql=base_sql,
+            bind_types=dict(self.binder.bind_types),
         )
 
     def _measure_data_type(self, measure: ResolvedMeasure) -> str:

@@ -315,8 +315,13 @@ def _check_agg_allowed(agg: str, field: dict[str, Any]) -> None:
         )
 
 
-def _check_visible(field: dict[str, Any]) -> None:
-    """Khóa field HIDDEN (theo field_role hoặc cờ is_visible)."""
+def _check_visible(field: dict[str, Any], table: dict[str, Any] | None = None) -> None:
+    """Khóa field HIDDEN (field_role/is_visible) và bảng đang bị ẩn (is_hidden)."""
+    if table is not None and table.get("is_hidden"):
+        _fail(
+            ErrorCode.VALIDATION_ERROR,
+            f"Bảng '{table['alias']}' đã ẩn trong mô hình, không thể chọn/lọc trực tiếp trường '{field['source_column']}'.",
+        )
     if str(field["field_role"]).upper() == "HIDDEN" or not field.get("is_visible", True):
         _fail(
             ErrorCode.VALIDATION_ERROR,
@@ -363,7 +368,14 @@ def resolve_semantic_plan(intent: SemanticQueryIntent, bundle: dict[str, Any]) -
         field = fields_by_id.get(int(dim.field_id))
         if field is None:
             _fail(ErrorCode.MODEL_INVALID, f"Trường #{dim.field_id} không tồn tại trong mô hình.")
-        _check_visible(field)
+        tbl = tables_by_id.get(int(field["table_id"]))
+        _check_visible(field, tbl)
+        if dim.date_part is not None and str(field["data_type"]).upper() not in ("DATE", "DATETIME"):
+            _fail(
+                ErrorCode.VALIDATION_ERROR,
+                f"Cắt phần ngày ({dim.date_part}) chỉ áp dụng cho trường kiểu DATE/DATETIME "
+                f"(trường '{field['source_column']}' kiểu {field['data_type']}).",
+            )
         selected_dims.append(
             ResolvedDim(
                 field_id=int(dim.field_id),
@@ -392,7 +404,8 @@ def resolve_semantic_plan(intent: SemanticQueryIntent, bundle: dict[str, Any]) -
             field = fields_by_id.get(int(sel.field_id or 0))
             if field is None:
                 _fail(ErrorCode.MODEL_INVALID, f"Trường #{sel.field_id} không tồn tại trong mô hình.")
-            _check_visible(field)
+            tbl = tables_by_id.get(int(field["table_id"]))
+            _check_visible(field, tbl)
             _check_agg_allowed(str(sel.aggregation), field)
             selected_measures.append(
                 ResolvedMeasure(
@@ -420,7 +433,8 @@ def resolve_semantic_plan(intent: SemanticQueryIntent, bundle: dict[str, Any]) -
         field = fields_by_id.get(int(flt.field_id))
         if field is None:
             _fail(ErrorCode.MODEL_INVALID, f"Trường #{flt.field_id} không tồn tại trong mô hình.")
-        _check_visible(field)
+        tbl = tables_by_id.get(int(field["table_id"]))
+        _check_visible(field, tbl)
         _validate_filter_value(flt.value)
         if flt.operator == "RELATIVE_DATE" and str(field["data_type"]).upper() not in ("DATE", "DATETIME"):
             _fail(
@@ -438,42 +452,62 @@ def resolve_semantic_plan(intent: SemanticQueryIntent, bundle: dict[str, Any]) -
             )
         )
 
-    # --- Alias đầu ra không được trùng ---
+    # --- Alias đầu ra không được trùng (không phân biệt hoa/thường) ---
     aliases = [d.output_alias for d in selected_dims] + [m.output_alias for m in selected_measures]
-    if len(set(aliases)) != len(aliases):
-        seen: set[str] = set()
-        dup = ""
-        for alias in aliases:
-            if alias in seen:
-                dup = alias
-                break
-            seen.add(alias)
-        _fail(ErrorCode.VALIDATION_ERROR, f"Tên cột đầu ra '{dup}' bị trùng, hãy đặt alias khác nhau.")
+    seen_upper: set[str] = set()
+    for alias in aliases:
+        upper = alias.upper()
+        if upper in seen_upper:
+            _fail(ErrorCode.VALIDATION_ERROR, f"Tên cột đầu ra '{alias}' bị trùng, hãy đặt alias khác nhau.")
+        seen_upper.add(upper)
 
     # --- Phân giải sorts (chỉ được sắp xếp theo trường/measure đã chọn) ---
     dim_alias_by_field = {d.field_id: d.output_alias for d in selected_dims}
+    dim_alias_by_name = {d.output_alias.upper(): d.output_alias for d in selected_dims}
     measure_alias_by_id = {m.measure_id: m.output_alias for m in selected_measures if m.measure_id is not None}
+    adhoc_by_field: dict[int, list[str]] = {}
+    for m in selected_measures:
+        if m.measure_id is None and m.base_field_id is not None:
+            adhoc_by_field.setdefault(int(m.base_field_id), []).append(m.output_alias)
+    measure_alias_by_name = {m.output_alias.upper(): m.output_alias for m in selected_measures}
     resolved_sorts: list[ResolvedSort] = []
     for sort in intent.sorts:
-        sort_alias: str | None
+        sort_alias: str | None = None
         if sort.target_type == "FIELD":
-            sort_alias = dim_alias_by_field.get(int(sort.id))
+            if sort.alias:
+                sort_alias = dim_alias_by_name.get(sort.alias.upper())
+            elif sort.id is not None:
+                sort_alias = dim_alias_by_field.get(int(sort.id))
             if sort_alias is None:
+                ref_label = f"'{sort.alias}'" if sort.alias else f"#{sort.id}"
                 _fail(
                     ErrorCode.VALIDATION_ERROR,
-                    f"Sắp xếp theo trường #{sort.id} chưa được chọn làm dimension.",
+                    f"Sắp xếp theo trường {ref_label} chưa được chọn làm dimension.",
                 )
         else:
-            sort_alias = measure_alias_by_id.get(int(sort.id))
+            if sort.alias:
+                sort_alias = measure_alias_by_name.get(sort.alias.upper())
+            elif sort.id is not None:
+                sort_alias = measure_alias_by_id.get(int(sort.id))
+                if sort_alias is None:
+                    matches = adhoc_by_field.get(int(sort.id), [])
+                    if len(matches) == 1:
+                        sort_alias = matches[0]
+                    elif len(matches) > 1:
+                        _fail(
+                            ErrorCode.VALIDATION_ERROR,
+                            f"Có nhiều measure ad-hoc trên trường #{sort.id}; hãy chỉ định 'alias' khi sắp xếp.",
+                        )
             if sort_alias is None:
+                ref_label = f"'{sort.alias}'" if sort.alias else f"#{sort.id}"
                 _fail(
                     ErrorCode.VALIDATION_ERROR,
-                    f"Sắp xếp theo measure #{sort.id} chưa được chọn.",
+                    f"Sắp xếp theo measure {ref_label} chưa được chọn.",
                 )
         resolved_sorts.append(
             ResolvedSort(
                 target_type=str(sort.target_type),
-                ref_id=int(sort.id),
+                ref_id=int(sort.id or 0),
                 direction=str(sort.direction),
                 output_alias=str(sort_alias),
             )
@@ -526,8 +560,58 @@ def resolve_semantic_plan(intent: SemanticQueryIntent, bundle: dict[str, Any]) -
         root_table_id = selected_dims[0].table_id
     root_table = tables_by_id[root_table_id]
 
-    # --- Đồ thị quan hệ active giữa các bảng tham gia ---
+    # --- Mở rộng bảng trung gian (Snowflake / Bridge theo hướng *:1 từ root -> involved) ---
     rels = [r for r in (bundle.get("relationships") or []) if r.get("is_active")]
+    for rel in rels:
+        from_id = int(rel["from_table_id"])
+        to_id = int(rel["to_table_id"])
+        if from_id == to_id and from_id in involved:
+            _fail(
+                ErrorCode.RELATIONSHIP_LOOP,
+                f"Quan hệ '{rel['name']}' tự trỏ vào cùng một bảng '{tables_by_id[from_id]['alias']}'.",
+            )
+
+    fwd_non_fact: dict[int, list[int]] = {}
+    for rel in rels:
+        from_id = int(rel["from_table_id"])
+        to_id = int(rel["to_table_id"])
+        if from_id == to_id or to_id not in tables_by_id or from_id not in tables_by_id:
+            continue
+        # Chỉ đi tiếp ra Dim/Bridge (không nhảy bắc cầu sang một Fact khác chưa được chọn).
+        if to_id != root_table_id and str(tables_by_id[to_id]["table_role"]).upper() == "FACT" and to_id not in involved:
+            continue
+        fwd_non_fact.setdefault(from_id, []).append(to_id)
+
+    reachable_fwd: set[int] = {root_table_id}
+    q_fwd: deque[int] = deque([root_table_id])
+    while q_fwd:
+        cur = q_fwd.popleft()
+        for nxt in fwd_non_fact.get(cur, []):
+            if nxt not in reachable_fwd:
+                reachable_fwd.add(nxt)
+                q_fwd.append(nxt)
+
+    rev_in_reach: dict[int, list[int]] = {}
+    for src, targets in fwd_non_fact.items():
+        if src not in reachable_fwd:
+            continue
+        for tgt in targets:
+            if tgt in reachable_fwd:
+                rev_in_reach.setdefault(tgt, []).append(src)
+
+    ancestors: set[int] = set()
+    q_rev: deque[int] = deque(tid for tid in involved if tid in reachable_fwd)
+    while q_rev:
+        cur = q_rev.popleft()
+        if cur in ancestors:
+            continue
+        ancestors.add(cur)
+        for prev in rev_in_reach.get(cur, []):
+            if prev not in ancestors:
+                q_rev.append(prev)
+    subgraph_tables = involved | ancestors
+
+    # --- Đồ thị quan hệ active giữa các bảng tham gia (kể cả trung gian) ---
     fields_by_table_col: dict[tuple[int, str], dict[str, Any]] = {
         (int(t["id"]), str(f["source_column"]).upper()): f for t in tables for f in (t.get("fields") or [])
     }
@@ -535,7 +619,7 @@ def resolve_semantic_plan(intent: SemanticQueryIntent, bundle: dict[str, Any]) -
     for rel in rels:
         from_id = int(rel["from_table_id"])
         to_id = int(rel["to_table_id"])
-        if from_id not in involved or to_id not in involved:
+        if from_id not in subgraph_tables or to_id not in subgraph_tables:
             continue
         if from_id == to_id:
             _fail(
@@ -569,10 +653,10 @@ def resolve_semantic_plan(intent: SemanticQueryIntent, bundle: dict[str, Any]) -
             )
 
     # Chu trình có hướng (đi theo chiều many -> one rồi quay lại bảng xuất phát)
-    directed_adj: dict[int, list[tuple[int, dict[str, Any]]]] = {tid: [] for tid in involved}
+    directed_adj: dict[int, list[tuple[int, dict[str, Any]]]] = {tid: [] for tid in subgraph_tables}
     for rel in edges:
         directed_adj[int(rel["from_table_id"])].append((int(rel["to_table_id"]), rel))
-    color: dict[int, int] = {tid: 0 for tid in involved}  # 0=trắng, 1=xám, 2=đen
+    color: dict[int, int] = {tid: 0 for tid in subgraph_tables}  # 0=trắng, 1=xám, 2=đen
     cycle_rel: dict[str, Any] = {}
 
     def _dfs_directed(node: int) -> bool:
@@ -586,7 +670,7 @@ def resolve_semantic_plan(intent: SemanticQueryIntent, bundle: dict[str, Any]) -
         color[node] = 2
         return False
 
-    for tid in sorted(involved):
+    for tid in sorted(subgraph_tables):
         if color[tid] == 0 and _dfs_directed(tid):
             _fail(
                 ErrorCode.RELATIONSHIP_LOOP,
@@ -594,7 +678,7 @@ def resolve_semantic_plan(intent: SemanticQueryIntent, bundle: dict[str, Any]) -
             )
 
     # --- BFS xây cây join từ root ---
-    adjacency: dict[int, list[tuple[int, dict[str, Any]]]] = {tid: [] for tid in involved}
+    adjacency: dict[int, list[tuple[int, dict[str, Any]]]] = {tid: [] for tid in subgraph_tables}
     for rel in edges:
         a, b = int(rel["from_table_id"]), int(rel["to_table_id"])
         adjacency[a].append((b, rel))
@@ -649,12 +733,13 @@ def resolve_semantic_plan(intent: SemanticQueryIntent, bundle: dict[str, Any]) -
             f"Không thể nối bảng {names} vào cây join từ '{root_table['alias']}': thiếu quan hệ active.",
         )
 
-    # --- RLS áp dụng cho các bảng tham gia ---
+    # --- RLS áp dụng cho TẤT CẢ bảng tham gia truy vấn (kể cả bảng nối trung gian) ---
+    used_set = set(order)
     resolved_rls: list[ResolvedRls] = []
     for policy in bundle.get("rls_policies") or []:
         if not policy.get("is_active"):
             continue
-        if int(policy["table_id"]) not in involved:
+        if int(policy["table_id"]) not in used_set:
             continue
         resolved_rls.append(
             ResolvedRls(
@@ -668,7 +753,7 @@ def resolve_semantic_plan(intent: SemanticQueryIntent, bundle: dict[str, Any]) -
 
     # --- Cảnh báo ---
     warnings: list[str] = []
-    for tid in sorted(involved):
+    for tid in sorted(used_set):
         if str(tables_by_id[tid]["table_role"]).upper() == "UNCLASSIFIED":
             warnings.append(f"Bảng '{tables_by_id[tid]['alias']}' chưa phân loại Role (UNCLASSIFIED).")
     for rflt in resolved_filters:

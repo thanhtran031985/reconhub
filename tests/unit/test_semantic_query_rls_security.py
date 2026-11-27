@@ -834,3 +834,20 @@ def test_compile_tie_breaker_when_sort_is_first_column():
     plan = _compile({"sorts": [{"target_type": "FIELD", "id": 202, "direction": "DESC"}]}, _star_bundle())
     assert 'ORDER BY "CUSTOMER_NAME" DESC, "REV_SUM" ASC' in plan.sql
     assert _guard_ok(plan)
+
+
+def test_compile_tracks_date_bind_types_and_null_safe_quarter():
+    plan = _compile(
+        {
+            "dimensions": [{"field_id": 301, "date_part": "QUARTER", "alias": "CAL_Q"}],
+            "filters": [
+                {"field_id": 104, "operator": ">=", "value": "2026-11-01"},
+                {"field_id": 104, "operator": "RELATIVE_DATE", "value": "TODAY"},
+            ],
+        },
+        _star_bundle(),
+        dialect="ORACLE",
+    )
+    assert plan.bind_types == {"b0": "DATE", "b1": "DATE", "b2": "DATE"}
+    assert "CASE WHEN" in plan.sql
+    assert _guard_ok(plan)

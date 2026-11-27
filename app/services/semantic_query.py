@@ -18,9 +18,11 @@ Quy tắc:
 from __future__ import annotations
 
 import copy
+import threading
 import time
+from collections import OrderedDict
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -41,39 +43,64 @@ from app.services.report_run import _check_prod_admin, map_oracle_error
 from app.services.report_source import open_checked_connection
 from app.services.semantic_model import load_version_bundle
 
-_VERSION_CACHE: dict[int, dict[str, Any]] = {}
+_CACHE_LOCK = threading.Lock()
+_MAX_CACHE_ENTRIES = 128
+_VERSION_CACHE: OrderedDict[tuple[str, int], dict[str, Any]] = OrderedDict()
 
 _MAX_FOR_RUN_PAGE_SIZE = 1000
 
 
 def invalidate_semantic_query_cache(version_id: int | None = None) -> None:
     """Xóa cache metadata version (một version hoặc toàn bộ) — dùng cho test/reset."""
-    if version_id is None:
-        _VERSION_CACHE.clear()
-    else:
-        _VERSION_CACHE.pop(int(version_id), None)
+    with _CACHE_LOCK:
+        if version_id is None:
+            _VERSION_CACHE.clear()
+        else:
+            target = int(version_id)
+            for k in [key for key in _VERSION_CACHE if key[1] == target]:
+                _VERSION_CACHE.pop(k, None)
+
+
+def _engine_cache_key(conn: Any) -> str:
+    eng = getattr(conn, "engine", None)
+    url = getattr(eng, "url", None)
+    if url is not None and hasattr(url, "render_as_string"):
+        return str(url.render_as_string(hide_password=True))
+    return "default"
 
 
 def _load_bundle_cached(conn: Any, version_id: int) -> dict[str, Any]:
-    """Đọc bundle version ACTIVE qua cache bất biến (trả bản sao để không ai sửa được cache).
+    """Đọc bundle version ACTIVE qua cache bất biến (an toàn đa luồng + LRU).
 
     Nội dung version ACTIVE là bất biến, nhưng TRẠNG THÁI thì không: publish
     version mới sẽ chuyển version cũ sang ARCHIVED. Đọc lại STATUS mỗi lần
     (1 SELECT theo khóa chính) để ``resolve_semantic_plan`` không chạy nhầm
     version đã bị khóa chỉ vì bundle còn nằm trong cache.
     """
-    cached = _VERSION_CACHE.get(int(version_id))
-    if cached is None:
+    cache_key = (_engine_cache_key(conn), int(version_id))
+    with _CACHE_LOCK:
+        cached = _VERSION_CACHE.get(cache_key)
+        if cached is not None:
+            _VERSION_CACHE.move_to_end(cache_key)
+            cached_copy = copy.deepcopy(cached)
+        else:
+            cached_copy = None
+
+    if cached_copy is None:
         bundle = load_version_bundle(conn, int(version_id))
-        _VERSION_CACHE[int(version_id)] = copy.deepcopy(bundle)
+        with _CACHE_LOCK:
+            _VERSION_CACHE[cache_key] = copy.deepcopy(bundle)
+            _VERSION_CACHE.move_to_end(cache_key)
+            while len(_VERSION_CACHE) > _MAX_CACHE_ENTRIES:
+                _VERSION_CACHE.popitem(last=False)
         return copy.deepcopy(bundle)
-    bundle = copy.deepcopy(cached)
+
     status = conn.execute(
         select(recon_rpt_model_ver.c.STATUS).where(recon_rpt_model_ver.c.ID == int(version_id))
     ).scalar_one_or_none()
     if status is not None:
-        bundle["version"]["status"] = str(status)
-    return bundle
+        cached_copy["version"]["status"] = str(status)
+    return cached_copy
 
 
 def _intent_from_payload(intent_payload: dict[str, Any] | SemanticQueryIntent) -> SemanticQueryIntent:
@@ -89,14 +116,23 @@ def _open_semantic_source(ds_id: int, db_type: str, file_path: str | None, timeo
     """Mở kết nối DBAPI read-only tới Data Source của model.
 
     Oracle: qua ``open_checked_connection`` (siết ``call_timeout`` + kiểm tra
-    tài khoản chỉ đọc). SQLite có FILE_PATH: mở đúng file nguồn; không có
-    FILE_PATH: nguồn là chính RECON_APP DB.
+    tài khoản chỉ đọc). SQLite có FILE_PATH: mở đúng file nguồn với
+    ``PRAGMA query_only = ON`` và busy timeout; không có FILE_PATH: nguồn là
+    chính RECON_APP DB.
     """
     if db_type == "SQLITE" and file_path:
-        engine = create_engine(f"sqlite:///{Path(file_path).as_posix()}")
+        engine = create_engine(
+            f"sqlite:///{Path(file_path).as_posix()}",
+            connect_args={"timeout": max(int(timeout_sec), 1)},
+        )
         try:
             raw = engine.raw_connection()
             try:
+                cur = raw.cursor()
+                try:
+                    cur.execute("PRAGMA query_only = ON")
+                finally:
+                    cur.close()
                 yield raw
             finally:
                 raw.close()
@@ -107,19 +143,56 @@ def _open_semantic_source(ds_id: int, db_type: str, file_path: str | None, timeo
             yield raw_conn
 
 
-def _prepare_binds(db_type: str, binds: dict[str, Any]) -> dict[str, Any]:
-    """Chuẩn hóa giá trị bind cho driver: SQLite nhận chuỗi ISO thay vì
-    datetime (tránh adapter sqlite3 đã deprecated), bool -> 1/0 cho cả 2."""
+_VN_TZ = timezone(timedelta(hours=7))
+
+
+def _parse_iso_datetime(raw: str) -> datetime:
+    text = raw.strip()
+    if not text:
+        raise ServiceError(ErrorCode.VALIDATION_ERROR, "Giá trị ngày giờ không được để trống.")
+    norm = text[:-1] + "+00:00" if text.endswith(("Z", "z")) else text
+    try:
+        dt = datetime.fromisoformat(norm)
+    except ValueError as exc:
+        raise ServiceError(
+            ErrorCode.VALIDATION_ERROR,
+            f"Giá trị ngày giờ '{raw}' không đúng định dạng ISO (YYYY-MM-DD hoặc YYYY-MM-DDTHH:MM:SS).",
+        ) from exc
+    if dt.tzinfo is not None:
+        return dt.astimezone(_VN_TZ).replace(tzinfo=None)
+    return dt
+
+
+def _prepare_binds(
+    db_type: str,
+    binds: dict[str, Any],
+    bind_types: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Chuẩn hóa giá trị bind cho driver: SQLite dùng chuỗi ISO khớp DATE/DATETIME;
+    Oracle đổi chuỗi ISO sang datetime cho Oracle Thin; bool -> 1/0 cho cả 2."""
+    types = bind_types or {}
     out: dict[str, Any] = {}
     for key, value in binds.items():
+        dtype = str(types.get(key) or "").upper()
         if isinstance(value, bool):
             out[key] = 1 if value else 0
-        elif db_type == "SQLITE" and isinstance(value, datetime):
-            out[key] = value.strftime("%Y-%m-%d %H:%M:%S")
-        elif db_type == "SQLITE" and isinstance(value, date):
-            out[key] = value.strftime("%Y-%m-%d")
+        elif db_type == "SQLITE":
+            if isinstance(value, datetime):
+                out[key] = value.strftime("%Y-%m-%d" if dtype == "DATE" else "%Y-%m-%d %H:%M:%S")
+            elif isinstance(value, date):
+                out[key] = value.strftime("%Y-%m-%d")
+            elif dtype in ("DATE", "DATETIME") and isinstance(value, str) and value.strip():
+                parsed = _parse_iso_datetime(value)
+                out[key] = parsed.strftime("%Y-%m-%d" if dtype == "DATE" else "%Y-%m-%d %H:%M:%S")
+            else:
+                out[key] = value
         else:
-            out[key] = value
+            if dtype in ("DATE", "DATETIME") and isinstance(value, str) and value.strip():
+                out[key] = _parse_iso_datetime(value)
+            elif isinstance(value, date) and not isinstance(value, datetime):
+                out[key] = datetime(value.year, value.month, value.day)
+            else:
+                out[key] = value
     return out
 
 
@@ -130,11 +203,13 @@ def _execute_compiled(
     binds: dict[str, Any],
     timeout_sec: int,
     fetch_limit: int,
+    bind_types: dict[str, str] | None = None,
 ) -> tuple[list[str], list[tuple[Any, ...]]]:
     """Chạy SQL đã biên dịch qua DBAPI cursor; trả (tên cột, các dòng)."""
+    prepared = _prepare_binds(db_type, binds, bind_types)
     cursor = raw_conn.cursor()
     try:
-        cursor.execute(sql, _prepare_binds(db_type, binds))
+        cursor.execute(sql, prepared)
         columns = [str(d[0]) for d in (cursor.description or [])]
         rows = [tuple(r) for r in cursor.fetchmany(fetch_limit)]
         return columns, rows
@@ -160,15 +235,35 @@ def _load_plan(
     chart_max_points: int,
     check_prod: bool,
 ) -> tuple[dict[str, Any], SemanticQueryPlan, str, str | None, bool]:
-    """Nạp bundle + kiểm quyền PROD + resolve + compile. Trả
-    (bundle, plan, db_type, file_path, is_admin)."""
+    """Nạp bundle + kiểm quyền PROD + trạng thái Data Source + resolve + compile."""
     engine = get_recon_engine()
     admin = is_admin(ctx, engine)
     with engine.connect() as conn:
         bundle = _load_bundle_cached(conn, int(intent.model_version_id))
         ds_info = bundle.get("model", {}).get("data_source") or {}
         ds_id = int(bundle["model"]["data_source_id"])
-        db_type = str(ds_info.get("db_type") or "").upper()
+        ds_row = (
+            conn.execute(
+                select(
+                    recon_data_source.c.DB_TYPE,
+                    recon_data_source.c.IS_ACTIVE,
+                    recon_data_source.c.FILE_PATH,
+                ).where(recon_data_source.c.ID == ds_id)
+            )
+            .mappings()
+            .first()
+        )
+        db_type = str((ds_row["DB_TYPE"] if ds_row else None) or ds_info.get("db_type") or "").upper()
+        is_ds_active = (
+            str(ds_row["IS_ACTIVE"]).upper() == "Y"
+            if ds_row is not None
+            else bool(ds_info.get("is_active", True))
+        )
+        if not is_ds_active:
+            raise ServiceError(
+                ErrorCode.VALIDATION_ERROR,
+                "Data Source của mô hình đang bị vô hiệu hóa, không thể truy vấn.",
+            )
         if db_type not in ("ORACLE", "SQLITE"):
             raise ServiceError(
                 ErrorCode.VALIDATION_ERROR,
@@ -177,12 +272,8 @@ def _load_plan(
         if check_prod:
             _check_prod_admin(conn, ds_id, admin)
         file_path: str | None = None
-        if db_type == "SQLITE":
-            file_path = conn.execute(
-                select(recon_data_source.c.FILE_PATH).where(recon_data_source.c.ID == ds_id)
-            ).scalar_one_or_none()
-            if file_path is not None:
-                file_path = str(file_path) or None
+        if db_type == "SQLITE" and ds_row is not None and ds_row["FILE_PATH"] is not None:
+            file_path = str(ds_row["FILE_PATH"]) or None
     resolved = resolve_semantic_plan(intent, bundle)
     plan = compile_semantic_query(
         resolved,
@@ -232,15 +323,16 @@ def execute_semantic_preview(
     )
     timeout_sec = int(settings.PREVIEW_TIMEOUT_SECONDS)
     with _open_semantic_source(int(_bundle["model"]["data_source_id"]), db_type, file_path, timeout_sec) as raw_conn:
-        _columns, rows = _execute_compiled(db_type, raw_conn, plan.sql, plan.binds, timeout_sec, plan.row_limit)
+        _columns, rows = _execute_compiled(
+            db_type, raw_conn, plan.sql, plan.binds, timeout_sec, plan.row_limit, plan.bind_types
+        )
     row_dicts = _rows_to_dicts(plan, rows)
     if plan.fetch_extra_row:
         truncated = len(row_dicts) > int(settings.CHART_MAX_POINTS)
         if truncated:
             row_dicts = row_dicts[: int(settings.CHART_MAX_POINTS)]
     else:
-        # TABLE/KPI: chỉ biết "có thể còn dòng" khi trả đúng bằng giới hạn
-        # (xấp xỉ best-effort; muốn chính xác phải lấy thêm 1 dòng như chart).
+        # TABLE/KPI: đánh dấu khi đạt đúng trần giới hạn preview (tránh phá contract LIMIT N).
         truncated = len(row_dicts) >= plan.row_limit
     warnings = list(plan.warnings)
     result = SemanticQueryResult(
@@ -299,22 +391,26 @@ def execute_semantic_query_for_run(
         chart_max_points=settings.CHART_MAX_POINTS,
         check_prod=True,
     )
-    timeout_sec = int(settings.PREVIEW_TIMEOUT_SECONDS)
+    timeout_sec = int(settings.RUN_DB_CALL_TIMEOUT_SECONDS)
     count_sql = f'SELECT COUNT(*) FROM ({plan.base_sql}) "t_count"'
     ok, reason, _discovered = check_report_sql(count_sql)
     if not ok:
         raise ServiceError(ErrorCode.SQL_NOT_ALLOWED, reason or "SQL đếm total không được phép.")
     ds_id = int(bundle["model"]["data_source_id"])
     with _open_semantic_source(ds_id, db_type, file_path, timeout_sec) as raw_conn:
-        _cols, count_rows = _execute_compiled(db_type, raw_conn, count_sql, plan.binds, timeout_sec, 1)
+        _cols, count_rows = _execute_compiled(
+            db_type, raw_conn, count_sql, plan.binds, timeout_sec, 1, plan.bind_types
+        )
         total = int(count_rows[0][0]) if count_rows else 0
-        _columns, rows = _execute_compiled(db_type, raw_conn, plan.sql, plan.binds, timeout_sec, plan.row_limit)
+        _columns, rows = _execute_compiled(
+            db_type, raw_conn, plan.sql, plan.binds, timeout_sec, plan.row_limit, plan.bind_types
+        )
     row_dicts = _rows_to_dicts(plan, rows)
     result = SemanticQueryResult(
         columns=plan.output_columns,
         rows=row_dicts,
         row_count=len(row_dicts),
-        truncated=len(row_dicts) >= plan.row_limit,
+        truncated=False,
         warning_message="; ".join(plan.warnings) if plan.warnings else None,
         request_seq=intent.request_seq,
         elapsed_ms=int((time.perf_counter() - started) * 1000),
